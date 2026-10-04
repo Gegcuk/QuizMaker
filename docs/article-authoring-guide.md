@@ -18,6 +18,35 @@ Use the supported content groups: `blog`, `marketing`, `research`, `instructions
 
 Provide author name and role, a trimmed unique tag list, and optional hero kicker. Upload media before creating the article, then reference the returned media `assetId`. Every hero or inline image needs meaningful alt text; captions are optional.
 
+## Public Hero Images And Previews
+
+Keep authoring `heroImage` as `{ "assetId": "<uploaded-media-UUID>", "alt": "...", "caption": "..." }`.
+Article detail and list responses also include the read-only `heroImage.rendition`:
+
+```json
+{
+  "assetId": "8b5b6c1a-55aa-4c22-9911-112233445566",
+  "alt": "A diagram of spaced repetition intervals",
+  "caption": "Review intervals increase over time.",
+  "rendition": {
+    "url": "https://cdn.example.com/media/hero.webp",
+    "width": 1280,
+    "height": 720,
+    "mimeType": "image/webp"
+  }
+}
+```
+
+The URL is the existing public media URL, not a signed URL or an authenticated download endpoint. Width and height are pixels; historical ready images can have unknown (`null`) dimensions. Clients can reserve an aspect ratio when both dimensions are positive. The rendition is derived from media metadata; sending it in an authoring request does not set or override that metadata.
+
+If no hero is assigned, `heroImage` is `null`. If the referenced asset is missing, deleted, not ready, or a document, the reference and author-supplied alt/caption remain, but `rendition` is `null`. The article remains readable with HTTP 200. Render a neutral state or omit the image; the backend does not substitute a project image.
+
+Preserve an explicitly authored `ogImage` when composing social metadata. When it is absent, clients may use `heroImage.rendition.url` and its available dimensions/MIME type. The API does not rewrite `ogImage` to this fallback or infer dimensions for an unrelated explicit URL.
+
+Replacement means uploading a new asset and assigning its new `assetId`; each upload has a distinct UUID-based storage key, so a replacement receives a different public URL. A removed asset disappears from newly resolved article metadata. Existing CDN/browser/social-preview caches retain their own lifecycle; this contract does not guarantee immediate deletion of cached copies or introduce a new cache lifetime. Public reads still return only published articles; image resolution grants no access to drafts.
+
+Article search retains the Spring Data page envelope (`content`, `number`, `size`, `totalElements`, `totalPages`, and pagination metadata). `/v3/api-docs/articles`, discoverable through `/api/v1/api-summary`, describes the typed response.
+
 ## Compose The Body
 
 Use structured `blocks` unless there is a clear reason to use `sections` instead. Blocks are ordered and support `HEADING`, `PARAGRAPH`, `CALLOUT`, and `IMAGE`.

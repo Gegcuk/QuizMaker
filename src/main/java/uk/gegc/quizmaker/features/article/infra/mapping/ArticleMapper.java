@@ -7,15 +7,18 @@ import uk.gegc.quizmaker.features.article.domain.model.*;
 import uk.gegc.quizmaker.features.article.domain.repository.projection.ArticleSitemapProjection;
 import uk.gegc.quizmaker.features.article.domain.repository.projection.ArticleTagCountProjection;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
+import uk.gegc.quizmaker.features.media.api.dto.PublicImageRenditionDto;
 import uk.gegc.quizmaker.shared.exception.ValidationException;
 
 import java.util.Comparator;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 @Component
 public class ArticleMapper {
@@ -74,6 +77,10 @@ public class ArticleMapper {
     }
 
     public ArticleDto toDto(Article article) {
+        return toDto(article, Map.of());
+    }
+
+    public ArticleDto toDto(Article article, Map<UUID, PublicImageRenditionDto> renditions) {
         if (article == null) {
             return null;
         }
@@ -85,7 +92,7 @@ public class ArticleMapper {
                 article.getDescription(),
                 article.getExcerpt(),
                 article.getHeroKicker(),
-                mapHeroImage(article),
+                mapHeroImage(article, renditions),
                 mapTags(article.getTags()),
                 toAuthorDto(article.getAuthor()),
                 article.getReadingTime(),
@@ -110,6 +117,10 @@ public class ArticleMapper {
     }
 
     public ArticleListItemDto toListItem(Article article) {
+        return toListItem(article, Map.of());
+    }
+
+    public ArticleListItemDto toListItem(Article article, Map<UUID, PublicImageRenditionDto> renditions) {
         if (article == null) {
             return null;
         }
@@ -121,7 +132,7 @@ public class ArticleMapper {
                 article.getDescription(),
                 article.getExcerpt(),
                 article.getHeroKicker(),
-                mapHeroImage(article),
+                mapHeroImage(article, renditions),
                 mapTags(article.getTags()),
                 toAuthorDto(article.getAuthor()),
                 article.getReadingTime(),
@@ -224,14 +235,15 @@ public class ArticleMapper {
                 .toList();
     }
 
-    private ArticleImageDto mapHeroImage(Article article) {
+    private ArticleImageDto mapHeroImage(Article article, Map<UUID, PublicImageRenditionDto> renditions) {
         if (article == null || article.getHeroImageAssetId() == null) {
             return null;
         }
         return new ArticleImageDto(
                 article.getHeroImageAssetId(),
                 article.getHeroImageAlt(),
-                article.getHeroImageCaption()
+                article.getHeroImageCaption(),
+                renditions.get(article.getHeroImageAssetId())
         );
     }
 

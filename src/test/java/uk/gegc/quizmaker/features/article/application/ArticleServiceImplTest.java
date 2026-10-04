@@ -21,6 +21,7 @@ import uk.gegc.quizmaker.features.article.domain.repository.ArticleRepository;
 import uk.gegc.quizmaker.features.article.domain.repository.projection.ArticleTagCountProjection;
 import uk.gegc.quizmaker.features.article.domain.repository.ArticleSpecifications;
 import uk.gegc.quizmaker.features.article.infra.mapping.ArticleMapper;
+import uk.gegc.quizmaker.features.media.application.MediaAssetService;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
@@ -51,6 +52,8 @@ class ArticleServiceImplTest extends BaseUnitTest {
     ArticleMapper articleMapper;
     @Mock
     AppPermissionEvaluator permissionEvaluator;
+    @Mock
+    MediaAssetService mediaAssetService;
 
     @InjectMocks
     ArticleServiceImpl service;
@@ -306,7 +309,7 @@ class ArticleServiceImplTest extends BaseUnitTest {
         Page<Article> page = new PageImpl<>(List.of(article), PageRequest.of(0, 10), 1);
         when(articleRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(PageRequest.class)))
                 .thenReturn(page);
-        when(articleMapper.toListItem(article)).thenReturn(new ArticleListItemDto(
+        when(articleMapper.toListItem(eq(article), anyMap())).thenReturn(new ArticleListItemDto(
                 UUID.randomUUID(), "slug", "title", "desc", "ex", null, null, List.of(),
                 new ArticleAuthorDto("a", "b"), "5", Instant.now(), Instant.now(), ArticleStatus.PUBLISHED,
                 ArticleContentType.BLOG, null, null, false, null, null, 1));
@@ -353,7 +356,7 @@ class ArticleServiceImplTest extends BaseUnitTest {
         draft.setStatus(ArticleStatus.DRAFT);
         when(permissionEvaluator.hasAnyPermission(PermissionName.ARTICLE_UPDATE, PermissionName.ARTICLE_ADMIN)).thenReturn(true);
         when(articleRepository.findById(id)).thenReturn(Optional.of(draft));
-        when(articleMapper.toDto(draft)).thenReturn(dto);
+        when(articleMapper.toDto(eq(draft), anyMap())).thenReturn(dto);
 
         ArticleDto result = service.getArticle(id, true);
         assertThat(result).isEqualTo(dto);
@@ -374,7 +377,7 @@ class ArticleServiceImplTest extends BaseUnitTest {
         Article a1 = new Article();
         a1.setId(id1);
         when(articleRepository.findAllById(anyCollection())).thenReturn(List.of(a1));
-        when(articleMapper.toDto(a1)).thenReturn(dto);
+        when(articleMapper.toDto(eq(a1), anyMap())).thenReturn(dto);
 
         List<ArticleDto> result = service.getArticlesByIds(List.of(id1, id2));
 
@@ -406,7 +409,7 @@ class ArticleServiceImplTest extends BaseUnitTest {
         Page<Article> page = new PageImpl<>(List.of(entity), PageRequest.of(0, 5), 1);
         when(articleRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(Pageable.class)))
                 .thenReturn(page);
-        when(articleMapper.toListItem(any())).thenReturn(new ArticleListItemDto(
+        when(articleMapper.toListItem(any(), anyMap())).thenReturn(new ArticleListItemDto(
                 entity.getId(), "slug", "t", "d", "e", null, null, List.of(), new ArticleAuthorDto("a", "b"),
                 "5", Instant.now(), Instant.now(), ArticleStatus.PUBLISHED, ArticleContentType.BLOG, null, null, false, null, null, 1));
 

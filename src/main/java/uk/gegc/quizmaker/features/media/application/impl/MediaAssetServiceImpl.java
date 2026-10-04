@@ -40,7 +40,12 @@ import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 import uk.gegc.quizmaker.shared.dto.MediaRefDto;
 
 import java.time.Duration;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -51,6 +56,7 @@ import java.util.UUID;
 public class MediaAssetServiceImpl implements MediaAssetService {
 
     private static final int MAX_PAGE_SIZE = 200;
+    private static final int RESOLUTION_BATCH_SIZE = 100;
 
     private final MediaAssetRepository mediaAssetRepository;
     private final MediaStorageProperties properties;
@@ -168,6 +174,27 @@ public class MediaAssetServiceImpl implements MediaAssetService {
             return Optional.empty();
         }
         return Optional.ofNullable(mediaAssetMapper.toMediaRef(found));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<UUID, MediaRefDto> getByIdsForResolution(Collection<UUID> assetIds) {
+        if (assetIds == null || assetIds.isEmpty()) {
+            return Map.of();
+        }
+        List<UUID> distinctIds = assetIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<UUID, MediaRefDto> resolved = new HashMap<>();
+        for (int start = 0; start < distinctIds.size(); start += RESOLUTION_BATCH_SIZE) {
+            List<UUID> batch = distinctIds.subList(start,
+                    Math.min(start + RESOLUTION_BATCH_SIZE, distinctIds.size()));
+            mediaAssetRepository.findAllByIdInAndStatusAndType(
+                            batch, MediaAssetStatus.READY, MediaAssetType.IMAGE)
+                    .forEach(asset -> resolved.put(asset.getId(), mediaAssetMapper.toMediaRef(asset)));
+        }
+        return Map.copyOf(resolved);
     }
 
     @Override

@@ -10,6 +10,8 @@ import uk.gegc.quizmaker.features.media.api.dto.MediaUploadResponse;
 import uk.gegc.quizmaker.features.media.domain.model.MediaAssetType;
 import uk.gegc.quizmaker.shared.dto.MediaRefDto;
 
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -23,6 +25,13 @@ public interface MediaAssetService {
     MediaAssetResponse getByIdForValidation(UUID assetId, String username);
 
     Optional<MediaRefDto> getByIdForResolution(UUID assetId);
+
+    /**
+     * Resolves publicly renderable READY images in bounded batches. Missing,
+     * deleted, uploading, and non-image assets are absent from the result.
+     * Null identifiers are ignored and duplicate identifiers are resolved once.
+     */
+    Map<UUID, MediaRefDto> getByIdsForResolution(Collection<UUID> assetIds);
 
     Page<MediaAssetResponse> search(
             MediaAssetType type,

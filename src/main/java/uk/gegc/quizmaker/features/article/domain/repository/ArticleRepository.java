@@ -25,6 +25,10 @@ public interface ArticleRepository extends JpaRepository<Article, UUID>, JpaSpec
 
     Optional<Article> findBySlugAndStatus(String slug, ArticleStatus status);
 
+    @Override
+    @EntityGraph(attributePaths = "tags")
+    List<Article> findAllById(Iterable<UUID> ids);
+
     boolean existsBySlug(String slug);
 
     @EntityGraph(attributePaths = "tags")
