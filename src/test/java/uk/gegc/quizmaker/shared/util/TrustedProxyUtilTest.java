@@ -22,4 +22,51 @@ class TrustedProxyUtilTest {
 
         assertThat(trustedProxyUtil.getClientIp(request)).isEqualTo("203.0.113.42");
     }
+
+    @Test
+    void attackerPrependingHeaderCannotOverrideFirstUntrustedHop() {
+        TrustedProxyUtil utility = configured("127.0.0.1");
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("127.0.0.1");
+        request.addHeader("X-Forwarded-For", "198.51.100.77, 203.0.113.42");
+        assertThat(utility.getClientIp(request)).isEqualTo("203.0.113.42");
+    }
+
+    @Test
+    void exactTrustDoesNotTrustAnotherAddressWithMatchingStringPrefix() {
+        TrustedProxyUtil utility = configured("10.0.0.1");
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("10.0.0.10");
+        request.addHeader("X-Forwarded-For", "198.51.100.77");
+        assertThat(utility.getClientIp(request)).isEqualTo("10.0.0.10");
+    }
+
+    @Test
+    void explicitCidrAndIpv6LiteralsAreSupportedWithoutDnsResolution() {
+        TrustedProxyUtil utility = configured("10.0.0.0/24");
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("10.0.0.4");
+        request.addHeader("X-Forwarded-For", "2001:0db8:0:0:0:0:0:1");
+        assertThat(utility.getClientIp(request)).isEqualTo("2001:db8:0:0:0:0:0:1");
+        request.removeHeader("X-Forwarded-For");
+        request.addHeader("X-Forwarded-For", "attacker.invalid");
+        assertThat(utility.getClientIp(request)).isEqualTo("10.0.0.4");
+    }
+
+    @Test
+    void malformedOrOversizedForwardingChainFallsBackToSocketPeer() {
+        for (String header : new String[]{"198.51.100.1,,10.0.0.1", "[::1]:80", "a".repeat(2049)}) {
+            MockHttpServletRequest request = new MockHttpServletRequest();
+            request.setRemoteAddr("127.0.0.1");
+            request.addHeader("X-Forwarded-For", header);
+            assertThat(configured("127.0.0.1,10.0.0.1").getClientIp(request)).isEqualTo("127.0.0.1");
+        }
+    }
+
+    private TrustedProxyUtil configured(String peers) {
+        TrustedProxyUtil utility = new TrustedProxyUtil();
+        ReflectionTestUtils.setField(utility, "enableForwardedHeaders", true);
+        ReflectionTestUtils.setField(utility, "trustedProxiesConfig", peers);
+        return utility;
+    }
 }

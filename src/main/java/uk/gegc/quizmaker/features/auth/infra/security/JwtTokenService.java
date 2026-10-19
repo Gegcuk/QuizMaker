@@ -213,19 +213,19 @@ public class JwtTokenService {
                     claims.getExpiration().toInstant()
             ));
         } catch (ExpiredJwtException ex) {
-            log.debug("JWT token is expired: {}", ex.getMessage());
+            log.debug("JWT token is expired");
             return Optional.empty();
         } catch (MalformedJwtException ex) {
-            log.warn("Malformed JWT token received: {}", ex.getMessage());
+            log.warn("Malformed JWT token received");
             return Optional.empty();
         } catch (SignatureException ex) {
-            log.warn("Invalid JWT signature detected: {}", ex.getMessage());
+            log.warn("Invalid JWT signature detected");
             return Optional.empty();
         } catch (IllegalArgumentException ex) {
-            log.warn("Illegal argument passed to JWT parser: {}", ex.getMessage());
+            log.warn("Illegal argument passed to JWT parser");
             return Optional.empty();
         } catch (JwtException ex) {
-            log.error("Unexpected JWT exception: {}", ex.getMessage());
+            log.error("Unexpected JWT exception");
             return Optional.empty();
         }
     }

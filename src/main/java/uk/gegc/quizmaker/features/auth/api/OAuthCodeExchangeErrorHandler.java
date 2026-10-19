@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 import uk.gegc.quizmaker.features.auth.domain.exception.OAuthExchangeRejectedException;
+import uk.gegc.quizmaker.features.auth.domain.exception.AuthRateLimitUnavailableException;
 import uk.gegc.quizmaker.features.auth.domain.exception.OAuthExchangeRequestException;
 import uk.gegc.quizmaker.features.auth.domain.exception.OAuthExchangeStoreUnavailableException;
 import uk.gegc.quizmaker.features.auth.domain.model.OAuthExchangeRejectionReason;
@@ -28,6 +29,12 @@ public class OAuthCodeExchangeErrorHandler extends ResponseEntityExceptionHandle
 
     private static final String INVALID_REQUEST_DETAIL = "OAuth exchange request is not valid.";
     private static final String INVALID_CODE_DETAIL = "OAuth sign-in code is invalid or expired. Restart sign-in.";
+
+    @ExceptionHandler(AuthRateLimitUnavailableException.class)
+    public ResponseEntity<ProblemDetail> handleThrottleUnavailable(AuthRateLimitUnavailableException exception,
+                                                                  HttpServletRequest request) {
+        return AuthThrottleErrorHandler.problem(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage(), null, request);
+    }
 
     @ExceptionHandler(OAuthExchangeRequestException.class)
     public ResponseEntity<ProblemDetail> handleInvalidRequest(

@@ -15,7 +15,7 @@ import uk.gegc.quizmaker.features.auth.api.AuthController;
 import uk.gegc.quizmaker.features.auth.api.dto.ResetPasswordRequest;
 import uk.gegc.quizmaker.features.auth.application.AuthService;
 import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
-import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
+import uk.gegc.quizmaker.features.auth.application.AuthThrottleService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -42,7 +42,7 @@ class AuthControllerResetPasswordTest {
     private AuthService authService;
 
     @MockitoBean
-    private RateLimitService rateLimitService;
+    private AuthThrottleService authThrottleService;
 
     @MockitoBean
     private TrustedProxyUtil trustedProxyUtil;
@@ -67,7 +67,7 @@ class AuthControllerResetPasswordTest {
 
         verify(authService).resetPassword(token, "NewSecureP@ssw0rd123!");
         // Verify rate limit is checked with IP-only key
-        verify(rateLimitService).checkRateLimit("reset-password", "127.0.0.1");
+        verify(authThrottleService).existing("reset-password", "127.0.0.1");
     }
 
     @Test
@@ -132,7 +132,7 @@ class AuthControllerResetPasswordTest {
         when(trustedProxyUtil.getClientIp(any())).thenReturn("127.0.0.1");
 
         doThrow(new RateLimitExceededException("Rate limit exceeded", 60))
-                .when(rateLimitService).checkRateLimit(eq("reset-password"), eq("127.0.0.1"));
+                .when(authThrottleService).existing(eq("reset-password"), eq("127.0.0.1"));
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/reset-password")
@@ -144,7 +144,7 @@ class AuthControllerResetPasswordTest {
                 .andExpect(header().string("Retry-After", "60"));
 
         // Verify rate limit is checked with IP-only key (not token-based)
-        verify(rateLimitService).checkRateLimit("reset-password", "127.0.0.1");
+        verify(authThrottleService).existing("reset-password", "127.0.0.1");
     }
 
     @Test
@@ -176,8 +176,8 @@ class AuthControllerResetPasswordTest {
 
         // Then - Both requests should use the same rate limit key (IP-only)
         // This ensures token rotation cannot bypass rate limits
-        verify(rateLimitService, times(2)).checkRateLimit("reset-password", clientIp);
+        verify(authThrottleService, times(2)).existing("reset-password", clientIp);
         // Verify no other rate limit calls were made with different keys
-        verify(rateLimitService, times(2)).checkRateLimit(anyString(), anyString());
+        verify(authThrottleService, times(2)).existing(anyString(), anyString());
     }
 }

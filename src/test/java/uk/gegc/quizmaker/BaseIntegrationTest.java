@@ -35,6 +35,9 @@ import jakarta.persistence.EntityManager;
     "quizmaker.features.billing=true"
 })
 public abstract class BaseIntegrationTest {
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    protected uk.gegc.quizmaker.features.auth.application.AuthThrottleService authThrottleService;
+
     
     @Autowired
     protected MockMvc mockMvc;

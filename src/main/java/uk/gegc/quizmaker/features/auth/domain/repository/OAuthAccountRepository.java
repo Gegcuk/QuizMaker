@@ -42,7 +42,7 @@ public interface OAuthAccountRepository extends JpaRepository<OAuthAccount, Long
     /**
      * Find OAuth account by provider and provider user ID with user eagerly fetched
      */
-    @Query("SELECT oa FROM OAuthAccount oa JOIN FETCH oa.user u LEFT JOIN FETCH u.roles WHERE oa.provider = :provider AND oa.providerUserId = :providerUserId")
+    @Query("SELECT oa FROM OAuthAccount oa JOIN FETCH oa.user u LEFT JOIN FETCH u.roles r LEFT JOIN FETCH r.permissions WHERE oa.provider = :provider AND oa.providerUserId = :providerUserId")
     Optional<OAuthAccount> findByProviderAndProviderUserIdWithUser(
         @Param("provider") OAuthProvider provider,
         @Param("providerUserId") String providerUserId

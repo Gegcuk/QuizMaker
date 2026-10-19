@@ -10,6 +10,8 @@ import org.springframework.security.web.authentication.SimpleUrlAuthenticationFa
 import org.springframework.stereotype.Component;
 import org.springframework.web.util.UriComponentsBuilder;
 import uk.gegc.quizmaker.features.auth.application.OAuthLoginContext;
+import uk.gegc.quizmaker.features.auth.domain.exception.AuthRateLimitUnavailableException;
+import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
 import uk.gegc.quizmaker.features.auth.config.OAuth2ExchangeProperties;
 
 import java.io.IOException;
@@ -37,6 +39,24 @@ public class OAuth2AuthenticationFailureHandler extends SimpleUrlAuthenticationF
     ) throws IOException {
         if (response.isCommitted()) {
             log.debug("OAuth2 failure response was already committed");
+            return;
+        }
+
+        Throwable admission = exception.getCause();
+        if (admission instanceof RateLimitExceededException || admission instanceof AuthRateLimitUnavailableException) {
+            boolean throttled = admission instanceof RateLimitExceededException;
+            int status = throttled ? 429 : 503;
+            response.setStatus(status);
+            response.setContentType("application/problem+json");
+            response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+            response.setHeader(HttpHeaders.PRAGMA, "no-cache");
+            response.setHeader("Referrer-Policy", "no-referrer");
+            if (admission instanceof RateLimitExceededException limit) {
+                response.setHeader(HttpHeaders.RETRY_AFTER, Long.toString(limit.getRetryAfterSeconds()));
+            }
+            // Only constant public text and a numeric status are serialized; no provider/identity reflection.
+            response.getWriter().write("{\"type\":\"about:blank\",\"title\":\"Authentication admission unavailable\","
+                    + "\"status\":" + status + ",\"detail\":\"Please retry sign-in later.\"}");
             return;
         }
 

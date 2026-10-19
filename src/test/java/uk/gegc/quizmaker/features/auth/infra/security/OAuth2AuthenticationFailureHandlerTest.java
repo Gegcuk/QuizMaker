@@ -179,4 +179,32 @@ class OAuth2AuthenticationFailureHandlerTest {
         assertThat(response.getHeader(HttpHeaders.PRAGMA)).isEqualTo("no-cache");
         assertThat(response.getHeader("Referrer-Policy")).isEqualTo("no-referrer");
     }
+
+    @Test
+    void providerSignupAdmissionDenialReturnsProblemWithoutRedirectOrProviderDetails() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        var rejection = new uk.gegc.quizmaker.shared.exception.RateLimitExceededException("private identity", 23);
+        handler.onAuthenticationFailure(request, response,
+                new OAuth2AuthenticationException(new OAuth2Error("auth_admission_rejected"), "private diagnostic", rejection));
+        assertThat(response.getStatus()).isEqualTo(429);
+        assertThat(response.getHeader("Retry-After")).isEqualTo("23");
+        assertThat(response.getContentType()).startsWith("application/problem+json");
+        assertThat(response.getContentAsString()).contains("\"status\":429").doesNotContain("private");
+        assertThat(response.getRedirectedUrl()).isNull();
+        assertPrivateRedirectHeaders(response);
+    }
+
+    @Test
+    void providerSignupStoreFailureReturns503WithoutRedirect() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        var failure = new uk.gegc.quizmaker.features.auth.domain.exception.AuthRateLimitUnavailableException(new IllegalStateException());
+        handler.onAuthenticationFailure(request, response,
+                new OAuth2AuthenticationException(new OAuth2Error("auth_admission_rejected"), "private diagnostic", failure));
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(response.getContentAsString()).contains("\"status\":503").doesNotContain("private");
+        assertThat(response.getRedirectedUrl()).isNull();
+        assertPrivateRedirectHeaders(response);
+    }
 }

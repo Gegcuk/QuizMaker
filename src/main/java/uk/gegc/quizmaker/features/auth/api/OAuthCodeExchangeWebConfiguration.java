@@ -8,7 +8,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
-import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
+import uk.gegc.quizmaker.features.auth.application.AuthThrottleService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 /**
@@ -20,11 +20,10 @@ import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 public class OAuthCodeExchangeWebConfiguration {
 
     private static final String EXCHANGE_PATH = "/api/v1/auth/oauth/exchange";
-    private static final int IP_ATTEMPTS_PER_MINUTE = 30;
 
     @Bean
     WebMvcConfigurer oauthCodeExchangeRateLimitConfigurer(
-            RateLimitService rateLimitService,
+            AuthThrottleService authThrottleService,
             TrustedProxyUtil trustedProxyUtil
     ) {
         return new WebMvcConfigurer() {
@@ -38,10 +37,9 @@ public class OAuthCodeExchangeWebConfiguration {
                             Object handler
                     ) {
                         if (HttpMethod.POST.matches(request.getMethod())) {
-                            rateLimitService.checkRateLimit(
+                            authThrottleService.existing(
                                     "oauth-code-exchange-ip",
-                                    trustedProxyUtil.getClientIp(request),
-                                    IP_ATTEMPTS_PER_MINUTE
+                                    trustedProxyUtil.getClientIp(request)
                             );
                         }
                         return true;

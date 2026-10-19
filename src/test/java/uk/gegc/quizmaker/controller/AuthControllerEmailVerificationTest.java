@@ -18,7 +18,7 @@ import uk.gegc.quizmaker.features.auth.api.dto.ResendVerificationRequest;
 import uk.gegc.quizmaker.features.auth.api.dto.VerifyEmailRequest;
 import uk.gegc.quizmaker.features.auth.application.AuthService;
 import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
-import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
+import uk.gegc.quizmaker.features.auth.application.AuthThrottleService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.time.LocalDateTime;
@@ -49,7 +49,7 @@ class AuthControllerEmailVerificationTest {
     private AuthService authService;
 
     @MockitoBean
-    private RateLimitService rateLimitService;
+    private AuthThrottleService authThrottleService;
 
     @MockitoBean
     private TrustedProxyUtil trustedProxyUtil;
@@ -77,7 +77,7 @@ class AuthControllerEmailVerificationTest {
 
         verify(authService).verifyEmail("valid-token-here");
         // Verify rate limit is checked with IP-only key (prevents token rotation bypass)
-        verify(rateLimitService).checkRateLimit(eq("verify-email"), eq("127.0.0.1"), eq(10));
+        verify(authThrottleService).existing(eq("verify-email"), eq("127.0.0.1"));
     }
 
     @Test
@@ -134,7 +134,7 @@ class AuthControllerEmailVerificationTest {
 
         verify(authService).verifyEmail("invalid-token");
         // Verify rate limit is checked even for invalid tokens (IP-only to prevent token rotation bypass)
-        verify(rateLimitService).checkRateLimit(eq("verify-email"), eq("127.0.0.1"), eq(10));
+        verify(authThrottleService).existing(eq("verify-email"), eq("127.0.0.1"));
     }
 
     @Test
@@ -148,7 +148,7 @@ class AuthControllerEmailVerificationTest {
         when(trustedProxyUtil.getClientIp(any())).thenReturn(clientIp);
 
         doThrow(new RateLimitExceededException("Rate limit exceeded", 45))
-                .when(rateLimitService).checkRateLimit(eq("verify-email"), eq(clientIp), eq(10));
+                .when(authThrottleService).existing(eq("verify-email"), eq(clientIp));
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/verify-email")
@@ -158,7 +158,7 @@ class AuthControllerEmailVerificationTest {
                 .andExpect(status().isTooManyRequests());
 
         // Verify rate limit is checked with IP-only key (prevents token rotation bypass)
-        verify(rateLimitService).checkRateLimit("verify-email", clientIp, 10);
+        verify(authThrottleService).existing("verify-email", clientIp);
         verify(authService, never()).verifyEmail(anyString());
     }
 
@@ -190,7 +190,7 @@ class AuthControllerEmailVerificationTest {
 
         // Then - Both requests should use the same rate limit key (IP-only)
         // This prevents attackers from bypassing rate limits by rotating tokens
-        verify(rateLimitService, times(2)).checkRateLimit(eq("verify-email"), eq(clientIp), eq(10));
+        verify(authThrottleService, times(2)).existing(eq("verify-email"), eq(clientIp));
     }
 
     @Test
@@ -220,7 +220,7 @@ class AuthControllerEmailVerificationTest {
 
         // Then - Both requests should use the same rate limit key (IP-only) with limit of 10/min
         // Higher limit (10 vs default 5) accommodates legitimate users behind shared IPs
-        verify(rateLimitService, times(2)).checkRateLimit(eq("verify-email"), eq(clientIp), eq(10));
+        verify(authThrottleService, times(2)).existing(eq("verify-email"), eq(clientIp));
     }
 
     @Test
@@ -229,7 +229,7 @@ class AuthControllerEmailVerificationTest {
     void resendVerification_ValidEmail_ShouldReturn202() throws Exception {
         // Given
         ResendVerificationRequest request = new ResendVerificationRequest("test@example.com");
-        doNothing().when(rateLimitService).checkRateLimit(anyString(), anyString());
+        doNothing().when(authThrottleService).existing(anyString(), anyString());
         doNothing().when(authService).generateEmailVerificationToken(anyString());
         when(trustedProxyUtil.getClientIp(any())).thenReturn("127.0.0.1");
 
@@ -241,7 +241,7 @@ class AuthControllerEmailVerificationTest {
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.message").value("If the email exists and is not verified, a verification link was sent."));
 
-        verify(rateLimitService).checkRateLimit("resend-verification", "test@example.com|127.0.0.1");
+        verify(authThrottleService).existing("resend-verification", "test@example.com|127.0.0.1");
         verify(authService).generateEmailVerificationToken("test@example.com");
     }
 
@@ -259,7 +259,7 @@ class AuthControllerEmailVerificationTest {
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
 
-        verify(rateLimitService, never()).checkRateLimit(anyString(), anyString());
+        verify(authThrottleService, never()).existing(anyString(), anyString());
         verify(authService, never()).generateEmailVerificationToken(anyString());
     }
 
@@ -270,7 +270,7 @@ class AuthControllerEmailVerificationTest {
         // Given
         ResendVerificationRequest request = new ResendVerificationRequest("test@example.com");
         doThrow(new RateLimitExceededException("Rate limit exceeded"))
-                .when(rateLimitService).checkRateLimit(anyString(), anyString());
+                .when(authThrottleService).existing(anyString(), anyString());
         when(trustedProxyUtil.getClientIp(any())).thenReturn("127.0.0.1");
 
         // When & Then
@@ -280,7 +280,7 @@ class AuthControllerEmailVerificationTest {
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isTooManyRequests());
 
-        verify(rateLimitService).checkRateLimit("resend-verification", "test@example.com|127.0.0.1");
+        verify(authThrottleService).existing("resend-verification", "test@example.com|127.0.0.1");
         verify(authService, never()).generateEmailVerificationToken(anyString());
     }
 
@@ -298,7 +298,7 @@ class AuthControllerEmailVerificationTest {
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
 
-        verify(rateLimitService, never()).checkRateLimit(anyString(), anyString());
+        verify(authThrottleService, never()).existing(anyString(), anyString());
         verify(authService, never()).generateEmailVerificationToken(anyString());
     }
 }

@@ -19,6 +19,7 @@ import java.net.URI;
 public final class ErrorTypes {
 
     private static final String BASE_URL = "https://quizzence.com/docs/errors";
+    public static final URI AUTH_RATE_LIMIT_UNAVAILABLE = URI.create(BASE_URL + "/auth-rate-limit-unavailable");
 
     // ==================== Resource Errors ====================
     public static final URI RESOURCE_NOT_FOUND = URI.create(BASE_URL + "/resource-not-found");

@@ -146,7 +146,10 @@ public class TestPdfGenerator {
     }
 
     public static void generateTestPdfInTestResources() throws IOException {
-        Path testResourcesPath = Paths.get("src", "test", "resources", "test-documents");
+        generateTestPdfInDirectory(Paths.get("src", "test", "resources", "test-documents"));
+    }
+
+    public static void generateTestPdfInDirectory(Path testResourcesPath) throws IOException {
         Files.createDirectories(testResourcesPath);
 
         String pdfPath = testResourcesPath.resolve("sample-document.pdf").toString();

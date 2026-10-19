@@ -30,12 +30,12 @@ class TestPdfGeneratorTest {
     }
 
     @Test
-    void generateTestPdfInTestResources_Success() throws IOException {
+    void generateTestPdfInDirectory_Success(@TempDir Path tempDir) throws IOException {
         // When
-        TestPdfGenerator.generateTestPdfInTestResources();
+        TestPdfGenerator.generateTestPdfInDirectory(tempDir);
 
         // Then
-        Path testPdfPath = Path.of("src", "test", "resources", "test-documents", "sample-document.pdf");
+        Path testPdfPath = tempDir.resolve("sample-document.pdf");
         assertTrue(Files.exists(testPdfPath), "Test PDF should be created in test resources");
         assertTrue(Files.size(testPdfPath) > 0, "Test PDF should not be empty");
     }

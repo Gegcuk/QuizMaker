@@ -30,7 +30,7 @@ public class CorsConfig {
     @Value("${app.cors.allowed-headers:Authorization,Content-Type,Accept,X-Requested-With,Origin,If-None-Match,Accept-Language}")
     private String[] allowedHeaders;
 
-    @Value("${app.cors.exposed-headers:Location,Link,Content-Disposition,X-Total-Count,X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset}")
+    @Value("${app.cors.exposed-headers:Location,Link,Content-Disposition,X-Total-Count,X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset,Retry-After}")
     private String[] exposedHeaders;
 
     @Value("${app.cors.allow-credentials:true}")
