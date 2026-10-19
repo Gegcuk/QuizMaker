@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.attempt.api.dto;
 
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentAvailability;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Getter;
@@ -41,4 +43,14 @@ public class QuestionForAttemptDto {
 
     @Schema(description = "Optional attachment URL", example = "http://example.com/image.png")
     private String attachmentUrl;
+    @Schema(description = "Question contract version; old requests without a version use v1", accessMode = Schema.AccessMode.READ_ONLY)
+    private final int contractVersion = 1;
+
+    @Schema(description = "AVAILABLE or UNAVAILABLE. Unavailable content is null, never an implicit answer or score.")
+    private QuestionContentAvailability contentAvailability =
+            QuestionContentAvailability.AVAILABLE;
+
+    @Schema(description = "Bounded repair diagnostic when content is UNAVAILABLE")
+    private org.springframework.http.ProblemDetail contentProblem;
+
 } 

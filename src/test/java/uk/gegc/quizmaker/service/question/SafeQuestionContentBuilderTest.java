@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import uk.gegc.quizmaker.features.question.application.SafeQuestionContentBuilder;
+import uk.gegc.quizmaker.features.question.application.QuestionContractTestSupport;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 import java.util.ArrayList;
@@ -23,7 +24,7 @@ class SafeQuestionContentBuilderTest {
 
     @BeforeEach
     void setUp() {
-        builder = new SafeQuestionContentBuilder();
+        builder = QuestionContractTestSupport.safeContentBuilder();
     }
 
     @Test
@@ -105,10 +106,8 @@ class SafeQuestionContentBuilderTest {
                 }
                 """;
 
-        JsonNode safe = builder.buildSafeContent(QuestionType.MCQ_SINGLE, raw);
-
-        JsonNode option = safe.get("options").get(0);
-        assertFalse(option.has("media"));
+        assertThrows(uk.gegc.quizmaker.features.question.application.QuestionContractException.class,
+                () -> builder.buildSafeContent(QuestionType.MCQ_SINGLE, raw));
     }
 
     @Test
@@ -191,7 +190,7 @@ class SafeQuestionContentBuilderTest {
                     {"id":1,"answer":"France"},
                     {"id":2,"answer":"Paris"}
                   ],
-                  "options": ["A","B","C","D","E","F","G","H"]
+                  "options": ["France","Paris","A","B","C","D","E","F"]
                 }
                 """;
 

@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.attempt.api.dto;
 
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentAvailability;
+
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -34,4 +36,16 @@ public record AnswerSubmissionDto(
         @Schema(description = "Next question in ONE_BY_ONE mode (safe, without correct answers)")
         QuestionForAttemptDto nextQuestion
 ) {
+    @com.fasterxml.jackson.annotation.JsonProperty(value = "contractVersion", access = com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY)
+    @Schema(accessMode = Schema.AccessMode.READ_ONLY)
+    public int contractVersion() { return 1; }
+
+    @com.fasterxml.jackson.annotation.JsonProperty("correctAnswerAvailability")
+    @Schema(description = "NOT_INCLUDED means omitted by existing inclusion rules, never an incorrect answer")
+    public QuestionContentAvailability correctAnswerAvailability() {
+        return correctAnswer == null
+                ? QuestionContentAvailability.NOT_INCLUDED
+                : QuestionContentAvailability.AVAILABLE;
+    }
+
 }

@@ -15,6 +15,11 @@ import org.springframework.context.annotation.Configuration;
 public class OpenApiGroupConfig {
 
     @Bean
+    public org.springdoc.core.customizers.GlobalOpenApiCustomizer questionContractsOpenApiCustomizer() {
+        return new uk.gegc.quizmaker.features.question.api.QuestionContractsOpenApiCustomizer();
+    }
+
+    @Bean
     public GroupedOpenApi authGroup() {
         return GroupedOpenApi.builder()
                 .group("auth")

@@ -1,12 +1,13 @@
 package uk.gegc.quizmaker.features.question.application;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
+import lombok.RequiredArgsConstructor;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -14,9 +15,11 @@ import java.util.List;
 import java.util.UUID;
 
 @Component
+@RequiredArgsConstructor
 public class SafeQuestionContentBuilder {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private final QuestionHandlerFactory handlerFactory;
 
     /**
      * Build safe content without correct answers.
@@ -41,9 +44,9 @@ public class SafeQuestionContentBuilder {
      */
     public JsonNode buildSafeContent(QuestionType type, String originalContent, boolean deterministic) {
         try {
-            JsonNode root = MAPPER.readTree(originalContent);
+            JsonNode root = handlerFactory.readValidatedContent(type, originalContent);
 
-            return switch (type) {
+            JsonNode safe = switch (type) {
                 case MCQ_SINGLE, MCQ_MULTI -> buildSafeMcqContent(root);
                 case TRUE_FALSE -> buildSafeTrueFalseContent();
                 case FILL_GAP -> buildSafeFillGapContent(root, deterministic);
@@ -53,7 +56,9 @@ public class SafeQuestionContentBuilder {
                 case ORDERING -> buildSafeOrderingContent(root, deterministic);
                 case MATCHING -> buildSafeMatchingContent(root, deterministic);
             };
-        } catch (JsonProcessingException e) {
+            QuestionContracts.validate(type, QuestionContracts.View.SAFE, safe);
+            return safe;
+        } catch (IllegalArgumentException e) {
             throw new RuntimeException("Failed to build safe content for question", e);
         }
     }

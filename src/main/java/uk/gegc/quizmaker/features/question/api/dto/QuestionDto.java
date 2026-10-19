@@ -64,4 +64,14 @@ public class QuestionDto {
             example = "[\"3fa85f64-5717-4562-b3fc-2c963f66afb7\"]"
     )
     private List<UUID> tagIds;
+    @Schema(description = "Question contract version; old requests without a version use v1", accessMode = Schema.AccessMode.READ_ONLY)
+    private final int contractVersion = 1;
+
+    @Schema(description = "AVAILABLE or UNAVAILABLE. Unavailable content is null, never an implicit answer or score.")
+    private QuestionContentAvailability contentAvailability =
+            QuestionContentAvailability.AVAILABLE;
+
+    @Schema(description = "Bounded repair diagnostic when content is UNAVAILABLE")
+    private org.springframework.http.ProblemDetail contentProblem;
+
 }

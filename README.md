@@ -152,6 +152,9 @@ When the app is running, OpenAPI docs and Swagger UI are available at:
 
 API is grouped by area (quizzes, auth, repetition, documents, etc.) in [OpenApiGroupConfig](src/main/java/uk/gegc/quizmaker/shared/config/OpenApiGroupConfig.java).
 
+See [Question contracts v1](docs/question-contracts.md) for the nine question families,
+participant-safe schemas, answer validation, and historical-content availability.
+
 ## Configuration
 
 Key configuration is via environment variables or `.env` (see [env.example](env.example)):

@@ -37,4 +37,16 @@ public interface QuestionRepository extends JpaRepository<Question, UUID> {
     List<Object[]> countQuestionsForQuizzes(@Param("quizIds") List<UUID> quizIds);
     
     List<Question> findAllByQuizId_IdOrderById(UUID quizId);
+    @Query("SELECT DISTINCT q FROM Question q LEFT JOIN FETCH q.tags WHERE q.id IN :ids")
+    List<Question> fetchTags(@Param("ids") List<UUID> ids);
+
+    @Query("""
+            SELECT DISTINCT q FROM Question q
+            LEFT JOIN FETCH q.quizId quiz
+            LEFT JOIN FETCH quiz.creator
+            LEFT JOIN FETCH quiz.category
+            WHERE q.id IN :ids
+            """)
+    List<Question> fetchQuizzes(@Param("ids") List<UUID> ids);
+
 }

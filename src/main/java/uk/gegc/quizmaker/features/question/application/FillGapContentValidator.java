@@ -100,7 +100,12 @@ public class FillGapContentValidator {
         Set<Integer> textGapIds = new HashSet<>();
         
         while (matcher.find()) {
-            int gapId = Integer.parseInt(matcher.group(1));
+            int gapId;
+            try {
+                gapId = Integer.parseInt(matcher.group(1));
+            } catch (NumberFormatException ex) {
+                return ValidationResult.error("Gap placeholder must contain a valid positive integer ID");
+            }
             textGapIds.add(gapId);
             
             // Check if this gap ID exists in gaps array

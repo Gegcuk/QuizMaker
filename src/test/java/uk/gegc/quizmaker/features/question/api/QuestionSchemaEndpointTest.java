@@ -92,6 +92,13 @@ class QuestionSchemaEndpointTest {
             assertThat(contract.path("schema").isObject()).as("JSON schema for %s", type).isTrue();
             assertThat(contract.path("example").isObject()).as("example for %s", type).isTrue();
             assertThat(contract.path("description").asText()).as("description for %s", type).isNotBlank();
+            assertThat(contract.at("/contracts/version").asInt()).isEqualTo(1);
+            for (String view : java.util.List.of("author", "safe", "response", "correct")) {
+                assertThat(contract.path("contracts").path(view).path("type").asText()).isEqualTo("object");
+            }
+            if (type == QuestionType.MCQ_SINGLE) {
+                assertThat(contract.at("/contracts/author/properties/options/minItems").asInt()).isEqualTo(2);
+            }
         }
     }
 }

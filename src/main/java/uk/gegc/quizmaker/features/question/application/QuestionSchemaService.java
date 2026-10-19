@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.question.application;
 
+import uk.gegc.quizmaker.features.question.api.dto.QuestionFamilySchemasV1;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -48,7 +50,12 @@ public class QuestionSchemaService {
         JsonNode example = loadExampleForType(type);
         String description = getDescriptionForType(type);
         
-        return new QuestionSchemaResponse(schema, example, description);
+        return new QuestionSchemaResponse(schema, example, description,
+                new QuestionFamilySchemasV1(1,
+                        QuestionContracts.schema(type, QuestionContracts.View.AUTHOR),
+                        QuestionContracts.schema(type, QuestionContracts.View.SAFE),
+                        QuestionContracts.schema(type, QuestionContracts.View.RESPONSE),
+                        QuestionContracts.schema(type, QuestionContracts.View.CORRECT)));
     }
 
     /**

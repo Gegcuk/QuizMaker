@@ -94,6 +94,7 @@ class QuestionServiceImplTest {
         setupPermissionEvaluatorMock();
         lenient().when(questionMediaResolver.resolveAttachment(any())).thenReturn(null);
         lenient().when(questionMediaResolver.resolveMediaInContent(any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(questionMediaResolver.resolveMediaInContent(any(), anyMap())).thenAnswer(inv -> inv.getArgument(0));
     }
 
     private User createTestUser() {
@@ -198,7 +199,7 @@ class QuestionServiceImplTest {
         UUID id = questionService.createQuestion(DUMMY_USER, req);
 
         assertThat(id).isNotNull();
-        verify(handler).validateContent(req);
+        verify(factory).validateStoredContent(req.getType(), req.getContent());
         verify(questionRepository).save(any(Question.class));
     }
 
@@ -273,7 +274,7 @@ class QuestionServiceImplTest {
         QuestionDto dto = questionService.updateQuestion(DUMMY_USER, id, updateQuestionRequest);
 
         assertThat(dto.getId()).isEqualTo(id);
-        verify(handler).validateContent(updateQuestionRequest);
+        verify(factory, atLeastOnce()).validateStoredContent(updateQuestionRequest.getType(), updateQuestionRequest.getContent());
         verify(questionRepository).saveAndFlush(existing);
     }
 

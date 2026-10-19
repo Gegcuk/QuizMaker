@@ -21,6 +21,7 @@ import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
 import uk.gegc.quizmaker.features.attempt.infra.mapping.AttemptMapper;
 import uk.gegc.quizmaker.features.question.application.CorrectAnswerExtractor;
 import uk.gegc.quizmaker.features.question.application.SafeQuestionContentBuilder;
+import uk.gegc.quizmaker.features.question.application.QuestionContractTestSupport;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
@@ -66,8 +67,8 @@ class AttemptServiceImplReviewTest {
     private AttemptMapper attemptMapper;
     @Mock
     private QuestionRepository questionRepository;
-    @Mock
-    private QuestionHandlerFactory handlerFactory;
+    @org.mockito.Spy
+    private QuestionHandlerFactory handlerFactory = QuestionContractTestSupport.handlerFactory();
     @Mock
     private AnswerRepository answerRepository;
     @Mock
@@ -80,10 +81,10 @@ class AttemptServiceImplReviewTest {
     private ShareLinkRepository shareLinkRepository;
     @Mock
     private AppPermissionEvaluator appPermissionEvaluator;
-    @Mock
-    private CorrectAnswerExtractor correctAnswerExtractor;
-    @Mock
-    private SafeQuestionContentBuilder safeQuestionContentBuilder;
+    @org.mockito.Spy
+    private CorrectAnswerExtractor correctAnswerExtractor = new CorrectAnswerExtractor(new ObjectMapper());
+    @org.mockito.Spy
+    private SafeQuestionContentBuilder safeQuestionContentBuilder = QuestionContractTestSupport.safeContentBuilder();
     @Mock
     private ObjectMapper objectMapper;
     @Mock
@@ -92,7 +93,6 @@ class AttemptServiceImplReviewTest {
     @InjectMocks
     private AttemptServiceImpl service;
 
-    private ObjectMapper realObjectMapper;
     private User testUser;
     private User otherUser;
     private Quiz testQuiz;
@@ -102,8 +102,7 @@ class AttemptServiceImplReviewTest {
 
     @BeforeEach
     void setUp() {
-        realObjectMapper = new ObjectMapper();
-        lenient().when(questionMediaResolver.resolveMediaInContent(any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(questionMediaResolver.resolveMediaInContent(any(), anyMap())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(questionMediaResolver.resolveAttachment(any())).thenReturn(null);
 
         // Create test user
@@ -128,7 +127,7 @@ class AttemptServiceImplReviewTest {
         testQuestion.setHint("It's a major European city");
         testQuestion.setExplanation("Paris is the capital and largest city of France, located on the Seine River.");
         testQuestion.setAttachmentUrl("http://example.com/image.png");
-        testQuestion.setContent("{\"options\":[{\"id\":\"opt_1\",\"text\":\"Paris\",\"correct\":true}]}");
+        testQuestion.setContent("{\"options\":[{\"id\":\"opt_1\",\"text\":\"Paris\",\"correct\":true},{\"id\":\"opt_2\",\"text\":\"London\",\"correct\":false}]}");
 
         // Create test answer
         testAnswer = new Answer();
@@ -160,16 +159,8 @@ class AttemptServiceImplReviewTest {
                 .thenReturn(Optional.of(testAttempt));
         when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(1L);
 
-        // Mock JSON parsing for user response
-        JsonNode userResponseJson = realObjectMapper.readTree("{\"selectedOptionId\":\"opt_1\"}");
-        when(objectMapper.readTree(testAnswer.getResponse())).thenReturn(userResponseJson);
 
-        JsonNode correctAnswer = realObjectMapper.readTree("{\"correctOptionId\":\"opt_1\"}");
-        when(correctAnswerExtractor.extractCorrectAnswer(testQuestion)).thenReturn(correctAnswer);
 
-        JsonNode safeContent = realObjectMapper.readTree("{\"options\":[{\"id\":\"opt_1\",\"text\":\"Paris\"}]}");
-        when(safeQuestionContentBuilder.buildSafeContent(eq(QuestionType.MCQ_SINGLE), any(), eq(true)))
-                .thenReturn(safeContent);
 
         // When
         AttemptReviewDto result = service.getAttemptReview(
@@ -340,12 +331,7 @@ class AttemptServiceImplReviewTest {
                 .thenReturn(Optional.of(testAttempt));
         when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(1L);
 
-        JsonNode correctAnswer = realObjectMapper.readTree("{\"correctOptionId\":\"opt_1\"}");
-        when(correctAnswerExtractor.extractCorrectAnswer(testQuestion)).thenReturn(correctAnswer);
 
-        JsonNode safeContent = realObjectMapper.readTree("{\"options\":[{\"id\":\"opt_1\",\"text\":\"Paris\"}]}");
-        when(safeQuestionContentBuilder.buildSafeContent(eq(QuestionType.MCQ_SINGLE), any(), eq(true)))
-                .thenReturn(safeContent);
 
         // When
         AttemptReviewDto result = service.getAttemptReview(
@@ -372,13 +358,7 @@ class AttemptServiceImplReviewTest {
                 .thenReturn(Optional.of(testAttempt));
         when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(1L);
 
-        // Mock JSON parsing for user response (includeUserAnswers=true)
-        JsonNode userResponseJson = realObjectMapper.readTree("{\"selectedOptionId\":\"opt_1\"}");
-        when(objectMapper.readTree(testAnswer.getResponse())).thenReturn(userResponseJson);
 
-        JsonNode safeContent = realObjectMapper.readTree("{\"options\":[{\"id\":\"opt_1\",\"text\":\"Paris\"}]}");
-        when(safeQuestionContentBuilder.buildSafeContent(eq(QuestionType.MCQ_SINGLE), any(), eq(true)))
-                .thenReturn(safeContent);
 
         // When
         AttemptReviewDto result = service.getAttemptReview(
@@ -407,8 +387,6 @@ class AttemptServiceImplReviewTest {
                 .thenReturn(Optional.of(testAttempt));
         when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(1L);
 
-        JsonNode correctAnswer = realObjectMapper.readTree("{\"correctOptionId\":\"opt_1\"}");
-        when(correctAnswerExtractor.extractCorrectAnswer(testQuestion)).thenReturn(correctAnswer);
 
         // When
         AttemptReviewDto result = service.getAttemptReview(
@@ -491,16 +469,8 @@ class AttemptServiceImplReviewTest {
                 .thenReturn(Optional.of(testAttempt));
         when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(2L);
 
-        // Mock JSON parsing for user responses
-        JsonNode emptyJson = realObjectMapper.readTree("{}");
-        when(objectMapper.readTree(anyString())).thenReturn(emptyJson);
 
-        JsonNode correctAnswer = realObjectMapper.readTree("{\"correctOptionId\":\"opt_1\"}");
-        when(correctAnswerExtractor.extractCorrectAnswer(any())).thenReturn(correctAnswer);
 
-        JsonNode safeContent = realObjectMapper.readTree("{}");
-        when(safeQuestionContentBuilder.buildSafeContent(any(), any(), eq(true)))
-                .thenReturn(safeContent);
 
         // When
         AttemptReviewDto result = service.getAttemptReview(
@@ -527,12 +497,7 @@ class AttemptServiceImplReviewTest {
                 .thenReturn(Optional.of(testAttempt));
         when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(1L);
 
-        JsonNode correctAnswer = realObjectMapper.readTree("{\"correctOptionId\":\"opt_1\"}");
-        when(correctAnswerExtractor.extractCorrectAnswer(testQuestion)).thenReturn(correctAnswer);
 
-        JsonNode safeContent = realObjectMapper.readTree("{\"options\":[{\"id\":\"opt_1\",\"text\":\"Paris\"}]}");
-        when(safeQuestionContentBuilder.buildSafeContent(eq(QuestionType.MCQ_SINGLE), any(), eq(true)))
-                .thenReturn(safeContent);
 
         // When
         AttemptReviewDto result = service.getAttemptAnswerKey("testuser", testAttempt.getId());
@@ -592,17 +557,8 @@ class AttemptServiceImplReviewTest {
                 .thenReturn(Optional.of(testAttempt));
         when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(5L);  // 5 total, only 2 answered
 
-        JsonNode userResponse1 = realObjectMapper.readTree("{\"selectedOptionId\":\"opt_1\"}");
-        JsonNode userResponse2 = realObjectMapper.readTree("{\"selectedOptionId\":\"opt_2\"}");
-        when(objectMapper.readTree(testAnswer.getResponse())).thenReturn(userResponse1);
-        when(objectMapper.readTree(wrongAnswer.getResponse())).thenReturn(userResponse2);
 
-        JsonNode correctAnswer = realObjectMapper.readTree("{\"correctOptionId\":\"opt_1\"}");
-        when(correctAnswerExtractor.extractCorrectAnswer(any())).thenReturn(correctAnswer);
 
-        JsonNode safeContent = realObjectMapper.readTree("{}");
-        when(safeQuestionContentBuilder.buildSafeContent(any(), any(), eq(true)))
-                .thenReturn(safeContent);
 
         // When
         AttemptReviewDto result = service.getAttemptReview(
@@ -634,19 +590,9 @@ class AttemptServiceImplReviewTest {
                 .thenReturn(Optional.of(testAttempt));
         when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(1L);
 
-        // Mock ObjectMapper to throw JsonProcessingException for malformed JSON
-        when(objectMapper.readTree("{invalid json"))
-                .thenThrow(new com.fasterxml.jackson.core.JsonParseException(null, "Unexpected character"));
 
-        JsonNode correctAnswer = realObjectMapper.readTree("{\"correctOptionId\":\"opt_1\"}");
-        when(correctAnswerExtractor.extractCorrectAnswer(testQuestion)).thenReturn(correctAnswer);
 
-        JsonNode safeContent = realObjectMapper.readTree("{}");
-        when(safeQuestionContentBuilder.buildSafeContent(any(), any(), eq(true)))
-                .thenReturn(safeContent);
 
-        // Mock error node creation for graceful error handling
-        when(objectMapper.createObjectNode()).thenReturn(realObjectMapper.createObjectNode());
 
         // When
         AttemptReviewDto result = service.getAttemptReview(
@@ -661,11 +607,11 @@ class AttemptServiceImplReviewTest {
         assertThat(result.answers()).hasSize(1);
         AnswerReviewDto answerReview = result.answers().get(0);
         
-        // User response should have error message instead of throwing
-        assertThat(answerReview.userResponse()).isNotNull();
-        assertThat(answerReview.userResponse().has("error")).isTrue();
-        assertThat(answerReview.userResponse().get("error").asText())
-                .contains("Failed to parse user response");
+        // Unavailable response is explicit; the recorded grade is preserved.
+        assertThat(answerReview.userResponse()).isNull();
+        assertThat(answerReview.responseAvailability()).isEqualTo(
+                uk.gegc.quizmaker.features.question.api.dto.QuestionContentAvailability.UNAVAILABLE);
+        assertThat(answerReview.contentProblem().getStatus()).isEqualTo(409);
         
         // But other fields should still work
         assertThat(answerReview.correctAnswer()).isNotNull();
@@ -683,16 +629,8 @@ class AttemptServiceImplReviewTest {
                 .thenReturn(Optional.of(testAttempt));
         when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(1L);
 
-        // Mock JSON parsing for user response
-        JsonNode userResponseJson = realObjectMapper.readTree("{\"selectedOptionId\":\"opt_1\"}");
-        when(objectMapper.readTree(testAnswer.getResponse())).thenReturn(userResponseJson);
 
-        // Mock extractor to throw for malformed content
-        when(correctAnswerExtractor.extractCorrectAnswer(testQuestion))
-                .thenThrow(new IllegalArgumentException("Failed to parse question content"));
 
-        // Mock error node creation for graceful error handling
-        when(objectMapper.createObjectNode()).thenReturn(realObjectMapper.createObjectNode());
 
         // When
         AttemptReviewDto result = service.getAttemptReview(
@@ -707,11 +645,11 @@ class AttemptServiceImplReviewTest {
         assertThat(result.answers()).hasSize(1);
         AnswerReviewDto answerReview = result.answers().get(0);
         
-        // Correct answer should have error message instead of throwing
-        assertThat(answerReview.correctAnswer()).isNotNull();
-        assertThat(answerReview.correctAnswer().has("error")).isTrue();
-        assertThat(answerReview.correctAnswer().get("error").asText())
-                .contains("Failed to extract correct answer");
+        // Unavailable content carries a bounded repair diagnostic.
+        assertThat(answerReview.correctAnswer()).isNull();
+        assertThat(answerReview.correctAnswerAvailability()).isEqualTo(
+                uk.gegc.quizmaker.features.question.api.dto.QuestionContentAvailability.UNAVAILABLE);
+        assertThat(answerReview.contentProblem().getStatus()).isEqualTo(409);
         
         // But other fields should still work
         assertThat(answerReview.userResponse()).isNotNull();
@@ -743,20 +681,8 @@ class AttemptServiceImplReviewTest {
                 .thenReturn(Optional.of(testAttempt));
         when(questionRepository.countByQuizId_Id(testQuiz.getId())).thenReturn(2L);
 
-        // Mock JSON parsing for user responses
-        JsonNode mcqResponse = realObjectMapper.readTree("{\"selectedOptionId\":\"opt_1\"}");
-        JsonNode tfResponse = realObjectMapper.readTree("{\"answer\":true}");
-        when(objectMapper.readTree(testAnswer.getResponse())).thenReturn(mcqResponse);
-        when(objectMapper.readTree(answer2.getResponse())).thenReturn(tfResponse);
 
-        JsonNode mcqCorrect = realObjectMapper.readTree("{\"correctOptionId\":\"opt_1\"}");
-        JsonNode tfCorrect = realObjectMapper.readTree("{\"answer\":true}");
-        when(correctAnswerExtractor.extractCorrectAnswer(testQuestion)).thenReturn(mcqCorrect);
-        when(correctAnswerExtractor.extractCorrectAnswer(trueFalseQuestion)).thenReturn(tfCorrect);
 
-        JsonNode safeContent = realObjectMapper.readTree("{}");
-        when(safeQuestionContentBuilder.buildSafeContent(any(), any(), eq(true)))
-                .thenReturn(safeContent);
 
         // When
         AttemptReviewDto result = service.getAttemptReview(

@@ -1,10 +1,9 @@
 package uk.gegc.quizmaker.features.question.infra.handler;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
+import uk.gegc.quizmaker.features.question.application.QuestionContracts;
+import uk.gegc.quizmaker.features.question.application.QuestionContentUnavailableException;
+
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
 import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionRequest;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.question.api.dto.EntityQuestionContentRequest;
@@ -18,7 +17,6 @@ import java.time.Instant;
 import java.util.UUID;
 
 public abstract class QuestionHandler {
-    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
      * Returns the question type that this handler supports
@@ -31,17 +29,16 @@ public abstract class QuestionHandler {
     public Answer handle(Attempt attempt, Question question, AnswerSubmissionRequest request) {
         JsonNode content;
         try {
-            content = objectMapper.readTree(question.getContent());
-        } catch (JsonProcessingException e) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Malformed question JSON for question " + question.getId(),
-                    e
-            );
+            content = QuestionContracts.read(
+                    question.getType(), QuestionContracts.View.AUTHOR,
+                    question.getContent());
+            validateContent(new EntityQuestionContentRequest(question.getType(), content));
+        } catch (ValidationException ex) {
+            throw new QuestionContentUnavailableException();
         }
-
-        var qc = new EntityQuestionContentRequest(question.getType(), content);
-        validateContent(qc);
+        QuestionContracts.validate(
+                question.getType(), QuestionContracts.View.RESPONSE,
+                request.response());
 
         Answer answer = doHandle(attempt, question, content, request.response());
         answer.setAttempt(attempt);

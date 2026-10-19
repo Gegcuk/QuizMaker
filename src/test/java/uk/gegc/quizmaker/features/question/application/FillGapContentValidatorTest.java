@@ -15,6 +15,16 @@ class FillGapContentValidatorTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void oversizedPlaceholderIsAValidationErrorWithoutEchoingItsValue() throws Exception {
+        var content = objectMapper.readTree("""
+                {"text":"Capital: {99999999999999999999}","gaps":[{"id":1,"answer":"Paris"}]}
+                """);
+        var result = FillGapContentValidator.validate(content, ValidationMode.LENIENT);
+        assertThat(result.valid()).isFalse();
+        assertThat(result.errorMessage()).doesNotContain("99999999999999999999", "NumberFormatException");
+    }
+
+    @Test
     @DisplayName("Valid fill-gap content with single gap passes validation")
     void validSingleGap() throws Exception {
         String json = """

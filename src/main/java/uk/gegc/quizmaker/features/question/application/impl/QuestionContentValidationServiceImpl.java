@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.question.application.impl;
 
+import uk.gegc.quizmaker.features.question.application.QuestionContracts;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,7 +22,9 @@ public class QuestionContentValidationServiceImpl implements QuestionContentVali
         if (type == null) {
             throw new ValidationException("Question type is required");
         }
-        questionHandlerFactory.getHandler(type)
-                .validateContent(new EntityQuestionContentRequest(type, content));
+        var handler = questionHandlerFactory.getHandler(type);
+        QuestionContracts.validate(
+                type, QuestionContracts.View.AUTHOR, content);
+        handler.validateContent(new EntityQuestionContentRequest(type, content));
     }
 }

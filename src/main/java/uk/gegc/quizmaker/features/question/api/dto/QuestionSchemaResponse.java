@@ -12,7 +12,13 @@ public record QuestionSchemaResponse(
     JsonNode example,
     
     @Schema(description = "Human-readable description of this question type")
-    String description
+    String description,
+
+    @Schema(description = "Active v1 contracts. The schema field above remains the legacy AI-generation envelope for compatibility.")
+    QuestionFamilySchemasV1 contracts
 ) {
+    public QuestionSchemaResponse(JsonNode schema, JsonNode example, String description) {
+        this(schema, example, description, null);
+    }
 }
 
