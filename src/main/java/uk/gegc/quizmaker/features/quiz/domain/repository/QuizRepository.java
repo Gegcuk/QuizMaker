@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.quiz.domain.repository;
 
 import jakarta.persistence.LockModeType;
+import jakarta.persistence.criteria.JoinType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -24,8 +25,16 @@ import java.util.UUID;
 public interface QuizRepository extends JpaRepository<Quiz, UUID>, JpaSpecificationExecutor<Quiz> {
 
     default Page<UUID> findPageIds(Specification<Quiz> specification, Pageable pageable) {
-        // Keep root sort columns available to DISTINCT specifications; fetch no collections.
-        return findBy(specification, query -> query.page(pageable)).map(Quiz::getId);
+        Specification<Quiz> pageSpecification = (root, query, builder) -> {
+            if (query != null && Quiz.class.equals(query.getResultType())) {
+                // MySQL requires DISTINCT sort columns in SELECT, including to-one properties.
+                // These joins do not multiply parent rows; tags remain a separate batch fetch.
+                root.fetch("category", JoinType.LEFT);
+                root.fetch("creator", JoinType.LEFT);
+            }
+            return specification == null ? null : specification.toPredicate(root, query, builder);
+        };
+        return findBy(pageSpecification, query -> query.page(pageable)).map(Quiz::getId);
     }
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

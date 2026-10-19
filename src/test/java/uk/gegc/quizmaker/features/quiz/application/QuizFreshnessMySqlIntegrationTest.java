@@ -6,6 +6,8 @@ import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -259,6 +261,30 @@ class QuizFreshnessMySqlIntegrationTest {
         assertThat(first.getContent()).extracting(QuizDto::title).containsExactly("Zulu");
         assertThat(second.getContent()).extracting(QuizDto::title).containsExactly("Alpha");
         assertThat(first.getContent().get(0).isNew()).isFalse();
+    }
+
+    @ParameterizedTest(name = "owned pagination supports sorting by {0}")
+    @ValueSource(strings = {"category.name", "creator.username"})
+    void ownedPaginationSupportsExistingToOneAssociationSorts(String property) {
+        String commonTag = transaction.execute(status -> {
+            Quiz zulu = persistQuiz("Zulu");
+            Quiz alpha = persistQuiz("Alpha");
+            Tag common = zulu.getTags().iterator().next();
+            alpha.setTags(new java.util.HashSet<>(alpha.getTags()));
+            alpha.getTags().add(common);
+            for (Quiz quiz : List.of(alpha, zulu)) quiz.getCategory().setName(quiz.getTitle());
+            return common.getName();
+        });
+        var criteria = new QuizSearchCriteria(null, List.of(commonTag), null, null, null);
+        Sort sort = Sort.by(property).and(Sort.by("title"));
+
+        var first = queryService.getQuizzes(PageRequest.of(0, 1, sort), criteria, "me", authentication());
+        var second = queryService.getQuizzes(PageRequest.of(1, 1, sort), criteria, "me", authentication());
+
+        assertThat(first.getTotalElements()).isEqualTo(2);
+        assertThat(second.getTotalElements()).isEqualTo(2);
+        assertThat(first.getContent()).extracting(QuizDto::title).containsExactly("Alpha");
+        assertThat(second.getContent()).extracting(QuizDto::title).containsExactly("Zulu");
     }
 
     @Test

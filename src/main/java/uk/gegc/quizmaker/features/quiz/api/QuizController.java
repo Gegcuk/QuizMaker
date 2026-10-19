@@ -77,7 +77,6 @@ import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 import uk.gegc.quizmaker.shared.validation.GenerationLanguagePolicy;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -367,13 +366,16 @@ public class QuizController {
     }
 
     private String ownerListEtag(String pageMetadata, Page<QuizDto> page, Authentication authentication) {
-        StringBuilder metadata = new StringBuilder(pageMetadata).append('|').append(authentication.getName());
-        page.forEach(quiz -> metadata.append('|').append(quiz.id()).append(':').append(quiz.isNew()));
         try {
-            // Hash only bounded page metadata, never document/source content.
+            // Include every returned DTO field: association changes need not update the quiz timestamp.
+            // This is bounded list metadata, never document/source content or question bodies.
+            byte[] metadata = objectMapper.writeValueAsBytes(
+                    List.of(pageMetadata, authentication.getName(), page.getContent()));
             byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(metadata.toString().getBytes(StandardCharsets.UTF_8));
+                    .digest(metadata);
             return "W/\"" + HexFormat.of().formatHex(digest) + "\"";
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to serialize quiz page validator", exception);
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("Required SHA-256 digest unavailable", exception);
         }

@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springdoc.core.configuration.SpringDocConfiguration;
 import org.springdoc.core.models.GroupedOpenApi;
 import org.springdoc.core.properties.SpringDocConfigProperties;
@@ -169,6 +171,37 @@ class QuizOpenApiContractTest {
                 .andExpect(jsonPath("$.content[0].isNew").value(false))
                 .andReturn().getResponse();
         assertThat(updated.getHeader("ETag")).isNotEqualTo(validator);
+    }
+
+    @ParameterizedTest(name = "owner list revalidates after changing {0}")
+    @ValueSource(strings = {"title", "questionCount", "tags"})
+    @WithMockUser
+    void ownerListRevalidationIncludesQuizDetailsAndAssociations(String changedField) throws Exception {
+        var id = UUID.randomUUID();
+        var owner = UUID.randomUUID();
+        var category = UUID.randomUUID();
+        var now = Instant.parse("2026-10-19T12:00:00Z");
+        var original = new QuizDto(id, owner, category, "Generated", null, Visibility.PRIVATE,
+                Difficulty.EASY, QuizStatus.PUBLISHED, 5, false, false, null, List.of(), 1, now, now, true);
+        // Association changes need not change the parent quiz's timestamp or freshness.
+        var changed = new QuizDto(id, owner, category, changedField.equals("title") ? "Renamed" : original.title(),
+                null, original.visibility(), original.difficulty(), original.status(), 5, false, false, null,
+                changedField.equals("tags") ? List.of(UUID.randomUUID()) : List.of(),
+                changedField.equals("questionCount") ? 2 : 1, now, now, true);
+        when(quizService.getQuizzes(any(), any(), eq("me"), any()))
+                .thenReturn(new PageImpl<>(List.of(original)));
+        String validator = mockMvc.perform(get("/api/v1/quizzes").param("scope", "me"))
+                .andExpect(status().isOk()).andReturn().getResponse().getHeader("ETag");
+        when(quizService.getQuizzes(any(), any(), eq("me"), any()))
+                .thenReturn(new PageImpl<>(List.of(changed)));
+
+        var updated = mockMvc.perform(get("/api/v1/quizzes").param("scope", "me")
+                        .header("If-None-Match", validator))
+                .andExpect(status().isOk()).andReturn().getResponse();
+
+        assertThat(updated.getHeader("ETag")).isNotEqualTo(validator);
+        assertThat(objectMapper.readTree(updated.getContentAsString()).path("content").get(0))
+                .isEqualTo(objectMapper.valueToTree(changed));
     }
 
     @TestConfiguration(proxyBeanMethods = false)

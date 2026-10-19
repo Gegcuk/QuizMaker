@@ -56,6 +56,10 @@ metadata but cannot be acknowledged/read; physical quiz deletion cascades its re
 Owner pagination selects a page of IDs before loading associations, question counts,
 and freshness in batches. This keeps relationship query counts bounded as page size
 grows and avoids collection-fetch pagination over the entire matching quiz collection.
+The first query fetches only to-one associations so existing category/creator sorts
+remain valid with MySQL's `DISTINCT` requirements. Owner-list validators cover every
+returned card field, including tags and question counts, so ordinary edits invalidate
+cached pages even when freshness or the parent timestamp is unchanged.
 
 ## Compatibility
 
