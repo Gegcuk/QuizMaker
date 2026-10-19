@@ -64,7 +64,9 @@ Expired records become eligible for indexed deletion after their relevant window
 
 Exhaustion returns RFC 7807 `429`, `Cache-Control: no-store`, and `Retry-After` rounded up until every limiting dimension permits another request. Known and unknown accounts receive the same generic admission error. Limiter/canonical-identity storage failure returns generic `503` with no local permissive fallback. A 503 does not promise a retry time.
 
-Web/iOS clients keep the existing success DTOs, honour Retry-After, and avoid automatic credential replay. Authentication requires connectivity; do not queue passwords or refresh operations while offline. A 429 means a refresh token was not consumed. An uncertain refresh outcome remains subject to the existing session recovery contract rather than an automatic retry.
+Authentication validation errors retain field names and messages but redact submitted values. Malformed-request errors return a constant parser diagnostic; passwords and tokens are never repeated in those errors. These responses also use `Cache-Control: no-store`.
+
+Web/iOS clients keep the existing success DTOs, honour Retry-After, and avoid automatic credential replay. The shipped CORS configurations expose Retry-After to allowed browser origins without changing the origin allowlist. OAuth callback admission errors also retain no-referrer protection for provider codes in callback URLs. Authentication requires connectivity; do not queue passwords or refresh operations while offline. A 429 means a refresh token was not consumed. An uncertain refresh outcome remains subject to the existing session recovery contract rather than an automatic retry.
 
 The fixed-cardinality `auth.throttle.requests` counter has only `operation` and `outcome=allowed|throttled|store_error` labels. The backend/database owner investigates sustained store errors, pool/lock pressure, expiry-cleanup warnings, or unexpected throttling. Use existing monitoring to compare these signals with database availability and request volume. Never add account, network, token, code, or resource IDs as metric labels, and do not disable enforcement as an outage workaround.
 

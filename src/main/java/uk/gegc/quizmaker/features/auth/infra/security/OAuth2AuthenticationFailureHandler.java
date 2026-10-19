@@ -50,6 +50,7 @@ public class OAuth2AuthenticationFailureHandler extends SimpleUrlAuthenticationF
             response.setContentType("application/problem+json");
             response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
             response.setHeader(HttpHeaders.PRAGMA, "no-cache");
+            response.setHeader("Referrer-Policy", "no-referrer");
             if (admission instanceof RateLimitExceededException limit) {
                 response.setHeader(HttpHeaders.RETRY_AFTER, Long.toString(limit.getRetryAfterSeconds()));
             }

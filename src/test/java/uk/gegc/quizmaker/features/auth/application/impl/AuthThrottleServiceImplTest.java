@@ -50,12 +50,12 @@ class AuthThrottleServiceImplTest {
     }
 
     @Test
-    void usernameAndEmailShareIndependentAccountBudgetAcrossNetworks() {
+    void caseSensitiveUsernameAndEmailShareIndependentAccountBudgetAcrossNetworks() {
         UUID account = UUID.randomUUID();
         when(users.findAuthThrottleIdByUsername(anyString())).thenReturn(Optional.empty());
         when(users.findAuthThrottleIdByEmail(anyString())).thenReturn(Optional.empty());
-        when(users.findAuthThrottleIdByUsername("alice")).thenReturn(Optional.of(account));
-        when(users.findAuthThrottleIdByEmail("alice@example.test")).thenReturn(Optional.of(account));
+        when(users.findAuthThrottleIdByUsername("Alice")).thenReturn(Optional.of(account));
+        when(users.findAuthThrottleIdByEmail("ALICE@example.test")).thenReturn(Optional.of(account));
         service.login("Alice", "198.51.100.1");
         service.login("ALICE@example.test", "2001:db8::1");
         ArgumentCaptor<List<Quota>> capture = ArgumentCaptor.forClass(List.class);
@@ -68,8 +68,8 @@ class AuthThrottleServiceImplTest {
         assertThat(find(first, "login-network").requests()).isEqualTo(60);
         assertThat(first).allSatisfy(quota -> assertThat(quota.digest()).matches("[a-f0-9]{64}"));
         assertThat(first.toString()).doesNotContain("alice", account.toString(), "198.51.100");
-        verify(users).findAuthThrottleIdByEmail("alice");
-        verify(users).findAuthThrottleIdByUsername("alice@example.test");
+        verify(users).findAuthThrottleIdByEmail("Alice");
+        verify(users).findAuthThrottleIdByUsername("ALICE@example.test");
     }
 
     @Test

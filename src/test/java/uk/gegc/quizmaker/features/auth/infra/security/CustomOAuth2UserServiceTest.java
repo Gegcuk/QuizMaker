@@ -4,6 +4,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -752,6 +754,28 @@ class CustomOAuth2UserServiceTest {
         
         assertThat(createdUser.isEmailVerified()).isTrue();
         assertThat(createdUser.getEmailVerifiedAt()).isNotNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void rejectedSignupDoesNotCreateUserOrAccountOrTriggerRegistrationEffects(boolean throttled) {
+        OAuth2User profile = new DefaultOAuth2User(Collections.emptyList(),
+                Map.of("sub", "synthetic-subject", "email", "student@example.test"), "sub");
+        OAuth2UserRequest request = createOAuth2UserRequest("google", profile);
+        doReturn(profile).when(service).callSuperLoadUser(request);
+        RuntimeException rejection = throttled
+                ? new uk.gegc.quizmaker.shared.exception.RateLimitExceededException("generic rejection", 12)
+                : new uk.gegc.quizmaker.features.auth.domain.exception.AuthRateLimitUnavailableException(
+                        new IllegalStateException("synthetic outage"));
+        doThrow(rejection).when(authThrottleService)
+                .providerRegistration("GOOGLE", "synthetic-subject", "student@example.test");
+
+        assertThatThrownBy(() -> service.loadUser(request))
+                .isInstanceOf(org.springframework.security.oauth2.core.OAuth2AuthenticationException.class)
+                .hasCause(rejection).hasMessage("Authentication admission rejected");
+        verify(userRepository, never()).save(any());
+        verify(oauthAccountRepository, never()).save(any());
+        verifyNoInteractions(passwordEncoder, tokenCryptoService, roleRepository, usernameGenerator, eventPublisher);
     }
 
     // Helper methods

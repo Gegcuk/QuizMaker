@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.auth.infra;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DataAccessResourceFailureException;
 import uk.gegc.quizmaker.features.auth.infra.ratelimit.DatabaseAuthClock;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -25,8 +26,10 @@ class DatabaseAuthClockTest {
     }
 
     @Test
-    void missingDatabaseTimestampFailsClosedWithoutLocalTimeFallback() {
-        assertThatThrownBy(() -> new DatabaseAuthClock(mock(JdbcTemplate.class)).instant())
-                .isInstanceOf(IllegalStateException.class).hasMessage("Authentication database clock unavailable");
+    void databaseOutageFailsClosedWithoutLocalTimeFallback() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        var outage = new DataAccessResourceFailureException("synthetic database outage");
+        when(jdbc.queryForObject("SELECT UTC_TIMESTAMP(6)", LocalDateTime.class)).thenThrow(outage);
+        assertThatThrownBy(() -> new DatabaseAuthClock(jdbc).instant()).isSameAs(outage);
     }
 }

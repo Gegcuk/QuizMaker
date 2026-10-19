@@ -52,8 +52,11 @@ class AuthThrottleHttpIntegrationTest {
                     .andExpect(status().isUnauthorized());
         }
         mvc.perform(post("/api/v1/auth/login").with(request -> { request.setRemoteAddr("2001:db8::2"); return request; })
+                        .header("Origin", "http://localhost:3000")
                         .contentType(MediaType.APPLICATION_JSON).content(payload()))
                 .andExpect(status().isTooManyRequests()).andExpect(header().exists("Retry-After"))
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:3000"))
+                .andExpect(header().string("Access-Control-Expose-Headers", org.hamcrest.Matchers.containsString("Retry-After")))
                 .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/rate-limit-exceeded"));
         verify(credentials, times(2)).login(any());
     }

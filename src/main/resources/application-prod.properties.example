@@ -39,7 +39,7 @@ app.cors.allowed-origins=https://quizmaker.yourdomain.com,https://www.quizmaker.
 app.cors.use-origin-patterns=false
 app.cors.allowed-methods=GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD
 app.cors.allowed-headers=Authorization,Content-Type,Accept,X-Requested-With,Origin,If-None-Match,Accept-Language
-app.cors.exposed-headers=Location,Link,Content-Disposition,X-Total-Count,X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset
+app.cors.exposed-headers=Location,Link,Content-Disposition,X-Total-Count,X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset,Retry-After
 # Set to false if only using JWT in Authorization header (no cookies)
 app.cors.allow-credentials=true
 app.cors.max-age=3600

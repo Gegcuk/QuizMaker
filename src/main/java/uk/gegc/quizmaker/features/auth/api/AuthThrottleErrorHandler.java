@@ -6,6 +6,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import uk.gegc.quizmaker.features.auth.domain.exception.AuthRateLimitUnavailableException;
@@ -17,6 +19,25 @@ import uk.gegc.quizmaker.shared.api.problem.ErrorTypes;
 @Order(-1)
 @RestControllerAdvice(assignableTypes = AuthController.class)
 public class AuthThrottleErrorHandler {
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ProblemDetail> invalidRequest(MethodArgumentNotValidException exception, HttpServletRequest request) {
+        ProblemDetail body = ProblemDetailBuilder.create(HttpStatus.BAD_REQUEST, ErrorTypes.VALIDATION_FAILED,
+                "Validation Failed", "Validation failed for one or more fields", request);
+        // Preserve field names/messages and the existing error shape without reflecting passwords or tokens.
+        body.setProperty("fieldErrors", exception.getBindingResult().getFieldErrors().stream()
+                .map(error -> new FieldValidationError(error.getField(), error.getDefaultMessage(), null)).toList());
+        return ResponseEntity.badRequest().header(HttpHeaders.CACHE_CONTROL, "no-store").body(body);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ProblemDetail> malformedRequest(HttpMessageNotReadableException exception, HttpServletRequest request) {
+        ProblemDetail body = ProblemDetailBuilder.create(HttpStatus.BAD_REQUEST, ErrorTypes.MALFORMED_JSON,
+                "Malformed JSON", "Request body is malformed or cannot be read", request);
+        // Parser messages can quote unrecognized credential text from malformed JSON.
+        body.setProperty("parseError", "Request body is malformed or cannot be read");
+        return ResponseEntity.badRequest().header(HttpHeaders.CACHE_CONTROL, "no-store").body(body);
+    }
+
     @ExceptionHandler(AuthRateLimitUnavailableException.class)
     public ResponseEntity<ProblemDetail> unavailable(AuthRateLimitUnavailableException exception, HttpServletRequest request) {
         return problem(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage(), null, request);
@@ -38,4 +59,6 @@ public class AuthThrottleErrorHandler {
         }
         return response.body(body);
     }
+
+    private record FieldValidationError(String field, String message, Object rejectedValue) { }
 }

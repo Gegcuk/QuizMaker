@@ -58,12 +58,13 @@ public class AuthThrottleServiceImpl implements AuthThrottleService {
     public void login(String identifier, String network) {
         protect("login", () -> {
             Quota net = quota("login-network", network(network));
-            String normalized = normalized(identifier);
-            // Both bounded projections run for known and unknown identifiers; username keeps auth's precedence.
-            var usernameId = users.findAuthThrottleIdByUsername(normalized);
-            var emailId = users.findAuthThrottleIdByEmail(normalized);
+            String lookup = bounded(identifier);
+            // Match credential lookup exactly, including case-sensitive username collations and precedence.
+            // Both projections still run for known and unknown identifiers; only unknown keys are normalized.
+            var usernameId = users.findAuthThrottleIdByUsername(lookup);
+            var emailId = users.findAuthThrottleIdByEmail(lookup);
             String account = usernameId.or(() -> emailId)
-                    .map(id -> "account:" + id).orElse("unknown:" + normalized);
+                    .map(id -> "account:" + id).orElse("unknown:" + normalized(lookup));
             check(List.of(net, quota("login-account", account),
                     quota("login-account-network", account + "|" + network(network))), true);
         });

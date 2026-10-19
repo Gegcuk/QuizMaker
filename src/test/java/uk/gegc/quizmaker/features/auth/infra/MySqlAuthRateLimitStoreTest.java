@@ -80,19 +80,28 @@ class MySqlAuthRateLimitStoreTest {
     @Test
     void twoIndependentInstancesNeverExceedAllowanceUnderContention() throws Exception {
         Quota global = quota("shared", "login-account", 5, 60, true);
+        Quota networkA = quota("network-a", "login-network", 60, 60, true);
+        Quota networkB = quota("network-b", "login-network", 60, 60, true);
+        Quota pairA = quota("shared-network-a", "login-account-network", 5, 60, true);
+        Quota pairB = quota("shared-network-b", "login-account-network", 5, 60, true);
         var pool = Executors.newFixedThreadPool(8);
         CountDownLatch start = new CountDownLatch(1);
         List<Future<Long>> results = new ArrayList<>();
         try {
             for (int i = 0; i < 32; i++) {
                 MySqlAuthRateLimitStore instance = i % 2 == 0 ? first : second;
-                results.add(pool.submit(() -> { start.await(); return instance.admit(List.of(global), true); }));
+                List<Quota> dimensions = i % 2 == 0 ? List.of(global, networkA, pairA) : List.of(pairB, networkB, global);
+                results.add(pool.submit(() -> { start.await(); return instance.admit(dimensions, true); }));
             }
             start.countDown();
             int allowed = 0;
             for (Future<Long> result : results) if (result.get(15, TimeUnit.SECONDS) == 0) allowed++;
             assertThat(allowed).isEqualTo(5);
             assertThat(size(global)).isEqualTo(5);
+            assertThat(jdbc.queryForObject("SELECT SUM(JSON_LENGTH(admissions)) FROM auth_rate_limits "
+                    + "WHERE dimension = 'login-network'", Integer.class)).isEqualTo(5);
+            assertThat(jdbc.queryForObject("SELECT SUM(JSON_LENGTH(admissions)) FROM auth_rate_limits "
+                    + "WHERE dimension = 'login-account-network'", Integer.class)).isEqualTo(5);
             MySqlAuthRateLimitStore restarted = new MySqlAuthRateLimitStore(jdbc, mapper, manager, properties, new DatabaseAuthClock(jdbc));
             assertThat(restarted.admit(List.of(global), true)).isBetween(1L, 60L);
         } finally { pool.shutdownNow(); }

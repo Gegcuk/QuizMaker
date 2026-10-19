@@ -199,6 +199,13 @@ class AuthOpenApiContractTest {
         }
         assertThat(specification.at("/components/schemas/JwtResponse/properties/accessToken").isMissingNode()).isFalse();
         assertThat(specification.at("/components/schemas/AuthenticatedUserDto").isMissingNode()).isFalse();
+        assertResponseDocumented(specification, "/paths/~1api~1v1~1auth~1login/post/responses/400");
+        assertThat(specification.at("/paths/~1api~1v1~1auth~1login/post/responses/200/content").findValuesAsText("$ref"))
+                .containsOnly("#/components/schemas/JwtResponse");
+        assertThat(specification.at("/paths/~1api~1v1~1auth~1register/post/responses/201/content").findValuesAsText("$ref"))
+                .containsOnly("#/components/schemas/AuthenticatedUserDto");
+        assertThat(specification.at("/components/schemas/LoginRequest/properties/username/maxLength").asInt()).isEqualTo(254);
+        assertThat(specification.at("/components/schemas/LoginRequest/properties/password/maxLength").asInt()).isEqualTo(100);
         assertThat(specification.at("/paths/~1api~1v1~1auth~1login/post/responses/429/headers/Retry-After").isMissingNode()).isFalse();
     }
 }

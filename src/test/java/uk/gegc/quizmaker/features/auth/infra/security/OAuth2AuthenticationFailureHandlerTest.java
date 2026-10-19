@@ -192,6 +192,7 @@ class OAuth2AuthenticationFailureHandlerTest {
         assertThat(response.getContentType()).startsWith("application/problem+json");
         assertThat(response.getContentAsString()).contains("\"status\":429").doesNotContain("private");
         assertThat(response.getRedirectedUrl()).isNull();
+        assertPrivateRedirectHeaders(response);
     }
 
     @Test
@@ -204,5 +205,6 @@ class OAuth2AuthenticationFailureHandlerTest {
         assertThat(response.getStatus()).isEqualTo(503);
         assertThat(response.getContentAsString()).contains("\"status\":503").doesNotContain("private");
         assertThat(response.getRedirectedUrl()).isNull();
+        assertPrivateRedirectHeaders(response);
     }
 }

@@ -7,9 +7,17 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import uk.gegc.quizmaker.features.auth.application.AuthService;
 import uk.gegc.quizmaker.features.auth.application.AuthThrottleService;
+import uk.gegc.quizmaker.features.auth.api.dto.JwtResponse;
 import uk.gegc.quizmaker.features.auth.domain.exception.AuthRateLimitUnavailableException;
+import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
+import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
+import uk.gegc.quizmaker.shared.api.advice.GlobalExceptionHandler;
+
+import java.time.LocalDateTime;
+import java.util.Set;
+import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -28,7 +36,7 @@ class AuthThrottleControllerTest {
         TrustedProxyUtil proxies = mock(TrustedProxyUtil.class);
         when(proxies.getClientIp(any())).thenReturn("198.51.100.1");
         mvc = MockMvcBuilders.standaloneSetup(new AuthController(auth, throttle, proxies))
-                .setControllerAdvice(new AuthThrottleErrorHandler()).build();
+                .setControllerAdvice(new AuthThrottleErrorHandler(), new GlobalExceptionHandler()).build();
     }
 
     @Test
@@ -76,15 +84,56 @@ class AuthThrottleControllerTest {
     }
 
     @Test
+    void oversizedPasswordValidationNeverEchoesCredential() throws Exception {
+        String password = "synthetic-private-password-".repeat(5);
+        mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"student\",\"password\":\"" + password + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/validation-failed"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("password"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(password))));
+        verifyNoInteractions(auth, throttle);
+    }
+
+    @Test
+    void malformedCredentialsNeverAppearInParserDiagnostics() throws Exception {
+        String credential = "syntheticPrivateCredential";
+        mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"student\",\"password\":" + credential + "}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                .andExpect(jsonPath("$.type").value("https://quizzence.com/docs/errors/malformed-json"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(credential))));
+        verifyNoInteractions(auth, throttle);
+    }
+
+    @Test
     void admittedLoginAndSignupRetainExistingSuccessContracts() throws Exception {
+        when(auth.login(any())).thenReturn(new JwtResponse("synthetic-access", "synthetic-refresh", 43_200_000, 345_600_000));
+        UUID userId = UUID.randomUUID();
+        LocalDateTime created = LocalDateTime.of(2026, 10, 19, 12, 0);
+        when(auth.register(any())).thenReturn(new AuthenticatedUserDto(userId, "student", "student@example.test",
+                true, Set.of(RoleName.ROLE_USER), created, null, created));
         mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"student\",\"password\":\"ValidPass1!\"}"))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk()).andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.accessToken").value("synthetic-access"))
+                .andExpect(jsonPath("$.refreshToken").value("synthetic-refresh"))
+                .andExpect(jsonPath("$.accessExpiresInMs").value(43_200_000))
+                .andExpect(jsonPath("$.refreshExpiresInMs").value(345_600_000));
         verify(throttle).login("student", "198.51.100.1");
         verify(auth).login(any());
         mvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"student\",\"email\":\"student@example.test\",\"password\":\"ValidPass1!\"}"))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated()).andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value(userId.toString()))
+                .andExpect(jsonPath("$.username").value("student"))
+                .andExpect(jsonPath("$.email").value("student@example.test"))
+                .andExpect(jsonPath("$.isActive").value(true))
+                .andExpect(jsonPath("$.roles[0]").value("ROLE_USER"));
         verify(throttle).registration("student@example.test", "student", "198.51.100.1");
         verify(auth).register(any());
     }
