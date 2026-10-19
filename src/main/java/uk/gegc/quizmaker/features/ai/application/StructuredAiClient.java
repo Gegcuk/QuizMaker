@@ -23,9 +23,9 @@ public interface StructuredAiClient {
     /**
      * Generate questions with structured output using JSON schema validation.
      * 
-     * The LLM will be constrained to return responses matching the schema for
-     * the requested question type. This eliminates manual parsing and provides
-     * field-level validation.
+     * Uses provider-enforced schema output when supported, otherwise complete
+     * schema instructions in the prompt. Responses pass the same server-side
+     * question validation regardless of delivery mode.
      * 
      * @param request The generation request with all parameters
      * @return Response with validated questions and metadata
@@ -48,8 +48,9 @@ public interface StructuredAiClient {
     );
     
     /**
-     * Validate that the current model configuration supports structured output.
-     * Should be called at startup to fail fast if misconfigured.
+     * Check whether structured generation is available. Prompt-schema providers
+     * can generate structured questions without provider-enforced JSON Schema.
+     * This is not a remote model-capability probe.
      * 
      * @return true if structured output is supported
      */

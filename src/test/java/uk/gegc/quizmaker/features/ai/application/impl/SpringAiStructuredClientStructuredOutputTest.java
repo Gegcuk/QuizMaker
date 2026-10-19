@@ -19,6 +19,7 @@ import uk.gegc.quizmaker.shared.config.AiRateLimitConfig;
 import java.lang.reflect.Method;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 /**
@@ -67,8 +68,8 @@ class SpringAiStructuredClientStructuredOutputTest {
     }
 
     @Test
-    @DisplayName("buildChatOptions should return null when schema serialization fails")
-    void buildChatOptionsShouldReturnNullOnSerializationFailure() throws Exception {
+    @DisplayName("buildChatOptions rejects schema serialization failure without a downgrade")
+    void buildChatOptionsRejectsSerializationFailure() throws Exception {
         ObjectMapper failingMapper = new ObjectMapper() {
             @Override
             public String writeValueAsString(Object value) throws JsonProcessingException {
@@ -88,9 +89,8 @@ class SpringAiStructuredClientStructuredOutputTest {
         Method method = SpringAiStructuredClient.class.getDeclaredMethod("buildChatOptions", QuestionType.class, JsonNode.class);
         method.setAccessible(true);
 
-        OpenAiChatOptions options = (OpenAiChatOptions) method.invoke(failingClient, QuestionType.TRUE_FALSE, schema);
-
-        assertThat(options).isNull();
+        assertThatThrownBy(() -> method.invoke(failingClient, QuestionType.TRUE_FALSE, schema))
+                .hasRootCauseMessage("Schema preparation failed");
     }
 
     @Test

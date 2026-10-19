@@ -31,6 +31,58 @@ so an existing deployment `.env` remains compatible. Change them together only
 after observing production pressure; invalid bounds fail application startup
 instead of silently creating an unsafe executor.
 
+## Generated-question schema delivery
+
+`OpenAiConfig` selects schema delivery from the configured `ChatModel` adapter:
+
+- `OpenAiChatModel` uses `OPENAI_STRICT`: the request-specific schema is sent as
+  OpenAI `JSON_SCHEMA` with `strict=true`, retaining the existing
+  `max-completion-tokens` setting. The schema body is not duplicated in the prompt.
+- Other adapters use `PROMPT_SCHEMA`: the complete schema from
+  `QuestionSchemaRegistry`, including the requested type and difficulty, is added
+  to the trusted system message. No OpenAI-specific request options are attached;
+  the adapter retains its own configured defaults. Custom wrappers that do not
+  expose an `OpenAiChatModel` also take this path.
+
+This is adapter selection, not a remote capability probe or provider switch.
+An OpenAI-compatible URL alone does not change the selected mode. The configured
+OpenAI endpoint/model must support strict JSON Schema; unsupported model/schema
+errors never trigger a prompt-only downgrade. Adding or activating another
+provider remains a separate configuration/dependency change.
+
+In both modes the user document remains in the existing untrusted-source
+delimiters, separately from schema instructions. Existing response parsing,
+question-content validation, requested type/difficulty checks, cancellation,
+provider-attempt accounting, and job coverage/billing rules remain in force.
+Prompt instructions do not provide provider-enforced schema adherence.
+See the [official Structured Outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs)
+for the strict-format contract and supported-schema limitations.
+
+Schema lookup, serialization, or strict-option preparation failure stops the
+affected structured-client call with the safe `SCHEMA_PREPARATION` category.
+The call is not dispatched, consumes no provider-attempt permit, emits no
+provider-usage event, and is not retried inside the structured client. Existing
+outer job orchestration/failure handling remains unchanged. In particular, a
+preparation error cannot cause an unconstrained paid call. Serializer/provider
+exception details and user content are not included in errors or logs.
+
+For example, generating ten multiple-choice questions through an adapter without
+OpenAI strict support now supplies the full response schema in the system
+message. If schema preparation fails for the OpenAI adapter, that invocation
+stops before contacting the provider instead of silently omitting its options.
+
+Offline coverage uses the real Spring AI `ChatClient` with local `ChatModel`
+fakes and packaged prompts. `OpenAiSchemaDeliveryConfigurationTest` verifies
+Spring wiring; `SpringAiStructuredClientSchemaDeliveryTest` covers all nine
+question families in both modes, preparation failures, accounting, cancellation,
+and malformed output. `SpringAiStructuredClientPromptPrivacyTest` checks DEBUG
+log redaction in both modes. Run these alongside the existing structured-output
+and token-limit tests before the complete Maven verification gate.
+
+No HTTP route, request/response schema, permission, migration, or JPA relationship
+read changes. N+1 query behavior is therefore not applicable to this change.
+Rollback restores the prior application version; no data migration is required.
+
 ## Work And Batching
 
 One executor task owns one document chunk. Within that task, generation remains
