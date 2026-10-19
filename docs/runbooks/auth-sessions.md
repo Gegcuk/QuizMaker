@@ -84,3 +84,7 @@ token, or session identifiers as tags:
 Alert on a sustained increase in `auth.sessions.store.failures` and investigate
 database availability. Treat a rise in `replayed_token` rejections as a
 security signal; it can indicate a retried request or stolen refresh material.
+
+## Shared admission
+
+Login, signup, refresh, recovery, and OAuth exchange use [shared configurable authentication admission](auth-throttling.md). A throttled refresh is rejected before token rotation. The existing session/replay contract still governs admitted requests and uncertain outcomes.

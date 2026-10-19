@@ -22,6 +22,13 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByEmail(String email);
 
+    // Scalar projections keep authentication admission independent of role/permission relationship loading.
+    @Query("SELECT u.id FROM User u WHERE u.username = :identifier")
+    Optional<UUID> findAuthThrottleIdByUsername(@Param("identifier") String identifier);
+
+    @Query("SELECT u.id FROM User u WHERE LOWER(u.email) = LOWER(:identifier)")
+    Optional<UUID> findAuthThrottleIdByEmail(@Param("identifier") String identifier);
+
     boolean existsByUsername(String username);
 
     boolean existsByEmail(String email);

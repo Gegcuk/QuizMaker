@@ -17,7 +17,7 @@ import uk.gegc.quizmaker.features.auth.api.AuthController;
 import uk.gegc.quizmaker.features.auth.api.dto.ChangePasswordRequest;
 import uk.gegc.quizmaker.features.auth.application.AuthService;
 import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
-import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
+import uk.gegc.quizmaker.features.auth.application.AuthThrottleService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -44,7 +44,7 @@ class AuthControllerChangePasswordTest {
     private AuthService authService;
 
     @MockitoBean
-    private RateLimitService rateLimitService;
+    private AuthThrottleService authThrottleService;
 
     @MockitoBean
     private TrustedProxyUtil trustedProxyUtil;
@@ -70,7 +70,7 @@ class AuthControllerChangePasswordTest {
 
         verify(authService).changePassword("testuser", "CurrentP@ssw0rd123!", "NewSecureP@ssw0rd123!");
         // Verify rate limit is checked with username + IP key
-        verify(rateLimitService).checkRateLimit("change-password", "testuser|192.168.1.50", 3);
+        verify(authThrottleService).existing("change-password", "testuser|192.168.1.50");
     }
 
     @Test
@@ -94,7 +94,7 @@ class AuthControllerChangePasswordTest {
                 .andExpect(status().isFound()); // Spring Security redirects to login (302)
 
         verify(authService, never()).changePassword(anyString(), anyString(), anyString());
-        verify(rateLimitService, never()).checkRateLimit(anyString(), anyString(), anyInt());
+        verify(authThrottleService, never()).existing(anyString(), anyString());
     }
 
     @Test
@@ -119,7 +119,7 @@ class AuthControllerChangePasswordTest {
 
         verify(authService).changePassword("testuser", "WrongP@ssw0rd123!", "NewSecureP@ssw0rd123!");
         // Rate limit should still be checked even on failure
-        verify(rateLimitService).checkRateLimit("change-password", "testuser|192.168.1.50", 3);
+        verify(authThrottleService).existing("change-password", "testuser|192.168.1.50");
     }
 
     @Test
@@ -140,7 +140,7 @@ class AuthControllerChangePasswordTest {
                 .andExpect(status().isBadRequest());
 
         verify(authService, never()).changePassword(anyString(), anyString(), anyString());
-        verify(rateLimitService, never()).checkRateLimit(anyString(), anyString(), anyInt());
+        verify(authThrottleService, never()).existing(anyString(), anyString());
     }
 
     @Test
@@ -161,7 +161,7 @@ class AuthControllerChangePasswordTest {
                 .andExpect(status().isBadRequest());
 
         verify(authService, never()).changePassword(anyString(), anyString(), anyString());
-        verify(rateLimitService, never()).checkRateLimit(anyString(), anyString(), anyInt());
+        verify(authThrottleService, never()).existing(anyString(), anyString());
     }
 
     @Test
@@ -182,7 +182,7 @@ class AuthControllerChangePasswordTest {
                 .andExpect(status().isBadRequest());
 
         verify(authService, never()).changePassword(anyString(), anyString(), anyString());
-        verify(rateLimitService, never()).checkRateLimit(anyString(), anyString(), anyInt());
+        verify(authThrottleService, never()).existing(anyString(), anyString());
     }
 
     @Test
@@ -204,7 +204,7 @@ class AuthControllerChangePasswordTest {
                 .andExpect(status().isBadRequest());
 
         verify(authService, never()).changePassword(anyString(), anyString(), anyString());
-        verify(rateLimitService, never()).checkRateLimit(anyString(), anyString(), anyInt());
+        verify(authThrottleService, never()).existing(anyString(), anyString());
     }
 
     @Test
@@ -225,7 +225,7 @@ class AuthControllerChangePasswordTest {
                 .andExpect(status().isBadRequest());
 
         verify(authService, never()).changePassword(anyString(), anyString(), anyString());
-        verify(rateLimitService, never()).checkRateLimit(anyString(), anyString(), anyInt());
+        verify(authThrottleService, never()).existing(anyString(), anyString());
     }
 
     @Test
@@ -247,7 +247,7 @@ class AuthControllerChangePasswordTest {
                 .andExpect(status().isBadRequest());
 
         verify(authService, never()).changePassword(anyString(), anyString(), anyString());
-        verify(rateLimitService, never()).checkRateLimit(anyString(), anyString(), anyInt());
+        verify(authThrottleService, never()).existing(anyString(), anyString());
     }
 
     @Test
@@ -264,7 +264,7 @@ class AuthControllerChangePasswordTest {
         String rateLimitKey = "testuser|" + clientIp;
 
         doThrow(new RateLimitExceededException("Rate limit exceeded", 60))
-                .when(rateLimitService).checkRateLimit(eq("change-password"), eq(rateLimitKey), eq(3));
+                .when(authThrottleService).existing(eq("change-password"), eq(rateLimitKey));
 
         // When & Then
         mockMvc.perform(post("/api/v1/auth/change-password")
@@ -274,7 +274,7 @@ class AuthControllerChangePasswordTest {
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().string("Retry-After", "60"));
 
-        verify(rateLimitService).checkRateLimit("change-password", rateLimitKey, 3);
+        verify(authThrottleService).existing("change-password", rateLimitKey);
         verify(authService, never()).changePassword(anyString(), anyString(), anyString());
     }
 
@@ -299,7 +299,7 @@ class AuthControllerChangePasswordTest {
 
         // Then - Verify rate limit key format is username|IP
         String expectedKey = "testuser|" + clientIp;
-        verify(rateLimitService).checkRateLimit("change-password", expectedKey, 3);
+        verify(authThrottleService).existing("change-password", expectedKey);
     }
 
     @Test
@@ -321,7 +321,7 @@ class AuthControllerChangePasswordTest {
                 .andExpect(status().isOk());
 
         // Then - Verify rate limit is called with limit of 3
-        verify(rateLimitService).checkRateLimit(eq("change-password"), anyString(), eq(3));
+        verify(authThrottleService).existing(eq("change-password"), anyString());
     }
 
     @Test
@@ -345,7 +345,7 @@ class AuthControllerChangePasswordTest {
                 .andExpect(status().isNotFound());
 
         verify(authService).changePassword("nonexistent", "CurrentP@ssw0rd123!", "NewSecureP@ssw0rd123!");
-        verify(rateLimitService).checkRateLimit("change-password", "nonexistent|192.168.1.50", 3);
+        verify(authThrottleService).existing("change-password", "nonexistent|192.168.1.50");
     }
 
     @Test
@@ -359,7 +359,7 @@ class AuthControllerChangePasswordTest {
                 .andExpect(status().isBadRequest());
 
         verify(authService, never()).changePassword(anyString(), anyString(), anyString());
-        verify(rateLimitService, never()).checkRateLimit(anyString(), anyString(), anyInt());
+        verify(authThrottleService, never()).existing(anyString(), anyString());
     }
 
     @Test
@@ -374,7 +374,7 @@ class AuthControllerChangePasswordTest {
                 .andExpect(status().isBadRequest());
 
         verify(authService, never()).changePassword(anyString(), anyString(), anyString());
-        verify(rateLimitService, never()).checkRateLimit(anyString(), anyString(), anyInt());
+        verify(authThrottleService, never()).existing(anyString(), anyString());
     }
 }
 

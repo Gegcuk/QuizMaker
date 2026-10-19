@@ -27,7 +27,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
 
         User user = userRepository.findByUsernameWithRolesAndPermissions(usernameOrEmail)
                 .or(() -> userRepository.findByEmailWithRolesAndPermissions(usernameOrEmail))
-                .orElseThrow(() -> new UsernameNotFoundException("User not found with username or email: " + usernameOrEmail));
+                .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
         List<GrantedAuthority> authorities = user.getRoles()
                 .stream()
@@ -45,23 +45,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
                 .map(authority -> (GrantedAuthority) authority)
                 .toList();
 
-        // Debug logging to see what authorities are loaded
-        log.info("User '{}' authenticated with authorities: {}", 
-                user.getUsername(), 
-                authorities.stream().map(GrantedAuthority::getAuthority).toList());
-        
-        // Also log roles and permissions separately for better debugging
-        log.info("User '{}' roles: {}", 
-                user.getUsername(), 
-                user.getRoles().stream().map(role -> role.getRoleName()).toList());
-        
-        log.info("User '{}' permissions: {}", 
-                user.getUsername(), 
-                user.getRoles().stream()
-                        .flatMap(role -> role.getPermissions().stream())
-                        .map(permission -> permission.getPermissionName())
-                        .distinct()
-                        .toList());
+        log.debug("Authentication authorities resolved");
 
         return new org.springframework.security.core.userdetails.User(
                 user.getUsername(),

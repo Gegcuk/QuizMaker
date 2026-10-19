@@ -60,7 +60,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(SpringExtension.class)
 @Tag("db-serial")
 @SpringBootTest(properties = {
-    "spring.datasource.url=jdbc:mysql://localhost:3306/quizmaker_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true",
+    "spring.datasource.url=jdbc:mysql://127.0.0.1:${TEST_MYSQL_PORT:3306}/quizmaker_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true",
     "spring.datasource.username=bestuser",
     "spring.datasource.password=bestuser",
     "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver",

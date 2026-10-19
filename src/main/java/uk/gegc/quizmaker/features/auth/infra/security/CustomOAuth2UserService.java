@@ -13,6 +13,10 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.auth.domain.event.UserRegisteredEvent;
+import uk.gegc.quizmaker.features.auth.application.AuthThrottleService;
+import uk.gegc.quizmaker.features.auth.domain.exception.AuthRateLimitUnavailableException;
+import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
+import org.springframework.security.oauth2.core.OAuth2Error;
 import uk.gegc.quizmaker.features.auth.domain.model.OAuthAccount;
 import uk.gegc.quizmaker.features.auth.domain.model.OAuthProvider;
 import uk.gegc.quizmaker.features.auth.domain.repository.OAuthAccountRepository;
@@ -49,6 +53,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
     private final OAuthTokenCryptoService tokenCryptoService;
     private final OAuthUsernameGenerator oauthUsernameGenerator;
     private final ApplicationEventPublisher eventPublisher;
+    private final AuthThrottleService authThrottleService;
 
     @Override
     @Transactional
@@ -120,7 +125,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
         // OAuth account doesn't exist, try to link with existing user by email
         if (email != null) {
-            Optional<User> existingUser = userRepository.findByEmailWithRoles(email);
+            Optional<User> existingUser = userRepository.findByEmailWithRolesAndPermissions(email);
             if (existingUser.isPresent()) {
                 User user = existingUser.get();
                 // Auto-verify email if not already verified (OAuth provider has verified it)
@@ -135,6 +140,14 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 log.info("Linked an OAuth account to an existing user: provider={}", provider);
                 return user;
             }
+        }
+
+        // Existing provider logins are not signups; admit only before first account creation.
+        try {
+            authThrottleService.providerRegistration(provider.name(), providerUserId, email);
+        } catch (RateLimitExceededException | AuthRateLimitUnavailableException exception) {
+            throw new OAuth2AuthenticationException(new OAuth2Error("auth_admission_rejected"),
+                    "Authentication admission rejected", exception);
         }
 
         // Create new user with OAuth account
@@ -164,9 +177,9 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         user.setAvatarUrl(profileImageUrl);
 
         // Assign default roles
-        Role userRole = roleRepository.findByRoleName(RoleName.ROLE_USER.name())
+        Role userRole = roleRepository.findByRoleNameWithPermissions(RoleName.ROLE_USER.name())
                 .orElseThrow(() -> new IllegalStateException("ROLE_USER not found"));
-        Role quizCreatorRole = roleRepository.findByRoleName(RoleName.ROLE_QUIZ_CREATOR.name())
+        Role quizCreatorRole = roleRepository.findByRoleNameWithPermissions(RoleName.ROLE_QUIZ_CREATOR.name())
                 .orElseThrow(() -> new IllegalStateException("ROLE_QUIZ_CREATOR not found"));
         
         // Use mutable HashSet for Hibernate to manage the collection

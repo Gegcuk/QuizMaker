@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.auth.api;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -21,7 +22,7 @@ import org.springframework.web.server.ResponseStatusException;
 import uk.gegc.quizmaker.features.auth.api.dto.*;
 import uk.gegc.quizmaker.features.auth.application.AuthService;
 import uk.gegc.quizmaker.features.user.api.dto.AuthenticatedUserDto;
-import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
+import uk.gegc.quizmaker.features.auth.application.AuthThrottleService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 import uk.gegc.quizmaker.shared.exception.UnauthorizedException;
 
@@ -36,7 +37,7 @@ import java.time.LocalDateTime;
 public class AuthController {
 
     private final AuthService authService;
-    private final RateLimitService rateLimitService;
+    private final AuthThrottleService authThrottleService;
     private final TrustedProxyUtil trustedProxyUtil;
 
     @Operation(
@@ -50,6 +51,11 @@ public class AuthController {
             @ApiResponse(responseCode = "400", description = "Validation errors",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "409", description = "Username or email already in use",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "429", description = "Shared authentication allowance exhausted; no authentication side effect. Retry only after Retry-After.",
+                    headers = @Header(name = "Retry-After", description = "Whole seconds until all limiting dimensions permit another request", schema = @Schema(type = "integer", format = "int64", minimum = "1")),
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Authentication protection store unavailable; operation rejected without local fallback",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/register")
@@ -59,8 +65,10 @@ public class AuthController {
                     required = true,
                     content = @Content(schema = @Schema(implementation = RegisterRequest.class))
             )
-            @Valid @RequestBody RegisterRequest request
+            @Valid @RequestBody RegisterRequest request,
+            HttpServletRequest httpRequest
     ) {
+        authThrottleService.registration(request.email(), request.username(), trustedProxyUtil.getClientIp(httpRequest));
         AuthenticatedUserDto createdUser = authService.register(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
     }
@@ -79,6 +87,11 @@ public class AuthController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Login successful"),
             @ApiResponse(responseCode = "401", description = "Invalid credentials",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "429", description = "Shared authentication allowance exhausted; no authentication side effect. Retry only after Retry-After.",
+                    headers = @Header(name = "Retry-After", description = "Whole seconds until all limiting dimensions permit another request", schema = @Schema(type = "integer", format = "int64", minimum = "1")),
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Authentication protection store unavailable; operation rejected without local fallback",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/login")
@@ -88,8 +101,10 @@ public class AuthController {
                     required = true,
                     content = @Content(schema = @Schema(implementation = LoginRequest.class))
             )
-            @Valid @RequestBody LoginRequest request
+            @Valid @RequestBody LoginRequest request,
+            HttpServletRequest httpRequest
     ) {
+        authThrottleService.login(request.username(), trustedProxyUtil.getClientIp(httpRequest));
         JwtResponse tokens = authService.login(request);
         return ResponseEntity.ok(tokens);
     }
@@ -107,6 +122,9 @@ public class AuthController {
             @ApiResponse(responseCode = "401", description = "Invalid or expired refresh token",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "503", description = "Authentication session state is temporarily unavailable",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "429", description = "Shared authentication allowance exhausted; no authentication side effect. Retry only after Retry-After.",
+                    headers = @Header(name = "Retry-After", description = "Whole seconds until all limiting dimensions permit another request", schema = @Schema(type = "integer", format = "int64", minimum = "1")),
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/refresh")
@@ -116,8 +134,10 @@ public class AuthController {
                     required = true,
                     content = @Content(schema = @Schema(implementation = RefreshRequest.class))
             )
-            @Valid @RequestBody RefreshRequest refreshRequest
+            @Valid @RequestBody RefreshRequest refreshRequest,
+            HttpServletRequest httpRequest
     ) {
+        authThrottleService.refresh(refreshRequest.refreshToken(), trustedProxyUtil.getClientIp(httpRequest));
         return ResponseEntity.ok(authService.refresh(refreshRequest));
     }
 
@@ -177,7 +197,10 @@ public class AuthController {
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "401", description = "Not authenticated",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "429", description = "Rate limit exceeded",
+            @ApiResponse(responseCode = "429", description = "Shared authentication allowance exhausted; no authentication side effect",
+                    headers = @Header(name = "Retry-After", description = "Wait in whole seconds; do not automatically replay credentials", schema = @Schema(type = "integer", minimum = "1")),
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Authentication protection store unavailable; operation rejected without local fallback",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/change-password")
@@ -192,7 +215,7 @@ public class AuthController {
 
         String clientIp = trustedProxyUtil.getClientIp(httpRequest);
         String rateLimitKey = authentication.getName() + "|" + clientIp;
-        rateLimitService.checkRateLimit("change-password", rateLimitKey, 3);
+        authThrottleService.existing("change-password", rateLimitKey);
 
         authService.changePassword(authentication.getName(), request.currentPassword(), request.newPassword());
         return ResponseEntity.ok(new ChangePasswordResponse("Password updated successfully"));
@@ -206,7 +229,10 @@ public class AuthController {
             @ApiResponse(responseCode = "202", description = "Request accepted"),
             @ApiResponse(responseCode = "400", description = "Invalid email format",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "429", description = "Rate limit exceeded",
+            @ApiResponse(responseCode = "429", description = "Shared authentication allowance exhausted; no authentication side effect",
+                    headers = @Header(name = "Retry-After", description = "Wait in whole seconds; do not automatically replay credentials", schema = @Schema(type = "integer", minimum = "1")),
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Authentication protection store unavailable; operation rejected without local fallback",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/forgot-password")
@@ -223,7 +249,7 @@ public class AuthController {
         String clientIp = trustedProxyUtil.getClientIp(httpRequest);
         
         // Rate limiting check by email + IP
-        rateLimitService.checkRateLimit("forgot-password", request.email() + "|" + clientIp);
+        authThrottleService.existing("forgot-password", request.email() + "|" + clientIp);
         
         // Generate reset token (if email exists)
         authService.generatePasswordResetToken(request.email());
@@ -240,7 +266,10 @@ public class AuthController {
             @ApiResponse(responseCode = "200", description = "Password reset successful"),
             @ApiResponse(responseCode = "400", description = "Invalid or expired token",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "429", description = "Rate limit exceeded",
+            @ApiResponse(responseCode = "429", description = "Shared authentication allowance exhausted; no authentication side effect",
+                    headers = @Header(name = "Retry-After", description = "Wait in whole seconds; do not automatically replay credentials", schema = @Schema(type = "integer", minimum = "1")),
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Authentication protection store unavailable; operation rejected without local fallback",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/reset-password")
@@ -264,7 +293,7 @@ public class AuthController {
         String clientIp = trustedProxyUtil.getClientIp(httpRequest);
         
         // Rate limiting check scoped to caller IP to prevent bucket rotation via token parameter
-        rateLimitService.checkRateLimit("reset-password", clientIp);
+        authThrottleService.existing("reset-password", clientIp);
         
         // Reset the password
         authService.resetPassword(token, request.newPassword());
@@ -279,6 +308,11 @@ public class AuthController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Email verified successfully"),
             @ApiResponse(responseCode = "400", description = "Invalid or expired token",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "429", description = "Shared authentication allowance exhausted; no authentication side effect. Retry only after Retry-After.",
+                    headers = @Header(name = "Retry-After", description = "Whole seconds until all limiting dimensions permit another request", schema = @Schema(type = "integer", format = "int64", minimum = "1")),
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Authentication protection store unavailable; operation rejected without local fallback",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/verify-email")
@@ -292,7 +326,7 @@ public class AuthController {
         // Rate limiting scoped to caller IP only to prevent bucket rotation via token parameter
         // Using IP-only prevents attackers from bypassing rate limits by rotating tokens
         // Higher limit (10/min) accommodates legitimate users behind shared IPs (e.g., corporate networks)
-        rateLimitService.checkRateLimit("verify-email", clientIp, 10);
+        authThrottleService.existing("verify-email", clientIp);
         
         LocalDateTime verifiedAt = authService.verifyEmail(request.token());
         
@@ -305,7 +339,10 @@ public class AuthController {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "202", description = "If the email exists and is not verified, a verification link was sent"),
-            @ApiResponse(responseCode = "429", description = "Rate limit exceeded",
+            @ApiResponse(responseCode = "429", description = "Shared authentication allowance exhausted; no authentication side effect",
+                    headers = @Header(name = "Retry-After", description = "Wait in whole seconds; do not automatically replay credentials", schema = @Schema(type = "integer", minimum = "1")),
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Authentication protection store unavailable; operation rejected without local fallback",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @PostMapping("/resend-verification")
@@ -317,7 +354,7 @@ public class AuthController {
         String clientIp = trustedProxyUtil.getClientIp(httpRequest);
         
         // Rate limiting check with IP + email
-        rateLimitService.checkRateLimit("resend-verification", request.email() + "|" + clientIp);
+        authThrottleService.existing("resend-verification", request.email() + "|" + clientIp);
         
         // Generate verification token (if email exists and not verified)
         authService.generateEmailVerificationToken(request.email());

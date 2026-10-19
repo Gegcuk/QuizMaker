@@ -23,7 +23,7 @@ import uk.gegc.quizmaker.features.auth.api.dto.RefreshRequest;
 import uk.gegc.quizmaker.features.auth.domain.exception.AuthSessionStoreUnavailableException;
 import uk.gegc.quizmaker.shared.config.OpenApiConfig;
 import uk.gegc.quizmaker.shared.config.OpenApiGroupConfig;
-import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
+import uk.gegc.quizmaker.features.auth.application.AuthThrottleService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -65,7 +65,7 @@ class AuthOpenApiContractTest {
     private OAuthExchangeService oauthExchangeService;
 
     @MockitoBean
-    private RateLimitService rateLimitService;
+    private AuthThrottleService authThrottleService;
 
     @MockitoBean
     private TrustedProxyUtil trustedProxyUtil;
@@ -183,5 +183,22 @@ class AuthOpenApiContractTest {
 
     private void assertResponseDocumented(JsonNode specification, String responsePointer) {
         assertThat(specification.at(responsePointer).isMissingNode()).isFalse();
+    }
+
+    @Test
+    @WithMockUser
+    void everyThrottledAuthOperationDocuments429And503WithoutChangingNamedSuccessSchemas() throws Exception {
+        JsonNode specification = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs/auth"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        for (String path : new String[]{"login", "register", "refresh", "change-password", "forgot-password",
+                "reset-password", "verify-email", "resend-verification", "oauth/exchange"}) {
+            String pointer = "/paths/~1api~1v1~1auth~1" + path.replace("/", "~1") + "/post/responses/";
+            assertResponseDocumented(specification, pointer + "429");
+            assertResponseDocumented(specification, pointer + "503");
+            assertThat(specification.at(pointer + "429/headers/Retry-After").isMissingNode()).as(path).isFalse();
+        }
+        assertThat(specification.at("/components/schemas/JwtResponse/properties/accessToken").isMissingNode()).isFalse();
+        assertThat(specification.at("/components/schemas/AuthenticatedUserDto").isMissingNode()).isFalse();
+        assertThat(specification.at("/paths/~1api~1v1~1auth~1login/post/responses/429/headers/Retry-After").isMissingNode()).isFalse();
     }
 }

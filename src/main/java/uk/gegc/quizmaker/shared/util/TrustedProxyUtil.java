@@ -1,100 +1,80 @@
 package uk.gegc.quizmaker.shared.util;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.web.util.matcher.IpAddressMatcher;
 import org.springframework.stereotype.Component;
 
-import java.util.Arrays;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
 import java.util.List;
 
 @Component
 public class TrustedProxyUtil {
-    
     @Value("${app.security.trusted-proxies:}")
     private String trustedProxiesConfig;
-    
     @Value("${app.security.enable-forwarded-headers:false}")
     private boolean enableForwardedHeaders;
-    
-    private List<String> trustedProxies;
-    
-    /**
-     * Safely extracts the client IP address from the request,
-     * respecting X-Forwarded-For header only from trusted proxies.
-     * 
-     * @param request The HTTP request
-     * @return The client IP address
-     */
+    private volatile List<IpAddressMatcher> trustedProxies;
+
+    @PostConstruct
+    void validateConfiguration() { trusted("127.0.0.1"); }
+
+    /** Walk from the socket peer through trusted hops; never select an attacker-prepended address. */
     public String getClientIp(HttpServletRequest request) {
-        if (!enableForwardedHeaders) {
-            return request.getRemoteAddr();
+        String remote = literal(request.getRemoteAddr());
+        if (remote == null) return null;
+        String header = request.getHeader("X-Forwarded-For");
+        if (!enableForwardedHeaders || !trusted(remote) || header == null || header.isBlank()) return remote;
+        if (header.length() > 2048) return remote;
+        String[] chain = header.split(",", -1);
+        if (chain.length > 32) return remote;
+        String current = remote;
+        for (int index = chain.length - 1; index >= 0 && trusted(current); index--) {
+            String next = literal(chain[index].strip());
+            if (next == null) return remote;
+            current = next;
         }
-        
-        String forwardedFor = request.getHeader("X-Forwarded-For");
-        if (forwardedFor == null || forwardedFor.trim().isEmpty()) {
-            return request.getRemoteAddr();
-        }
-        
-        // Check if the request is from a trusted proxy
-        String remoteAddr = request.getRemoteAddr();
-        if (!isTrustedProxy(remoteAddr)) {
-            return remoteAddr; // Don't trust X-Forwarded-For from untrusted sources
-        }
-        
-        // Extract the first (leftmost) IP from X-Forwarded-For
-        String clientIp = forwardedFor.split(",")[0].trim();
-        
-        // Basic validation - ensure it's a valid IP format
-        if (isValidIpAddress(clientIp)) {
-            return clientIp;
-        }
-        
-        return request.getRemoteAddr();
+        return current;
     }
-    
-    private boolean isTrustedProxy(String ip) {
+
+    private boolean trusted(String address) {
         if (trustedProxies == null) {
-            initializeTrustedProxies();
-        }
-        
-        return trustedProxies.contains(ip) || 
-               trustedProxies.stream().anyMatch(proxy -> ip.startsWith(proxy));
-    }
-    
-    private void initializeTrustedProxies() {
-        if (trustedProxiesConfig == null || trustedProxiesConfig.trim().isEmpty()) {
-            trustedProxies = List.of("127.0.0.1", "::1", "localhost"); // Default trusted
-        } else {
-            trustedProxies = Arrays.asList(trustedProxiesConfig.split(","));
-        }
-    }
-    
-    private boolean isValidIpAddress(String ip) {
-        if (ip == null || ip.trim().isEmpty()) {
-            return false;
-        }
-        
-        // Basic IPv4 validation
-        String[] parts = ip.split("\\.");
-        if (parts.length == 4) {
-            try {
-                for (String part : parts) {
-                    int num = Integer.parseInt(part);
-                    if (num < 0 || num > 255) {
-                        return false;
+            synchronized (this) {
+                if (trustedProxies == null) {
+                    String configuration = trustedProxiesConfig == null || trustedProxiesConfig.isBlank()
+                            ? "127.0.0.1,::1" : trustedProxiesConfig;
+                    List<IpAddressMatcher> matchers = new ArrayList<>();
+                    for (String configured : configuration.split(",")) {
+                        String value = configured.strip();
+                        if ("localhost".equalsIgnoreCase(value)) value = "127.0.0.1";
+                        String base = value.split("/", -1)[0];
+                        if (literal(base) == null) {
+                            throw new IllegalStateException("Trusted proxies must be IP literals or explicit CIDRs");
+                        }
+                        matchers.add(new IpAddressMatcher(value));
                     }
+                    trustedProxies = List.copyOf(matchers);
                 }
-                return true;
-            } catch (NumberFormatException e) {
-                return false;
             }
         }
-        
-        // Basic IPv6 validation (simplified)
-        if (ip.contains(":")) {
-            return ip.matches("^[0-9a-fA-F:]+$");
+        return trustedProxies.stream().anyMatch(matcher -> matcher.matches(address));
+    }
+
+    private static String literal(String input) {
+        if (input == null || input.length() > 45 || input.isBlank()) return null;
+        if (input.contains(":")) {
+            if (!input.matches("[0-9a-fA-F:.]+")) return null;
+        } else {
+            String[] parts = input.split("\\.", -1);
+            if (parts.length != 4) return null;
+            for (String part : parts) {
+                if (!part.matches("[0-9]{1,3}") || Integer.parseInt(part) > 255) return null;
+            }
         }
-        
-        return false;
+        try { return InetAddress.getByName(input).getHostAddress(); }
+        catch (UnknownHostException exception) { return null; }
     }
 }

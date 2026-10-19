@@ -64,6 +64,9 @@ class CustomOAuth2UserServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private uk.gegc.quizmaker.features.auth.application.AuthThrottleService authThrottleService;
+
     private CustomOAuth2UserService service;
 
     private Role userRole;
@@ -81,7 +84,8 @@ class CustomOAuth2UserServiceTest {
                 passwordEncoder,
                 tokenCryptoService,
                 usernameGenerator,
-                eventPublisher
+                eventPublisher,
+                authThrottleService
         );
         service = spy(service);
 
@@ -102,9 +106,9 @@ class CustomOAuth2UserServiceTest {
         );
 
         // Setup default mocks with lenient for optional usage
-        lenient().when(roleRepository.findByRoleName(RoleName.ROLE_USER.name()))
+        lenient().when(roleRepository.findByRoleNameWithPermissions(RoleName.ROLE_USER.name()))
                 .thenReturn(Optional.of(userRole));
-        lenient().when(roleRepository.findByRoleName(RoleName.ROLE_QUIZ_CREATOR.name()))
+        lenient().when(roleRepository.findByRoleNameWithPermissions(RoleName.ROLE_QUIZ_CREATOR.name()))
                 .thenReturn(Optional.of(quizCreatorRole));
         lenient().when(passwordEncoder.encode(anyString())).thenReturn("encoded-password");
         lenient().when(tokenCryptoService.encrypt(anyString())).thenReturn("encrypted-token");
@@ -128,7 +132,7 @@ class CustomOAuth2UserServiceTest {
 
         when(oauthAccountRepository.findByProviderAndProviderUserIdWithUser(
                 OAuthProvider.GOOGLE, "google123")).thenReturn(Optional.empty());
-        when(userRepository.findByEmailWithRoles("user@gmail.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailWithRolesAndPermissions("user@gmail.com")).thenReturn(Optional.empty());
         when(usernameGenerator.generate("user@gmail.com", "John Doe")).thenReturn("johndoe");
 
         User savedUser = createUser("johndoe", "user@gmail.com");
@@ -192,7 +196,7 @@ class CustomOAuth2UserServiceTest {
 
         when(oauthAccountRepository.findByProviderAndProviderUserIdWithUser(
                 OAuthProvider.GITHUB, "12345")).thenReturn(Optional.empty());
-        when(userRepository.findByEmailWithRoles("user@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailWithRolesAndPermissions("user@example.com")).thenReturn(Optional.empty());
         when(usernameGenerator.generate("user@example.com", "Jane Doe")).thenReturn("janedoe");
 
         User savedUser = createUser("janedoe", "user@example.com");
@@ -320,7 +324,7 @@ class CustomOAuth2UserServiceTest {
 
         when(oauthAccountRepository.findByProviderAndProviderUserIdWithUser(
                 OAuthProvider.GOOGLE, "google123")).thenReturn(Optional.empty());
-        when(userRepository.findByEmailWithRoles("user@gmail.com")).thenReturn(Optional.of(existingUser));
+        when(userRepository.findByEmailWithRolesAndPermissions("user@gmail.com")).thenReturn(Optional.of(existingUser));
         when(userRepository.save(any(User.class))).thenReturn(existingUser);
         when(oauthAccountRepository.save(any(OAuthAccount.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -357,7 +361,7 @@ class CustomOAuth2UserServiceTest {
         when(oauthAccountRepository.findByProviderAndProviderUserIdWithUser(
                 OAuthProvider.GOOGLE, "google123")).thenReturn(Optional.empty());
         // No email means findByEmailWithRoles won't be called, but stub it as lenient just in case
-        lenient().when(userRepository.findByEmailWithRoles(any())).thenReturn(Optional.empty());
+        lenient().when(userRepository.findByEmailWithRolesAndPermissions(any())).thenReturn(Optional.empty());
         when(usernameGenerator.generate(any(), eq("John Doe"))).thenReturn("johndoe");
 
         User savedUser = createUser("johndoe", "oauth_12345678@oauth.placeholder");
@@ -396,7 +400,7 @@ class CustomOAuth2UserServiceTest {
 
         when(oauthAccountRepository.findByProviderAndProviderUserIdWithUser(
                 OAuthProvider.FACEBOOK, "fb123")).thenReturn(Optional.empty());
-        when(userRepository.findByEmailWithRoles("user@facebook.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailWithRolesAndPermissions("user@facebook.com")).thenReturn(Optional.empty());
         when(usernameGenerator.generate("user@facebook.com", "John Doe")).thenReturn("johndoe");
 
         User savedUser = createUser("johndoe", "user@facebook.com");
@@ -430,7 +434,7 @@ class CustomOAuth2UserServiceTest {
 
         when(oauthAccountRepository.findByProviderAndProviderUserIdWithUser(
                 OAuthProvider.MICROSOFT, "ms123")).thenReturn(Optional.empty());
-        when(userRepository.findByEmailWithRoles("user@outlook.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailWithRolesAndPermissions("user@outlook.com")).thenReturn(Optional.empty());
         when(usernameGenerator.generate("user@outlook.com", "John Doe")).thenReturn("johndoe");
 
         User savedUser = createUser("johndoe", "user@outlook.com");
@@ -466,7 +470,7 @@ class CustomOAuth2UserServiceTest {
 
         when(oauthAccountRepository.findByProviderAndProviderUserIdWithUser(
                 OAuthProvider.GOOGLE, "google123")).thenReturn(Optional.empty());
-        when(userRepository.findByEmailWithRoles("user@gmail.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailWithRolesAndPermissions("user@gmail.com")).thenReturn(Optional.empty());
         when(usernameGenerator.generate("user@gmail.com", "John Doe")).thenReturn("johndoe");
 
         User savedUser = createUser("johndoe", "user@gmail.com");
@@ -596,7 +600,7 @@ class CustomOAuth2UserServiceTest {
     @DisplayName("loadUser: when ROLE_USER not found then throws IllegalStateException")
     void loadUser_RoleUserNotFound_ThrowsException() throws Exception {
         // Given
-        when(roleRepository.findByRoleName(RoleName.ROLE_USER.name()))
+        when(roleRepository.findByRoleNameWithPermissions(RoleName.ROLE_USER.name()))
                 .thenReturn(Optional.empty());
 
         attributes = Map.of(
@@ -611,7 +615,7 @@ class CustomOAuth2UserServiceTest {
 
         when(oauthAccountRepository.findByProviderAndProviderUserIdWithUser(
                 OAuthProvider.GOOGLE, "google123")).thenReturn(Optional.empty());
-        when(userRepository.findByEmailWithRoles("user@gmail.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailWithRolesAndPermissions("user@gmail.com")).thenReturn(Optional.empty());
         when(usernameGenerator.generate("user@gmail.com", "John Doe")).thenReturn("johndoe");
 
         // When/Then
@@ -640,7 +644,7 @@ class CustomOAuth2UserServiceTest {
 
         when(oauthAccountRepository.findByProviderAndProviderUserIdWithUser(
                 OAuthProvider.GOOGLE, "google123")).thenReturn(Optional.empty());
-        when(userRepository.findByEmailWithRoles("user@gmail.com")).thenReturn(Optional.of(existingUser));
+        when(userRepository.findByEmailWithRolesAndPermissions("user@gmail.com")).thenReturn(Optional.of(existingUser));
         when(userRepository.save(any(User.class))).thenReturn(existingUser);
         when(oauthAccountRepository.save(any(OAuthAccount.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -691,7 +695,7 @@ class CustomOAuth2UserServiceTest {
 
         when(oauthAccountRepository.findByProviderAndProviderUserIdWithUser(
                 OAuthProvider.GOOGLE, "google123")).thenReturn(Optional.empty());
-        when(userRepository.findByEmailWithRoles("user@gmail.com")).thenReturn(Optional.of(existingUser));
+        when(userRepository.findByEmailWithRolesAndPermissions("user@gmail.com")).thenReturn(Optional.of(existingUser));
         when(userRepository.save(any(User.class))).thenReturn(existingUser);
         when(oauthAccountRepository.save(any(OAuthAccount.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -731,7 +735,7 @@ class CustomOAuth2UserServiceTest {
 
         when(oauthAccountRepository.findByProviderAndProviderUserIdWithUser(
                 OAuthProvider.GOOGLE, "google123")).thenReturn(Optional.empty());
-        when(userRepository.findByEmailWithRoles("user@gmail.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmailWithRolesAndPermissions("user@gmail.com")).thenReturn(Optional.empty());
         when(usernameGenerator.generate("user@gmail.com", "John Doe")).thenReturn("johndoe");
 
         User savedUser = createUser("johndoe", "user@gmail.com");

@@ -448,15 +448,9 @@ public class JwtTokenServiceTest {
         
         assertThat(result).isFalse();
         
-        // Debug: Print all captured logs
-        System.out.println("Captured logs: " + logWatcher.list.size());
-        logWatcher.list.forEach(event -> 
-            System.out.println("Log: " + event.getLevel() + " - " + event.getMessage())
-        );
-        
         assertThat(logWatcher.list)
                 .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage)
-                .anyMatch(tuple -> tuple.toList().equals(List.of(Level.DEBUG, "JWT token is expired: {}")));
+                .anyMatch(tuple -> tuple.toList().equals(List.of(Level.DEBUG, "JWT token is expired")));
     }
 
     @Test 
@@ -469,7 +463,7 @@ public class JwtTokenServiceTest {
         assertThat(result).isFalse();
         assertThat(logWatcher.list)
                 .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage)
-                .anyMatch(tuple -> tuple.toList().equals(List.of(Level.WARN, "Malformed JWT token received: {}")));
+                .anyMatch(tuple -> tuple.toList().equals(List.of(Level.WARN, "Malformed JWT token received")));
     }
 
     @Test
@@ -490,7 +484,7 @@ public class JwtTokenServiceTest {
         assertThat(result).isFalse();
         assertThat(logWatcher.list)
                 .extracting(ILoggingEvent::getLevel, ILoggingEvent::getMessage)
-                .anyMatch(tuple -> tuple.toList().equals(List.of(Level.WARN, "Invalid JWT signature detected: {}")));
+                .anyMatch(tuple -> tuple.toList().equals(List.of(Level.WARN, "Invalid JWT signature detected")));
     }
 
     private Date refreshExpiry() {

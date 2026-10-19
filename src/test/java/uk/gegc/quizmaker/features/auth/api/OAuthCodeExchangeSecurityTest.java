@@ -33,7 +33,7 @@ import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthenticationSucces
 import uk.gegc.quizmaker.features.auth.infra.security.OAuth2AuthorizationRequestContextRepository;
 import uk.gegc.quizmaker.features.auth.infra.security.OAuth2LoginAuthorizationRequestResolver;
 import uk.gegc.quizmaker.shared.config.SecurityConfig;
-import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
+import uk.gegc.quizmaker.features.auth.application.AuthThrottleService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import java.time.Clock;
@@ -87,7 +87,7 @@ class OAuthCodeExchangeSecurityTest {
     private OAuthExchangeService oauthExchangeService;
 
     @MockitoBean
-    private RateLimitService rateLimitService;
+    private AuthThrottleService authThrottleService;
 
     @MockitoBean
     private TrustedProxyUtil trustedProxyUtil;

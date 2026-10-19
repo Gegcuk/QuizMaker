@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.auth.api;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -21,7 +22,7 @@ import uk.gegc.quizmaker.features.auth.api.dto.OAuthCodeExchangeRequest;
 import uk.gegc.quizmaker.features.auth.application.OAuthExchangeService;
 import uk.gegc.quizmaker.features.auth.application.OAuthPkcePolicy;
 import uk.gegc.quizmaker.features.auth.domain.exception.OAuthExchangeRequestException;
-import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
+import uk.gegc.quizmaker.features.auth.application.AuthThrottleService;
 
 import java.util.regex.Pattern;
 
@@ -33,10 +34,9 @@ public class OAuthCodeExchangeController {
 
     private static final Pattern CLIENT_ID = Pattern.compile("[A-Za-z0-9._-]{1,64}");
     private static final int MAX_REDIRECT_URI_LENGTH = 2048;
-    private static final int CODE_ATTEMPTS_PER_MINUTE = 5;
 
     private final OAuthExchangeService oauthExchangeService;
-    private final RateLimitService rateLimitService;
+    private final AuthThrottleService authThrottleService;
 
     @Operation(
             summary = "Exchange an OAuth callback code",
@@ -56,7 +56,8 @@ public class OAuthCodeExchangeController {
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "409", description = "Code has already been consumed",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "429", description = "Too many exchange attempts",
+            @ApiResponse(responseCode = "429", description = "Shared exchange allowance exhausted; no code consumption",
+                    headers = @Header(name = "Retry-After", description = "Wait in whole seconds before an explicit retry", schema = @Schema(type = "integer", minimum = "1")),
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "503", description = "Exchange state is temporarily unavailable; restart sign-in or retry as directed",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
@@ -75,10 +76,9 @@ public class OAuthCodeExchangeController {
             @RequestBody OAuthCodeExchangeRequest request
     ) {
         validateBoundedRequest(request);
-        rateLimitService.checkRateLimit(
+        authThrottleService.existing(
                 "oauth-code-exchange-code",
-                OAuthPkcePolicy.hashRawCode(request.code()),
-                CODE_ATTEMPTS_PER_MINUTE
+                OAuthPkcePolicy.hashRawCode(request.code())
         );
 
         JwtResponse response = oauthExchangeService.exchange(request);

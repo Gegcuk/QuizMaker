@@ -20,7 +20,7 @@ import uk.gegc.quizmaker.features.auth.domain.exception.OAuthExchangeRejectedExc
 import uk.gegc.quizmaker.features.auth.domain.exception.OAuthExchangeStoreUnavailableException;
 import uk.gegc.quizmaker.features.auth.domain.model.OAuthExchangeRejectionReason;
 import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
-import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
+import uk.gegc.quizmaker.features.auth.application.AuthThrottleService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -60,7 +60,7 @@ class OAuthCodeExchangeControllerTest {
     private OAuthExchangeService oauthExchangeService;
 
     @MockitoBean
-    private RateLimitService rateLimitService;
+    private AuthThrottleService authThrottleService;
 
     @MockitoBean
     private TrustedProxyUtil trustedProxyUtil;
@@ -82,11 +82,10 @@ class OAuthCodeExchangeControllerTest {
                 .andExpect(jsonPath("$.accessToken").value("access-jwt"))
                 .andExpect(jsonPath("$.refreshToken").value("refresh-jwt"));
 
-        verify(rateLimitService).checkRateLimit("oauth-code-exchange-ip", CLIENT_IP, 30);
-        verify(rateLimitService).checkRateLimit(
+        verify(authThrottleService).existing("oauth-code-exchange-ip", CLIENT_IP);
+        verify(authThrottleService).existing(
                 "oauth-code-exchange-code",
-                OAuthPkcePolicy.hashRawCode(CODE),
-                5
+                OAuthPkcePolicy.hashRawCode(CODE)
         );
         verify(oauthExchangeService).exchange(request);
         assertThat(tokens.toString())
@@ -118,7 +117,7 @@ class OAuthCodeExchangeControllerTest {
                 .andExpect(content().string(not(containsString("raw-code-secret"))))
                 .andExpect(content().string(not(containsString(VERIFIER))));
 
-        verify(rateLimitService).checkRateLimit("oauth-code-exchange-ip", CLIENT_IP, 30);
+        verify(authThrottleService).existing("oauth-code-exchange-ip", CLIENT_IP);
         verify(oauthExchangeService, never()).exchange(any());
     }
 
@@ -138,7 +137,7 @@ class OAuthCodeExchangeControllerTest {
                 .andExpect(content().string(not(containsString(secret))))
                 .andExpect(jsonPath("$.parseError").doesNotExist());
 
-        verify(rateLimitService).checkRateLimit("oauth-code-exchange-ip", CLIENT_IP, 30);
+        verify(authThrottleService).existing("oauth-code-exchange-ip", CLIENT_IP);
         verifyNoInteractions(oauthExchangeService);
     }
 
@@ -216,8 +215,8 @@ class OAuthCodeExchangeControllerTest {
         OAuthCodeExchangeRequest request = validRequest();
         when(trustedProxyUtil.getClientIp(any(HttpServletRequest.class))).thenReturn(CLIENT_IP);
         doThrow(new RateLimitExceededException("operation and key must not be reflected", 17))
-                .when(rateLimitService)
-                .checkRateLimit("oauth-code-exchange-ip", CLIENT_IP, 30);
+                .when(authThrottleService)
+                .existing("oauth-code-exchange-ip", CLIENT_IP);
 
         mockMvc.perform(post("/api/v1/auth/oauth/exchange")
                         .contentType(MediaType.APPLICATION_JSON)
