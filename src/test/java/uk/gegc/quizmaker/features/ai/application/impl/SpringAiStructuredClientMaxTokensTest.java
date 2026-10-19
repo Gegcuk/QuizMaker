@@ -186,8 +186,8 @@ class SpringAiStructuredClientMaxTokensTest {
         }
 
         @Test
-        @DisplayName("Should return no options if responseFormat serialization fails")
-        void shouldReturnNoOptionsIfResponseFormatSerializationFails() throws Exception {
+        @DisplayName("Rejects responseFormat serialization failure rather than omitting options")
+        void shouldRejectResponseFormatSerializationFailure() throws Exception {
             // Given - Use a failing ObjectMapper for schema serialization
             ObjectMapper failingMapper = new ObjectMapper() {
                 @Override
@@ -204,11 +204,8 @@ class SpringAiStructuredClientMaxTokensTest {
 
             // When
             JsonNode schema = schemaRegistry.getSchemaForQuestionType(QuestionType.ORDERING);
-            OpenAiChatOptions options = invokeBuildChatOptions(failingClient, QuestionType.ORDERING, schema);
-
-            // Then - Should return null due to schema serialization failure
-            // (This is existing behavior - schema serialization failure returns null options)
-            assertThat(options).isNull();
+            assertThatThrownBy(() -> invokeBuildChatOptions(failingClient, QuestionType.ORDERING, schema))
+                    .hasRootCauseMessage("Schema preparation failed");
         }
     }
 

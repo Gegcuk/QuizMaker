@@ -3,8 +3,8 @@ package uk.gegc.quizmaker.features.ai.application.impl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -27,6 +27,7 @@ import uk.gegc.quizmaker.features.ai.application.ProviderAttemptBudget;
 import uk.gegc.quizmaker.features.ai.application.ProviderAttemptBudgetExhaustedException;
 import uk.gegc.quizmaker.features.ai.application.ProviderUsageObservation;
 import uk.gegc.quizmaker.features.ai.application.ProviderUsagePersistenceException;
+import uk.gegc.quizmaker.features.ai.application.SchemaDeliveryMode;
 import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.ai.infra.schema.QuestionSchemaRegistry;
 import uk.gegc.quizmaker.features.question.application.FillGapContentValidator;
@@ -39,6 +40,8 @@ import uk.gegc.quizmaker.shared.exception.AiServiceException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -65,7 +68,6 @@ import java.util.function.Supplier;
  *     spring.ai.openai.chat.options.timeout=30s
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class SpringAiStructuredClient implements StructuredAiClient {
 
@@ -76,6 +78,36 @@ public class SpringAiStructuredClient implements StructuredAiClient {
     private final PromptTemplateService promptTemplateService;
     private final ObjectMapper objectMapper;
     private final AiRateLimitConfig rateLimitConfig;
+    private final SchemaDeliveryMode schemaDeliveryMode;
+
+    /** Preserves strict OpenAI behavior for existing direct callers. */
+    public SpringAiStructuredClient(
+            ChatClient chatClient,
+            QuestionSchemaRegistry schemaRegistry,
+            PromptTemplateService promptTemplateService,
+            ObjectMapper objectMapper,
+            AiRateLimitConfig rateLimitConfig
+    ) {
+        this(chatClient, schemaRegistry, promptTemplateService, objectMapper,
+                rateLimitConfig, SchemaDeliveryMode.OPENAI_STRICT);
+    }
+
+    @Autowired
+    public SpringAiStructuredClient(
+            ChatClient chatClient,
+            QuestionSchemaRegistry schemaRegistry,
+            PromptTemplateService promptTemplateService,
+            ObjectMapper objectMapper,
+            AiRateLimitConfig rateLimitConfig,
+            SchemaDeliveryMode schemaDeliveryMode
+    ) {
+        this.chatClient = chatClient;
+        this.schemaRegistry = schemaRegistry;
+        this.promptTemplateService = promptTemplateService;
+        this.objectMapper = objectMapper;
+        this.rateLimitConfig = rateLimitConfig;
+        this.schemaDeliveryMode = Objects.requireNonNull(schemaDeliveryMode, "schemaDeliveryMode");
+    }
     
     /**
      * Maximum completion tokens to prevent truncated JSON responses.
@@ -113,6 +145,12 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                 log.warn("Structured generation stopped with category {}",
                         GenerationFailureCategory.ATTEMPT_BUDGET_EXHAUSTED);
                 throw exception;
+            } catch (SchemaPreparationException exception) {
+                log.error("Structured generation stopped with category {}",
+                        GenerationFailureCategory.SCHEMA_PREPARATION);
+                throw new AiServiceException(
+                        "Failed to generate structured questions: "
+                                + GenerationFailureCategory.SCHEMA_PREPARATION);
             } catch (PromptConstructionException exception) {
                 log.error("Structured generation stopped with category {}",
                         GenerationFailureCategory.PROMPT_CONSTRUCTION);
@@ -218,15 +256,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
             return false;
         }
         
-        // Models known to support JSON mode / structured output
-        // OpenAI: GPT-4 and GPT-5 model families that expose structured output
-        // Anthropic: claude-3-5-sonnet, claude-3-opus, claude-3-sonnet
-        // Note: This is a best-effort check. In Phase 3, read from configuration.
-        log.info("Structured output support check - Spring AI 1.0.0-M6+ with ChatClient available");
-        log.info("Supported models: OpenAI (GPT-4/GPT-5 structured-output families), Anthropic (claude-3*)");
-        
-        // For now, return true if ChatClient exists
-        // Phase 3 TODO: Read spring.ai.openai.chat.options.model from config and validate
+        log.info("Structured generation available with schema delivery mode {}", schemaDeliveryMode);
         return true;
     }
     
@@ -250,38 +280,34 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         }
         
         // Get AI-safe JSON schema for this question type (media stripped)
-        JsonNode schema = schemaRegistry.getSchemaForQuestionTypeAi(
-                request.getQuestionType(),
-                request.getDifficulty());
-
-        if (log.isDebugEnabled()) {
-            log.debug("Sending structured generation request for {} {} questions (schema enforced)",
-                    request.getQuestionCount(), request.getQuestionType());
-            log.debug("Schema snapshot for {}: {}", request.getQuestionType(),
-                    schema.toString().length() > 500
-                            ? schema.toString().substring(0, 500) + "..."
-                            : schema.toString());
+        JsonNode schema;
+        try {
+            schema = schemaRegistry.getSchemaForQuestionTypeAi(
+                    request.getQuestionType(), request.getDifficulty());
+            if (schema == null || !schema.isObject() || schema.isEmpty()) {
+                throw new SchemaPreparationException();
+            }
+        } catch (RuntimeException exception) {
+            throw new SchemaPreparationException();
         }
 
-        OpenAiChatOptions chatOptions = buildChatOptions(request.getQuestionType(), schema);
-
-        Prompt prompt = chatOptions != null
-                ? new Prompt(List.of(
-                        new SystemMessage(systemPrompt),
-                        new UserMessage(userPrompt)
-                ), chatOptions)
-                : new Prompt(List.of(
-                        new SystemMessage(systemPrompt),
-                        new UserMessage(userPrompt)
-                ));
-
-        if (log.isDebugEnabled() && chatOptions != null && chatOptions.getResponseFormat() != null) {
-            log.debug("Using response format: {} (schema name: {})",
-                    chatOptions.getResponseFormat().getType(),
-                    chatOptions.getResponseFormat().getJsonSchema() != null
-                            ? chatOptions.getResponseFormat().getJsonSchema().getName()
-                            : "n/a");
+        Prompt prompt;
+        if (schemaDeliveryMode == SchemaDeliveryMode.OPENAI_STRICT) {
+            prompt = new Prompt(List.of(new SystemMessage(systemPrompt), new UserMessage(userPrompt)),
+                    buildChatOptions(request.getQuestionType(), schema));
+        } else {
+            String schemaInstructions = "\n\nRESPONSE JSON SCHEMA:\n"
+                    + serializeSchema(schema)
+                    + "\n\nReturn only one JSON object matching this entire schema. "
+                    + "Do not include markdown fences or commentary. "
+                    + "Schema instructions do not replace the source trust rules above.";
+            prompt = new Prompt(List.of(
+                    new SystemMessage(systemPrompt + schemaInstructions), new UserMessage(userPrompt)));
+            log.warn("Using prompt-based schema instructions for question type {}",
+                    request.getQuestionType());
         }
+        log.debug("Sending structured generation request for {} {} questions with schema delivery mode {}",
+                request.getQuestionCount(), request.getQuestionType(), schemaDeliveryMode);
 
         ProviderAttemptBudget providerAttemptBudget = request.getProviderAttemptBudget();
         if (providerAttemptBudget != null && !providerAttemptBudget.tryAcquire()) {
@@ -379,9 +405,9 @@ public class SpringAiStructuredClient implements StructuredAiClient {
 
     private OpenAiChatOptions buildChatOptions(QuestionType questionType, JsonNode schema) {
         try {
-            String schemaJson = objectMapper.writeValueAsString(schema);
+            String schemaJson = serializeSchema(schema);
             ResponseFormat.JsonSchema jsonSchema = ResponseFormat.JsonSchema.builder()
-                    .name(questionType.name().toLowerCase() + "_schema")
+                    .name(questionType.name().toLowerCase(Locale.ROOT) + "_schema")
                     .schema(schemaJson)
                     .strict(true)
                     .build();
@@ -404,8 +430,20 @@ public class SpringAiStructuredClient implements StructuredAiClient {
             return options;
 
         } catch (Exception e) {
-            log.error("Failed to build JSON schema response format for {}", questionType);
-            return null;
+            throw new SchemaPreparationException();
+        }
+    }
+
+    private String serializeSchema(JsonNode schema) {
+        try {
+            String serialized = objectMapper.writeValueAsString(schema);
+            if (serialized == null || serialized.isBlank()) {
+                throw new SchemaPreparationException();
+            }
+            return serialized;
+        } catch (Exception exception) {
+            // Schema preparation cannot downgrade strict mode or expose serializer details.
+            throw new SchemaPreparationException();
         }
     }
     
@@ -878,6 +916,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         PROVIDER_TERMINAL,
         RETRY_DELAY_EXCEEDED,
         INVALID_RESPONSE,
+        SCHEMA_PREPARATION,
         PROMPT_CONSTRUCTION,
         AI_SERVICE,
         INTERRUPTED,
@@ -906,6 +945,13 @@ public class SpringAiStructuredClient implements StructuredAiClient {
 
         private PromptConstructionException() {
             super("Prompt construction failed");
+        }
+    }
+
+    private static final class SchemaPreparationException extends RuntimeException {
+
+        private SchemaPreparationException() {
+            super("Schema preparation failed");
         }
     }
 }
