@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.question.application.impl;
 
+import uk.gegc.quizmaker.features.question.application.QuestionContracts;
+
 import lombok.RequiredArgsConstructor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -62,6 +64,9 @@ public class QuestionServiceImpl implements QuestionService {
                 .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
 
         QuestionHandler questionHandler = handlerFactory.getHandler(questionDto.getType());
+        QuestionContracts.validate(
+                questionDto.getType(), QuestionContracts.View.AUTHOR,
+                questionDto.getContent());
         questionHandler.validateContent(questionDto);
 
         JsonNode sanitizedContent = sanitizeMediaForStorage(questionDto.getContent());
@@ -143,7 +148,23 @@ public class QuestionServiceImpl implements QuestionService {
             retrievedPage = questionRepository.findAllByQuizId_IdIn(userQuizIds, page);
         }
 
-        return retrievedPage.map(question -> enrichQuestionDtoWithMedia(QuestionMapper.toDto(question), question));
+        if (!retrievedPage.isEmpty()) {
+            List<UUID> ids = retrievedPage.getContent().stream().map(Question::getId).toList();
+            // Fetch each bag separately after pagination; never paginate a collection join.
+            questionRepository.fetchTags(ids);
+            questionRepository.fetchQuizzes(ids);
+        }
+        var media = questionMediaResolver.resolveQuestions(retrievedPage.getContent());
+        return retrievedPage.map(question -> {
+            QuestionDto dto = QuestionMapper.toDto(question);
+            dto.setAttachment(question.getAttachmentAssetId() == null ? null : media.get(question.getAttachmentAssetId()));
+            if (dto.getAttachment() == null && question.getAttachmentUrl() != null) {
+                dto.setAttachment(new MediaRefDto(null, question.getAttachmentUrl(), null, null, null, null, null));
+            }
+            dto.setContent(questionMediaResolver.resolveMediaInContent(dto.getContent(), media));
+            validateResolvedContent(dto);
+            return dto;
+        });
     }
 
     @Override
@@ -202,6 +223,9 @@ public class QuestionServiceImpl implements QuestionService {
                 .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
 
         QuestionHandler questionHandler = handlerFactory.getHandler(request.getType());
+        QuestionContracts.validate(
+                request.getType(), QuestionContracts.View.AUTHOR,
+                request.getContent());
         questionHandler.validateContent(request);
 
         Question question = questionRepository.findById(questionId)
@@ -351,7 +375,18 @@ public class QuestionServiceImpl implements QuestionService {
         }
         dto.setAttachment(attachment);
         dto.setContent(questionMediaResolver.resolveMediaInContent(dto.getContent()));
+        validateResolvedContent(dto);
         return dto;
+    }
+
+    private void validateResolvedContent(QuestionDto dto) {
+        if (dto.getContent() == null) return;
+        try { QuestionContracts.validate(dto.getType(), QuestionContracts.View.AUTHOR, dto.getContent()); }
+        catch (uk.gegc.quizmaker.features.question.application.QuestionContractException ex) {
+            dto.setContent(null);
+            dto.setContentAvailability(uk.gegc.quizmaker.features.question.api.dto.QuestionContentAvailability.UNAVAILABLE);
+            dto.setContentProblem(QuestionContracts.unavailableProblem());
+        }
     }
 
     private void validateAttachmentAsset(UUID assetId, String username) {

@@ -1,7 +1,9 @@
 package uk.gegc.quizmaker.features.question.infra.mapping;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import uk.gegc.quizmaker.features.question.application.QuestionContracts;
+import uk.gegc.quizmaker.features.question.application.QuestionContractException;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentAvailability;
+
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
 import uk.gegc.quizmaker.features.question.api.dto.QuestionDto;
@@ -16,7 +18,6 @@ import java.util.stream.Collectors;
 @Component
 public class QuestionMapper {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     public static QuestionDto toDto(Question question) {
         QuestionDto dto = new QuestionDto();
@@ -25,17 +26,13 @@ public class QuestionMapper {
         dto.setDifficulty(question.getDifficulty());
         dto.setQuestionText(question.getQuestionText());
 
-        String raw = question.getContent();
-        if (raw != null && !raw.isBlank()) {
-            try {
-                dto.setContent(MAPPER.readTree(raw));
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(
-                        "Failed to parse JSON content for question " + question.getId(), e
-                );
-            }
-        } else {
-            dto.setContent(null);
+        try {
+            dto.setContent(QuestionContracts.read(
+                    question.getType(), QuestionContracts.View.AUTHOR,
+                    question.getContent()));
+        } catch (QuestionContractException ex) {
+            dto.setContentAvailability(QuestionContentAvailability.UNAVAILABLE);
+            dto.setContentProblem(QuestionContracts.unavailableProblem());
         }
 
         dto.setHint(question.getHint());

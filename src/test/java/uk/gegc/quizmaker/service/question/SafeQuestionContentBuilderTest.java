@@ -105,10 +105,8 @@ class SafeQuestionContentBuilderTest {
                 }
                 """;
 
-        JsonNode safe = builder.buildSafeContent(QuestionType.MCQ_SINGLE, raw);
-
-        JsonNode option = safe.get("options").get(0);
-        assertFalse(option.has("media"));
+        assertThrows(uk.gegc.quizmaker.features.question.application.QuestionContractException.class,
+                () -> builder.buildSafeContent(QuestionType.MCQ_SINGLE, raw));
     }
 
     @Test

@@ -1,11 +1,14 @@
 package uk.gegc.quizmaker.features.attempt.api.dto;
 
+import uk.gegc.quizmaker.features.question.application.QuestionContracts;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 
 import java.util.UUID;
 
+@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
 @Schema(
         name = "AnswerSubmissionRequest",
         description = "Payload for submitting an answer to a specific question"
@@ -57,4 +60,10 @@ public record AnswerSubmissionRequest(
             includeExplanation = false;
         }
     }
+    /** Optional wire metadata; absence is the legacy v1 contract. */
+    @com.fasterxml.jackson.annotation.JsonSetter("contractVersion")
+    public void acceptContractVersion(com.fasterxml.jackson.databind.JsonNode version) {
+        QuestionContracts.requireVersion(version);
+    }
+
 }

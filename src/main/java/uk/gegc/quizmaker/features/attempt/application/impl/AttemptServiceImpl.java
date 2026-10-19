@@ -21,6 +21,10 @@ import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
 import uk.gegc.quizmaker.features.attempt.infra.mapping.AttemptMapper;
 import uk.gegc.quizmaker.features.question.application.CorrectAnswerExtractor;
+import uk.gegc.quizmaker.features.question.application.QuestionContracts;
+import uk.gegc.quizmaker.features.question.application.QuestionContractException;
+import uk.gegc.quizmaker.features.question.application.QuestionContentUnavailableException;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentAvailability;
 import uk.gegc.quizmaker.features.question.application.SafeQuestionContentBuilder;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
@@ -376,10 +380,9 @@ public class AttemptServiceImpl implements AttemptService {
         if (request.includeCorrectAnswer()) {
             try {
                 correctAnswer = correctAnswerExtractor.extractCorrectAnswer(question);
-            } catch (IllegalArgumentException e) {
-                // Log error but don't fail entire response
-                correctAnswer = objectMapper.createObjectNode()
-                        .put("error", "Failed to extract correct answer: " + e.getMessage());
+                QuestionContracts.validate(question.getType(), QuestionContracts.View.CORRECT, correctAnswer);
+            } catch (QuestionContractException | IllegalArgumentException ex) {
+                throw new QuestionContentUnavailableException();
             }
         }
         String explanation = request.includeExplanation() ? question.getExplanation() : null;
@@ -426,6 +429,12 @@ public class AttemptServiceImpl implements AttemptService {
 
         if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
             throw new IllegalStateException("Cannot complete attempt with status " + attempt.getStatus());
+        }
+
+        // An unavailable question is never silently skipped or converted into a completed attempt.
+        for (Question question : questionRepository.findAllByQuizId_IdOrderById(attempt.getQuiz().getId())) {
+            try { QuestionContracts.read(question.getType(), QuestionContracts.View.AUTHOR, question.getContent()); }
+            catch (QuestionContractException ex) { throw new QuestionContentUnavailableException(); }
         }
 
         scoringService.computeAndPersistScore(attempt);
@@ -764,6 +773,10 @@ public class AttemptServiceImpl implements AttemptService {
         
         int totalQuestions = (int) questionRepository.countByQuizId_Id(attempt.getQuiz().getId());
 
+        var reviewMedia = includeQuestionContext
+                ? questionMediaResolver.resolveQuestions(attempt.getAnswers().stream().map(Answer::getQuestion).toList())
+                : Map.<UUID, uk.gegc.quizmaker.shared.dto.MediaRefDto>of();
+
         // Build answer review DTOs (sorted by answeredAt for stable ordering)
         List<AnswerReviewDto> answerReviews = attempt.getAnswers().stream()
                 .sorted(Comparator.comparing(Answer::getAnsweredAt))
@@ -771,7 +784,8 @@ public class AttemptServiceImpl implements AttemptService {
                         answer,
                         includeUserAnswers,
                         includeCorrectAnswers,
-                        includeQuestionContext
+                        includeQuestionContext,
+                        reviewMedia
                 ))
                 .collect(Collectors.toList());
 
@@ -916,69 +930,66 @@ public class AttemptServiceImpl implements AttemptService {
     private AnswerReviewDto buildAnswerReviewDto(Answer answer,
                                                   boolean includeUserAnswers,
                                                   boolean includeCorrectAnswers,
-                                                  boolean includeQuestionContext) {
+                                                  boolean includeQuestionContext,
+                                                  Map<UUID, uk.gegc.quizmaker.shared.dto.MediaRefDto> reviewMedia) {
         Question question = answer.getQuestion();
 
-        // Parse user response if requested
         JsonNode userResponse = null;
-        if (includeUserAnswers && answer.getResponse() != null) {
-            try {
-                userResponse = objectMapper.readTree(answer.getResponse());
-            } catch (JsonProcessingException e) {
-                // Log error but don't fail entire response
-                userResponse = objectMapper.createObjectNode()
-                        .put("error", "Failed to parse user response");
-            }
-        }
-
-        // Extract correct answer if requested
         JsonNode correctAnswer = null;
-        if (includeCorrectAnswers) {
-            try {
-                correctAnswer = correctAnswerExtractor.extractCorrectAnswer(question);
-            } catch (IllegalArgumentException e) {
-                // Log error but don't fail entire response
-                correctAnswer = objectMapper.createObjectNode()
-                        .put("error", "Failed to extract correct answer: " + e.getMessage());
-            }
-        }
-
-        // Build safe question content if requested (deterministic for review consistency)
         JsonNode questionSafeContent = null;
-        if (includeQuestionContext) {
+        QuestionContentAvailability contentState = QuestionContentAvailability.NOT_INCLUDED;
+        QuestionContentAvailability responseState = QuestionContentAvailability.NOT_INCLUDED;
+        QuestionContentAvailability correctState = QuestionContentAvailability.NOT_INCLUDED;
+
+        if (includeUserAnswers) {
             try {
-                questionSafeContent = safeQuestionContentBuilder.buildSafeContent(
-                        question.getType(),
-                        question.getContent(),
-                        true  // deterministic=true for review (no shuffling, ensures cacheability and consistent UX)
-                );
-                questionSafeContent = questionMediaResolver.resolveMediaInContent(questionSafeContent);
-            } catch (Exception e) {
-                // Log error but don't fail entire response
-                questionSafeContent = objectMapper.createObjectNode()
-                        .put("error", "Failed to build safe content: " + e.getMessage());
+                userResponse = QuestionContracts.read(question.getType(), QuestionContracts.View.RESPONSE, answer.getResponse());
+                responseState = QuestionContentAvailability.AVAILABLE;
+            } catch (QuestionContractException ex) { responseState = QuestionContentAvailability.UNAVAILABLE; }
+        }
+        if (includeCorrectAnswers || includeQuestionContext) {
+            boolean validContent = true;
+            try { QuestionContracts.read(question.getType(), QuestionContracts.View.AUTHOR, question.getContent()); }
+            catch (QuestionContractException ex) { validContent = false; }
+            if (includeCorrectAnswers) {
+                correctState = QuestionContentAvailability.UNAVAILABLE;
+                if (validContent) {
+                    try {
+                        correctAnswer = correctAnswerExtractor.extractCorrectAnswer(question);
+                        QuestionContracts.validate(question.getType(), QuestionContracts.View.CORRECT, correctAnswer);
+                        correctState = QuestionContentAvailability.AVAILABLE;
+                    } catch (QuestionContractException | IllegalArgumentException ex) { correctAnswer = null; }
+                }
+            }
+            if (includeQuestionContext) {
+                contentState = QuestionContentAvailability.UNAVAILABLE;
+                if (validContent) {
+                    try {
+                        questionSafeContent = safeQuestionContentBuilder.buildSafeContent(question.getType(), question.getContent(), true);
+                        QuestionContracts.validate(question.getType(), QuestionContracts.View.SAFE, questionSafeContent);
+                        questionSafeContent = questionMediaResolver.resolveMediaInContent(questionSafeContent, reviewMedia);
+                        QuestionContracts.validate(question.getType(), QuestionContracts.View.SAFE, questionSafeContent);
+                        contentState = QuestionContentAvailability.AVAILABLE;
+                    } catch (QuestionContractException ex) { questionSafeContent = null; }
+                }
             }
         }
-
-        var attachment = includeQuestionContext
-                ? questionMediaResolver.resolveAttachment(question.getAttachmentAssetId())
-                : null;
-
+        boolean unavailable = contentState == QuestionContentAvailability.UNAVAILABLE
+                || responseState == QuestionContentAvailability.UNAVAILABLE
+                || correctState == QuestionContentAvailability.UNAVAILABLE;
+        var attachment = includeQuestionContext && question.getAttachmentAssetId() != null
+                ? reviewMedia.get(question.getAttachmentAssetId()) : null;
         return new AnswerReviewDto(
-                question.getId(),
-                question.getType(),
+                question.getId(), question.getType(),
                 includeQuestionContext ? question.getQuestionText() : null,
                 includeQuestionContext ? question.getHint() : null,
                 includeQuestionContext ? question.getAttachmentUrl() : null,
                 attachment,
-                includeCorrectAnswers ? question.getExplanation() : null,
-                questionSafeContent,
-                userResponse,
-                correctAnswer,
-                answer.getIsCorrect(),
-                answer.getScore(),
-                answer.getAnsweredAt()
-        );
+                includeCorrectAnswers && correctState == QuestionContentAvailability.AVAILABLE ? question.getExplanation() : null,
+                questionSafeContent, userResponse, correctAnswer,
+                answer.getIsCorrect(), answer.getScore(), answer.getAnsweredAt(),
+                contentState, responseState, correctState,
+                unavailable ? QuestionContracts.unavailableProblem() : null);
     }
 
     /**

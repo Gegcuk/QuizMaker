@@ -94,6 +94,7 @@ class QuestionServiceImplTest {
         setupPermissionEvaluatorMock();
         lenient().when(questionMediaResolver.resolveAttachment(any())).thenReturn(null);
         lenient().when(questionMediaResolver.resolveMediaInContent(any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(questionMediaResolver.resolveMediaInContent(any(), anyMap())).thenAnswer(inv -> inv.getArgument(0));
     }
 
     private User createTestUser() {

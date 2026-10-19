@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.question.api.dto;
 
+import uk.gegc.quizmaker.features.question.application.QuestionContracts;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
@@ -16,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
 @Schema(
         name = "CreateQuestionRequest",
         description = "Payload for creating a new question"
@@ -101,4 +104,10 @@ public class CreateQuestionRequest implements QuestionContentRequest {
             example = "[\"3fa85f64-5717-4562-b3fc-2c963f66afb7\"]"
     )
     private List<UUID> tagIds = new ArrayList<>();
+    /** Optional wire metadata; absence is the legacy v1 contract. */
+    @com.fasterxml.jackson.annotation.JsonSetter("contractVersion")
+    public void acceptContractVersion(com.fasterxml.jackson.databind.JsonNode version) {
+        QuestionContracts.requireVersion(version);
+    }
+
 }

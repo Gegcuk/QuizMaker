@@ -61,6 +61,7 @@ public final class ErrorTypes {
 
     // ==================== State Errors ====================
     public static final URI ATTEMPT_NOT_COMPLETED = URI.create(BASE_URL + "/attempt-not-completed");
+    public static final URI QUESTION_CONTENT_UNAVAILABLE = URI.create(BASE_URL + "/question-content-unavailable");
     public static final URI ILLEGAL_STATE = URI.create(BASE_URL + "/illegal-state");
     public static final URI DATA_CONFLICT = URI.create(BASE_URL + "/data-conflict");
     public static final URI OPTIMISTIC_LOCK_CONFLICT = URI.create(BASE_URL + "/optimistic-lock-conflict");
