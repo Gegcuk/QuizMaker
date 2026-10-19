@@ -79,6 +79,18 @@ java -jar target/QuizMaker-0.0.1-SNAPSHOT.jar
 - Swagger UI: `http://localhost:8080/swagger-ui.html`
 - Readiness probe: `http://localhost:8080/actuator/health/readiness` (see the [health-probe runbook](docs/runbooks/health-probes.md))
 
+## Public sitemaps
+
+`GET /sitemap.xml` lists the eight indexable static public pages configured in
+`src/main/resources/seo.properties`. Keep their canonical trailing slashes and
+align this list with the frontend public-route indexability policy. The
+`/theme-demo/` page remains available but is excluded because it is `noindex`.
+
+`GET /sitemap_articles.xml` separately lists published, indexable articles; do not
+copy their URLs into the static sitemap. Both endpoints return `application/xml`,
+and `GET /robots.txt` returns `text/plain` with both sitemap locations. Their public
+contracts are in `/v3/api-docs/seo`, discoverable through `/api/v1/api-summary`.
+
 ## Building and testing
 
 ```bash
