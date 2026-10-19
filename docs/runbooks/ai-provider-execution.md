@@ -38,11 +38,13 @@ instead of silently creating an unsafe executor.
 - `OpenAiChatModel` uses `OPENAI_STRICT`: the request-specific schema is sent as
   OpenAI `JSON_SCHEMA` with `strict=true`, retaining the existing
   `max-completion-tokens` setting. The schema body is not duplicated in the prompt.
+  Spring AOP proxies, including JDK, class-based, and nested proxies, retain this
+  mode by resolving the underlying adapter class.
 - Other adapters use `PROMPT_SCHEMA`: the complete schema from
   `QuestionSchemaRegistry`, including the requested type and difficulty, is added
   to the trusted system message. No OpenAI-specific request options are attached;
-  the adapter retains its own configured defaults. Custom wrappers that do not
-  expose an `OpenAiChatModel` also take this path.
+  the adapter retains its own configured defaults. Non-AOP custom wrappers that
+  do not expose an `OpenAiChatModel` also take this path.
 
 This is adapter selection, not a remote capability probe or provider switch.
 An OpenAI-compatible URL alone does not change the selected mode. The configured
@@ -73,7 +75,9 @@ stops before contacting the provider instead of silently omitting its options.
 
 Offline coverage uses the real Spring AI `ChatClient` with local `ChatModel`
 fakes and packaged prompts. `OpenAiSchemaDeliveryConfigurationTest` verifies
-Spring wiring; `SpringAiStructuredClientSchemaDeliveryTest` covers all nine
+Spring wiring for direct and proxied adapters and the serialized HTTP request
+through the native OpenAI adapter with a local transport stub;
+`SpringAiStructuredClientSchemaDeliveryTest` covers all nine
 question families in both modes, preparation failures, accounting, cancellation,
 and malformed output. `SpringAiStructuredClientPromptPrivacyTest` checks DEBUG
 log redaction in both modes. Run these alongside the existing structured-output

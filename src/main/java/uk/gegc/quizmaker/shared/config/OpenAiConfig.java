@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.shared.config;
 
+import org.springframework.aop.framework.AopProxyUtils;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
@@ -17,9 +18,9 @@ public class OpenAiConfig {
 
     @Bean
     public SchemaDeliveryMode schemaDeliveryMode(ChatModel chatModel) {
-        // Only this adapter is known to understand OpenAI's strict response format.
+        // Spring AOP wrappers must not silently downgrade the underlying OpenAI adapter.
         // Other adapters retain their own default options and receive schema instructions.
-        return chatModel instanceof OpenAiChatModel
+        return OpenAiChatModel.class.isAssignableFrom(AopProxyUtils.ultimateTargetClass(chatModel))
                 ? SchemaDeliveryMode.OPENAI_STRICT
                 : SchemaDeliveryMode.PROMPT_SCHEMA;
     }
