@@ -103,4 +103,35 @@ class QuestionContractsOpenApiTest {
         assertThat(response.length()).isLessThan(1_000);
     }
 
+    @Test
+    @WithMockUser
+    void beanValidationFailureCannotEchoAnUnboundedClientValue() throws Exception {
+        var body = json.createObjectNode().put("type", "TRUE_FALSE").put("difficulty", "EASY")
+                .put("questionText", "PRIVATE-CANARY".repeat(2_000));
+        body.putObject("content").put("answer", true);
+        var response = mvc.perform(post("/api/v1/questions").with(csrf())
+                        .contentType("application/json").content(json.writeValueAsBytes(body)))
+                .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        assertThat(response).doesNotContain("PRIVATE-CANARY");
+        assertThat(response.length()).isLessThan(1_000);
+        org.mockito.Mockito.verifyNoInteractions(questions);
+    }
+
+    @Test
+    @WithMockUser
+    void batchValidationErrorsKeepBoundedFieldDiagnostics() throws Exception {
+        var body = json.createObjectNode();
+        var answers = body.putArray("answers");
+        for (int i = 0; i < 40; i++) answers.addObject();
+        var response = mvc.perform(post("/api/v1/attempts/{id}/answers/batch", java.util.UUID.randomUUID())
+                        .with(csrf()).contentType("application/json").content(json.writeValueAsBytes(body)))
+                .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        var problem = json.readTree(response);
+        assertThat(problem.path("fieldErrors")).hasSize(16);
+        assertThat(problem.path("errorsTruncated").booleanValue()).isTrue();
+        assertThat(problem.path("fieldErrors").get(0).path("field").asText()).startsWith("answers[");
+        assertThat(response.length()).isLessThan(6_000);
+        org.mockito.Mockito.verifyNoInteractions(attempts);
+    }
+
 }

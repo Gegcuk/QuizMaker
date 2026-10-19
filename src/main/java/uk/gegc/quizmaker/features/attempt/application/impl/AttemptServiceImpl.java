@@ -433,7 +433,7 @@ public class AttemptServiceImpl implements AttemptService {
 
         // An unavailable question is never silently skipped or converted into a completed attempt.
         for (Question question : questionRepository.findAllByQuizId_IdOrderById(attempt.getQuiz().getId())) {
-            try { QuestionContracts.read(question.getType(), QuestionContracts.View.AUTHOR, question.getContent()); }
+            try { handlerFactory.readValidatedContent(question.getType(), question.getContent()); }
             catch (QuestionContractException ex) { throw new QuestionContentUnavailableException(); }
         }
 
@@ -949,7 +949,7 @@ public class AttemptServiceImpl implements AttemptService {
         }
         if (includeCorrectAnswers || includeQuestionContext) {
             boolean validContent = true;
-            try { QuestionContracts.read(question.getType(), QuestionContracts.View.AUTHOR, question.getContent()); }
+            try { handlerFactory.readValidatedContent(question.getType(), question.getContent()); }
             catch (QuestionContractException ex) { validContent = false; }
             if (includeCorrectAnswers) {
                 correctState = QuestionContentAvailability.UNAVAILABLE;

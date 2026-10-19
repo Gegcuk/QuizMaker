@@ -15,12 +15,28 @@ import uk.gegc.quizmaker.shared.api.problem.ProblemDetailBuilder;
 import org.springframework.http.HttpStatus;
 
 import java.net.URI;
+import java.util.List;
 
 @RestControllerAdvice(assignableTypes = {QuestionController.class,
         uk.gegc.quizmaker.features.attempt.api.AttemptController.class,
         uk.gegc.quizmaker.features.quiz.api.ShareLinkController.class})
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class QuestionContractErrorHandler {
+    @ExceptionHandler(org.springframework.web.bind.MethodArgumentNotValidException.class)
+    public ResponseEntity<ProblemDetail> invalidFields(
+            org.springframework.web.bind.MethodArgumentNotValidException ex, HttpServletRequest request) {
+        ProblemDetail problem = ProblemDetailBuilder.create(HttpStatus.BAD_REQUEST, ErrorTypes.VALIDATION_FAILED,
+                "Validation Failed", "Validation failed for one or more fields", request);
+        problem.setInstance(operationInstance(request));
+        // Preserve field diagnostics, never serialize rejected JSON or unbounded batch errors.
+        var errors = ex.getBindingResult().getFieldErrors();
+        List<FieldError> diagnostics = errors.stream().limit(16)
+                .map(error -> new FieldError(error.getField(), error.getDefaultMessage(), null)).toList();
+        problem.setProperty("fieldErrors", diagnostics);
+        if (errors.size() > diagnostics.size()) problem.setProperty("errorsTruncated", true);
+        return ResponseEntity.badRequest().body(problem);
+    }
+
     @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
     public ResponseEntity<ProblemDetail> unreadable(
             org.springframework.http.converter.HttpMessageNotReadableException ex, HttpServletRequest request) {
@@ -73,4 +89,6 @@ public class QuestionContractErrorHandler {
         String path = pattern == null ? "/api/v1" : pattern.toString();
         return URI.create(path.replace("{", "%7B").replace("}", "%7D"));
     }
+
+    private record FieldError(String field, String message, Object rejectedValue) { }
 }

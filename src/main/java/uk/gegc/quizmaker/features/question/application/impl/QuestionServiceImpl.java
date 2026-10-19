@@ -18,7 +18,6 @@ import uk.gegc.quizmaker.features.question.application.QuestionService;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
-import uk.gegc.quizmaker.features.question.infra.handler.QuestionHandler;
 import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMapper;
 import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMediaResolver;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
@@ -63,11 +62,7 @@ public class QuestionServiceImpl implements QuestionService {
                 .or(() -> userRepository.findByEmail(username))
                 .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
 
-        QuestionHandler questionHandler = handlerFactory.getHandler(questionDto.getType());
-        QuestionContracts.validate(
-                questionDto.getType(), QuestionContracts.View.AUTHOR,
-                questionDto.getContent());
-        questionHandler.validateContent(questionDto);
+        handlerFactory.validateStoredContent(questionDto.getType(), questionDto.getContent());
 
         JsonNode sanitizedContent = sanitizeMediaForStorage(questionDto.getContent());
         validateAttachmentAsset(questionDto.getAttachmentAssetId(), username);
@@ -222,11 +217,7 @@ public class QuestionServiceImpl implements QuestionService {
                 .or(() -> userRepository.findByEmail(username))
                 .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
 
-        QuestionHandler questionHandler = handlerFactory.getHandler(request.getType());
-        QuestionContracts.validate(
-                request.getType(), QuestionContracts.View.AUTHOR,
-                request.getContent());
-        questionHandler.validateContent(request);
+        handlerFactory.validateStoredContent(request.getType(), request.getContent());
 
         Question question = questionRepository.findById(questionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Question " + questionId + " not found"));
@@ -381,7 +372,7 @@ public class QuestionServiceImpl implements QuestionService {
 
     private void validateResolvedContent(QuestionDto dto) {
         if (dto.getContent() == null) return;
-        try { QuestionContracts.validate(dto.getType(), QuestionContracts.View.AUTHOR, dto.getContent()); }
+        try { handlerFactory.validateStoredContent(dto.getType(), dto.getContent()); }
         catch (uk.gegc.quizmaker.features.question.application.QuestionContractException ex) {
             dto.setContent(null);
             dto.setContentAvailability(uk.gegc.quizmaker.features.question.api.dto.QuestionContentAvailability.UNAVAILABLE);

@@ -109,6 +109,7 @@ public final class QuestionContracts {
         check(SHAPES.get(type).get(view), value, view == View.RESPONSE ? "response" : "content");
         if (view == View.AUTHOR || view == View.SAFE) {
             for (String field : java.util.List.of("options", "gaps", "regions", "items", "statements", "left", "right")) {
+                if (!SHAPES.get(type).get(view).path("properties").has(field)) continue;
                 if (!value.path(field).isArray()) continue;
                 java.util.Set<JsonNode> ids = new java.util.HashSet<>();
                 for (JsonNode item : value.get(field)) {
@@ -191,7 +192,11 @@ public final class QuestionContracts {
                 throw new QuestionContractException("INVALID_LENGTH", path);
             }
             if ("uuid".equals(shape.path("format").asText())) {
-                try { java.util.UUID.fromString(value.textValue()); }
+                try {
+                    if (!java.util.UUID.fromString(value.textValue()).toString().equalsIgnoreCase(value.textValue())) {
+                        throw new IllegalArgumentException();
+                    }
+                }
                 catch (IllegalArgumentException ex) { throw new QuestionContractException("INVALID_SHAPE", path); }
             }
         }

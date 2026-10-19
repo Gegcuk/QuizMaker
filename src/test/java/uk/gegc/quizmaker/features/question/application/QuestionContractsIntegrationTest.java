@@ -140,6 +140,86 @@ class QuestionContractsIntegrationTest extends BaseIntegrationTest {
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = QuestionType.class,
+            names = {"MCQ_SINGLE", "MCQ_MULTI", "OPEN", "FILL_GAP", "HOTSPOT", "COMPLIANCE", "MATCHING"})
+    void unanswerableStoredQuestionBlocksCompletionAndIsUnavailableInReads(QuestionType type) {
+        var fixture = fixture(1, AttemptStatus.IN_PROGRESS);
+        var question = fixture.questions().get(0);
+        question.setType(type);
+        question.setContent(QuestionContractTestSupport.structurallyValidButUnanswerable(type).toString());
+        entityManager.flush(); entityManager.clear();
+        var page = questions.listQuestions(fixture.quiz().getId(), PageRequest.of(0, 10),
+                new UsernamePasswordAuthenticationToken(fixture.owner().getUsername(), null, List.of()));
+        assertThat(page.getContent().get(0).getContentAvailability()).isEqualTo(QuestionContentAvailability.UNAVAILABLE);
+        assertThatThrownBy(() -> attempts.completeAttempt(fixture.owner().getUsername(), fixture.attempt().getId()))
+                .isInstanceOf(QuestionContentUnavailableException.class);
+        var stored = attemptRepository.findById(fixture.attempt().getId()).orElseThrow();
+        assertThat(stored.getStatus()).isEqualTo(AttemptStatus.IN_PROGRESS);
+        assertThat(stored.getCompletedAt()).isNull();
+        assertThat(answerRepository.countByAttemptId(stored.getId())).isZero();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = QuestionType.class,
+            names = {"MCQ_SINGLE", "MCQ_MULTI", "OPEN", "FILL_GAP", "HOTSPOT", "COMPLIANCE", "MATCHING"})
+    void unanswerableStoredQuestionDoesNotRewriteRecordedGradesOrRevealWithheldFields(QuestionType type) {
+        var fixture = fixture(2, AttemptStatus.COMPLETED);
+        var damaged = fixture.questions().get(0);
+        damaged.setType(type);
+        damaged.setContent(QuestionContractTestSupport.structurallyValidButUnanswerable(type).toString());
+        fixture.attempt().getAnswers().stream().filter(a -> a.getQuestion() == damaged).forEach(answer ->
+                answer.setResponse(QuestionContracts.example(type, QuestionContracts.View.RESPONSE).toString()));
+        entityManager.flush(); entityManager.clear();
+        var review = attempts.getAttemptReview(fixture.owner().getUsername(), fixture.attempt().getId(), true, true, true);
+        var unavailable = review.answers().stream().filter(a -> a.questionId().equals(damaged.getId())).findFirst().orElseThrow();
+        assertThat(unavailable.contentAvailability()).isEqualTo(QuestionContentAvailability.UNAVAILABLE);
+        assertThat(unavailable.correctAnswerAvailability()).isEqualTo(QuestionContentAvailability.UNAVAILABLE);
+        assertThat(unavailable.questionSafeContent()).isNull();
+        assertThat(unavailable.correctAnswer()).isNull();
+        assertThat(unavailable.score()).isEqualTo(1.0);
+        assertThat(unavailable.isCorrect()).isTrue();
+        assertThat(review.totalScore()).isEqualTo(2.0);
+        assertThat(review.answers().get(1).contentAvailability()).isEqualTo(QuestionContentAvailability.AVAILABLE);
+        var withheld = attempts.getAttemptReview(fixture.owner().getUsername(), fixture.attempt().getId(), false, false, false);
+        withheld.answers().forEach(answer -> {
+            assertThat(answer.contentAvailability()).isEqualTo(QuestionContentAvailability.NOT_INCLUDED);
+            assertThat(answer.responseAvailability()).isEqualTo(QuestionContentAvailability.NOT_INCLUDED);
+            assertThat(answer.correctAnswerAvailability()).isEqualTo(QuestionContentAvailability.NOT_INCLUDED);
+            assertThat(answer.correctAnswer()).isNull();
+            assertThat(answer.explanation()).isNull();
+            assertThat(answer.questionSafeContent()).isNull();
+        });
+    }
+
+    @Test
+    void ownershipPrivateVisibilityAndCreatePermissionRemainEnforcedWithDamagedContent() throws Exception {
+        var fixture = fixture(1, AttemptStatus.IN_PROGRESS);
+        fixture.questions().get(0).setContent("{\"options\":null}");
+        entityManager.flush();
+        var other = org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user(fixture.other().getUsername());
+        String path = "/api/v1/attempts/" + fixture.attempt().getId();
+        var body = json.createObjectNode().put("questionId", fixture.questions().get(0).getId().toString()).put("contractVersion", 1);
+        body.set("response", QuestionContracts.example(QuestionType.MCQ_SINGLE, QuestionContracts.View.RESPONSE));
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path + "/answers").with(other)
+                        .contentType("application/json").content(json.writeValueAsBytes(body)))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path + "/complete").with(other))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(path + "/current-question").with(other))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/questions")
+                        .param("quizId", fixture.quiz().getId().toString()).with(other))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        var create = json.createObjectNode().put("type", "TRUE_FALSE").put("difficulty", "EASY").put("questionText", "Example question");
+        create.putObject("content").put("answer", true);
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/questions").with(other)
+                        .contentType("application/json").content(json.writeValueAsBytes(create)))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        assertThat(answerRepository.countByAttemptId(fixture.attempt().getId())).isZero();
+        assertThat(attemptRepository.findById(fixture.attempt().getId()).orElseThrow().getStatus()).isEqualTo(AttemptStatus.IN_PROGRESS);
+    }
+
     private void deleteCommittedFixture(Fixture fixture) {
         // This one test crosses transaction boundaries. Delete only its synthetic rows;
         // ordinary tests still use BaseIntegrationTest's transactional rollback.

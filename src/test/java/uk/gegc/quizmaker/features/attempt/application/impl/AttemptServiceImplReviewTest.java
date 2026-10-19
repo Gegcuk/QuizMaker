@@ -21,6 +21,7 @@ import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
 import uk.gegc.quizmaker.features.attempt.infra.mapping.AttemptMapper;
 import uk.gegc.quizmaker.features.question.application.CorrectAnswerExtractor;
 import uk.gegc.quizmaker.features.question.application.SafeQuestionContentBuilder;
+import uk.gegc.quizmaker.features.question.application.QuestionContractTestSupport;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
@@ -66,8 +67,8 @@ class AttemptServiceImplReviewTest {
     private AttemptMapper attemptMapper;
     @Mock
     private QuestionRepository questionRepository;
-    @Mock
-    private QuestionHandlerFactory handlerFactory;
+    @org.mockito.Spy
+    private QuestionHandlerFactory handlerFactory = QuestionContractTestSupport.handlerFactory();
     @Mock
     private AnswerRepository answerRepository;
     @Mock
@@ -83,7 +84,7 @@ class AttemptServiceImplReviewTest {
     @org.mockito.Spy
     private CorrectAnswerExtractor correctAnswerExtractor = new CorrectAnswerExtractor(new ObjectMapper());
     @org.mockito.Spy
-    private SafeQuestionContentBuilder safeQuestionContentBuilder = new SafeQuestionContentBuilder();
+    private SafeQuestionContentBuilder safeQuestionContentBuilder = QuestionContractTestSupport.safeContentBuilder();
     @Mock
     private ObjectMapper objectMapper;
     @Mock

@@ -21,7 +21,7 @@ class QuestionContractsTest {
             assertThatCode(() -> QuestionContracts.validate(type, view, QuestionContracts.example(type, view))).doesNotThrowAnyException();
         }
         String stored = QuestionContracts.example(type, QuestionContracts.View.AUTHOR).toString();
-        var safe = new SafeQuestionContentBuilder().buildSafeContent(type, stored, true);
+        var safe = QuestionContractTestSupport.safeContentBuilder().buildSafeContent(type, stored, true);
         assertThat(safe).isEqualTo(QuestionContracts.example(type, QuestionContracts.View.SAFE));
         Question question = new Question();
         question.setType(type); question.setContent(stored);
@@ -128,5 +128,40 @@ class QuestionContractsTest {
         assertThat(schema.at("/properties/options/items/properties/media/type").toString()).contains("object", "null");
         assertThat(schema.toString()).doesNotContain("nullable");
         QuestionContracts.validate(QuestionType.OPEN, QuestionContracts.View.CORRECT, json.readTree("{\"answer\":null}"));
+    }
+
+    @ParameterizedTest
+    @EnumSource(QuestionType.class)
+    void unrelatedInputCollectionsDoNotAcquireRulesFromAnotherFamily(QuestionType type) {
+        ObjectNode content = (ObjectNode) QuestionContracts.example(type, QuestionContracts.View.AUTHOR);
+        var properties = QuestionContracts.schema(type, QuestionContracts.View.AUTHOR).path("properties");
+        String extension = properties.has("options") ? "statements" : "options";
+        content.putArray(extension).addObject().put("id", "client-id");
+        content.withArray(extension).addObject().put("id", "client-id");
+        assertThatCode(() -> QuestionContracts.validate(type, QuestionContracts.View.AUTHOR, content))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void authoringRuleErrorsNeverEchoAnswerMaterial() {
+        var content = (ObjectNode) QuestionContracts.example(QuestionType.FILL_GAP, QuestionContracts.View.AUTHOR);
+        String extension = "PRIVATE-CANARY".repeat(100);
+        content.putArray("options").add("Paris").add(extension).add(extension).add("A").add("B").add("C").add("D");
+        assertThatThrownBy(() -> QuestionContractTestSupport.handlerFactory().validateStoredContent(QuestionType.FILL_GAP, content))
+                .isInstanceOf(QuestionContractException.class).hasMessageNotContaining("PRIVATE-CANARY");
+    }
+
+    @Test
+    void uuidFormatRejectsJavaShortFormsAndAcceptsCanonicalUppercase() {
+        var content = (ObjectNode) QuestionContracts.example(QuestionType.MCQ_SINGLE, QuestionContracts.View.AUTHOR);
+        var media = ((ObjectNode) content.path("options").get(0)).putObject("media");
+        for (String invalid : new String[]{"0-0-0-0-0", "1-1-1-1-1"}) {
+            media.put("assetId", invalid);
+            assertThatThrownBy(() -> QuestionContracts.validate(QuestionType.MCQ_SINGLE, QuestionContracts.View.AUTHOR, content))
+                    .isInstanceOf(QuestionContractException.class);
+        }
+        media.put("assetId", "ABCDEF12-3456-7890-ABCD-EF1234567890");
+        assertThatCode(() -> QuestionContracts.validate(QuestionType.MCQ_SINGLE, QuestionContracts.View.AUTHOR, content))
+                .doesNotThrowAnyException();
     }
 }

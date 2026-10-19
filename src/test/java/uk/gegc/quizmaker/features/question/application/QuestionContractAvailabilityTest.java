@@ -28,7 +28,7 @@ class QuestionContractAvailabilityTest {
     @Test
     void damagedQuestionDoesNotHideHealthySiblingsAndNeverBecomesAnEmptyValidQuestion() {
         MediaAssetService media = mock(MediaAssetService.class);
-        var mapper = new SafeQuestionMapper(new SafeQuestionContentBuilder(), new QuestionMediaResolver(media));
+        var mapper = new SafeQuestionMapper(QuestionContractTestSupport.safeContentBuilder(), new QuestionMediaResolver(media));
         Question good = question(QuestionType.TRUE_FALSE, "{\"answer\":true}");
         Question bad = question(QuestionType.MCQ_SINGLE, "{\"options\":null,\"private-canary\":\"secret-answer\"}");
         var result = mapper.toSafeDtoList(List.of(good, bad));
@@ -44,6 +44,19 @@ class QuestionContractAvailabilityTest {
         assertThat(author.getContentAvailability()).isEqualTo(QuestionContentAvailability.UNAVAILABLE);
         assertThat(author.getContent()).isNull();
         verifyNoInteractions(media);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = QuestionType.class, names = {"MCQ_SINGLE", "MCQ_MULTI", "OPEN", "FILL_GAP", "HOTSPOT", "COMPLIANCE", "MATCHING"})
+    void unanswerableStoredQuestionsAreUnavailableWithoutHidingSiblings(QuestionType type) {
+        var mapper = new SafeQuestionMapper(QuestionContractTestSupport.safeContentBuilder(), new QuestionMediaResolver(mock(MediaAssetService.class)));
+        var good = question(QuestionType.TRUE_FALSE, "{\"answer\":true}");
+        var bad = question(type, QuestionContractTestSupport.structurallyValidButUnanswerable(type).toString());
+        var result = mapper.toSafeDtoList(List.of(good, bad));
+        assertThat(result.get(0).getContentAvailability()).isEqualTo(QuestionContentAvailability.AVAILABLE);
+        assertThat(result.get(1).getContentAvailability()).isEqualTo(QuestionContentAvailability.UNAVAILABLE);
+        assertThat(result.get(1).getSafeContent()).isNull();
+        assertThat(result.get(1).getContentProblem().getStatus()).isEqualTo(409);
     }
 
     @ParameterizedTest

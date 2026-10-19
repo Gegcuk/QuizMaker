@@ -53,4 +53,30 @@ class QuestionContractGradingCompatibilityTest {
                 .isInstanceOf(QuestionContractException.class);
         assertThat(attempt.getAnswers()).hasSize(2);
     }
+
+    @org.junit.jupiter.api.Test
+    void duplicateSelectionsAndExplicitOrderingKeepTheirExistingScoringRules() throws Exception {
+        assertGrade(new McqMultiHandler(), "{\"selectedOptionIds\":[\"a\",\"b\",\"a\"]}", true);
+        assertGrade(new ComplianceHandler(), "{\"selectedStatementIds\":[1,1]}", false);
+        assertGrade(new OrderingHandler(), "{\"orderedItemIds\":[1,1]}", false);
+        assertGrade(new OpenQuestionHandler(), "{\"answer\":\"  PARIS  \"}", true);
+        assertGrade(new FillGapHandler(), "{\"answers\":[{\"gapId\":1,\"answer\":\"  PARIS  \"}]}", true);
+        var question = new Question(); question.setType(QuestionType.ORDERING); question.setId(UUID.randomUUID());
+        var content = (com.fasterxml.jackson.databind.node.ObjectNode) QuestionContracts.example(QuestionType.ORDERING, QuestionContracts.View.AUTHOR);
+        content.putArray("correctOrder").add(2).add(1);
+        question.setContent(content.toString());
+        var response = json.readTree("{\"orderedItemIds\":[2,1]}");
+        var answer = new OrderingHandler().handle(new Attempt(), question, new AnswerSubmissionRequest(question.getId(), response, false, false, false));
+        assertThat(answer.getIsCorrect()).isTrue();
+        assertThat(answer.getScore()).isEqualTo(1.0);
+    }
+
+    private void assertGrade(QuestionHandler handler, String rawResponse, boolean correct) throws Exception {
+        var question = new Question(); question.setType(handler.supportedType()); question.setId(UUID.randomUUID());
+        question.setContent(QuestionContracts.example(handler.supportedType(), QuestionContracts.View.AUTHOR).toString());
+        var answer = handler.handle(new Attempt(), question,
+                new AnswerSubmissionRequest(question.getId(), json.readTree(rawResponse), false, false, false));
+        assertThat(answer.getIsCorrect()).isEqualTo(correct);
+        assertThat(answer.getScore()).isEqualTo(correct ? 1.0 : 0.0);
+    }
 }

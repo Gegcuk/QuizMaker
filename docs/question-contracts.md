@@ -23,6 +23,12 @@ question contract.
   or scoring. Required fields and JSON types are enforced without coercing a
   string into a boolean or an integer. Incorrect answers of a valid shape still
   use the existing grading rules.
+- Stored content also passes the existing authoring rules before delivery, review,
+  and completion. For example an MCQ without a correct option is unavailable,
+  even though its JSON fields have the expected types. Recorded grades are retained.
+- Validation problems keep bounded field diagnostics without echoing rejected
+  values or author-only answers. Large batches return at most 16 field errors,
+  with `errorsTruncated: true` when more diagnostics exist.
 - Unknown input fields are ignored by validation and have no new grading meaning.
   This does not allow solution fields in participant-safe output: that output is
   constructed from an allowlist and validated against closed schemas.
@@ -35,6 +41,8 @@ question contract.
   optional FILL_GAP choice pool has at most 10 options with its existing distractor
   rules. FILL_GAP without a choice pool remains supported. ORDERING supports both
   authored item order and the existing explicit `correctOrder` representation.
+- Media asset IDs use canonical 36-character UUID text, accepting either hex case.
+  Shortened forms accepted by Java's UUID parser do not satisfy the published format.
 
 ## Availability and review
 
