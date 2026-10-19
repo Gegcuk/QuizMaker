@@ -73,6 +73,10 @@ public class QuizMapper {
     }
 
     public QuizDto toDto(Quiz quiz, int questionCount) {
+        return toDto(quiz, questionCount, null);
+    }
+
+    public QuizDto toDto(Quiz quiz, int questionCount, Boolean isNew) {
         return new QuizDto(
                 quiz.getId(),
                 quiz.getCreator().getId(),
@@ -89,7 +93,8 @@ public class QuizMapper {
                 quiz.getTags().stream().map(Tag::getId).collect(Collectors.toList()),
                 questionCount,
                 quiz.getCreatedAt(),
-                quiz.getUpdatedAt()
+                quiz.getUpdatedAt(),
+                isNew
         );
     }
 

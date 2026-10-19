@@ -26,6 +26,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -76,6 +77,10 @@ import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 import uk.gegc.quizmaker.shared.validation.GenerationLanguagePolicy;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -312,8 +317,17 @@ public class QuizController {
 
     @Operation(
             summary = "List quizzes with pagination and optional filters",
-            description = "Returns a page of quizzes based on scope. Default scope shows only public quizzes. Use scope=me to see your own quizzes, scope=all for moderators to see all quizzes."
+            description = "Returns a page of quizzes based on scope. Default scope shows only public quizzes. Use scope=me to see your own quizzes, scope=all for moderators to see all quizzes. Only scope=me includes the private read-only isNew field. Newly completed AI quizzes remain new until explicit POST /{quizId}/seen; historical, manual, and imported quizzes are already seen. Listing, filtering, sorting, and pagination never acknowledge. Owner lists use private revalidation that changes after acknowledgement."
     )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Typed quiz page; isNew is present only for scope=me"),
+            @ApiResponse(responseCode = "304", description = "Matching page validator; no response body", content = @Content),
+            @ApiResponse(responseCode = "400", description = "Invalid pagination or filters", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Invalid supplied authentication", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Authentication required for scope=me, or moderator permission required for scope=all", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "429", description = "Existing search request limit exceeded", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "500", description = "Unable to read quiz page", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    })
     @GetMapping
     public ResponseEntity<Page<QuizDto>> getQuizzes(
             @ParameterObject
@@ -339,12 +353,30 @@ public class QuizController {
 
         // Simple weak ETag based on result set metadata
         String eTag = ("W/\"" + quizPage.getTotalElements() + ":" + quizPage.getNumber() + ":" + quizPage.getSize() + ":" + quizPage.getSort() + "\"");
+        HttpHeaders cacheHeaders = new HttpHeaders();
+        if ("me".equalsIgnoreCase(scope)) {
+            eTag = ownerListEtag(eTag, quizPage, authentication);
+            cacheHeaders.setCacheControl("private, no-cache");
+        }
 
         String ifNoneMatch = request.getHeader("If-None-Match");
         if (ifNoneMatch != null && ifNoneMatch.equals(eTag)) {
-            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).eTag(eTag).build();
+            return ResponseEntity.status(HttpStatus.NOT_MODIFIED).headers(cacheHeaders).eTag(eTag).build();
         }
-        return ResponseEntity.ok().eTag(eTag).body(quizPage);
+        return ResponseEntity.ok().headers(cacheHeaders).eTag(eTag).body(quizPage);
+    }
+
+    private String ownerListEtag(String pageMetadata, Page<QuizDto> page, Authentication authentication) {
+        StringBuilder metadata = new StringBuilder(pageMetadata).append('|').append(authentication.getName());
+        page.forEach(quiz -> metadata.append('|').append(quiz.id()).append(':').append(quiz.isNew()));
+        try {
+            // Hash only bounded page metadata, never document/source content.
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(metadata.toString().getBytes(StandardCharsets.UTF_8));
+            return "W/\"" + HexFormat.of().formatHex(digest) + "\"";
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("Required SHA-256 digest unavailable", exception);
+        }
     }
 
     @Operation(

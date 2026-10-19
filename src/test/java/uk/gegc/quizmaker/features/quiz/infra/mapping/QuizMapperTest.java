@@ -25,6 +25,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("QuizMapper Tests")
 class QuizMapperTest {
 
+    @Test
+    void privateMarkerIsExplicitForOwnerAndAbsentFromOtherPayloads() throws Exception {
+        Quiz quiz = createQuiz();
+        var json = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        QuizMapper mapper = new QuizMapper();
+        assertThat(json.valueToTree(mapper.toDto(quiz, 1)).has("isNew")).isFalse();
+        assertThat(json.valueToTree(mapper.toDto(quiz, 1, true)).path("isNew").asBoolean()).isTrue();
+        assertThat(json.valueToTree(mapper.toDto(quiz, 1, false)).path("isNew").asBoolean()).isFalse();
+    }
+
     private QuizMapper mapper;
     private User creator;
     private Category category;

@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.quiz.application.query.impl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
@@ -13,6 +14,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerationCoverage;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizSearchCriteria;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.quiz.application.QuizFreshnessService;
 import uk.gegc.quizmaker.features.quiz.application.generation.GenerationCoverageSnapshot;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCoverageService;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
@@ -32,6 +34,9 @@ import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.Objects;
+import java.util.function.Function;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -55,6 +60,7 @@ public class QuizQueryServiceImpl implements QuizQueryService {
     private final FeatureFlags featureFlags;
     private final QuizGenerationProgressInvariantMonitor progressInvariantMonitor;
     private final QuizGenerationCoverageService generationCoverageService;
+    private final QuizFreshnessService freshnessService;
 
     @Transactional(readOnly = true)
     public QuizDto getQuizById(UUID id, Authentication authentication) {
@@ -154,14 +160,30 @@ public class QuizQueryServiceImpl implements QuizQueryService {
                 break;
         }
 
-        Page<Quiz> quizPage = quizRepository.findAll(spec, pageable);
+        boolean ownedScope = "me".equalsIgnoreCase(scope);
+        Page<Quiz> quizPage;
+        if (ownedScope) {
+            // Page IDs before fetching tags: collection fetch joins cannot safely page in SQL.
+            Page<UUID> ids = quizRepository.findPageIds(spec, pageable);
+            Map<UUID, Quiz> quizzes = ids.isEmpty() ? Map.of() : quizRepository.findByIdIn(ids.getContent())
+                    .stream().collect(Collectors.toMap(Quiz::getId, Function.identity()));
+            quizPage = new PageImpl<>(ids.stream().map(quizzes::get).filter(Objects::nonNull).toList(),
+                    pageable, ids.getTotalElements());
+        } else {
+            quizPage = quizRepository.findAll(spec, pageable);
+        }
         
         // Batch fetch question counts to avoid N+1 queries
         Map<UUID, Long> questionCounts = batchFetchQuestionCounts(quizPage.getContent());
+
+        Set<UUID> newQuizIds = ownedScope
+                ? freshnessService.findNewQuizIds(user.getId(), quizPage.getContent().stream().map(Quiz::getId).toList())
+                : Set.of();
         
         return quizPage.map(quiz -> {
             int count = questionCounts.getOrDefault(quiz.getId(), 0L).intValue();
-            return quizMapper.toDto(quiz, count);
+            return ownedScope ? quizMapper.toDto(quiz, count, newQuizIds.contains(quiz.getId()))
+                    : quizMapper.toDto(quiz, count);
         });
     }
 
