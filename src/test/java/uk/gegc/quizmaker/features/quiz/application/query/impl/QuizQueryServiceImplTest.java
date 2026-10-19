@@ -83,6 +83,9 @@ class QuizQueryServiceImplTest {
 
     @Mock
     private QuizGenerationCoverageService generationCoverageService;
+
+    @Mock
+    private uk.gegc.quizmaker.features.quiz.application.QuizFreshnessService freshnessService;
     
     @Mock
     private Authentication authentication;
@@ -518,8 +521,9 @@ class QuizQueryServiceImplTest {
             when(authentication.isAuthenticated()).thenReturn(true);
             when(authentication.getName()).thenReturn("testuser");
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-            when(quizRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(quizPage);
-                    when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
+            when(quizRepository.findPageIds(any(Specification.class), eq(pageable))).thenReturn(quizPage.map(Quiz::getId));
+            when(quizRepository.findByIdIn(List.of(privateQuiz.getId()))).thenReturn(quizPage.getContent());
+                    when(quizMapper.toDto(any(Quiz.class), anyInt(), anyBoolean())).thenReturn(quizDto);
             
             // When
             Page<QuizDto> result = queryService.getQuizzes(pageable, criteria, "me", authentication);
@@ -552,8 +556,9 @@ class QuizQueryServiceImplTest {
             when(authentication.getName()).thenReturn("test@example.com");
             when(userRepository.findByUsername("test@example.com")).thenReturn(Optional.empty());
             when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(testUser));
-            when(quizRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(quizPage);
-                    when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
+            when(quizRepository.findPageIds(any(Specification.class), eq(pageable))).thenReturn(quizPage.map(Quiz::getId));
+            when(quizRepository.findByIdIn(List.of(privateQuiz.getId()))).thenReturn(quizPage.getContent());
+                    when(quizMapper.toDto(any(Quiz.class), anyInt(), anyBoolean())).thenReturn(quizDto);
             
             // When
             Page<QuizDto> result = queryService.getQuizzes(pageable, criteria, "me", authentication);
@@ -573,8 +578,9 @@ class QuizQueryServiceImplTest {
             when(authentication.isAuthenticated()).thenReturn(true);
             when(authentication.getName()).thenReturn("testuser");
             when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-            when(quizRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(quizPage);
-                    when(quizMapper.toDto(any(Quiz.class), anyInt())).thenReturn(quizDto);
+            when(quizRepository.findPageIds(any(Specification.class), eq(pageable))).thenReturn(quizPage.map(Quiz::getId));
+            when(quizRepository.findByIdIn(List.of(privateQuiz.getId()))).thenReturn(quizPage.getContent());
+                    when(quizMapper.toDto(any(Quiz.class), anyInt(), anyBoolean())).thenReturn(quizDto);
             
             // When
             Page<QuizDto> result = queryService.getQuizzes(pageable, criteria, "ME", authentication);

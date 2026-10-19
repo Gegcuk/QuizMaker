@@ -4,6 +4,63 @@ Quiz generation can finish with every requested question, finish with an eligibl
 
 OpenAPI contract: `GET /v3/api-docs/quizzes`. Local Swagger UI is available at [http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html), and the deployed API groups are discoverable from [https://www.quizzence.com/api/v1/api-summary](https://www.quizzence.com/api/v1/api-summary).
 
+## Owner New markers
+
+`GET /api/v1/quizzes?scope=me` includes the read-only boolean `isNew` on each quiz.
+Only AI-generated quizzes completed by the new application receive a marker. Every
+created chapter quiz and consolidated quiz has its own marker. They commit with
+the quiz and generation settlement; failed or cancelled generation publishes none.
+Manual creation, imports, and all pre-feature quizzes remain seen (`false`).
+
+The marker is private creator state. Public/shared responses, individual quiz
+responses, and moderator `scope=all` responses omit `isNew`. Listing, rendering,
+filtering, sorting, pagination, and generation polling never acknowledge a quiz.
+
+After pointer hover, keyboard focus within a card/row, or a phone tap, the client
+explicitly sends `POST /api/v1/quizzes/{quizId}/seen` without a body. Opening a quiz
+is not required for hover/focus; tapping keeps existing navigation behavior. The
+operation requires authentication, `QUIZ_READ`, and strict creator ownership.
+Moderator/admin permissions do not grant acknowledgement of another creator's quiz.
+Success returns HTTP 200 with the named `QuizSeenAcknowledgement` schema:
+
+```json
+{"quizId":"d290f1ee-6c54-4b01-90e6-d701748f0851","isNew":false}
+```
+
+Repeated/concurrent acknowledgements are idempotent. They never restore freshness,
+edit quiz content, change `updatedAt`, or reorder the list. Historical/manual/imported
+quizzes can also be acknowledged safely and remain seen. Malformed IDs return RFC
+7807 `400`; missing authentication returns `401`; missing `QUIZ_READ` returns `403`.
+Missing, deleted, and wrong-owner quizzes return the same non-enumerating `404`.
+A storage/commit failure returns a server error without confirming acknowledgement;
+the previous durable state remains authoritative.
+
+Clients reconcile the current account's caches from the confirmed response. After
+failure/offline interaction, retain the last known state and retry on a later explicit
+interaction; do not create a persistent background acknowledgement queue. Ignore late
+responses after logout/account switching, and do not let a stale list response restore
+New after confirmed acknowledgement. A later list fetch on another device sees the
+committed state. Owner lists use `private, no-cache` and a validator that incorporates
+the current account and returned markers. Old web/iOS clients may ignore the additive
+field and operation; no client changes are required to keep existing API use working.
+
+Migration V78 adds `quiz_owner_freshness`, with at most one boolean fact per quiz and
+no interaction history, device identity, content copy, or time-based inference. No
+metadata row means already seen, so existing quizzes need no backfill. The cutover
+is successful finalization in the new application: an earlier accepted job completed
+by the new application is new; results completed by the old application stay seen.
+Old versions can continue writing quizzes without metadata during rolling replacement.
+Rollback keeps the additive table for a forward fix. Soft-deleted quizzes retain their
+metadata but cannot be acknowledged/read; physical quiz deletion cascades its removal.
+
+Owner pagination selects a page of IDs before loading associations, question counts,
+and freshness in batches. This keeps relationship query counts bounded as page size
+grows and avoids collection-fetch pagination over the entire matching quiz collection.
+The first query fetches only to-one associations so existing category/creator sorts
+remain valid with MySQL's `DISTINCT` requirements. Owner-list validators cover every
+returned card field, including tags and question counts, so ordinary edits invalidate
+cached pages even when freshness or the parent timestamp is unchanged.
+
 ## Compatibility
 
 `QuizGenerationStatus.coverage` is additive, read-only, and optional. Existing generation request fields, endpoint paths, HTTP statuses, lifecycle status values, authorization, ownership checks, and polling behavior are unchanged.

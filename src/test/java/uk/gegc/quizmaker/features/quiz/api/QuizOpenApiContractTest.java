@@ -3,9 +3,13 @@ package uk.gegc.quizmaker.features.quiz.api;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springdoc.core.configuration.SpringDocConfiguration;
+import org.springdoc.core.models.GroupedOpenApi;
 import org.springdoc.core.properties.SpringDocConfigProperties;
 import org.springdoc.webmvc.core.configuration.MultipleOpenApiSupportConfiguration;
 import org.springdoc.webmvc.core.configuration.SpringDocWebMvcConfiguration;
@@ -14,44 +18,62 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.util.AntPathMatcher;
+
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.document.application.DocumentValidationService;
+import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.BulkQuizUpdateOperationResultDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.BulkQuizUpdateRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerationTypeCoverage;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationJobPageResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus;
+import uk.gegc.quizmaker.features.quiz.api.dto.QuizSeenAcknowledgement;
 import uk.gegc.quizmaker.features.quiz.api.dto.ShareLinkDto;
 import uk.gegc.quizmaker.features.quiz.application.ModerationService;
 import uk.gegc.quizmaker.features.quiz.application.QuizExportService;
+import uk.gegc.quizmaker.features.quiz.application.QuizFreshnessService;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
 import uk.gegc.quizmaker.features.quiz.application.ShareLinkService;
 import uk.gegc.quizmaker.features.quiz.application.imports.QuizImportService;
 import uk.gegc.quizmaker.features.quiz.config.QuizImportProperties;
+import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
+import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.infra.ExportMediaTypeResolver;
 import uk.gegc.quizmaker.features.quiz.infra.web.ShareLinkCookieManager;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.api.docs.ApiDiscoveryController;
+import uk.gegc.quizmaker.shared.api.docs.ApiDocumentationService;
 import uk.gegc.quizmaker.shared.config.OpenApiConfig;
 import uk.gegc.quizmaker.shared.config.OpenApiGroupConfig;
 import uk.gegc.quizmaker.shared.rate_limit.RateLimitService;
 import uk.gegc.quizmaker.shared.util.TrustedProxyUtil;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = {QuizController.class, ShareLinkController.class})
+@WebMvcTest(controllers = {QuizController.class, ShareLinkController.class, QuizFreshnessController.class, ApiDiscoveryController.class})
 @Import({
+        ApiDocumentationService.class,
         OpenApiConfig.class,
         OpenApiGroupConfig.class,
         SpringDocConfiguration.class,
@@ -61,6 +83,126 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @DisplayName("Quiz OpenAPI contract tests")
 class QuizOpenApiContractTest {
+
+    @Autowired
+    private List<GroupedOpenApi> groups;
+
+    @Test
+    @WithMockUser
+    void freshnessHasNamedSchemasExamplesErrorsAndOneDiscoverableGroup() throws Exception {
+        JsonNode spec = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs/quizzes"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        String operationPath = "/api/v1/quizzes/{quizId}/seen";
+        JsonNode operation = spec.path("paths").path(operationPath).path("post");
+        assertThat(operation.isMissingNode()).isFalse();
+        assertThat(operation.path("requestBody").isMissingNode()).isTrue();
+        assertThat(operation.at("/responses/200/content/application~1json/schema/$ref").asText())
+                .isEqualTo("#/components/schemas/QuizSeenAcknowledgement");
+        JsonNode schemas = spec.path("components").path("schemas");
+        JsonNode marker = schemas.path("QuizDto").path("properties").path("isNew");
+        assertThat(marker.path("type").asText()).isEqualTo("boolean");
+        assertThat(schemas.path("QuizDto").path("required").toString()).doesNotContain("isNew");
+        assertThat(marker.path("readOnly").asBoolean()).isTrue();
+        assertThat(schemas.path("QuizSeenAcknowledgement").path("required").toString())
+                .contains("quizId", "isNew");
+        for (String status : List.of("400", "401", "403", "404", "500")) {
+            assertThat(operation.path("responses").path(status).path("content")
+                    .path("application/problem+json").path("schema").path("$ref").asText())
+                    .isEqualTo("#/components/schemas/ProblemDetail");
+        }
+        JsonNode listing = spec.path("paths").path("/api/v1/quizzes").path("get");
+        assertThat(listing.at("/responses/200/content/*~1*/schema/$ref").asText())
+                .isEqualTo("#/components/schemas/PageQuizDto");
+        assertThat(listing.path("responses").path("304").path("content").isEmpty()).isTrue();
+        for (String status : List.of("400", "401", "403", "429", "500")) {
+            assertThat(listing.path("responses").path(status).path("content")
+                    .path("application/problem+json").path("schema").path("$ref").asText())
+                    .isEqualTo("#/components/schemas/ProblemDetail");
+        }
+        var matcher = new AntPathMatcher();
+        assertThat(groups.stream().filter(group -> group.getPathsToMatch().stream()
+                .anyMatch(pattern -> matcher.match(pattern, "/api/v1/quizzes/example/seen")))
+                .map(GroupedOpenApi::getGroup).toList()).containsExactly("quizzes");
+        JsonNode summary = objectMapper.readTree(mockMvc.perform(get("/api/v1/api-summary"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(summary.path("groups").findValuesAsText("specUrl")).contains("/v3/api-docs/quizzes");
+        JsonNode full = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(full.path("paths").has(operationPath)).isTrue();
+        JsonNode examples = operation.at("/responses/200/content/application~1json/examples");
+        assertThat(examples.isEmpty()).isFalse();
+        var example = examples.elements().next().path("value");
+        var acknowledgement = objectMapper.treeToValue(example,
+                QuizSeenAcknowledgement.class);
+        assertThat(acknowledgement.quizId()).isNotNull();
+        assertThat(acknowledgement.isNew()).isFalse();
+    }
+
+    @Test
+    @WithMockUser
+    void ownerListRevalidationChangesAfterAcknowledgement() throws Exception {
+        var id = UUID.randomUUID();
+        var owner = UUID.randomUUID();
+        var category = UUID.randomUUID();
+        var now = Instant.parse("2026-10-19T12:00:00Z");
+        var fresh = new QuizDto(id, owner, category, "Generated", null,
+                Visibility.PRIVATE,
+                Difficulty.EASY,
+                QuizStatus.PUBLISHED,
+                5, false, false, null, List.of(), 1, now, now, true);
+        var seen = new QuizDto(id, owner, category, "Generated", null,
+                fresh.visibility(), fresh.difficulty(), fresh.status(), 5, false, false, null, List.of(), 1, now, now, false);
+        when(quizService.getQuizzes(any(), any(),
+                eq("me"), any()))
+                .thenReturn(new PageImpl<>(List.of(fresh)));
+        var first = mockMvc.perform(get("/api/v1/quizzes").param("scope", "me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].isNew").value(true))
+                .andReturn().getResponse();
+        assertThat(first.getHeader("Cache-Control")).isEqualTo("private, no-cache");
+        String validator = first.getHeader("ETag");
+        mockMvc.perform(get("/api/v1/quizzes").param("scope", "me").header("If-None-Match", validator))
+                .andExpect(status().isNotModified());
+        when(quizService.getQuizzes(any(), any(),
+                eq("me"), any()))
+                .thenReturn(new PageImpl<>(List.of(seen)));
+        var updated = mockMvc.perform(get("/api/v1/quizzes").param("scope", "me").header("If-None-Match", validator))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].isNew").value(false))
+                .andReturn().getResponse();
+        assertThat(updated.getHeader("ETag")).isNotEqualTo(validator);
+    }
+
+    @ParameterizedTest(name = "owner list revalidates after changing {0}")
+    @ValueSource(strings = {"title", "questionCount", "tags"})
+    @WithMockUser
+    void ownerListRevalidationIncludesQuizDetailsAndAssociations(String changedField) throws Exception {
+        var id = UUID.randomUUID();
+        var owner = UUID.randomUUID();
+        var category = UUID.randomUUID();
+        var now = Instant.parse("2026-10-19T12:00:00Z");
+        var original = new QuizDto(id, owner, category, "Generated", null, Visibility.PRIVATE,
+                Difficulty.EASY, QuizStatus.PUBLISHED, 5, false, false, null, List.of(), 1, now, now, true);
+        // Association changes need not change the parent quiz's timestamp or freshness.
+        var changed = new QuizDto(id, owner, category, changedField.equals("title") ? "Renamed" : original.title(),
+                null, original.visibility(), original.difficulty(), original.status(), 5, false, false, null,
+                changedField.equals("tags") ? List.of(UUID.randomUUID()) : List.of(),
+                changedField.equals("questionCount") ? 2 : 1, now, now, true);
+        when(quizService.getQuizzes(any(), any(), eq("me"), any()))
+                .thenReturn(new PageImpl<>(List.of(original)));
+        String validator = mockMvc.perform(get("/api/v1/quizzes").param("scope", "me"))
+                .andExpect(status().isOk()).andReturn().getResponse().getHeader("ETag");
+        when(quizService.getQuizzes(any(), any(), eq("me"), any()))
+                .thenReturn(new PageImpl<>(List.of(changed)));
+
+        var updated = mockMvc.perform(get("/api/v1/quizzes").param("scope", "me")
+                        .header("If-None-Match", validator))
+                .andExpect(status().isOk()).andReturn().getResponse();
+
+        assertThat(updated.getHeader("ETag")).isNotEqualTo(validator);
+        assertThat(objectMapper.readTree(updated.getContentAsString()).path("content").get(0))
+                .isEqualTo(objectMapper.valueToTree(changed));
+    }
 
     @TestConfiguration(proxyBeanMethods = false)
     @EnableConfigurationProperties(SpringDocConfigProperties.class)
@@ -75,6 +217,9 @@ class QuizOpenApiContractTest {
 
     @MockitoBean
     private QuizService quizService;
+
+    @MockitoBean
+    private QuizFreshnessService freshnessService;
 
     @MockitoBean
     private AttemptService attemptService;

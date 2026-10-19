@@ -55,6 +55,9 @@ class QuizAssemblyServiceImplTest {
     @Mock
     private TagRepository tagRepository;
     
+    @Mock
+    private uk.gegc.quizmaker.features.quiz.application.QuizFreshnessService freshnessService;
+
     @InjectMocks
     private QuizAssemblyServiceImpl assemblyService;
     

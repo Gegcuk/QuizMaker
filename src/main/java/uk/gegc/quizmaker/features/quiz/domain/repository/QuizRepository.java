@@ -1,11 +1,14 @@
 package uk.gegc.quizmaker.features.quiz.domain.repository;
 
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.criteria.JoinType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -20,6 +23,23 @@ import java.util.UUID;
 
 @Repository
 public interface QuizRepository extends JpaRepository<Quiz, UUID>, JpaSpecificationExecutor<Quiz> {
+
+    default Page<UUID> findPageIds(Specification<Quiz> specification, Pageable pageable) {
+        Specification<Quiz> pageSpecification = (root, query, builder) -> {
+            if (query != null && Quiz.class.equals(query.getResultType())) {
+                // MySQL requires DISTINCT sort columns in SELECT, including to-one properties.
+                // These joins do not multiply parent rows; tags remain a separate batch fetch.
+                root.fetch("category", JoinType.LEFT);
+                root.fetch("creator", JoinType.LEFT);
+            }
+            return specification == null ? null : specification.toPredicate(root, query, builder);
+        };
+        return findBy(pageSpecification, query -> query.page(pageable)).map(Quiz::getId);
+    }
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select q from Quiz q where q.id = :quizId and q.creator.id = :ownerId")
+    Optional<Quiz> findOwnedByIdForUpdate(@Param("quizId") UUID quizId, @Param("ownerId") UUID ownerId);
 
     @Query("""
               SELECT q

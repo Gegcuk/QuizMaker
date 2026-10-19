@@ -9,6 +9,7 @@ import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
+import uk.gegc.quizmaker.features.quiz.application.QuizFreshnessService;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
@@ -30,6 +31,7 @@ public class QuizAssemblyServiceImpl implements QuizAssemblyService {
     private final QuizRepository quizRepository;
     private final CategoryRepository categoryRepository;
     private final TagRepository tagRepository;
+    private final QuizFreshnessService freshnessService;
 
     @Override
     public Category getOrCreateAICategory() {
@@ -86,7 +88,9 @@ public class QuizAssemblyServiceImpl implements QuizAssemblyService {
         quiz.setIsRepetitionEnabled(false);
         quiz.setDifficulty(request.difficulty());
 
-        return quizRepository.save(quiz);
+        Quiz saved = quizRepository.save(quiz);
+        freshnessService.registerGeneratedQuiz(saved.getId());
+        return saved;
     }
 
     @Override
@@ -120,7 +124,9 @@ public class QuizAssemblyServiceImpl implements QuizAssemblyService {
         quiz.setIsRepetitionEnabled(false);
         quiz.setDifficulty(request.difficulty());
 
-        return quizRepository.save(quiz);
+        Quiz saved = quizRepository.save(quiz);
+        freshnessService.registerGeneratedQuiz(saved.getId());
+        return saved;
     }
 
     @Override

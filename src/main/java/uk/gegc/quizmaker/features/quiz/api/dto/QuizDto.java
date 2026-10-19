@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.quiz.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
@@ -61,7 +62,19 @@ public record QuizDto(
         Instant createdAt,
 
         @Schema(description = "Timestamp when the quiz was last updated", example = "2025-05-10T12:00:00Z")
-        Instant updatedAt
+        Instant updatedAt,
+
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @Schema(description = "Private owner freshness, present only in scope=me. True only for newly completed AI quizzes until explicit acknowledgement; historical/manual/imported quizzes are false. GET never acknowledges.",
+                requiredMode = Schema.RequiredMode.NOT_REQUIRED, accessMode = Schema.AccessMode.READ_ONLY, example = "true")
+        Boolean isNew
 
 ) {
+    public QuizDto(UUID id, UUID creatorId, UUID categoryId, String title, String description,
+                   Visibility visibility, Difficulty difficulty, QuizStatus status, Integer estimatedTime,
+                   Boolean isRepetitionEnabled, Boolean timerEnabled, Integer timerDuration,
+                   List<UUID> tagIds, Integer questionCount, Instant createdAt, Instant updatedAt) {
+        this(id, creatorId, categoryId, title, description, visibility, difficulty, status, estimatedTime,
+                isRepetitionEnabled, timerEnabled, timerDuration, tagIds, questionCount, createdAt, updatedAt, null);
+    }
 }
