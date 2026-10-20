@@ -522,6 +522,160 @@ class AiQuizGenerationFailureScenariosTest {
                 eq(fixture.reservationId()), anyString(), anyString(), anyString());
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {80, 81})
+    void deadlineUsesExistingStrictCoverageThresholdAndBillingRules(int accepted) {
+        Fixture fixture = prepareFixture(10, 10);
+        var instant = new java.util.concurrent.atomic.AtomicReference<>(java.time.Instant.parse("2026-10-20T12:00:00Z"));
+        java.time.Clock clock = new java.time.Clock() {
+            public java.time.ZoneId getZone() { return java.time.ZoneOffset.UTC; }
+            public java.time.Clock withZone(java.time.ZoneId zone) { return this; }
+            public java.time.Instant instant() { return instant.get(); }
+        };
+        doAnswer(call -> {
+            int index = ((DocumentChunk) call.getArgument(0)).getChunkIndex();
+            int count = Math.max(0, Math.min(10, accepted - index * 10));
+            return CompletableFuture.completedFuture(questions(count, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM,
+                    "Chunk " + index + " question "));
+        }).when(service).generateQuestionsFromChunkWithJob(any(), anyMap(), any(), any(), anyString());
+        when(structuredAiClient.generateQuestions(any())).thenAnswer(call -> {
+            instant.set(instant.get().plusSeconds(300));
+            throw new uk.gegc.quizmaker.features.ai.application.GenerationDeadlineExceededException();
+        });
+        uk.gegc.quizmaker.features.ai.application.ProviderDeadline.within(
+                new uk.gegc.quizmaker.features.ai.application.ProviderDeadline(instant.get().plusSeconds(300), clock), () -> {
+                    if (accepted == 81) service.generateQuizFromDocumentAsync(fixture.job(), fixture.request());
+                    else assertThatThrownBy(() -> service.generateQuizFromDocumentAsync(fixture.job(), fixture.request()))
+                            .isInstanceOf(AiServiceException.class);
+                    return null;
+                });
+        if (accepted == 81) {
+            ArgumentCaptor<QuizGenerationCompletedEvent> event = ArgumentCaptor.forClass(QuizGenerationCompletedEvent.class);
+            verify(eventPublisher).publishEvent(event.capture());
+            assertThat(event.getValue().getChunkQuestions().values().stream().mapToInt(List::size).sum()).isEqualTo(81);
+            verify(internalBillingService, never()).release(any(), anyString(), anyString(), anyString());
+        } else {
+            verify(eventPublisher, never()).publishEvent(any(QuizGenerationCompletedEvent.class));
+            verify(internalBillingService).release(eq(fixture.reservationId()), anyString(), anyString(), anyString());
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("Redistribution retains a validated question when the next attempt reaches the deadline")
+    void redistributionRetainsValidatedQuestionWhenNextAttemptReachesDeadline(boolean returnsLateResponse) {
+        Fixture fixture = prepareFixture(10, 10);
+        var instant = new java.util.concurrent.atomic.AtomicReference<>(java.time.Instant.parse("2026-10-20T12:00:00Z"));
+        java.time.Clock clock = new java.time.Clock() {
+            public java.time.ZoneId getZone() { return java.time.ZoneOffset.UTC; }
+            public java.time.Clock withZone(java.time.ZoneId zone) { return this; }
+            public java.time.Instant instant() { return instant.get(); }
+        };
+        doAnswer(call -> {
+            int index = ((DocumentChunk) call.getArgument(0)).getChunkIndex();
+            return CompletableFuture.completedFuture(questions(8, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM,
+                    "Chunk " + index + " question "));
+        }).when(service).generateQuestionsFromChunkWithJob(any(), anyMap(), any(), any(), anyString());
+        when(structuredAiClient.generateQuestions(any()))
+                .thenReturn(StructuredQuestionResponse.builder()
+                        .questions(List.of(structuredQuestion("Validated redistribution question")))
+                        .build())
+                .thenAnswer(call -> {
+                    instant.set(instant.get().plusSeconds(300));
+                    if (returnsLateResponse) {
+                        return StructuredQuestionResponse.builder()
+                                .questions(List.of(structuredQuestion("Late question 1"), structuredQuestion("Late question 2")))
+                                .build();
+                    }
+                    throw new uk.gegc.quizmaker.features.ai.application.GenerationDeadlineExceededException();
+                });
+
+        uk.gegc.quizmaker.features.ai.application.ProviderDeadline.within(
+                new uk.gegc.quizmaker.features.ai.application.ProviderDeadline(instant.get().plusSeconds(300), clock), () -> {
+                    service.generateQuizFromDocumentAsync(fixture.job(), fixture.request());
+                    return null;
+                });
+
+        verify(structuredAiClient, times(2)).generateQuestions(argThat(request ->
+                request.getQuestionType() == QuestionType.MCQ_SINGLE
+                        && request.getQuestionCount() == 2
+                        && request.getDifficulty() == Difficulty.MEDIUM));
+        ArgumentCaptor<QuizGenerationCoverageReconciledEvent> coverageEvent =
+                ArgumentCaptor.forClass(QuizGenerationCoverageReconciledEvent.class);
+        verify(eventPublisher).publishEvent(coverageEvent.capture());
+        assertThat(coverageEvent.getValue().getCoverage().outcome()).isEqualTo(GenerationCoverageOutcome.PARTIAL);
+        assertThat(coverageEvent.getValue().getCoverage().acceptedTotal()).isEqualTo(81);
+        assertThat(coverageEvent.getValue().getCoverage().discardedTotal()).isZero();
+        ArgumentCaptor<QuizGenerationCompletedEvent> completedEvent = ArgumentCaptor.forClass(QuizGenerationCompletedEvent.class);
+        verify(eventPublisher).publishEvent(completedEvent.capture());
+        assertThat(completedEvent.getValue().getAllQuestions()).hasSize(81)
+                .extracting(Question::getQuestionText)
+                .containsOnlyOnce("Validated redistribution question")
+                .doesNotContain("Late question 1", "Late question 2");
+        assertThat(completedEvent.getValue().getChunkQuestions().values().stream().flatMap(List::stream).toList())
+                .containsExactlyInAnyOrderElementsOf(completedEvent.getValue().getAllQuestions());
+        verify(internalBillingService, never()).release(any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("Completed redistribution uses its final response without also appending buffered candidates")
+    void completedRedistributionDoesNotAlsoAppendBufferedCandidates() {
+        Fixture fixture = prepareFixture(10);
+        doReturn(CompletableFuture.completedFuture(questions(8, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM)))
+                .when(service).generateQuestionsFromChunkWithJob(any(), anyMap(), any(), any(), anyString());
+        when(structuredAiClient.generateQuestions(any()))
+                .thenReturn(StructuredQuestionResponse.builder()
+                        .questions(List.of(structuredQuestion("Superseded partial response")))
+                        .build())
+                .thenReturn(StructuredQuestionResponse.builder()
+                        .questions(List.of(structuredQuestion("Redistributed question 1"), structuredQuestion("Redistributed question 2")))
+                        .build());
+
+        service.generateQuizFromDocumentAsync(fixture.job(), fixture.request());
+
+        verify(structuredAiClient, times(2)).generateQuestions(any());
+        ArgumentCaptor<QuizGenerationCoverageReconciledEvent> coverageEvent =
+                ArgumentCaptor.forClass(QuizGenerationCoverageReconciledEvent.class);
+        verify(eventPublisher).publishEvent(coverageEvent.capture());
+        assertThat(coverageEvent.getValue().getCoverage().outcome()).isEqualTo(GenerationCoverageOutcome.COMPLETE);
+        assertThat(coverageEvent.getValue().getCoverage().acceptedTotal()).isEqualTo(10);
+        assertThat(coverageEvent.getValue().getCoverage().discardedTotal()).isZero();
+        ArgumentCaptor<QuizGenerationCompletedEvent> completedEvent = ArgumentCaptor.forClass(QuizGenerationCompletedEvent.class);
+        verify(eventPublisher).publishEvent(completedEvent.capture());
+        assertThat(completedEvent.getValue().getAllQuestions()).hasSize(10)
+                .extracting(Question::getQuestionText)
+                .containsOnlyOnce("Redistributed question 1", "Redistributed question 2")
+                .doesNotContain("Superseded partial response");
+        verify(internalBillingService, never()).release(any(), anyString(), anyString(), anyString());
+    }
+
+    @Test void completedLaterChunkReplenishesTheTwoChunkWindowWhileFirstIsBlocked() throws Exception {
+        Fixture fixture = prepareFixture(1, 3);
+        List<CompletableFuture<List<Question>>> futures = List.of(new CompletableFuture<>(), new CompletableFuture<>(), new CompletableFuture<>());
+        var firstTwo = new java.util.concurrent.CountDownLatch(2);
+        var third = new java.util.concurrent.CountDownLatch(1);
+        doAnswer(call -> {
+            int index = ((DocumentChunk) call.getArgument(0)).getChunkIndex();
+            if (index < 2) firstTwo.countDown(); else third.countDown();
+            return futures.get(index);
+        }).when(service).generateQuestionsFromChunkWithJob(any(), anyMap(), any(), any(), anyString());
+        var running = CompletableFuture.runAsync(() -> service.generateQuizFromDocumentAsync(fixture.job(), fixture.request()));
+        try {
+            assertThat(firstTwo.await(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(third.getCount()).isEqualTo(1);
+            futures.get(1).complete(questions(1, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM, "Second "));
+            assertThat(third.await(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(futures.get(0)).isNotDone();
+            futures.get(2).complete(questions(1, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM, "Third "));
+            futures.get(0).complete(questions(1, QuestionType.MCQ_SINGLE, Difficulty.MEDIUM, "First "));
+            running.get(2, java.util.concurrent.TimeUnit.SECONDS);
+            verify(eventPublisher).publishEvent(any(QuizGenerationCompletedEvent.class));
+        } finally {
+            futures.forEach(future -> future.complete(List.of()));
+            running.get(2, java.util.concurrent.TimeUnit.SECONDS);
+        }
+    }
+
     private Fixture prepareFixture() {
         return prepareFixture(2);
     }

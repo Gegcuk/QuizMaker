@@ -24,6 +24,8 @@ import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionResponse;
 import uk.gegc.quizmaker.features.ai.application.AiProviderHttpException;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.ai.application.ProviderAttemptBudget;
+import uk.gegc.quizmaker.features.ai.application.ProviderDeadline;
+import uk.gegc.quizmaker.features.ai.application.GenerationDeadlineExceededException;
 import uk.gegc.quizmaker.features.ai.application.ProviderAttemptBudgetExhaustedException;
 import uk.gegc.quizmaker.features.ai.application.ProviderUsageObservation;
 import uk.gegc.quizmaker.features.ai.application.ProviderUsagePersistenceException;
@@ -62,12 +64,7 @@ import java.util.function.Supplier;
  * - Implements retry logic with exponential backoff for rate limits
  * - Falls back to legacy parsing if structured output fails (future enhancement)
  * 
- * TODO: Timeout Configuration
- *   ChatClient calls use default timeout from Spring AI properties.
- *   For production, consider explicit timeout via ChatOptions to avoid indefinite waits.
- *   Example: chatClient.prompt(...).options(ChatOptions.builder().timeout(Duration.ofSeconds(30)).build())
- *   Recommended: Configure via application.properties:
- *     spring.ai.openai.chat.options.timeout=30s
+ * Provider transport and retry waits are bounded by the durable execution deadline.
  */
 @Service
 @Slf4j
@@ -127,6 +124,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         int retryCount = 0;
         
         while (retryCount < maxRetries) {
+            ProviderDeadline.check();
             // Positive retry waits poll this same cooperative cancellation signal.
             if (isCancellationRequested(request.getCancellationChecker())) {
                 log.info("Generation cancelled before attempt {} for {} type {}",
@@ -141,6 +139,8 @@ public class SpringAiStructuredClient implements StructuredAiClient {
             
             try {
                 return attemptGeneration(request);
+            } catch (GenerationDeadlineExceededException exception) {
+                throw exception;
             } catch (ProviderUsagePersistenceException exception) {
                 throw exception;
             } catch (ProviderAttemptBudgetExhaustedException exception) {
@@ -160,6 +160,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                         "Failed to generate structured questions: "
                                 + GenerationFailureCategory.PROMPT_CONSTRUCTION);
             } catch (Exception e) {
+                ProviderDeadline.check();
                 RetryDecision retryDecision = determineRetry(e, retryCount);
                 if (retryDecision.retry() && retryCount < maxRetries - 1) {
                     if (request.getProviderAttemptBudget() != null
@@ -230,6 +231,8 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                 allQuestions.addAll(response.getQuestions());
                 allWarnings.addAll(response.getWarnings());
                 totalTokens += response.getTokensUsed();
+            } catch (GenerationDeadlineExceededException exception) {
+                throw exception;
             } catch (ProviderUsagePersistenceException exception) {
                 throw exception;
             } catch (ProviderAttemptBudgetExhaustedException exception) {
@@ -311,6 +314,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
         log.debug("Sending structured generation request for {} {} questions with schema delivery mode {}",
                 request.getQuestionCount(), request.getQuestionType(), schemaDeliveryMode);
 
+        ProviderDeadline.check();
         ProviderAttemptBudget providerAttemptBudget = request.getProviderAttemptBudget();
         if (providerAttemptBudget != null && !providerAttemptBudget.tryAcquire()) {
             throw new ProviderAttemptBudgetExhaustedException();
@@ -333,6 +337,7 @@ public class SpringAiStructuredClient implements StructuredAiClient {
             throw new AiServiceException("No response received from AI service");
         }
         observeProviderResponse(request, providerAttemptId, response);
+        ProviderDeadline.check();
 
         if (response.getResult() == null) {
             throw new AiServiceException("No response received from AI service");
@@ -870,13 +875,14 @@ public class SpringAiStructuredClient implements StructuredAiClient {
     }
 
     private boolean waitForRetry(long delayMs, Supplier<Boolean> cancellationChecker) {
-        if (cancellationChecker == null) {
+        if (cancellationChecker == null && !ProviderDeadline.isBounded()) {
             sleepForRateLimit(delayMs);
             return true;
         }
 
         long remainingDelayMs = delayMs;
         while (remainingDelayMs > 0) {
+            ProviderDeadline.check();
             if (isCancellationRequested(cancellationChecker)) {
                 return false;
             }
@@ -885,10 +891,12 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                     remainingDelayMs,
                     CANCELLATION_CHECK_INTERVAL_MS
             );
+            waitSliceMs = ProviderDeadline.limitMillis(waitSliceMs);
             sleepForRateLimit(waitSliceMs);
             remainingDelayMs -= waitSliceMs;
         }
 
+        ProviderDeadline.check();
         return !isCancellationRequested(cancellationChecker);
     }
 

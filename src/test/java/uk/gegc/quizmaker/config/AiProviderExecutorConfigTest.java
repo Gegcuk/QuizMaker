@@ -95,7 +95,8 @@ class AiProviderExecutorConfigTest {
     @DisplayName("Wires the scheduler adapter to the named provider executor")
     void wiresSchedulerToNamedProviderExecutor() {
         new ApplicationContextRunner()
-                .withUserConfiguration(AsyncConfig.class, ExecutorAiProviderTaskScheduler.class)
+                .withUserConfiguration(AsyncConfig.class, ExecutorAiProviderTaskScheduler.class,
+                        uk.gegc.quizmaker.features.quiz.config.QuizJobProperties.class)
                 .withPropertyValues(
                         "async.ai.provider.core-pool-size=1",
                         "async.ai.provider.max-pool-size=1",

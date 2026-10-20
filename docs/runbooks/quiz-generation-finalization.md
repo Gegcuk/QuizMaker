@@ -19,11 +19,11 @@ transaction as acceptance. An in-memory event is only a prompt dispatch hint;
 losing it does not lose the work. Absence of a work row identifies a legacy job;
 the migration deliberately does not adopt old active jobs.
 
-The existing AI orchestration executor still controls execution concurrency.
-This change introduces neither whole-job provider budgets nor a global fairness
-policy. A bounded scan dispatches up to the existing recovery batch size of IDs.
-Scans and heartbeats use separate scheduler threads so inline execution by a
-saturated orchestration executor cannot block its heartbeat.
+The durable dispatcher admits jobs in acceptance-sequence FIFO order under a
+short MySQL gate lock. Four active jobs and two concurrent chunks per job are the
+defaults. A bounded recovery scan wakes the dispatcher; work stays in MySQL when
+local workers or global slots are occupied. Scans and heartbeats have independent
+scheduler capacity, and generation never runs inline on the publisher thread.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -55,15 +55,15 @@ leaves a durable `FAILED` finalization with `RESERVED` billing; the existing
 finalization recovery scan retries the release without rerunning generation.
 Legacy activation-timeout cleanup excludes jobs with durable work records.
 
-Local dispatch markers cover queued tasks only. An expired lease remains eligible
-for redispatch even if its former thread is still running on the same instance.
+An expired lease remains eligible for redispatch even if its former thread is
+still running. A free local worker and global admission slot are required.
 Heartbeat registration keeps the greatest fencing number when claimants return
 out of order. A new provider-attempt record checks ownership inside its accounting
 transaction; late usage reports for previously dispatched attempts remain valid
 audit facts and do not create a new customer charge.
-The worker suspends any caller transaction for its entire execution, including
-inline `AFTER_COMMIT` dispatch when the orchestration executor is saturated.
-Each fenced write then opens its own short transaction.
+The worker suspends any caller transaction for its entire execution.
+Each fenced write opens its own short transaction. The after-commit event only
+requests asynchronous dispatch and never executes generation itself.
 
 No provider call is automatically repeated once durable validated output exists.
 Checkpoint ownership transfers to the existing finalization recovery path.
@@ -171,7 +171,7 @@ the job or releasing its balance.
 | Crash point | Durable state | Recovery result |
 | --- | --- | --- |
 | Before dispatch hint is delivered | Committed managed work and accepted request | A scan claims and executes the work. Legacy jobs keep their existing cleanup path. |
-| Before checkpoint commit, first worker interrupted | Managed work with an expired lease, no validated output | One fenced recovery may regenerate if source and reservation remain valid. |
+| Before checkpoint commit, first worker interrupted | Managed work with an expired lease, no validated output | One fenced recovery may regenerate if source, reservation and the persisted execution deadline remain valid. |
 | Before checkpoint commit, second worker interrupted | Two executions used, no validated output | The job fails visibly and its reservation is reconciled. |
 | Before checkpoint commit, source changed or reservation expired | No reusable validated output | The job fails without regenerating or resurrecting its reservation. |
 | After checkpoint commit, before event dispatch | Private checkpoint, `NOT_STARTED` | Scheduler claims and finalizes from the checkpoint. |
@@ -255,3 +255,13 @@ job ID, its public status, finalization state, billing state, and the relevant
 application log correlation data. Do not select or log checkpoint payloads. A
 failed job still requires a new generation request; there is no endpoint that
 changes a failed job into `COMPLETED`.
+
+## Execution deadline and finalization
+
+The five-minute AI deadline begins at the first durable execution claim and is
+retained across recovery. Queue wait is excluded. It stops provider work, not
+checkpoint or entitlement persistence: validated coverage strictly above 80% may
+continue through this finalization flow after the deadline. At or below 80%, the
+normal failure/release path applies. Previously started work is grandfathered by
+V80 because its true first execution time is unknown. See
+[AI provider execution](ai-provider-execution.md) for FIFO limits and rollout constraints.

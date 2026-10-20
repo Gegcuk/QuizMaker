@@ -19,6 +19,9 @@ import uk.gegc.quizmaker.features.ai.application.AiProviderTaskScheduler;
 import uk.gegc.quizmaker.features.ai.application.GenerationCoveragePolicy;
 import uk.gegc.quizmaker.features.ai.application.PromptTemplateService;
 import uk.gegc.quizmaker.features.ai.application.ProviderAttemptBudget;
+import uk.gegc.quizmaker.features.ai.application.ProviderDeadline;
+import uk.gegc.quizmaker.features.ai.application.GenerationDeadlineExceededException;
+import uk.gegc.quizmaker.features.ai.application.ChunkGenerationBuffer;
 import uk.gegc.quizmaker.features.ai.application.ProviderAttemptBudgetExhaustedException;
 import uk.gegc.quizmaker.features.ai.application.ProviderUsageObservation;
 import uk.gegc.quizmaker.features.ai.application.ProviderUsagePersistenceException;
@@ -59,6 +62,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -168,62 +175,71 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             log.info("Processing {} chunks for document {} with {} total tasks ({} question types requested)", 
                     chunks.size(), request.documentId(), totalTasks, requestedTypeCount);
 
-            // Process chunks asynchronously
-            for (DocumentChunk chunk : chunks) {
-                throwIfJobCancelled(jobId);
-                CompletableFuture<List<Question>> chunkFuture = generateQuestionsFromChunkWithJob(
-                        chunk,
-                        request.questionsPerType(),
-                        request.difficulty(),
-                        jobId,
-                        request.language()
-                );
-                chunkFutures.add(chunkFuture);
-                chunkCancellationGroup.track(chunkFuture);
-                if (chunkCancellationGroup.isCancellationObserved()) {
-                    throw new QuizGenerationCancelledException();
-                }
-            }
-
-            // Collect all generated questions with enhanced tracking
             List<Question> allQuestions = new ArrayList<>();
             Map<Integer, List<Question>> chunkQuestions = new HashMap<>();
-
+            Map<Integer, CompletableFuture<List<Question>>> pending = new HashMap<>();
+            Map<Integer, ChunkGenerationBuffer> buffers = new HashMap<>();
+            BlockingQueue<Integer> completed = new LinkedBlockingQueue<>();
+            int nextChunk = 0;
             int processedChunks = 0;
-
-            // Collect results from all chunks
-            for (int chunkIndex = 0; chunkIndex < chunkFutures.size(); chunkIndex++) {
-                try {
-                    CompletableFuture<List<Question>> future = chunkFutures.get(chunkIndex);
-                    List<Question> chunkQuestionsList = future.get();
-                    
-                    if (!chunkQuestionsList.isEmpty()) {
-                        allQuestions.addAll(chunkQuestionsList);
-                        chunkQuestions.put(chunkIndex, chunkQuestionsList);
+            try {
+                while (nextChunk < chunks.size() || !pending.isEmpty()) {
+                    ProviderDeadline.check();
+                    throwIfJobCancelled(jobId);
+                    while (nextChunk < chunks.size() && pending.size() < GenerationWorkerContext.maxConcurrentChunks()) {
+                        ProviderDeadline.check();
+                        throwIfJobCancelled(jobId);
+                        int index = nextChunk++;
+                        DocumentChunk chunk = chunks.get(index);
+                        var buffer = new ChunkGenerationBuffer();
+                        buffers.put(index, buffer);
+                        var future = buffer.submit(() -> generateQuestionsFromChunkWithJob(chunk,
+                                request.questionsPerType(), request.difficulty(), jobId, request.language()));
+                        pending.put(index, future);
+                        chunkFutures.add(future);
+                        chunkCancellationGroup.track(future);
+                        var completion = ProviderDeadline.propagate(() -> {
+                            if (!future.isCompletedExceptionally()) buffer.complete(future.join());
+                            completed.add(index);
+                            return null;
+                        });
+                        future.whenComplete((result, failure) -> completion.get());
+                        if (chunkCancellationGroup.isCancellationObserved()) throw new QuizGenerationCancelledException();
                     }
-                    
-                    processedChunks++;
-
-                    // Update chunk progress atomically. Task counters remain authoritative for the percentage.
-                    updateJobChunkProgressSafely(jobId, processedChunks, 
-                        String.format("Processing chunk %d/%d", processedChunks, chunks.size()));
-
-                } catch (Exception e) {
-                    GenerationWorkerContext.rethrowIfLost(e);
-                    propagateProviderUsagePersistenceFailure(e);
-                    propagateGenerationCancellation(e);
-                    if (chunkCancellationGroup.isCancellationObserved()
-                            || (containsFutureCancellation(e) && isJobCancelled(jobId))) {
-                        throw new QuizGenerationCancelledException();
+                    Integer index = completed.poll(ProviderDeadline.limitMillis(1_000), TimeUnit.MILLISECONDS);
+                    if (index == null) continue;
+                    var future = pending.remove(index);
+                    try {
+                        List<Question> questions = future.get();
+                        if (!questions.isEmpty()) chunkQuestions.put(index, questions);
+                        processedChunks++;
+                        updateJobChunkProgressSafely(jobId, processedChunks,
+                                String.format("Processing chunk %d/%d", processedChunks, chunks.size()));
+                    } catch (Exception failure) {
+                        GenerationWorkerContext.rethrowIfLost(failure);
+                        propagateProviderUsagePersistenceFailure(failure);
+                        propagateGenerationCancellation(failure);
+                        if (chunkCancellationGroup.isCancellationObserved()
+                                || (containsFutureCancellation(failure) && isJobCancelled(jobId))) {
+                            throw new QuizGenerationCancelledException();
+                        }
+                        log.warn("Error processing chunk {} for job {}", index, jobId);
+                        progress.addError("Chunk " + index + " processing failed");
                     }
-                    log.error("Error processing chunk {} for job {}", chunkIndex, jobId, e);
-                    progress.addError("Chunk " + chunkIndex + " processing failed: " + e.getMessage());
-
-                    // Update chunk progress with error atomically
-                    updateJobChunkProgressSafely(jobId, processedChunks, 
-                        String.format("Error in chunk %d", chunkIndex));
                 }
+            } catch (GenerationDeadlineExceededException deadline) {
+                log.info("Provider deadline reached for job {}", jobId);
+            } finally {
+                // Freeze before cancellation: late results cannot enter the terminal coverage decision.
+                for (var entry : buffers.entrySet()) {
+                    List<Question> partial = entry.getValue().freeze();
+                    if (ProviderDeadline.isExpired() && !partial.isEmpty()) {
+                        chunkQuestions.putIfAbsent(entry.getKey(), partial);
+                    }
+                }
+                if (ProviderDeadline.isExpired()) chunkCancellationGroup.cancelIncomplete();
             }
+            chunkQuestions.values().forEach(allQuestions::addAll);
 
             throwIfJobCancelled(jobId);
 
@@ -241,7 +257,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             Map<QuestionType, Integer> missingTypes = new EnumMap<>(QuestionType.class);
             missingTypes.putAll(initialCoverage.missingByType());
             
-            if (!missingTypes.isEmpty()) {
+            if (!missingTypes.isEmpty() && !ProviderDeadline.isExpired()) {
                 throwIfJobCancelled(jobId);
                 log.info("Missing question types detected for job {}: {}. Attempting redistribution...", 
                         jobId, missingTypes);
@@ -418,6 +434,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     ) {
         String language = GenerationLanguagePolicy.requireSupportedOrDefault(targetLanguage);
 
+        ChunkGenerationBuffer resultBuffer = ChunkGenerationBuffer.currentSubmission();
         return aiProviderTaskScheduler.submit(GenerationWorkerContext.propagate(() -> {
             List<Question> allQuestions = new ArrayList<>();
             List<String> chunkErrors = new ArrayList<>();
@@ -452,7 +469,10 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                                     difficulty,
                                     chunk.getChunkIndex(),
                                     jobId,
-                                    language
+                                    language,
+                                    candidates -> {
+                                        if (resultBuffer != null) resultBuffer.record(questionType, candidates);
+                                    }
                             );
                             
                             if (!questions.isEmpty()) {
@@ -462,6 +482,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                                 chunkErrors.add(String.format("Failed to generate any %s questions after all fallback attempts",
                                         questionType));
                             }
+                        } catch (GenerationDeadlineExceededException exception) {
+                            throw exception;
                         } catch (QuizGenerationCancelledException exception) {
                             cancelled = true;
                             throw exception;
@@ -497,6 +519,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
                 return allQuestions;
 
+            } catch (GenerationDeadlineExceededException exception) {
+                throw exception;
             } catch (QuizGenerationCancelledException exception) {
                 throw exception;
             } catch (Exception e) {
@@ -607,6 +631,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     .build();
 
             // Use structured AI client (handles retries internally)
+            ProviderDeadline.check();
             StructuredQuestionResponse structuredResponse = structuredAiClient.generateQuestions(structuredRequest);
             throwIfJobCancelled(jobId);
 
@@ -624,6 +649,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
             // Convert StructuredQuestion to domain Question
             List<Question> questions = convertStructuredQuestions(structuredResponse.getQuestions());
+            ProviderDeadline.check();
 
             // Validate we got the expected number of questions
             if (questions.size() < questionCount) {
@@ -634,6 +660,8 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
             return questions;
 
+        } catch (GenerationDeadlineExceededException exception) {
+            throw exception;
         } catch (QuizGenerationCancelledException exception) {
             throw exception;
         } catch (ProviderAttemptBudgetExhaustedException exception) {
@@ -752,10 +780,25 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             UUID jobId,
             String targetLanguage
     ) {
+        return generateQuestionsByTypeWithFallbacks(chunkContent, questionType, questionCount, difficulty,
+                chunkIndex, jobId, targetLanguage, questions -> { });
+    }
+
+    private List<Question> generateQuestionsByTypeWithFallbacks(
+            String chunkContent,
+            QuestionType questionType,
+            int questionCount,
+            Difficulty difficulty,
+            Integer chunkIndex,
+            UUID jobId,
+            String targetLanguage,
+            Consumer<List<Question>> candidates
+    ) {
         String language = GenerationLanguagePolicy.requireSupportedOrDefault(targetLanguage);
         ProviderAttemptBudget providerAttemptBudget =
                 new ProviderAttemptBudget(rateLimitConfig.getMaxAttemptsPerTask());
 
+        ProviderDeadline.check();
         throwIfJobCancelled(jobId);
 
         // Update job status to show fallback attempt
@@ -764,6 +807,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         // Strategy 1: Try normal generation (multiple attempts)
         int normalAttempts = 3;
         for (int attempt = 1; attempt <= normalAttempts; attempt++) {
+            ProviderDeadline.check();
             throwIfJobCancelled(jobId);
             if (providerAttemptBudget.isExhausted()) {
                 break;
@@ -780,6 +824,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         language,
                         providerAttemptBudget
                 );
+                candidates.accept(questions);
                 if (questions.size() >= questionCount) {
                     updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " generated successfully");
                     return questions;
@@ -794,15 +839,19 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         return questions;
                     }
                 }
+            } catch (GenerationDeadlineExceededException exception) {
+                throw exception;
             } catch (QuizGenerationCancelledException exception) {
                 throw exception;
             } catch (ProviderAttemptBudgetExhaustedException exception) {
+                ProviderDeadline.check();
                 throwIfJobCancelled(jobId);
                 logProviderAttemptBudgetExhausted(questionType, chunkIndex, providerAttemptBudget);
                 break;
             } catch (Exception e) {
                 GenerationWorkerContext.rethrowIfLost(e);
                 propagateProviderUsagePersistenceFailure(e);
+                ProviderDeadline.check();
                 throwIfJobCancelled(jobId);
                 log.warn("Strategy 1 (normal) attempt {} failed for {} chunk {}: {}", 
                         attempt, questionType, chunkIndex, e.getMessage());
@@ -815,6 +864,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         }
 
         // Strategy 2: Try with reduced count (multiple attempts, if requesting more than 1)
+        ProviderDeadline.check();
         throwIfJobCancelled(jobId);
         if (questionCount > 1 && !providerAttemptBudget.isExhausted()) {
             updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " using reduced count strategy");
@@ -823,6 +873,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             int reducedCount = Math.max(1, questionCount / 2);
             
             for (int attempt = 1; attempt <= reducedAttempts; attempt++) {
+                ProviderDeadline.check();
                 throwIfJobCancelled(jobId);
                 if (providerAttemptBudget.isExhausted()) {
                     break;
@@ -841,21 +892,26 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                             language,
                             providerAttemptBudget
                     );
+                    candidates.accept(questions);
                     if (!questions.isEmpty()) {
                         log.info("Strategy 2 (reduced count) succeeded on attempt {}: {}/{} questions for {} chunk {}", 
                                 attempt, questions.size(), questionCount, questionType, chunkIndex);
                         updateJobStatusSafely(jobId, "Chunk " + chunkIndex + ": " + questionType + " reduced count success");
                         return questions;
                     }
+                } catch (GenerationDeadlineExceededException exception) {
+                    throw exception;
                 } catch (QuizGenerationCancelledException exception) {
                     throw exception;
                 } catch (ProviderAttemptBudgetExhaustedException exception) {
+                    ProviderDeadline.check();
                     throwIfJobCancelled(jobId);
                     logProviderAttemptBudgetExhausted(questionType, chunkIndex, providerAttemptBudget);
                     break;
                 } catch (Exception e) {
                     GenerationWorkerContext.rethrowIfLost(e);
                     propagateProviderUsagePersistenceFailure(e);
+                    ProviderDeadline.check();
                     throwIfJobCancelled(jobId);
                     log.warn("Strategy 2 (reduced count) attempt {} failed for {} chunk {}: {}", 
                             attempt, questionType, chunkIndex, e.getMessage());
@@ -868,6 +924,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             }
         }
 
+        ProviderDeadline.check();
         throwIfJobCancelled(jobId);
         log.error("All same-contract generation strategies failed for {} questions of type {} in chunk {}",
                 questionCount, questionType, chunkIndex);
@@ -913,10 +970,12 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 .toList();
 
         log.debug("Attempting redistribution using {} good chunks", goodChunks.size());
+        if (ProviderDeadline.isExpired()) return;
         throwIfJobCancelled(jobId);
         updateJobStatusSafely(jobId, "Redistribution: Found " + goodChunks.size() + " suitable chunks for missing types");
 
         for (Map.Entry<QuestionType, Integer> entry : missingTypes.entrySet()) {
+            if (ProviderDeadline.isExpired()) return;
             throwIfJobCancelled(jobId);
             QuestionType missingType = entry.getKey();
             int neededCount = entry.getValue();
@@ -926,6 +985,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             updateJobStatusSafely(jobId, "Redistribution: Attempting to generate " + neededCount + " missing " + missingType + " questions");
 
             for (DocumentChunk chunk : goodChunks) {
+                if (ProviderDeadline.isExpired()) return;
                 throwIfJobCancelled(jobId);
                 if (attemptedCount >= neededCount) {
                     break; // We have enough
@@ -933,16 +993,23 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
                 try {
                     int countToTry = Math.min(neededCount - attemptedCount, 2); // Max 2 per chunk
-                    
-                    List<Question> redistributedQuestions = generateQuestionsByTypeWithFallbacks(
-                            chunk.getContent(),
-                            missingType,
-                            countToTry,
-                            difficulty,
-                            chunk.getChunkIndex(),
-                            jobId,
-                            language
-                    );
+                    ChunkGenerationBuffer resultBuffer = new ChunkGenerationBuffer();
+                    try {
+                        List<Question> questions = generateQuestionsByTypeWithFallbacks(
+                                chunk.getContent(),
+                                missingType,
+                                countToTry,
+                                difficulty,
+                                chunk.getChunkIndex(),
+                                jobId,
+                                language,
+                                candidates -> resultBuffer.record(missingType, candidates)
+                        );
+                        resultBuffer.complete(questions);
+                    } catch (GenerationDeadlineExceededException exception) {
+                        // Reconcile validated output from this invocation before stopping redistribution.
+                    }
+                    List<Question> redistributedQuestions = resultBuffer.freeze();
 
                     if (!redistributedQuestions.isEmpty()) {
                         allQuestions.addAll(redistributedQuestions);
@@ -963,12 +1030,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 } catch (Exception e) {
                     GenerationWorkerContext.rethrowIfLost(e);
                     propagateProviderUsagePersistenceFailure(e);
+                    if (ProviderDeadline.isExpired()) return;
                     throwIfJobCancelled(jobId);
                     log.warn("Failed to redistribute {} questions to chunk {}: {}", 
                             missingType, chunk.getChunkIndex(), e.getMessage());
                 }
             }
 
+            if (ProviderDeadline.isExpired()) return;
             throwIfJobCancelled(jobId);
             if (attemptedCount > 0) {
                 log.info("Successfully redistributed {}/{} {} questions", 

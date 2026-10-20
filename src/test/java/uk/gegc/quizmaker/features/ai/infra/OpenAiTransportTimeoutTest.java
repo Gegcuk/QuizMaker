@@ -170,6 +170,78 @@ class OpenAiTransportTimeoutTest {
         });
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void jobDeadlineCancelsAnExchangeIncludingAStalledStreamingBody(boolean headersAlreadySent) throws IOException {
+        startServer(exchange -> {
+            requestCount.incrementAndGet();
+            exchange.getRequestBody().readAllBytes();
+            if (headersAlreadySent) {
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, 0);
+                exchange.getResponseBody().write("{".getBytes(StandardCharsets.UTF_8));
+                exchange.getResponseBody().flush();
+            }
+            try { Thread.sleep(5_000); }
+            catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            finally { exchange.close(); }
+        });
+        contextRunner(TEST_CONNECT_TIMEOUT, Duration.ofSeconds(30))
+                .withUserConfiguration(uk.gegc.quizmaker.features.ai.infra.config.GenerationDeadlineHttpConfiguration.class)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    var api = openAiApi(context.getBean(RestClient.Builder.class));
+                    var clock = java.time.Clock.systemUTC();
+                    long start = System.nanoTime();
+                    Throwable failure = catchThrowable(() -> uk.gegc.quizmaker.features.ai.application.ProviderDeadline.within(
+                            new uk.gegc.quizmaker.features.ai.application.ProviderDeadline(clock.instant().plusMillis(250), clock),
+                            () -> api.chatCompletionEntity(request())));
+                    assertThat(failure).isNotNull();
+                    assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(2));
+                    assertThat(requestCount).hasValue(1);
+                });
+    }
+
+    @Test void expiredJobCannotDispatchEvenWithALongTransportTimeout() throws IOException {
+        startServer(exchange -> { requestCount.incrementAndGet(); writeJson(exchange, SUCCESS_RESPONSE); });
+        contextRunner(TEST_CONNECT_TIMEOUT, Duration.ofSeconds(30))
+                .withUserConfiguration(uk.gegc.quizmaker.features.ai.infra.config.GenerationDeadlineHttpConfiguration.class)
+                .run(context -> {
+                    var api = openAiApi(context.getBean(RestClient.Builder.class));
+                    var clock = java.time.Clock.systemUTC();
+                    Throwable failure = catchThrowable(() -> uk.gegc.quizmaker.features.ai.application.ProviderDeadline.within(
+                            new uk.gegc.quizmaker.features.ai.application.ProviderDeadline(clock.instant(), clock),
+                            () -> api.chatCompletionEntity(request())));
+                    assertThat(failure).isInstanceOf(uk.gegc.quizmaker.features.ai.application.GenerationDeadlineExceededException.class);
+                    assertThat(requestCount).hasValue(0);
+                });
+    }
+
+    @Test void requestCreatedBeforeCutoffCannotDispatchAfterCutoffOrEscapeItsScope() throws IOException {
+        startServer(exchange -> { requestCount.incrementAndGet(); writeJson(exchange, SUCCESS_RESPONSE); });
+        var builder = org.mockito.Mockito.mock(RestClient.Builder.class);
+        var settings = ClientHttpRequestFactorySettings.defaults().withReadTimeout(Duration.ofSeconds(30));
+        new uk.gegc.quizmaker.features.ai.infra.config.GenerationDeadlineHttpConfiguration()
+                .generationDeadlineTransport(org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder.jdk(), settings)
+                .customize(builder);
+        var factory = org.mockito.ArgumentCaptor.forClass(org.springframework.http.client.ClientHttpRequestFactory.class);
+        org.mockito.Mockito.verify(builder).requestFactory(factory.capture());
+        var now = new java.util.concurrent.atomic.AtomicReference<>(java.time.Instant.parse("2026-10-20T12:00:00Z"));
+        var clock = org.mockito.Mockito.mock(java.time.Clock.class);
+        org.mockito.Mockito.when(clock.instant()).thenAnswer(call -> now.get());
+        var request = uk.gegc.quizmaker.features.ai.application.ProviderDeadline.within(
+                new uk.gegc.quizmaker.features.ai.application.ProviderDeadline(now.get().plusSeconds(300), clock), () -> {
+                    try {
+                        return factory.getValue().createRequest(java.net.URI.create("http://" + server.getAddress().getHostString()
+                                + ":" + server.getAddress().getPort() + COMPLETIONS_PATH), org.springframework.http.HttpMethod.POST);
+                    } catch (IOException failure) { throw new java.io.UncheckedIOException(failure); }
+                });
+        now.set(now.get().plusSeconds(300));
+        assertThat(catchThrowable(request::execute))
+                .isInstanceOf(uk.gegc.quizmaker.features.ai.application.GenerationDeadlineExceededException.class);
+        assertThat(requestCount).hasValue(0);
+    }
+
     private void assertTransportDeadlineFailure(Throwable failure) {
         assertThat(failure)
                 .isNotNull()

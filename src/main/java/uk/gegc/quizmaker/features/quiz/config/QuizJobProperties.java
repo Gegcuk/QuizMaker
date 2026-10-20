@@ -53,6 +53,10 @@ public class QuizJobProperties {
     @Data
     public static class Execution {
         @Min(1)
+        private int maxActiveJobs = 4;
+        @Min(1)
+        private int maxConcurrentChunks = 2;
+        @Min(1)
         private int leaseSeconds = 120;
         @Min(1)
         private int heartbeatSeconds = 30;

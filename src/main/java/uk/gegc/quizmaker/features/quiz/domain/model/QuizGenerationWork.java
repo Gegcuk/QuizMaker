@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -34,6 +35,31 @@ public class QuizGenerationWork {
     private LocalDateTime leaseUntil;
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "admission_sequence", nullable = false, updatable = false)
+    private long admissionSequence;
+    @Column(name = "deadline_enabled", nullable = false)
+    private boolean deadlineEnabled = true;
+    @Column(name = "first_started_at")
+    private Instant firstStartedAt;
+    @Column(name = "deadline_at")
+    private Instant deadlineAt;
+
+    public QuizGenerationWork(UUID jobId, long sourceRevision, LocalDateTime now, long sequence) {
+        this(jobId, sourceRevision, now);
+        this.admissionSequence = sequence;
+    }
+
+    public void startDeadline(Instant now) {
+        if (deadlineEnabled && firstStartedAt == null) {
+            firstStartedAt = Objects.requireNonNull(now);
+            deadlineAt = now.plusSeconds(300);
+        }
+    }
+
+    public boolean deadlineExpired(Instant now) {
+        return deadlineAt != null && !now.isBefore(deadlineAt);
+    }
 
     public QuizGenerationWork(UUID jobId, long sourceRevision, LocalDateTime now) {
         this.jobId = Objects.requireNonNull(jobId);

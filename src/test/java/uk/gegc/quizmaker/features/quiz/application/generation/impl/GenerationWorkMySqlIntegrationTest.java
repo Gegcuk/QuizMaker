@@ -133,8 +133,8 @@ class GenerationWorkMySqlIntegrationTest {
             return null;
         }).when(ai).generateQuizFromDocumentAsync(eq(job.getId()), any());
         transactions.executeWithoutResult(tx -> {
-            // Mimic acceptance resources still bound during AFTER_COMMIT when
-            // the saturated aiTaskExecutor uses its CallerRunsPolicy.
+            // Defensive service-boundary check with acceptance resources still bound.
+            // Production dispatch now always uses its dedicated worker executor.
             works.findById(job.getId()).orElseThrow();
             org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
                     new org.springframework.transaction.support.TransactionSynchronization() {
@@ -332,7 +332,7 @@ class GenerationWorkMySqlIntegrationTest {
             checkpoints.save(job.getId(), questions());
             return null;
         }).when(ai).generateQuizFromDocumentAsync(eq(job.getId()), any());
-        var restarted = new GenerationWorkExecutorImpl(service, ai, new ObjectMapper().findAndRegisterModules());
+        var restarted = new GenerationWorkExecutorImpl(service, ai, new ObjectMapper().findAndRegisterModules(), clock, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         restarted.execute(job.getId());
         restarted.execute(job.getId());
         verify(ai, times(1)).generateQuizFromDocumentAsync(eq(job.getId()), any());
@@ -419,7 +419,7 @@ class GenerationWorkMySqlIntegrationTest {
         statistics.clear();
         List<UUID> due = service.findDue();
         assertThat(due).hasSize(50);
-        assertThat(statistics.getPrepareStatementCount()).isEqualTo(3);
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(5);
         assertThat(statistics.getEntityLoadCount()).isZero();
         assertThat(statistics.getCollectionFetchCount()).isZero();
     }
@@ -453,6 +453,59 @@ class GenerationWorkMySqlIntegrationTest {
         // per execution, plus at most the existing unique-username owner resolution.
         assertThat(statistics.getPrepareStatementCount()).isBetween(15L, 18L);
         assertThat(statistics.getCollectionFetchCount()).isZero();
+    }
+
+    @Test void fifoUsesAcceptanceSequenceEvenWhenAllTimestampsMatchAndCapacityIsGlobal() throws Exception {
+        List<UUID> ordered = new ArrayList<>();
+        for (int i = 0; i < 6; i++) ordered.add(fixture(true, false).getId());
+        assertThat(service.claim(ordered.get(1))).isEmpty();
+        assertThat(service.findDue()).containsExactlyElementsOf(ordered);
+        ExecutorService instances = Executors.newFixedThreadPool(8);
+        try {
+            List<Future<Optional<GenerationWorkClaim>>> results = new ArrayList<>();
+            for (int i = 0; i < 8; i++) results.add(instances.submit(() -> service.claimNext()));
+            List<GenerationWorkClaim> admitted = new ArrayList<>();
+            for (var future : results) future.get(10, TimeUnit.SECONDS).ifPresent(admitted::add);
+            assertThat(admitted).hasSize(4);
+            assertThat(admitted).extracting(GenerationWorkClaim::jobId)
+                    .containsExactlyInAnyOrderElementsOf(ordered.subList(0, 4));
+            assertThat(service.claimNext()).isEmpty();
+            service.failed(admitted.get(0));
+            assertThat(service.claimNext()).get().extracting(GenerationWorkClaim::jobId).isEqualTo(ordered.get(4));
+        } finally { instances.shutdownNow(); }
+    }
+
+    @Test void deadlineStartsAtFirstExecutionAndSurvivesRecoveryAtTheExactBoundary() {
+        QuizGenerationJob job = fixture(true, true);
+        clock.advance(480); // Queue wait is deliberately longer than five minutes.
+        var first = service.claimNext().orElseThrow();
+        assertThat(first.deadline()).isEqualTo(clock.instant().plusSeconds(300));
+        clock.advance(120);
+        var resumed = service.claimNext().orElseThrow();
+        assertThat(resumed.deadline()).isEqualTo(first.deadline());
+        clock.advance(180);
+        worker.execute(job.getId());
+        assertThat(jobs.findById(job.getId()).orElseThrow().getErrorMessage()).contains("deadline exceeded");
+        assertThat(jobs.findById(job.getId()).orElseThrow().getBillingState()).isEqualTo(BillingState.RELEASED);
+        verifyNoInteractions(ai);
+    }
+
+    @Test void existingStartedWorkRemainsUnboundedAndCompletedOutputCanFinalizeAfterDeadline() {
+        QuizGenerationJob legacy = fixture(true, false);
+        transactions.executeWithoutResult(tx -> entityManager.createNativeQuery(
+                "update quiz_generation_work set deadline_enabled = false where job_id = :id")
+                .setParameter("id", legacy.getId()).executeUpdate());
+        var old = service.claimNext().orElseThrow();
+        assertThat(old.deadline()).isNull();
+        clock.advance(600);
+        var resumed = service.claimNext().orElseThrow();
+        assertThat(resumed.deadline()).isNull();
+        service.failed(resumed);
+        QuizGenerationJob fresh = fixture(true, false);
+        var claim = service.claim(fresh.getId()).orElseThrow();
+        for (int i = 0; i < 11; i++) { clock.advance(30); service.heartbeat(claim); }
+        GenerationWorkerContext.run(claim, service, clock, () -> checkpoints.save(fresh.getId(), questions()));
+        assertThat(outputs.existsById(fresh.getId())).isTrue();
     }
 
     private QuizGenerationJob fixture(boolean enroll, boolean paid) {

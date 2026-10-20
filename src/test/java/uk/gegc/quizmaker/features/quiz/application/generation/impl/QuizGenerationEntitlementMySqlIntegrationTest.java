@@ -663,7 +663,7 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
             checkpointService.save(job.getId(), Map.of(0, List.of(question())));
             return null;
         }).when(aiQuizGenerationService).generateQuizFromDocumentAsync(eq(job.getId()), any());
-        var restarted = new GenerationWorkExecutorImpl(generationWorkService, aiQuizGenerationService, objectMapper);
+        var restarted = new GenerationWorkExecutorImpl(generationWorkService, aiQuizGenerationService, objectMapper, java.time.Clock.systemUTC(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         restarted.execute(job.getId());
         when(estimationService.computeActualBillingTokens(any(), any(), anyLong())).thenReturn(4L);
         when(internalBillingService.commit(any(), anyLong(), any(), any()))

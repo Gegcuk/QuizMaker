@@ -70,6 +70,21 @@ public class AsyncConfig implements AsyncConfigurer {
      * Custom executor for AI operations (quiz generation, question generation)
      * Optimized for CPU-intensive AI API calls with appropriate thread pool sizing
      */
+    @Bean(name = "generationJobExecutor")
+    public Executor generationJobExecutor(uk.gegc.quizmaker.features.quiz.config.QuizJobProperties properties) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        int capacity = properties.getExecution().getMaxActiveJobs();
+        executor.setCorePoolSize(capacity);
+        executor.setMaxPoolSize(capacity);
+        executor.setQueueCapacity(0);
+        executor.setThreadNamePrefix("generation-job-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
+
     @Bean(name = "aiTaskExecutor")
     public Executor aiTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

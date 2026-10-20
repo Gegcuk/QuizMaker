@@ -1,6 +1,8 @@
 package uk.gegc.quizmaker.features.quiz.application.generation;
 
 import java.util.Objects;
+import java.time.Clock;
+import uk.gegc.quizmaker.features.ai.application.ProviderDeadline;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -12,6 +14,27 @@ public final class GenerationWorkerContext {
     private GenerationWorkerContext() { }
 
     public static void run(GenerationWorkClaim claim, GenerationWorkService service, Runnable action) {
+        run(claim, service, Clock.systemUTC(), action);
+    }
+
+    public static void run(GenerationWorkClaim claim, GenerationWorkService service, Clock clock, Runnable action) {
+        run(claim, service, new ProviderDeadline(claim.deadline(), clock), action);
+    }
+
+    public static void run(GenerationWorkClaim claim, GenerationWorkService service,
+                           ProviderDeadline deadline, Runnable action) {
+        ProviderDeadline.within(deadline, () -> {
+            runScope(claim, service, action);
+            return null;
+        });
+    }
+
+    public static int maxConcurrentChunks() {
+        Scope scope = CURRENT.get();
+        return scope == null ? 2 : scope.claim().maxConcurrentChunks();
+    }
+
+    private static void runScope(GenerationWorkClaim claim, GenerationWorkService service, Runnable action) {
         Scope previous = CURRENT.get();
         CURRENT.set(new Scope(Objects.requireNonNull(claim), Objects.requireNonNull(service)));
         try {
@@ -23,8 +46,8 @@ public final class GenerationWorkerContext {
 
     public static <T> Supplier<T> propagate(Supplier<T> action) {
         Scope captured = CURRENT.get();
-        if (captured == null) return action;
-        return () -> {
+        if (captured == null) return ProviderDeadline.propagate(action);
+        return ProviderDeadline.propagate(() -> {
             Scope previous = CURRENT.get();
             CURRENT.set(captured);
             try {
@@ -32,7 +55,7 @@ public final class GenerationWorkerContext {
             } finally {
                 if (previous == null) CURRENT.remove(); else CURRENT.set(previous);
             }
-        };
+        });
     }
 
     public static <T> T write(UUID jobId, Supplier<T> action) {
