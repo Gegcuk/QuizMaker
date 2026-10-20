@@ -154,9 +154,12 @@ Checkpointed jobs retry quiz assembly from the exact validated output already
 stored in MySQL. Finalization recovery never calls the AI provider. Jobs with no
 durable output and an expired reservation fail without exposing partial content;
 new managed jobs can first recover through the execution path above. Reservation
-release is idempotent. Candidate scans return IDs in bounded pages; the job is locked and
-checkpoint existence is rechecked before an apparently uncheckpointed job can
-be failed.
+release is idempotent. Candidate scans return IDs in bounded pages. Under the job
+lock, recovery rechecks checkpoint existence and the exact current eligibility:
+processing status, finalization stage, and either the expired reservation or the
+stale finalization claim. A reservation renewed after the scan, or a refreshed
+finalization claim, invalidates that candidate; recovery skips it without changing
+the job or releasing its balance.
 
 ## Crash windows
 

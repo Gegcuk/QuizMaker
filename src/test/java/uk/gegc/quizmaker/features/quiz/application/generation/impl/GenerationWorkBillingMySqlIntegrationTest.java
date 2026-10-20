@@ -3,6 +3,8 @@ package uk.gegc.quizmaker.features.quiz.application.generation.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import jakarta.persistence.EntityManagerFactory;
+import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -16,6 +18,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -43,6 +46,7 @@ import uk.gegc.quizmaker.shared.config.FeatureFlags;
 import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.*;
@@ -54,7 +58,8 @@ import static org.mockito.Mockito.*;
 @ActiveProfiles("test-mysql")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {"spring.flyway.enabled=false", "spring.jpa.hibernate.ddl-auto=create",
-        "quiz.jobs.finalization.recovery-grace-seconds=0"})
+        "quiz.jobs.finalization.recovery-grace-seconds=0",
+        "spring.jpa.properties.hibernate.generate_statistics=true"})
 @Import({GenerationWorkServiceImpl.class, GenerationWorkExecutorImpl.class,
         QuizGenerationFacadeImpl.class, QuizGenerationCheckpointServiceImpl.class,
         QuizGenerationCheckpointCodec.class, ProviderUsageServiceImpl.class,
@@ -94,11 +99,12 @@ class GenerationWorkBillingMySqlIntegrationTest {
     @Autowired GenerationWorkService work;
     @Autowired GenerationWorkExecutor worker;
     @Autowired QuizGenerationFacade facade;
-    @Autowired QuizGenerationCheckpointService checkpoints;
+    @MockitoSpyBean QuizGenerationCheckpointService checkpoints;
     @Autowired ProviderUsageService usage;
-    @Autowired InternalBillingService billing;
+    @MockitoSpyBean InternalBillingService billing;
     @Autowired BillingService billingService;
     @Autowired TransactionTemplate transactions;
+    @Autowired EntityManagerFactory entityManagerFactory;
     @Autowired TestClock clock;
     @Autowired FeatureFlags flags;
     @Autowired QuizGenerationJobRepository jobs;
@@ -163,6 +169,145 @@ class GenerationWorkBillingMySqlIntegrationTest {
         facade.recoverStalledQuizGenerationFinalizations();
         facade.recoverStalledQuizGenerationFinalizations();
         assertReleasedOnce(job);
+        verifyNoInteractions(ai, assembly);
+    }
+
+    @Test void reservationRenewalAfterTheRecoveryScanPreventsStaleFailureAndRelease() throws Exception {
+        var job = fixture();
+        var claim = work.claim(job.getId()).orElseThrow();
+        transactions.executeWithoutResult(tx -> {
+            var expiredAt = LocalDateTime.now().minusMinutes(1);
+            jobs.findByIdForUpdate(job.getId()).orElseThrow().setReservationExpiresAt(expiredAt);
+            reservations.findById(job.getBillingReservationId()).orElseThrow().setExpiresAt(expiredAt);
+        });
+        CountDownLatch scanned = new CountDownLatch(1), resume = new CountDownLatch(1);
+        doAnswer(call -> {
+            var batch = (QuizGenerationCheckpointService.RecoveryBatch) call.callRealMethod();
+            assertThat(batch.expiredUncheckpointed()).contains(job.getId());
+            scanned.countDown();
+            assertThat(resume.await(10, TimeUnit.SECONDS)).isTrue();
+            return batch;
+        }).when(checkpoints).findRecoveryBatch(anyInt(), anyInt());
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<Integer> recovery = executor.submit(facade::recoverStalledQuizGenerationFinalizations);
+            assertThat(scanned.await(10, TimeUnit.SECONDS)).isTrue();
+            work.protect(claim, () -> {
+                var renewed = billing.renewReservationLease(job.getUser().getId(), job.getBillingReservationId(), job.getId());
+                jobs.findByIdForUpdate(job.getId()).orElseThrow().setReservationExpiresAt(renewed.expiresAt());
+                return null;
+            });
+            resume.countDown();
+            assertThat(recovery.get(10, TimeUnit.SECONDS)).isZero();
+            var running = jobs.findById(job.getId()).orElseThrow();
+            assertThat(running.getStatus()).isEqualTo(GenerationStatus.PROCESSING);
+            assertThat(running.getBillingState()).isEqualTo(BillingState.RESERVED);
+            assertThat(reservations.findById(job.getBillingReservationId()).orElseThrow().getState())
+                    .isEqualTo(ReservationState.ACTIVE);
+            assertBalance(job, 996, 4);
+            assertThat(ledger.findByUserId(job.getUser().getId())).extracting(TokenTransaction::getType)
+                    .containsExactly(TokenTransactionType.RESERVE);
+            assertThat(work.protect(claim, () -> true)).isTrue();
+            verifyNoInteractions(ai, assembly);
+        } finally {
+            resume.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test void recoveryScanAcrossSeveralOwnersUsesFourBoundedScalarQueries() {
+        List<UUID> expiredIds = new ArrayList<>();
+        for (int n = 0; n < 3; n++) {
+            var job = fixture();
+            work.claim(job.getId()).orElseThrow();
+            transactions.executeWithoutResult(tx -> jobs.findByIdForUpdate(job.getId()).orElseThrow()
+                    .setReservationExpiresAt(LocalDateTime.now(clock).minusMinutes(1)));
+            expiredIds.add(job.getId());
+        }
+        var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.clear();
+        var batch = checkpoints.findRecoveryBatch(0, 2);
+        assertThat(batch.expiredUncheckpointed()).hasSize(2).allMatch(expiredIds::contains);
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(4);
+        assertThat(statistics.getEntityLoadCount()).isZero();
+        assertThat(statistics.getCollectionFetchCount()).isZero();
+    }
+
+    @Test void concurrentFailureNotificationsReleaseTheRealReservationOnce() throws Exception {
+        var job = fixture();
+        var claim = work.claim(job.getId()).orElseThrow();
+        CountDownLatch ready = new CountDownLatch(2), start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<Void> fail = () -> {
+                ready.countDown();
+                assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+                work.failed(claim);
+                return null;
+            };
+            Future<Void> first = executor.submit(fail), second = executor.submit(fail);
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            first.get(10, TimeUnit.SECONDS); second.get(10, TimeUnit.SECONDS);
+            facade.recoverStalledQuizGenerationFinalizations();
+            assertReleasedOnce(job);
+            verifyNoInteractions(ai, assembly);
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test void concurrentRecoveryOfPendingReleaseProducesOneLedgerEffect() throws Exception {
+        var job = fixture();
+        var claim = work.claim(job.getId()).orElseThrow();
+        doThrow(new IllegalStateException("local billing transaction failure")).doNothing()
+                .when(billingMetrics).incrementTokensReleased(eq(job.getUser().getId()), anyLong(), anyString());
+        work.failed(claim);
+        assertThat(jobs.findById(job.getId()).orElseThrow().getBillingState()).isEqualTo(BillingState.RESERVED);
+        CountDownLatch ready = new CountDownLatch(2), start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<Integer> recover = () -> {
+                ready.countDown();
+                assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+                return facade.recoverStalledQuizGenerationFinalizations();
+            };
+            Future<Integer> first = executor.submit(recover), second = executor.submit(recover);
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            first.get(10, TimeUnit.SECONDS); second.get(10, TimeUnit.SECONDS);
+            facade.recoverStalledQuizGenerationFinalizations();
+            assertReleasedOnce(job);
+            verifyNoInteractions(ai, assembly);
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test void lostConfirmationAfterReleaseCommitIsReconciledWithoutAnotherLedgerEntry() {
+        var job = fixture();
+        var claim = work.claim(job.getId()).orElseThrow();
+        doThrow(new IllegalStateException("local billing transaction failure")).doNothing()
+                .when(billingMetrics).incrementTokensReleased(eq(job.getUser().getId()), anyLong(), anyString());
+        work.failed(claim);
+        String key = "quiz:" + job.getId() + ":finalization-release";
+        doAnswer(call -> {
+            call.callRealMethod(); // No caller transaction: the real billing transaction has committed.
+            throw new IllegalStateException("simulated lost release confirmation");
+        }).doCallRealMethod().when(billing).release(eq(job.getBillingReservationId()), anyString(), anyString(), eq(key));
+        facade.recoverStalledQuizGenerationFinalizations();
+        assertThat(jobs.findById(job.getId()).orElseThrow().getBillingState()).isEqualTo(BillingState.RESERVED);
+        assertThat(reservations.findById(job.getBillingReservationId()).orElseThrow().getState())
+                .isEqualTo(ReservationState.RELEASED);
+        assertBalance(job, 1000, 0);
+        facade.recoverStalledQuizGenerationFinalizations();
+        assertReleasedOnce(job);
+        verify(billing, times(2)).release(eq(job.getBillingReservationId()), anyString(), anyString(), eq(key));
         verifyNoInteractions(ai, assembly);
     }
 
