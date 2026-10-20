@@ -40,10 +40,11 @@ class HotspotQuestionParserTest {
                   "type": "HOTSPOT",
                   "content": {
                     "imageUrl": "https://example.com/diagram.png",
+                    "imageDescription": "A diagram with distinct geometric structures.",
                     "regions": [
-                      {"id": 1, "x": 10, "y": 20, "width": 30, "height": 40, "correct": true},
-                      {"id": 2, "x": 50, "y": 60, "width": 25, "height": 35, "correct": false},
-                      {"id": 3, "x": 80, "y": 90, "width": 20, "height": 30, "correct": false}
+                      {"id": 1, "x": 10, "y": 20, "width": 30, "height": 40, "correct": true, "label": "Circle", "description": "An outlined circle in the diagram."},
+                      {"id": 2, "x": 50, "y": 60, "width": 25, "height": 35, "correct": false, "label": "Square", "description": "An outlined square in the diagram."},
+                      {"id": 3, "x": 80, "y": 90, "width": 20, "height": 30, "correct": false, "label": "Triangle", "description": "An outlined triangle in the diagram."}
                     ]
                   },
                   "hint": "Look for the area that represents the main component",
@@ -104,9 +105,10 @@ class HotspotQuestionParserTest {
                   "type": "HOTSPOT",
                   "content": {
                     "imageUrl": "https://example.com/flowchart.png",
+                    "imageDescription": "A diagram with distinct geometric structures.",
                     "regions": [
-                      {"id": 1, "x": 10, "y": 10, "width": 50, "height": 50, "correct": true},
-                      {"id": 2, "x": 70, "y": 10, "width": 50, "height": 50, "correct": false}
+                      {"id": 1, "x": 10, "y": 10, "width": 50, "height": 50, "correct": true, "label": "Circle", "description": "An outlined circle in the diagram."},
+                      {"id": 2, "x": 70, "y": 10, "width": 50, "height": 50, "correct": false, "label": "Square", "description": "An outlined square in the diagram."}
                     ]
                   }
                 },
@@ -116,11 +118,12 @@ class HotspotQuestionParserTest {
                   "type": "HOTSPOT",
                   "content": {
                     "imageUrl": "https://example.com/circuit.png",
+                    "imageDescription": "A diagram with distinct geometric structures.",
                     "regions": [
-                      {"id": 1, "x": 5, "y": 5, "width": 10, "height": 10, "correct": false},
-                      {"id": 2, "x": 20, "y": 5, "width": 10, "height": 10, "correct": true},
-                      {"id": 3, "x": 35, "y": 5, "width": 10, "height": 10, "correct": false},
-                      {"id": 4, "x": 50, "y": 5, "width": 10, "height": 10, "correct": false}
+                      {"id": 1, "x": 5, "y": 5, "width": 10, "height": 10, "correct": false, "label": "Circle", "description": "An outlined circle in the diagram."},
+                      {"id": 2, "x": 20, "y": 5, "width": 10, "height": 10, "correct": true, "label": "Square", "description": "An outlined square in the diagram."},
+                      {"id": 3, "x": 35, "y": 5, "width": 10, "height": 10, "correct": false, "label": "Triangle", "description": "An outlined triangle in the diagram."},
+                      {"id": 4, "x": 50, "y": 5, "width": 10, "height": 10, "correct": false, "label": "Oval", "description": "An outlined oval in the diagram."}
                     ]
                   }
                 }
@@ -166,9 +169,10 @@ class HotspotQuestionParserTest {
                   "type": "HOTSPOT",
                   "content": {
                     "imageUrl": "https://example.com/image.png",
+                    "imageDescription": "A diagram with distinct geometric structures.",
                     "regions": [
-                      {"id": 1, "x": 10, "y": 10, "width": 30, "height": 30, "correct": true},
-                      {"id": 2, "x": 50, "y": 50, "width": 30, "height": 30, "correct": false}
+                      {"id": 1, "x": 10, "y": 10, "width": 30, "height": 30, "correct": true, "label": "Circle", "description": "An outlined circle in the diagram."},
+                      {"id": 2, "x": 50, "y": 50, "width": 30, "height": 30, "correct": false, "label": "Square", "description": "An outlined square in the diagram."}
                     ]
                   }
                 }
@@ -198,9 +202,10 @@ class HotspotQuestionParserTest {
                   "type": "HOTSPOT",
                   "content": {
                     "imageUrl": "https://example.com/image.png",
+                    "imageDescription": "A diagram with distinct geometric structures.",
                     "regions": [
-                      {"id": 1, "x": 10, "y": 10, "width": 30, "height": 30, "correct": true},
-                      {"id": 2, "x": 50, "y": 50, "width": 30, "height": 30, "correct": false}
+                      {"id": 1, "x": 10, "y": 10, "width": 30, "height": 30, "correct": true, "label": "Circle", "description": "An outlined circle in the diagram."},
+                      {"id": 2, "x": 50, "y": 50, "width": 30, "height": 30, "correct": false, "label": "Square", "description": "An outlined square in the diagram."}
                     ]
                   }
                 }

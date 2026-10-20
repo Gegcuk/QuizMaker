@@ -240,9 +240,9 @@ class SpringAiStructuredClientSchemaDeliveryTest {
                       {"id":3,"text":"Second planet"},{"id":4,"text":"Fifth planet"}]}
                     """;
             case HOTSPOT -> """
-                    {"imageUrl":"https://example.invalid/synthetic-orbit.png","regions":[
-                      {"id":1,"x":0,"y":0,"width":10,"height":10,"correct":true},
-                      {"id":2,"x":20,"y":20,"width":10,"height":10,"correct":false}]}
+                    {"imageUrl":"https://example.invalid/synthetic-orbit.png","imageDescription":"An orbit diagram with a central circle and an outer oval.","regions":[
+                      {"id":1,"x":0,"y":0,"width":10,"height":10,"correct":true,"label":"Central circle","description":"A circular central structure."},
+                      {"id":2,"x":20,"y":20,"width":10,"height":10,"correct":false,"label":"Outer oval","description":"An oval structure outside the circle."}]}
                     """;
             case COMPLIANCE -> """
                     {"statements":[{"id":1,"text":"Use the source","compliant":true},

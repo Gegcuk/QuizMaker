@@ -9,11 +9,16 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.BaseIntegrationTest;
+import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestion;
+import uk.gegc.quizmaker.features.ai.api.dto.StructuredQuestionResponse;
+import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
+import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.attempt.api.dto.AnswerSubmissionRequest;
 import uk.gegc.quizmaker.features.attempt.api.dto.BatchAnswerSubmissionRequest;
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
@@ -34,6 +39,8 @@ import java.time.Instant;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 @TestPropertySource(properties = {
         "spring.jpa.properties.hibernate.generate_statistics=true",
@@ -50,6 +57,283 @@ class QuestionContractsIntegrationTest extends BaseIntegrationTest {
     @Autowired ObjectMapper json;
     @Autowired EntityManagerFactory emf;
     @Autowired PlatformTransactionManager transactions;
+    @Autowired uk.gegc.quizmaker.features.quiz.application.validation.QuizPublishValidator publishValidator;
+    @Autowired AiQuizGenerationService generation;
+    @MockitoBean StructuredAiClient structuredAiClient;
+
+    @Test
+    void hotspotEditErrorsAreFieldAddressableAndAccessChecksRemainEnforced() throws Exception {
+        Fixture fixture = fixture(1, AttemptStatus.IN_PROGRESS);
+        Question question = fixture.questions().get(0);
+        question.setType(QuestionType.HOTSPOT);
+        question.setContent(QuestionContracts.example(QuestionType.HOTSPOT, QuestionContracts.View.AUTHOR).toString());
+        var permission = entityManager.createQuery("select p from Permission p where p.permissionName = :name",
+                        uk.gegc.quizmaker.features.user.domain.model.Permission.class)
+                .setParameter("name", "QUESTION_UPDATE").getResultStream().findFirst().orElseGet(() -> {
+                    var value = new uk.gegc.quizmaker.features.user.domain.model.Permission();
+                    value.setPermissionName("QUESTION_UPDATE"); entityManager.persist(value); return value;
+                });
+        var role = new uk.gegc.quizmaker.features.user.domain.model.Role();
+        role.setRoleName("hotspot-editor-" + UUID.randomUUID()); role.setPermissions(Set.of(permission));
+        entityManager.persist(role);
+        fixture.owner().getRoles().add(role); fixture.other().getRoles().add(role);
+        User withoutPermission = user(); entityManager.flush();
+        var body = json.createObjectNode().put("type", "HOTSPOT").put("difficulty", "EASY").put("questionText", "Select the striped shape.");
+        var content = (com.fasterxml.jackson.databind.node.ObjectNode) QuestionContracts.example(QuestionType.HOTSPOT, QuestionContracts.View.AUTHOR);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) content.path("regions").get(0)).put("label", "private-canary".repeat(20));
+        body.set("content", content);
+        String path = "/api/v1/questions/" + question.getId();
+        var response = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch(path)
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user(fixture.owner().getUsername()))
+                        .contentType("application/json").content(json.writeValueAsBytes(body)))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(json.readTree(response).path("field").asText()).isEqualTo("content.regions[0].label");
+        assertThat(response).doesNotContain("private-canary");
+        content.remove("imageDescription");
+        content.path("regions").forEach(region -> ((com.fasterxml.jackson.databind.node.ObjectNode) region).remove(List.of("label", "description")));
+        for (User caller : List.of(fixture.other(), withoutPermission)) {
+            mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch(path)
+                            .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user(caller.getUsername()))
+                            .contentType("application/json").content(json.writeValueAsBytes(body)))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        }
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch(path)
+                        .contentType("application/json").content(json.writeValueAsBytes(body)))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
+    }
+
+    @Test
+    void manuallyCreatedHotspotsMayOmitDescriptionsEvenWhenPublished() {
+        Fixture fixture = fixture(1, AttemptStatus.IN_PROGRESS);
+        var request = new uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest();
+        request.setType(QuestionType.HOTSPOT); request.setDifficulty(Difficulty.EASY);
+        request.setQuestionText("Select the striped shape."); request.setQuizIds(List.of(fixture.quiz().getId()));
+        request.setContent(QuestionContracts.example(QuestionType.HOTSPOT, QuestionContracts.View.AUTHOR));
+        UUID id = questions.createQuestion(fixture.owner().getUsername(), request);
+        var update = new uk.gegc.quizmaker.features.question.api.dto.UpdateQuestionRequest();
+        update.setType(QuestionType.HOTSPOT); update.setDifficulty(Difficulty.EASY);
+        update.setQuestionText(request.getQuestionText());
+        var content = (com.fasterxml.jackson.databind.node.ObjectNode) request.getContent().deepCopy();
+        content.remove("imageDescription");
+        content.path("regions").forEach(region -> ((com.fasterxml.jackson.databind.node.ObjectNode) region)
+                .remove(List.of("label", "description")));
+        update.setContent(content);
+        var edited = questions.updateQuestion(fixture.owner().getUsername(), id, update);
+        assertThat(edited.getContentAvailability()).isEqualTo(QuestionContentAvailability.AVAILABLE);
+        assertThat(edited.getContent().has("imageDescription")).isFalse();
+        // The same legacy shape is also valid on initial manual creation.
+        request.setContent(content.deepCopy());
+        UUID manualId = questions.createQuestion(fixture.owner().getUsername(), request);
+        entityManager.flush(); entityManager.clear();
+        var authentication = new UsernamePasswordAuthenticationToken(fixture.owner().getUsername(), null, List.of());
+        var delivered = attempts.getShuffledQuestions(fixture.quiz().getId(), authentication);
+        assertThat(delivered.stream().filter(q -> Set.of(id, manualId).contains(q.getId()))).hasSize(2).allSatisfy(q -> {
+            assertThat(q.getContentAvailability()).isEqualTo(QuestionContentAvailability.AVAILABLE);
+            assertThat(q.getSafeContent().has("imageDescription")).isFalse();
+        });
+        assertThatCode(() -> publishValidator.ensurePublishable(
+                entityManager.find(Quiz.class, fixture.quiz().getId()))).doesNotThrowAnyException();
+    }
+
+    @Test
+    void generatedHotspotCanBeManuallyChangedAndClearedBeforePublicationAndGrading() throws Exception {
+        Fixture fixture = fixture(1, AttemptStatus.IN_PROGRESS);
+        var candidate = StructuredQuestion.builder()
+                .questionText("Select the striped shape.").type(QuestionType.HOTSPOT)
+                .difficulty(Difficulty.EASY).confidence(0.95)
+                .content(QuestionContracts.example(QuestionType.HOTSPOT, QuestionContracts.View.AUTHOR).toString())
+                .build();
+        // Fake only the provider port; conversion, strict candidate validation and persistence are real.
+        when(structuredAiClient.generateQuestions(any())).thenReturn(
+                StructuredQuestionResponse.builder().questions(List.of(candidate)).build());
+        List<Question> generated = generation.generateQuestionsByType(
+                "The diagram contains a circle and a striped oval.", QuestionType.HOTSPOT, 1, Difficulty.EASY);
+        assertThat(generated).hasSize(1);
+        Question question = generated.get(0);
+        question.getQuizId().add(fixture.quiz());
+        questionRepository.saveAndFlush(question);
+        UUID id = question.getId();
+        entityManager.clear();
+
+        var update = new uk.gegc.quizmaker.features.question.api.dto.UpdateQuestionRequest();
+        update.setType(QuestionType.HOTSPOT); update.setDifficulty(Difficulty.EASY);
+        update.setQuestionText(candidate.getQuestionText());
+        var content = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(
+                questionRepository.findById(id).orElseThrow().getContent());
+        assertThat(content.path("imageDescription").asText()).isNotBlank();
+        content.path("regions").forEach(region -> {
+            assertThat(region.path("label").asText()).isNotBlank();
+            assertThat(region.path("description").asText()).isNotBlank();
+        });
+        content.put("imageDescription", "My own description.");
+        content.path("regions").forEach(region -> ((com.fasterxml.jackson.databind.node.ObjectNode) region)
+                .put("label", "My label").put("description", "My own region description."));
+        update.setContent(content);
+        var changed = questions.updateQuestion(fixture.owner().getUsername(), id, update);
+        assertThat(changed.getContent().path("imageDescription").asText()).isEqualTo("My own description.");
+        assertThat(changed.getContent().path("regions")).allSatisfy(region ->
+                assertThat(region.path("label").asText()).isEqualTo("My label"));
+
+        // Manual duplicates are valid; explicit null/blank values also clear optional descriptions.
+        content.putNull("imageDescription");
+        content.path("regions").forEach(region -> ((com.fasterxml.jackson.databind.node.ObjectNode) region)
+                .putNull("label").put("description", "  "));
+        questions.updateQuestion(fixture.owner().getUsername(), id, update);
+        entityManager.flush(); entityManager.clear();
+        assertThatCode(() -> publishValidator.ensurePublishable(
+                entityManager.find(Quiz.class, fixture.quiz().getId()))).doesNotThrowAnyException();
+        var delivered = attempts.getShuffledQuestions(fixture.quiz().getId(),
+                new UsernamePasswordAuthenticationToken(fixture.owner().getUsername(), null, List.of()));
+        var safe = delivered.stream().filter(q -> q.getId().equals(id)).findFirst().orElseThrow();
+        assertThat(safe.getContentAvailability()).isEqualTo(QuestionContentAvailability.AVAILABLE);
+        assertThat(safe.getSafeContent().has("imageDescription")).isFalse();
+        safe.getSafeContent().path("regions").forEach(region ->
+                assertThat(region.has("label") || region.has("description") || region.has("correct")).isFalse());
+        var answer = attempts.submitAnswer(fixture.owner().getUsername(), fixture.attempt().getId(),
+                new AnswerSubmissionRequest(id, json.createObjectNode().put("selectedRegionId", 2), true, false, false));
+        assertThat(answer.isCorrect()).isTrue();
+        assertThat(answer.score()).isEqualTo(1.0);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"changed", "omitted", "null", "blank"})
+    void manualDescriptionEditsKeepRecordedAttemptDataAndCurrentContentReview(String edit) throws Exception {
+        Fixture fixture = hotspotFixture(1);
+        UUID questionId = fixture.questions().get(0).getId();
+        UUID attemptId = fixture.attempt().getId();
+        UUID answerId = fixture.attempt().getAnswers().get(0).getId();
+        fixture.attempt().setTotalScore(1.0);
+        entityManager.flush(); entityManager.clear();
+        var before = attempts.getAttemptReview(fixture.owner().getUsername(), attemptId, true, true, true);
+        var answerBefore = before.answers().get(0);
+        var update = new uk.gegc.quizmaker.features.question.api.dto.UpdateQuestionRequest();
+        update.setType(QuestionType.HOTSPOT); update.setDifficulty(Difficulty.EASY);
+        update.setQuestionText(fixture.questions().get(0).getQuestionText());
+        var content = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(
+                questionRepository.findById(questionId).orElseThrow().getContent());
+        switch (edit) {
+            case "changed" -> {
+                content.put("imageDescription", "Edited after completion.");
+                content.path("regions").forEach(region -> ((com.fasterxml.jackson.databind.node.ObjectNode) region)
+                        .put("label", "Edited label").put("description", "Edited region."));
+            }
+            case "omitted" -> {
+                content.remove("imageDescription");
+                content.path("regions").forEach(region -> ((com.fasterxml.jackson.databind.node.ObjectNode) region)
+                        .remove(List.of("label", "description")));
+            }
+            case "null" -> {
+                content.putNull("imageDescription");
+                content.path("regions").forEach(region -> ((com.fasterxml.jackson.databind.node.ObjectNode) region)
+                        .putNull("label").putNull("description"));
+            }
+            case "blank" -> {
+                content.put("imageDescription", "  ");
+                content.path("regions").forEach(region -> ((com.fasterxml.jackson.databind.node.ObjectNode) region)
+                        .put("label", "  ").put("description", "  "));
+            }
+        }
+        update.setContent(content);
+        questions.updateQuestion(fixture.owner().getUsername(), questionId, update);
+        entityManager.flush(); entityManager.clear();
+
+        var after = attempts.getAttemptReview(fixture.owner().getUsername(), attemptId, true, true, true);
+        var answerAfter = after.answers().get(0);
+        assertThat(after).usingRecursiveComparison().ignoringFields("answers").isEqualTo(before);
+        assertThat(answerAfter).usingRecursiveComparison().ignoringFields("questionSafeContent").isEqualTo(answerBefore);
+        assertThat(answerAfter.contentAvailability()).isEqualTo(QuestionContentAvailability.AVAILABLE);
+        // Keep the existing live-content review policy; immutable historical forms are deferred to #818.
+        if (edit.equals("changed")) {
+            assertThat(answerAfter.questionSafeContent().path("imageDescription").asText()).isEqualTo("Edited after completion.");
+            answerAfter.questionSafeContent().path("regions").forEach(region ->
+                    assertThat(region.path("label").asText()).isEqualTo("Edited label"));
+        } else {
+            assertThat(answerAfter.questionSafeContent().has("imageDescription")).isFalse();
+            answerAfter.questionSafeContent().path("regions").forEach(region ->
+                    assertThat(region.has("label") || region.has("description")).isFalse());
+        }
+        Attempt storedAttempt = attemptRepository.findById(attemptId).orElseThrow();
+        assertThat(storedAttempt.getStatus()).isEqualTo(AttemptStatus.COMPLETED);
+        assertThat(storedAttempt.getTotalScore()).isEqualTo(1.0);
+        assertThat(storedAttempt.getStartedAt()).isEqualTo(before.startedAt());
+        assertThat(storedAttempt.getCompletedAt()).isEqualTo(before.completedAt());
+        assertThat(answerRepository.countByAttemptId(attemptId)).isEqualTo(1);
+        Answer storedAfter = answerRepository.findById(answerId).orElseThrow();
+        assertThat(json.readTree(storedAfter.getResponse())).isEqualTo(answerBefore.userResponse());
+        assertThat(storedAfter.getIsCorrect()).isEqualTo(answerBefore.isCorrect());
+        assertThat(storedAfter.getScore()).isEqualTo(answerBefore.score());
+        assertThat(storedAfter.getAnsweredAt()).isEqualTo(answerBefore.answeredAt());
+    }
+
+    @Test
+    void describedHotspotFormsAndReviewsUseBoundedQueriesForTwoAndTenParents(org.junit.jupiter.api.TestReporter reporter) {
+        Fixture small = hotspotFixture(2);
+        Fixture large = hotspotFixture(10);
+        entityManager.flush();
+        long smallAuthor = hotspotAuthorQueries(small);
+        long largeAuthor = hotspotAuthorQueries(large);
+        assertThat(largeAuthor).isEqualTo(smallAuthor).isLessThanOrEqualTo(9);
+        long smallForm = hotspotFormQueries(small);
+        long largeForm = hotspotFormQueries(large);
+        assertThat(largeForm).isEqualTo(smallForm).isLessThanOrEqualTo(2);
+        long smallReview = hotspotReviewQueries(small);
+        long largeReview = hotspotReviewQueries(large);
+        assertThat(largeReview).isEqualTo(smallReview).isLessThanOrEqualTo(5);
+        reporter.publishEntry("hotspot_queries_for_2_and_10_parents", "author=" + smallAuthor + "/" + largeAuthor
+                + ", form=" + smallForm + "/" + largeForm
+                + ", review=" + smallReview + "/" + largeReview);
+    }
+
+    private long hotspotAuthorQueries(Fixture fixture) {
+        clearStatistics();
+        var page = questions.listQuestions(fixture.quiz().getId(), PageRequest.of(0, 100),
+                new UsernamePasswordAuthenticationToken(fixture.owner().getUsername(), null, List.of()));
+        assertThat(page.getContent()).hasSize(fixture.questions().size());
+        page.forEach(question -> {
+            assertThat(question.getContent().path("imageDescription").asText()).isNotBlank();
+            assertThat(question.getQuizIds()).hasSize(2);
+            assertThat(question.getTagIds()).hasSize(1);
+        });
+        json.valueToTree(page);
+        return statistics();
+    }
+
+    private Fixture hotspotFixture(int count) {
+        Fixture fixture = fixture(count, AttemptStatus.COMPLETED);
+        for (Question question : fixture.questions()) {
+            question.setType(QuestionType.HOTSPOT);
+            question.setContent(QuestionContracts.example(QuestionType.HOTSPOT, QuestionContracts.View.AUTHOR).toString());
+        }
+        for (Answer answer : fixture.attempt().getAnswers()) answer.setResponse("{\"selectedRegionId\":2}");
+        return fixture;
+    }
+
+    private long hotspotFormQueries(Fixture fixture) {
+        clearStatistics();
+        var form = safeMapper.toSafeDtoList(questionRepository.findAllByQuizId_IdOrderById(fixture.quiz().getId()));
+        assertThat(form).hasSize(fixture.questions().size());
+        form.forEach(question -> {
+            assertThat(question.getSafeContent().path("imageDescription").asText()).isNotBlank();
+            assertThat(question.getSafeContent().path("regions").get(0).path("label").asText()).isEqualTo("Circle");
+            assertThat(question.getSafeContent().toString()).doesNotContain("correct");
+        });
+        json.valueToTree(form);
+        return statistics();
+    }
+
+    private long hotspotReviewQueries(Fixture fixture) {
+        clearStatistics();
+        var review = attempts.getAttemptReview(fixture.owner().getUsername(), fixture.attempt().getId(), true, true, true);
+        assertThat(review.answers()).hasSize(fixture.questions().size());
+        review.answers().forEach(answer -> {
+            assertThat(answer.questionSafeContent().path("imageDescription").asText()).isNotBlank();
+            assertThat(answer.questionSafeContent().path("regions").get(1).path("label").asText()).isEqualTo("Striped oval");
+            assertThat(answer.questionSafeContent().toString()).doesNotContain("correct");
+        });
+        json.valueToTree(review);
+        return statistics();
+    }
 
     @Test
     void authorPageFormAndReviewHaveBoundedQueriesWithMultipleDistinctRelationships(org.junit.jupiter.api.TestReporter reporter) {
@@ -361,7 +645,9 @@ class QuestionContractsIntegrationTest extends BaseIntegrationTest {
 
     private Quiz quiz(User owner) {
         Category category = new Category(); category.setName("contract-" + UUID.randomUUID()); entityManager.persist(category);
-        Quiz quiz = new Quiz(); quiz.setCreator(owner); quiz.setCategory(category); quiz.setTitle("Example quiz");
+        Quiz quiz = new Quiz(); quiz.setCreator(owner); quiz.setCategory(category);
+        // Fixtures must respect the migration-backed unique creator/title constraint.
+        quiz.setTitle("Example quiz " + UUID.randomUUID());
         quiz.setVisibility(Visibility.PRIVATE); quiz.setStatus(QuizStatus.PUBLISHED); quiz.setDifficulty(Difficulty.EASY);
         quiz.setEstimatedTime(5); quiz.setIsRepetitionEnabled(false); quiz.setIsTimerEnabled(false);
         entityManager.persist(quiz); return quiz;

@@ -282,9 +282,10 @@ class SpringAiStructuredClientParsingTest {
               "difficulty": "EASY",
               "content": {
                 "imageUrl": "https://example.com/anatomy.jpg",
+                "imageDescription": "An anatomy diagram showing a rounded organ and a branching structure.",
                 "regions": [
-                  {"id": 1, "x": 100, "y": 150, "width": 50, "height": 60, "correct": true},
-                  {"id": 2, "x": 200, "y": 150, "width": 50, "height": 60, "correct": false}
+                  {"id": 1, "x": 100, "y": 150, "width": 50, "height": 60, "correct": true, "label": "Rounded organ", "description": "A rounded muscular structure."},
+                  {"id": 2, "x": 200, "y": 150, "width": 50, "height": 60, "correct": false, "label": "Branching structure", "description": "A branching tubular structure."}
                 ]
               },
               "hint": "Look for the organ on the left side",

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import uk.gegc.quizmaker.features.question.application.HotspotSemantics;
+import uk.gegc.quizmaker.features.question.application.QuestionContractException;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
@@ -132,6 +134,11 @@ public class HotspotQuestionParser {
         if (!hasCorrectRegion) {
             throw new AIResponseParseException("At least one region must be marked as correct");
         }
+        try {
+            HotspotSemantics.validate(contentNode, true);
+        } catch (QuestionContractException exception) {
+            throw new AIResponseParseException("Invalid HOTSPOT descriptions at " + exception.getField());
+        }
     }
 
     /**
@@ -166,4 +173,4 @@ public class HotspotQuestionParser {
 
         return question;
     }
-} 
+}

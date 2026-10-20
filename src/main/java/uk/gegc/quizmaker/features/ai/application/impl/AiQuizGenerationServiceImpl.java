@@ -27,6 +27,7 @@ import uk.gegc.quizmaker.features.ai.infra.parser.QuestionResponseParser;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.model.DocumentChunk;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
+import uk.gegc.quizmaker.features.question.application.HotspotSemantics;
 import uk.gegc.quizmaker.features.question.application.QuestionContentShuffler;
 import uk.gegc.quizmaker.features.question.application.QuestionContentValidationService;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
@@ -708,6 +709,9 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
         }
 
         try {
+            if (question.getType() == QuestionType.HOTSPOT) {
+                HotspotSemantics.validate(content, true);
+            }
             questionContentValidationService.validateContent(question.getType(), content);
             return true;
         } catch (RuntimeException exception) {

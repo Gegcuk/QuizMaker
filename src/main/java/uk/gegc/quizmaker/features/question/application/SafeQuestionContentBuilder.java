@@ -147,6 +147,7 @@ public class SafeQuestionContentBuilder {
     private JsonNode buildSafeHotspotContent(JsonNode root) {
         ObjectNode safe = MAPPER.createObjectNode();
         safe.put("imageUrl", root.get("imageUrl").asText());
+        HotspotSemantics.copyText(safe, root, "imageDescription");
 
         ArrayNode regions = MAPPER.createArrayNode();
         root.get("regions").forEach(region -> {
@@ -156,6 +157,8 @@ public class SafeQuestionContentBuilder {
             safeRegion.put("y", region.get("y").asInt());
             safeRegion.put("width", region.get("width").asInt());
             safeRegion.put("height", region.get("height").asInt());
+            HotspotSemantics.copyText(safeRegion, region, "label");
+            HotspotSemantics.copyText(safeRegion, region, "description");
             // 🔒 Deliberately omit "correct" field
             regions.add(safeRegion);
         });

@@ -7,6 +7,10 @@ REQUIREMENTS:
 - At least one region must be marked as correct
 - Image URL must be valid and accessible
 - Regions must have valid coordinates (x, y, width, height)
+- Include a meaningful imageDescription (1-2000 characters) describing the source image.
+- Every region must have a distinct label (1-120 characters) and a description (1-1000 characters), written in {language}.
+- Describe visible content neutrally. Do not name the correct choice, repeat the answer key, or invent visual details absent from the source.
+- Keep descriptions attached to stable region IDs. Never derive a description from coordinates, array position, or the ID alone.
 - Include appropriate hints and explanations
 - Base questions directly on the provided content
 - Ensure the hotspot areas are clearly identifiable

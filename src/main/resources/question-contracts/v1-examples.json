@@ -441,7 +441,9 @@
           "y": 0,
           "width": 20,
           "height": 20,
-          "correct": false
+          "correct": false,
+          "label": "Circle",
+          "description": "A round outline."
         },
         {
           "id": 2,
@@ -449,9 +451,12 @@
           "y": 0,
           "width": 20,
           "height": 20,
-          "correct": true
+          "correct": true,
+          "label": "Striped oval",
+          "description": "An oval containing parallel lines."
         }
-      ]
+      ],
+      "imageDescription": "A diagram with a circle and a striped oval."
     },
     "SAFE": {
       "imageUrl": "https://example.com/diagram.png",
@@ -461,16 +466,21 @@
           "x": 0,
           "y": 0,
           "width": 20,
-          "height": 20
+          "height": 20,
+          "label": "Circle",
+          "description": "A round outline."
         },
         {
           "id": 2,
           "x": 20,
           "y": 0,
           "width": 20,
-          "height": 20
+          "height": 20,
+          "label": "Striped oval",
+          "description": "An oval containing parallel lines."
         }
-      ]
+      ],
+      "imageDescription": "A diagram with a circle and a striped oval."
     },
     "RESPONSE": {
       "selectedRegionId": 2
@@ -490,16 +500,21 @@
             "x": 0,
             "y": 0,
             "width": 20,
-            "height": 20
+            "height": 20,
+            "label": "Circle",
+            "description": "A round outline."
           },
           {
             "id": 2,
             "x": 20,
             "y": 0,
             "width": 20,
-            "height": 20
+            "height": 20,
+            "label": "Striped oval",
+            "description": "An oval containing parallel lines."
           }
-        ]
+        ],
+        "imageDescription": "A diagram with a circle and a striped oval."
       },
       "userResponse": {
         "selectedRegionId": 2
