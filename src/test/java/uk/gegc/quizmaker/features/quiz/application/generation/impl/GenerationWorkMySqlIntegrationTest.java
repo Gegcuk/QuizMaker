@@ -50,7 +50,9 @@ import static org.mockito.Mockito.*;
 @Import({GenerationWorkServiceImpl.class, GenerationWorkExecutorImpl.class,
         uk.gegc.quizmaker.features.quiz.config.GenerationLeaseSchedulingConfig.class,
         QuizGenerationCheckpointServiceImpl.class, QuizGenerationCheckpointCodec.class,
-        QuizGenerationCoverageServiceImpl.class, GenerationWorkMySqlIntegrationTest.Config.class})
+        QuizGenerationCoverageServiceImpl.class, ProviderUsageServiceImpl.class,
+        uk.gegc.quizmaker.features.quiz.application.impl.QuizGenerationJobServiceImpl.class,
+        GenerationWorkMySqlIntegrationTest.Config.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Tag("db-serial")
 class GenerationWorkMySqlIntegrationTest {
@@ -72,6 +74,9 @@ class GenerationWorkMySqlIntegrationTest {
     @Autowired GenerationWorkExecutor worker;
     @Autowired QuizGenerationCheckpointService checkpoints;
     @Autowired QuizGenerationCoverageService coverage;
+    @Autowired ProviderUsageService providerUsage;
+    @Autowired uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService jobService;
+    @Autowired QuizGenerationProviderUsageRepository usageRecords;
     @Autowired QuizGenerationWorkRepository works;
     @Autowired QuizGenerationJobRepository jobs;
     @Autowired QuizGenerationOutputCheckpointRepository outputs;
@@ -83,6 +88,7 @@ class GenerationWorkMySqlIntegrationTest {
     @Autowired EntityManagerFactory entityManagerFactory;
     @Autowired MutableClock clock;
     @MockitoBean InternalBillingService billing;
+    @MockitoBean uk.gegc.quizmaker.features.billing.application.BillingService publicBilling;
     @MockitoBean AiQuizGenerationService ai;
     final List<UUID> userIds = new ArrayList<>();
     final List<UUID> documentIds = new ArrayList<>();
@@ -93,6 +99,9 @@ class GenerationWorkMySqlIntegrationTest {
     }
     @AfterEach void cleanup() {
         for (UUID id : jobIds) {
+            transactions.executeWithoutResult(tx -> entityManager.createQuery(
+                    "delete from QuizGenerationProviderUsage u where u.jobId = :jobId")
+                    .setParameter("jobId", id).executeUpdate());
             works.deleteById(id);
             outputs.deleteById(id);
             coverages.deleteById(id);
@@ -113,6 +122,62 @@ class GenerationWorkMySqlIntegrationTest {
         assertThat(works.existsById(job.getId())).isFalse();
         assertThat(jobs.findById(job.getId()).orElseThrow().getCurrentChunk()).isNotEqualTo("uncommitted acceptance");
         verifyNoInteractions(ai);
+    }
+
+    @Test void inlineAfterCommitDispatchUsesFreshTransactionsAndPersistsItsCheckpoint() {
+        QuizGenerationJob job = fixture(true, false);
+        doAnswer(call -> {
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager
+                    .isActualTransactionActive()).isFalse();
+            checkpoints.save(job.getId(), questions());
+            return null;
+        }).when(ai).generateQuizFromDocumentAsync(eq(job.getId()), any());
+        transactions.executeWithoutResult(tx -> {
+            // Mimic acceptance resources still bound during AFTER_COMMIT when
+            // the saturated aiTaskExecutor uses its CallerRunsPolicy.
+            works.findById(job.getId()).orElseThrow();
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override public void afterCommit() { worker.execute(job.getId()); }
+                    });
+        });
+        assertThat(outputs.existsById(job.getId())).isTrue();
+        assertThat(works.findById(job.getId()).orElseThrow().getState()).isEqualTo(QuizGenerationWork.State.DONE);
+        verify(ai).generateQuizFromDocumentAsync(eq(job.getId()), any());
+    }
+
+    @Test void legacyActivationCleanupCannotCancelRecoverableDurableWork() {
+        QuizGenerationJob durable = fixture(true, false), legacy = fixture(false, false);
+        transactions.executeWithoutResult(tx -> {
+            jobs.findByIdForUpdate(durable.getId()).orElseThrow().setStartedAt(LocalDateTime.of(2020, 1, 1, 0, 0));
+            jobs.findByIdForUpdate(legacy.getId()).orElseThrow().setStartedAt(LocalDateTime.of(2020, 1, 1, 0, 0));
+        });
+        jobService.cleanupStalePendingJobs();
+        assertThat(jobs.findById(legacy.getId()).orElseThrow().getStatus()).isEqualTo(GenerationStatus.FAILED);
+        assertThat(jobs.findById(durable.getId()).orElseThrow().getStatus()).isEqualTo(GenerationStatus.PENDING);
+        assertThat(jobService.findAndCancelStaleJobForUser(durable.getUser().getUsername())).isEmpty();
+        assertThat(service.claim(durable.getId())).isPresent();
+        verifyNoInteractions(billing, publicBilling);
+    }
+
+    @Test void legacyTimeoutScanIsBoundedAndLoadsMultipleOwnersInOneQuery() {
+        List<UUID> legacyIds = new ArrayList<>();
+        for (int n = 0; n < 3; n++) {
+            legacyIds.add(fixture(false, false).getId());
+            fixture(true, false);
+        }
+        var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.clear();
+        transactions.executeWithoutResult(tx -> {
+            var candidates = jobs.findLegacyPendingJobsBefore(null, LocalDateTime.now(clock).plusDays(1),
+                    org.springframework.data.domain.PageRequest.of(0, 2));
+            assertThat(candidates).hasSize(2).allSatisfy(job -> {
+                assertThat(legacyIds).contains(job.getId());
+                assertThat(job.getUser().getUsername()).startsWith("work-");
+            });
+        });
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
+        assertThat(statistics.getCollectionFetchCount()).isZero();
     }
 
     @Test void lostDispatchIsDiscoveredAndOnlyOneConcurrentWorkerCanClaim() throws Exception {
@@ -309,14 +374,42 @@ class GenerationWorkMySqlIntegrationTest {
         assertThat(coverage.findByJobIds(List.of(job.getId()))).containsKey(job.getId());
     }
 
-    @Test void persistenceFailureAfterDispatchRollsBackFailureAndReleaseWithoutLosingWork() {
+    @Test void releaseFailureDoesNotRollBackTerminalFailureOrRestartTheProvider() {
         QuizGenerationJob job = fixture(true, true);
         GenerationWorkClaim claim = service.claim(job.getId()).orElseThrow();
         doThrow(new IllegalStateException("local fake billing outage")).when(billing)
                 .release(any(), anyString(), anyString(), anyString());
-        assertThatThrownBy(() -> service.failed(claim)).isInstanceOf(IllegalStateException.class);
-        assertThat(jobs.findById(job.getId()).orElseThrow().getStatus()).isEqualTo(GenerationStatus.PROCESSING);
-        assertThat(works.findById(job.getId()).orElseThrow().getState()).isEqualTo(QuizGenerationWork.State.RUNNING);
+        service.failed(claim);
+        var failed = jobs.findById(job.getId()).orElseThrow();
+        assertThat(failed.getStatus()).isEqualTo(GenerationStatus.FAILED);
+        assertThat(failed.getBillingState()).isEqualTo(BillingState.RESERVED);
+        assertThat(failed.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.FAILED);
+        assertThat(failed.getLastBillingError()).contains("pending");
+        assertThat(works.findById(job.getId()).orElseThrow().getState()).isEqualTo(QuizGenerationWork.State.DONE);
+        clock.advance(120);
+        worker.execute(job.getId());
+        verifyNoInteractions(ai);
+    }
+
+    @Test void aProviderStartChecksTheFenceInsideItsOwnTransactionAndLateUsageStillReconciles() {
+        QuizGenerationJob job = fixture(true, false);
+        GenerationWorkClaim former = service.claim(job.getId()).orElseThrow();
+        UUID startedAttempt = UUID.randomUUID();
+        GenerationWorkerContext.run(former, service, () -> providerUsage.recordStarted(job.getId(), startedAttempt));
+        // A check before the accounting transaction is insufficient: takeover can win in between.
+        service.protect(former, () -> null);
+        clock.advance(120);
+        service.claim(job.getId()).orElseThrow();
+        UUID staleAttempt = UUID.randomUUID();
+        GenerationWorkerContext.run(former, service, () -> {
+            assertThatThrownBy(() -> providerUsage.recordStarted(job.getId(), staleAttempt))
+                    .isInstanceOf(GenerationLeaseLostException.class);
+            assertThat(providerUsage.recordReported(job.getId(), startedAttempt, 37L))
+                    .isEqualTo(ProviderUsageRecordResult.RECORDED);
+        });
+        assertThat(usageRecords.countByJobId(job.getId())).isEqualTo(1);
+        assertThat(usageRecords.findByJobIdAndProviderAttemptId(job.getId(), staleAttempt)).isEmpty();
+        assertThat(jobs.findById(job.getId()).orElseThrow().getProviderLlmTokens()).isEqualTo(37L);
     }
 
     @Test void scansAreBoundedScalarQueriesWithMultipleParentsAndExcludeLegacyWork() {

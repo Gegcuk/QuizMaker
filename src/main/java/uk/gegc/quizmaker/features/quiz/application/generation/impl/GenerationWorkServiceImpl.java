@@ -9,6 +9,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.billing.application.InternalBillingService;
 import uk.gegc.quizmaker.features.document.domain.model.Document;
 import uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository;
@@ -22,6 +23,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.concurrent.atomic.AtomicLong;
@@ -39,6 +41,7 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
     private final QuizJobProperties properties;
     private final Clock clock;
     private final MeterRegistry metrics;
+    private final TransactionTemplate transactions;
     private final AtomicLong outstanding = new AtomicLong();
     private final AtomicLong oldestSeconds = new AtomicLong();
 
@@ -85,14 +88,21 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public Optional<GenerationWorkClaim> claim(UUID jobId) {
+        ClaimResult result = Objects.requireNonNull(transactions.execute(tx -> claimInTransaction(jobId)));
+        if (result.failed()) releaseFailedReservation(jobId);
+        return Optional.ofNullable(result.claim());
+    }
+
+    private record ClaimResult(GenerationWorkClaim claim, boolean failed) { }
+
+    private ClaimResult claimInTransaction(UUID jobId) {
         QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId).orElse(null);
         QuizGenerationWork work = workRepository.findById(jobId).orElse(null);
-        if (job == null || work == null || !work.isDue(now())) return Optional.empty();
+        if (job == null || work == null || !work.isDue(now())) return new ClaimResult(null, false);
         if (job.isTerminal() || checkpointRepository.existsById(jobId)) {
-            work.finish();
-            return Optional.empty();
+            return new ClaimResult(null, finishWork(job, work));
         }
         String failure = work.getSchemaVersion() != 1 ? "Unsupported generation work schema"
                 : work.getExecutions() >= 2 ? "Generation recovery attempts exhausted"
@@ -100,7 +110,7 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
                 : !sourceMatches(job, work) ? "Generation source changed or is unavailable" : null;
         if (failure != null) {
             failJob(job, work, failure);
-            return Optional.empty();
+            return new ClaimResult(null, true);
         }
         if (work.getExecutions() > 0) {
             // An interrupted pre-checkpoint decision is not a published result.
@@ -114,7 +124,7 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
         long fence = work.claim(now(), properties.getExecution().getLeaseSeconds());
         job.setStatus(GenerationStatus.PROCESSING);
         count("claimed");
-        return Optional.of(new GenerationWorkClaim(jobId, fence, job.getDocumentId(), job.getRequestData()));
+        return new ClaimResult(new GenerationWorkClaim(jobId, fence, job.getDocumentId(), job.getRequestData()), false);
     }
 
     @Override
@@ -124,7 +134,7 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
         QuizGenerationWork work = workRepository.findById(claim.jobId()).orElse(null);
         if (job == null || work == null || !work.owns(claim.fence(), now())) return;
         if (job.isTerminal() || checkpointRepository.existsById(claim.jobId())) {
-            work.finish();
+            finishWork(job, work);
         } else {
             work.heartbeat(now(), properties.getExecution().getLeaseSeconds());
             count("heartbeat");
@@ -146,23 +156,29 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void finished(GenerationWorkClaim claim) {
         finish(claim, "Generation stopped before durable output was saved");
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void failed(GenerationWorkClaim claim) {
         finish(claim, "Generation execution failed");
     }
 
     private void finish(GenerationWorkClaim claim, String failure) {
+        boolean failed = Boolean.TRUE.equals(transactions.execute(tx -> finishInTransaction(claim, failure)));
+        if (failed) releaseFailedReservation(claim.jobId());
+    }
+
+    private boolean finishInTransaction(GenerationWorkClaim claim, String failure) {
         QuizGenerationJob job = jobRepository.findByIdForUpdate(claim.jobId()).orElse(null);
         QuizGenerationWork work = workRepository.findById(claim.jobId()).orElse(null);
-        if (job == null || work == null || !work.owns(claim.fence(), now())) return;
-        if (job.isTerminal() || checkpointRepository.existsById(claim.jobId())) work.finish();
-        else failJob(job, work, failure);
+        if (job == null || work == null || !work.owns(claim.fence(), now())) return false;
+        if (job.isTerminal() || checkpointRepository.existsById(claim.jobId())) return finishWork(job, work);
+        failJob(job, work, failure);
+        return true;
     }
 
     private boolean sourceMatches(QuizGenerationJob job, QuizGenerationWork work) {
@@ -182,14 +198,45 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
     private void failJob(QuizGenerationJob job, QuizGenerationWork work, String reason) {
         job.markFailed(reason);
         job.setCompletedAt(now());
-        if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
-            String key = "quiz:" + job.getId() + ":release";
-            billingService.release(job.getBillingReservationId(), reason, job.getId().toString(), key);
-            job.setBillingState(BillingState.RELEASED);
-            job.addBillingIdempotencyKey("release", key);
+        finishWork(job, work);
+        count("failed");
+    }
+
+    private boolean finishWork(QuizGenerationJob job, QuizGenerationWork work) {
+        boolean failed = job.getStatus() == GenerationStatus.FAILED;
+        if (failed && job.getFinalizationState() == QuizGenerationFinalizationState.NOT_STARTED) {
+            // Persist the terminal decision independently of billing availability.
+            // The existing finalization recovery scan retries pending releases.
+            job.markFinalizationFailed("Generation failed before durable output was saved", now());
+            if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
+                job.setLastBillingError("{\"reason\":\"Generation reservation release pending\"}");
+            }
         }
         work.finish();
-        count("failed");
+        return failed;
+    }
+
+    private void releaseFailedReservation(UUID jobId) {
+        try {
+            transactions.executeWithoutResult(tx -> {
+                QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId).orElse(null);
+                if (job == null || job.getStatus() != GenerationStatus.FAILED
+                        || job.getFinalizationState() != QuizGenerationFinalizationState.FAILED) return;
+                releaseReservation(job);
+            });
+        } catch (RuntimeException failure) {
+            log.warn("Reservation release is pending for failed generation job {}", jobId);
+        }
+    }
+
+    private void releaseReservation(QuizGenerationJob job) {
+        if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
+            String key = "quiz:" + job.getId() + ":release";
+            billingService.release(job.getBillingReservationId(), "generation-failed", job.getId().toString(), key);
+            job.setBillingState(BillingState.RELEASED);
+            job.addBillingIdempotencyKey("release", key);
+            job.setLastBillingError(null);
+        }
     }
 
     private LocalDateTime now() {

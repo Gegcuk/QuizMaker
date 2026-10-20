@@ -74,6 +74,18 @@ public interface QuizGenerationJobRepository extends JpaRepository<QuizGeneratio
      */
     List<QuizGenerationJob> findByStatusAndStartedAtBefore(GenerationStatus status, LocalDateTime time);
 
+    /** Durable jobs are owned by execution recovery, not the legacy activation timeout. */
+    @Query("""
+            SELECT j FROM QuizGenerationJob j JOIN FETCH j.user u
+            WHERE j.status = 'PENDING' AND j.startedAt < :cutoff
+              AND (:username IS NULL OR u.username = :username)
+              AND NOT EXISTS (SELECT w.jobId FROM QuizGenerationWork w WHERE w.jobId = j.id)
+            ORDER BY j.startedAt DESC, j.id
+            """)
+    List<QuizGenerationJob> findLegacyPendingJobsBefore(@Param("username") String username,
+                                                       @Param("cutoff") LocalDateTime cutoff,
+                                                       Pageable pageable);
+
     /**
      * Count jobs by status for a user
      */

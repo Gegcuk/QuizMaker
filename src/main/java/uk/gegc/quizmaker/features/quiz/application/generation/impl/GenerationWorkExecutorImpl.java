@@ -5,6 +5,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.ai.application.AiQuizGenerationService;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.application.generation.*;
@@ -23,9 +25,13 @@ public class GenerationWorkExecutorImpl implements GenerationWorkExecutor {
     private final Map<UUID, GenerationWorkClaim> active = new ConcurrentHashMap<>();
 
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void execute(UUID jobId) {
         workService.claim(jobId).ifPresent(claim -> {
-            active.put(jobId, claim);
+            // A claimant can pause after committing its lease and return after a
+            // replacement has registered. Never replace a newer heartbeat owner.
+            active.merge(jobId, claim, (registered, incoming) ->
+                    registered.fence() > incoming.fence() ? registered : incoming);
             try {
                 var request = objectMapper.readValue(claim.requestData(), GenerateQuizFromDocumentRequest.class);
                 if (request == null || !java.util.Objects.equals(claim.documentId(), request.documentId())) {

@@ -44,8 +44,21 @@ recovery after an interrupted lease. This is a restart allowance, not another
 retry for an ordinary terminal generation error. Existing per-call retries,
 fallbacks, customer tariffs, cancellation rules, and settlement remain unchanged.
 An interrupted second execution becomes `FAILED`; reservation release uses the
-existing idempotent release operation. A failed release rolls back the failure
-transition and remains eligible for reconciliation on a later scan.
+existing idempotent release operation. The terminal failure and `DONE` work state
+commit before release is attempted in a separate transaction. A release error
+leaves a durable `FAILED` finalization with `RESERVED` billing; the existing
+finalization recovery scan retries the release without rerunning generation.
+Legacy activation-timeout cleanup excludes jobs with durable work records.
+
+Local dispatch markers cover queued tasks only. An expired lease remains eligible
+for redispatch even if its former thread is still running on the same instance.
+Heartbeat registration keeps the greatest fencing number when claimants return
+out of order. A new provider-attempt record checks ownership inside its accounting
+transaction; late usage reports for previously dispatched attempts remain valid
+audit facts and do not create a new customer charge.
+The worker suspends any caller transaction for its entire execution, including
+inline `AFTER_COMMIT` dispatch when the orchestration executor is saturated.
+Each fenced write then opens its own short transaction.
 
 No provider call is automatically repeated once durable validated output exists.
 Checkpoint ownership transfers to the existing finalization recovery path.

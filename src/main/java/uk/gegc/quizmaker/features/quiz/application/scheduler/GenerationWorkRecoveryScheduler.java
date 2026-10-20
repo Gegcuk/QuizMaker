@@ -8,7 +8,7 @@ import uk.gegc.quizmaker.features.quiz.application.generation.GenerationWorkExec
 import uk.gegc.quizmaker.features.quiz.application.generation.GenerationWorkService;
 
 import java.util.UUID;
-import java.util.Set;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
@@ -18,7 +18,7 @@ public class GenerationWorkRecoveryScheduler {
     private final GenerationWorkService workService;
     private final GenerationWorkExecutor worker;
     private final Executor executor;
-    private final Set<UUID> submitted = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, Object> submitted = new ConcurrentHashMap<>();
 
     public GenerationWorkRecoveryScheduler(GenerationWorkService workService, GenerationWorkExecutor worker,
                                          @Qualifier("aiTaskExecutor") Executor executor) {
@@ -32,17 +32,17 @@ public class GenerationWorkRecoveryScheduler {
     public void recover() {
         try {
             for (UUID jobId : workService.findDue()) {
-                if (!submitted.add(jobId)) continue;
+                Object dispatch = new Object();
+                if (submitted.putIfAbsent(jobId, dispatch) != null) continue;
                 try {
                     executor.execute(() -> {
-                        try {
-                            worker.execute(jobId);
-                        } finally {
-                            submitted.remove(jobId);
-                        }
+                        // Deduplicate queued dispatches only. A still-running former
+                        // worker must not hide an expired persisted lease from recovery.
+                        submitted.remove(jobId, dispatch);
+                        worker.execute(jobId);
                     });
                 } catch (RuntimeException failure) {
-                    submitted.remove(jobId);
+                    submitted.remove(jobId, dispatch);
                     log.warn("Durable generation dispatch will be retried for job {}", jobId);
                 }
             }

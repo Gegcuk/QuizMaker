@@ -5,10 +5,39 @@ import uk.gegc.quizmaker.features.quiz.application.generation.*;
 import java.util.*;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class GenerationWorkRecoverySchedulerTest {
+    @Test void anExpiredRunningWorkerDoesNotBlockAnotherDispatchOnTheSameInstance() throws Exception {
+        GenerationWorkService service = mock(GenerationWorkService.class);
+        GenerationWorkExecutor worker = mock(GenerationWorkExecutor.class);
+        UUID id = UUID.randomUUID();
+        when(service.findDue()).thenReturn(List.of(id));
+        List<Runnable> queue = new ArrayList<>();
+        CountDownLatch running = new CountDownLatch(1), release = new CountDownLatch(1);
+        doAnswer(call -> {
+            running.countDown();
+            assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
+            return null;
+        }).when(worker).execute(id);
+        var scheduler = new GenerationWorkRecoveryScheduler(service, worker, queue::add);
+        scheduler.recover();
+        Thread oldWorker = new Thread(queue.remove(0));
+        oldWorker.start();
+        try {
+            assertThat(running.await(5, TimeUnit.SECONDS)).isTrue();
+            // The persisted due scan has now returned the expired running job.
+            scheduler.recover();
+            assertThat(queue).hasSize(1);
+        } finally {
+            release.countDown();
+            oldWorker.join(5000);
+        }
+    }
+
     @Test void queuedIdsAreDeduplicatedUntilTheTaskFinishes() {
         GenerationWorkService service = mock(GenerationWorkService.class);
         GenerationWorkExecutor worker = mock(GenerationWorkExecutor.class);
