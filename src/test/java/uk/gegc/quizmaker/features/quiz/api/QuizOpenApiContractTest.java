@@ -140,6 +140,29 @@ class QuizOpenApiContractTest {
 
     @Test
     @WithMockUser
+    void queueStatusIsDiscoverableInExactlyOneGroupAndTheFullSpecification() throws Exception {
+        var full = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        var summary = objectMapper.readTree(mockMvc.perform(get("/api/v1/api-summary"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(summary.path("groups").findValuesAsText("specUrl")).contains("/v3/api-docs/quizzes");
+        var matcher = new AntPathMatcher();
+        for (String path : List.of("/api/v1/quizzes/generation-status/{jobId}", "/api/v1/quizzes/generation-jobs")) {
+            assertThat(full.path("paths").has(path)).isTrue();
+            assertThat(groups.stream().filter(group -> group.getPathsToMatch().stream()
+                    .anyMatch(pattern -> matcher.match(pattern, path))).map(GroupedOpenApi::getGroup).toList())
+                    .containsExactly("quizzes");
+            assertThat(full.path("paths").path(path).path("get").path("security").toString()).contains("bearerAuth");
+        }
+        for (String field : List.of("queuePosition", "jobsAhead", "queuePositionAsOf")) {
+            var property = full.at("/components/schemas/QuizGenerationStatus/properties/" + field);
+            assertThat(property.isMissingNode()).isFalse();
+            assertThat(property.path("nullable").asBoolean() || property.path("type").toString().contains("null")).isTrue();
+        }
+    }
+
+    @Test
+    @WithMockUser
     void ownerListRevalidationChangesAfterAcknowledgement() throws Exception {
         var id = UUID.randomUUID();
         var owner = UUID.randomUUID();
@@ -296,6 +319,26 @@ class QuizOpenApiContractTest {
         assertThat(specification.at("/components/schemas/QuizGenerationJobPageResponse/properties/content/items/$ref").asText())
                 .isEqualTo("#/components/schemas/QuizGenerationStatus");
         assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1generation-jobs/get/responses/401");
+        for (String field : List.of("queuePosition", "jobsAhead", "queuePositionAsOf")) {
+            assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/" + field).isMissingNode()).isFalse();
+            assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/" + field + "/readOnly").asBoolean()).isTrue();
+            assertThat(specification.at("/components/schemas/QuizGenerationStatus/required").toString()).doesNotContain(field);
+            JsonNode property = specification.at("/components/schemas/QuizGenerationStatus/properties/" + field);
+            assertThat(property.path("nullable").asBoolean() || property.path("type").toString().contains("null"))
+                    .as("%s accepts null in the published schema", field).isTrue();
+        }
+        assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/queuePosition/minimum").asInt()).isEqualTo(1);
+        assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/jobsAhead/minimum").asInt()).isZero();
+        assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/queuePositionAsOf/format").asText()).isEqualTo("date-time");
+        assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/queuePosition/description").asText())
+                .contains("Null after admission", "recovery can increase", "not a completion estimate");
+        var queued = strictObjectMapper().treeToValue(specification.at(
+                "/paths/~1api~1v1~1quizzes~1generation-status~1{jobId}/get/responses/200/content/application~1json/examples/Waiting for admission/value"),
+                QuizGenerationStatus.class);
+        assertThat(queued.status()).isEqualTo(uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus.PENDING);
+        assertThat(queued.queuePosition()).isEqualTo(2);
+        assertThat(queued.jobsAhead()).isEqualTo(1);
+        assertThat(queued.queuePositionAsOf()).isEqualTo(java.time.Instant.parse("2026-10-20T12:00:00Z"));
         assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/status/enum").toString())
                 .contains("PENDING", "PROCESSING", "COMPLETED", "FAILED", "CANCELLED");
         assertThat(specification.at("/components/schemas/QuizGenerationStatus/properties/status/description").asText())

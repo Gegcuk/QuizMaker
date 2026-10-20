@@ -94,6 +94,16 @@ import java.util.UUID;
 @Validated
 @Slf4j
 public class QuizController {
+    private static final String GENERATION_QUEUE_DESCRIPTION = " Optional queuePosition (1-based), jobsAhead, and queuePositionAsOf describe a single global FIFO admission snapshot. "
+            + "Earlier interrupted work eligible for recovery counts ahead; already running jobs are never preempted. "
+            + "Positions can increase after recovery and are not completion estimates. All three fields are null after admission, "
+            + "for terminal/legacy/inconsistent jobs, or when the optional queue read fails; the existing status remains available. "
+            + "Only the authenticated owner's numeric positions are returned, without other users or job details.";
+    private static final String GENERATION_STATUS_QUEUED_EXAMPLE = """
+            {"jobId":"d290f1ee-6c54-4b01-90e6-d701748f0851","status":"PENDING",
+             "progressPercentage":0.0,"queuePosition":2,"jobsAhead":1,"queuePositionAsOf":"2026-10-20T12:00:00Z"}
+            """;
+
     private static final String GENERATION_EXECUTION_DESCRIPTION = " Accepted jobs wait in global FIFO order, without user or tier priority. "
             + "Default limits are four active jobs and two concurrent chunks per job; completion order may differ. "
             + "AI generation has a five-minute deadline from first execution, excluding queue wait and retained across restart. "
@@ -1082,7 +1092,7 @@ public class QuizController {
 
     @Operation(
             summary = "Get quiz generation job status",
-            description = "Get the current status and progress of a quiz generation job. COMPLETED means the generated quiz and billing settlement were durably finalized; clients must not treat any earlier state or coverage outcome as entitled content. Coverage is optional and remains null for legacy jobs or jobs that have not reached reconciliation.",
+            description = "Get the current status and progress of a quiz generation job. COMPLETED means the generated quiz and billing settlement were durably finalized; clients must not treat any earlier state or coverage outcome as entitled content. Coverage is optional and remains null for legacy jobs or jobs that have not reached reconciliation." + GENERATION_QUEUE_DESCRIPTION,
             security = @SecurityRequirement(name = "bearerAuth"),
             responses = {
                     @ApiResponse(
@@ -1092,6 +1102,7 @@ public class QuizController {
                                     mediaType = "application/json",
                                     schema = @Schema(implementation = QuizGenerationStatus.class),
                                     examples = {
+                                            @ExampleObject(name = "Waiting for admission", value = GENERATION_STATUS_QUEUED_EXAMPLE),
                                             @ExampleObject(name = "Processing at finalization", value = GENERATION_STATUS_PROCESSING_EXAMPLE),
                                             @ExampleObject(name = "Failed after work completed", value = GENERATION_STATUS_FAILED_EXAMPLE),
                                             @ExampleObject(name = "Cancelled with partial progress", value = GENERATION_STATUS_CANCELLED_EXAMPLE),
@@ -1223,7 +1234,7 @@ public class QuizController {
 
     @Operation(
             summary = "List user's quiz generation jobs",
-            description = "Get a zero-based, paginated list of generation jobs owned by the authenticated user. Results default to 20 items ordered by startedAt descending. Each job status exposes its lifecycle state, including CANCELLED when cancellation succeeds, timing/progress information, and optional immutable coverage once reconciliation has completed. Legacy coverage remains null.",
+            description = "Get a zero-based, paginated list of generation jobs owned by the authenticated user. Results default to 20 items ordered by startedAt descending. Each job status exposes its lifecycle state, including CANCELLED when cancellation succeeds, timing/progress information, and optional immutable coverage once reconciliation has completed. Legacy coverage remains null." + GENERATION_QUEUE_DESCRIPTION,
             security = @SecurityRequirement(name = "bearerAuth"),
             responses = {
                     @ApiResponse(

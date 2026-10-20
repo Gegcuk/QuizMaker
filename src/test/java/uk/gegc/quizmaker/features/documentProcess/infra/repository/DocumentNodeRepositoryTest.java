@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.DocumentNode;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
@@ -21,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Tag("db-serial")
 @SpringBootTest
 @ActiveProfiles("test-mysql")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("DocumentNodeRepository Tests")
 class DocumentNodeRepositoryTest {
 

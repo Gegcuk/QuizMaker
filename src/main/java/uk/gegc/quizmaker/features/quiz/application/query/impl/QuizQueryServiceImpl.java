@@ -19,6 +19,8 @@ import uk.gegc.quizmaker.features.quiz.application.generation.GenerationCoverage
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCoverageService;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
 import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
+import uk.gegc.quizmaker.features.quiz.application.query.GenerationQueuePositionService;
+import uk.gegc.quizmaker.features.quiz.application.query.GenerationQueuePosition;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizSpecifications;
 import uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper;
@@ -61,6 +63,7 @@ public class QuizQueryServiceImpl implements QuizQueryService {
     private final QuizGenerationProgressInvariantMonitor progressInvariantMonitor;
     private final QuizGenerationCoverageService generationCoverageService;
     private final QuizFreshnessService freshnessService;
+    private final GenerationQueuePositionService queuePositionService;
 
     @Transactional(readOnly = true)
     public QuizDto getQuizById(UUID id, Authentication authentication) {
@@ -196,7 +199,9 @@ public class QuizQueryServiceImpl implements QuizQueryService {
         return QuizGenerationStatus.fromEntity(
                 job,
                 featureFlags.isBilling(),
-                GenerationCoverage.fromSnapshot(coverage)
+                GenerationCoverage.fromSnapshot(coverage),
+                job.getStatus() == GenerationStatus.PENDING
+                        ? queuePositionService.findPositions(List.of(jobId), username).get(jobId) : null
         );
     }
 
@@ -234,12 +239,18 @@ public class QuizQueryServiceImpl implements QuizQueryService {
                 : generationCoverageService.findByJobIds(
                         jobs.getContent().stream().map(QuizGenerationJob::getId).toList()
                 );
+        var waitingJobIds = jobs.getContent().stream()
+                .filter(job -> job.getStatus() == GenerationStatus.PENDING)
+                .map(QuizGenerationJob::getId).toList();
+        var positions = waitingJobIds.isEmpty() ? Map.<UUID, GenerationQueuePosition>of()
+                : queuePositionService.findPositions(waitingJobIds, username);
         return jobs.map(job -> {
             progressInvariantMonitor.observe(job);
             return QuizGenerationStatus.fromEntity(
                     job,
                     includeBillingFields,
-                    GenerationCoverage.fromSnapshot(coverageByJobId.get(job.getId()))
+                    GenerationCoverage.fromSnapshot(coverageByJobId.get(job.getId())),
+                    positions.get(job.getId())
             );
         });
     }

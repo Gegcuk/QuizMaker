@@ -39,6 +39,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.QuizSearchCriteria;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCoverageService;
 import uk.gegc.quizmaker.features.quiz.application.generation.impl.QuizAssemblyServiceImpl;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizFreshnessServiceImpl;
+import uk.gegc.quizmaker.features.quiz.application.query.GenerationQueuePositionService;
 import uk.gegc.quizmaker.features.quiz.application.query.impl.QuizGenerationProgressInvariantMonitor;
 import uk.gegc.quizmaker.features.quiz.application.query.impl.QuizQueryServiceImpl;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
@@ -98,6 +99,7 @@ class QuizFreshnessMySqlIntegrationTest {
     @MockitoBean private FeatureFlags featureFlags;
     @MockitoBean private QuizGenerationProgressInvariantMonitor progressMonitor;
     @MockitoBean private QuizGenerationCoverageService coverageService;
+    @MockitoBean private GenerationQueuePositionService queuePositionService;
 
     private TransactionTemplate transaction;
     private User owner;

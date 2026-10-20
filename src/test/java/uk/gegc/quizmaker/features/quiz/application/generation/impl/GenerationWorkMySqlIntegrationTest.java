@@ -52,6 +52,7 @@ import static org.mockito.Mockito.*;
         QuizGenerationCheckpointServiceImpl.class, QuizGenerationCheckpointCodec.class,
         QuizGenerationCoverageServiceImpl.class, ProviderUsageServiceImpl.class,
         uk.gegc.quizmaker.features.quiz.application.impl.QuizGenerationJobServiceImpl.class,
+        uk.gegc.quizmaker.features.quiz.application.query.impl.GenerationQueuePositionServiceImpl.class,
         GenerationWorkMySqlIntegrationTest.Config.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Tag("db-serial")
@@ -71,6 +72,9 @@ class GenerationWorkMySqlIntegrationTest {
         @Bean MeterRegistry metrics() { return new SimpleMeterRegistry(); }
     }
     @Autowired GenerationWorkService service;
+    @Autowired uk.gegc.quizmaker.features.quiz.application.query.GenerationQueuePositionService positions;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
+    @Autowired MeterRegistry metrics;
     @Autowired GenerationWorkExecutor worker;
     @Autowired QuizGenerationCheckpointService checkpoints;
     @Autowired QuizGenerationCoverageService coverage;
@@ -506,6 +510,226 @@ class GenerationWorkMySqlIntegrationTest {
         for (int i = 0; i < 11; i++) { clock.advance(30); service.heartbeat(claim); }
         GenerationWorkerContext.run(claim, service, clock, () -> checkpoints.save(fresh.getId(), questions()));
         assertThat(outputs.existsById(fresh.getId())).isTrue();
+    }
+
+    @Test void queuePositionCountsOtherOwnersButReturnsOnlyRequestedOwnerRows() {
+        QuizGenerationJob a = fixture(true, false), b = fixture(true, false), c = fixture(true, false);
+        var result = positions.findPositions(List.of(a.getId(), b.getId(), c.getId()), b.getUser().getUsername());
+        assertThat(result).containsOnlyKeys(b.getId());
+        assertThat(result.get(b.getId()).queuePosition()).isEqualTo(2);
+        assertThat(result.get(b.getId()).jobsAhead()).isEqualTo(1);
+        assertThat(result.get(b.getId()).asOf()).isEqualTo(clock.instant());
+        assertThat(positions.findPositions(List.of(b.getId()), "unrelated-owner")).isEmpty();
+        assertThat(positions.findPositions(List.of(b.getId()), null)).isEmpty();
+        var aClaim = service.claimNext().orElseThrow();
+        assertThat(aClaim.jobId()).isEqualTo(a.getId());
+        assertThat(position(b)).isEqualTo(1);
+        assertThat(positions.findPositions(List.of(a.getId()), a.getUser().getUsername())).isEmpty();
+    }
+
+    @Test void failedCancelledMissingAndInconsistentWorkNeverFabricateAPosition() {
+        QuizGenerationJob a = fixture(true, false), b = fixture(true, false), legacy = fixture(false, false);
+        transactions.executeWithoutResult(tx -> jobs.findByIdForUpdate(a.getId()).orElseThrow().markFailed("synthetic"));
+        assertThat(position(b)).isEqualTo(1);
+        assertThat(positions.findPositions(List.of(a.getId()), a.getUser().getUsername())).isEmpty();
+        assertThat(positions.findPositions(List.of(legacy.getId()), legacy.getUser().getUsername())).isEmpty();
+        transactions.executeWithoutResult(tx -> jobs.findByIdForUpdate(b.getId()).orElseThrow().setStatus(GenerationStatus.CANCELLED));
+        assertThat(positions.findPositions(List.of(b.getId()), b.getUser().getUsername())).isEmpty();
+        QuizGenerationJob inconsistent = fixture(true, false);
+        transactions.executeWithoutResult(tx -> works.findById(inconsistent.getId()).orElseThrow().finish());
+        assertThat(positions.findPositions(List.of(inconsistent.getId()), inconsistent.getUser().getUsername())).isEmpty();
+        assertThat(positions.findPositions(List.of(UUID.randomUUID()), b.getUser().getUsername())).isEmpty();
+    }
+
+    @Test void recoveringADoesNotPreemptRunningBAndCountsAheadOfWaitingC() {
+        QuizGenerationJob a = fixture(true, false), b = fixture(true, false), c = fixture(true, false);
+        var aClaim = service.claimNext().orElseThrow();
+        var bClaim = service.claimNext().orElseThrow();
+        assertThat(position(c)).isEqualTo(1);
+        clock.advance(90);
+        service.heartbeat(bClaim);
+        clock.advance(30); // A's lease expires; B's renewed lease remains valid.
+        assertThat(position(c)).isEqualTo(2);
+        assertThat(positions.findPositions(List.of(a.getId()), a.getUser().getUsername())).isEmpty();
+        assertThat(positions.findPositions(List.of(b.getId()), b.getUser().getUsername())).isEmpty();
+        var recovered = service.claimNext().orElseThrow();
+        assertThat(recovered.jobId()).isEqualTo(a.getId());
+        assertThat(recovered.fence()).isGreaterThan(aClaim.fence());
+        assertThat(works.findById(b.getId()).orElseThrow().owns(bClaim.fence(), LocalDateTime.now(clock))).isTrue();
+        assertThat(jobs.findById(b.getId()).orElseThrow().getStatus()).isEqualTo(GenerationStatus.PROCESSING);
+        assertThat(position(c)).isEqualTo(1);
+        service.failed(recovered);
+        assertThat(position(c)).isEqualTo(1); // FAILED A never re-enters the queue.
+    }
+
+    @Test void exhaustedOrExpiredRecoveryAndExpiredReservationsAreExcluded() {
+        QuizGenerationJob a = fixture(true, false), b = fixture(true, false);
+        service.claimNext().orElseThrow();
+        clock.advance(120);
+        service.claimNext().orElseThrow(); // A's one permitted recovery.
+        clock.advance(120);
+        assertThat(position(b)).isEqualTo(1); // Recovery exhausted even before deadline.
+        clock.advance(60);
+        assertThat(position(b)).isEqualTo(1); // Exact deadline is excluded too.
+        QuizGenerationJob paid = fixture(true, true), tail = fixture(true, false);
+        transactions.executeWithoutResult(tx -> jobs.findByIdForUpdate(paid.getId()).orElseThrow()
+                .setReservationExpiresAt(LocalDateTime.now(clock)));
+        assertThat(position(tail)).isEqualTo(2); // B remains; expired paid job does not.
+    }
+
+    @Test void queueReadsUsePersistedOrderAndDoNotMutateWorkAcrossNewServiceInstances() {
+        fixture(true, false);
+        QuizGenerationJob b = fixture(true, false);
+        var restarted = new uk.gegc.quizmaker.features.quiz.application.query.impl.GenerationQueuePositionServiceImpl(
+                works, clock, clock, metrics, transactionManager);
+        var before = works.findById(b.getId()).orElseThrow();
+        for (int i = 0; i < 3; i++) {
+            assertThat(restarted.findPositions(List.of(b.getId()), b.getUser().getUsername()).get(b.getId()).queuePosition())
+                    .isEqualTo(2);
+        }
+        var after = works.findById(b.getId()).orElseThrow();
+        assertThat(after.getState()).isEqualTo(before.getState());
+        assertThat(after.getFence()).isEqualTo(before.getFence());
+        assertThat(after.getExecutions()).isZero();
+        assertThat(after.getAdmissionSequence()).isEqualTo(before.getAdmissionSequence());
+    }
+
+    @Test void optionalQueryFailureCannotRollBackTheStatusTransaction() {
+        var failingRepository = mock(QuizGenerationWorkRepository.class);
+        when(failingRepository.findQueuePositions(any(), anyString(), any(), any(), any()))
+                .thenThrow(new org.springframework.dao.QueryTimeoutException("synthetic timeout"));
+        var failingRead = new uk.gegc.quizmaker.features.quiz.application.query.impl.GenerationQueuePositionServiceImpl(
+                failingRepository, clock, clock, metrics, transactionManager);
+        QuizGenerationJob job = fixture(true, false);
+        transactions.executeWithoutResult(tx -> {
+            var loaded = jobs.findByIdForUpdate(job.getId()).orElseThrow();
+            assertThat(failingRead.findPositions(List.of(job.getId()), job.getUser().getUsername())).isEmpty();
+            loaded.setCurrentChunk("outer transaction remains usable");
+        });
+        assertThat(jobs.findById(job.getId()).orElseThrow().getCurrentChunk()).isEqualTo("outer transaction remains usable");
+    }
+
+    @Test void queueSnapshotIsConsistentDuringConcurrentAdmissionAndCancellation() throws Exception {
+        QuizGenerationJob a = fixture(true, false), b = fixture(true, false), c = fixture(true, false);
+        ExecutorService callers = Executors.newFixedThreadPool(3);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            var admission = callers.submit(() -> { start.await(); return service.claimNext(); });
+            var cancellation = callers.submit(() -> {
+                start.await();
+                transactions.executeWithoutResult(tx -> jobs.findByIdForUpdate(b.getId()).orElseThrow().setStatus(GenerationStatus.CANCELLED));
+                return true;
+            });
+            var polling = callers.submit(() -> { start.await(); return position(c); });
+            start.countDown();
+            assertThat(polling.get(10, TimeUnit.SECONDS)).isBetween(1L, 3L);
+            assertThat(admission.get(10, TimeUnit.SECONDS)).get().extracting(GenerationWorkClaim::jobId).isEqualTo(a.getId());
+            assertThat(cancellation.get(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(position(c)).isEqualTo(1);
+        } finally { callers.shutdownNow(); }
+    }
+
+    @Test void aWholeStatusPageUsesOneScalarQueryWithManyOwners() {
+        for (int i = 0; i < 40; i++) fixture(true, false);
+        QuizGenerationJob first = fixture(true, false), second = fixture(true, false), third = fixture(true, false);
+        transactions.executeWithoutResult(tx -> {
+            jobs.findByIdForUpdate(second.getId()).orElseThrow().setUser(first.getUser());
+            jobs.findByIdForUpdate(third.getId()).orElseThrow().setUser(first.getUser());
+        });
+        var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.clear();
+        var page = positions.findPositions(List.of(first.getId(), second.getId(), third.getId()), first.getUser().getUsername());
+        assertThat(page).hasSize(3);
+        assertThat(page.get(first.getId()).queuePosition()).isEqualTo(41);
+        assertThat(page.get(second.getId()).queuePosition()).isEqualTo(42);
+        assertThat(page.get(third.getId()).queuePosition()).isEqualTo(43);
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
+        assertThat(statistics.getEntityLoadCount()).isZero();
+        assertThat(statistics.getCollectionFetchCount()).isZero();
+    }
+
+    @Test void positionReadUsesLeaseZoneSeparatelyFromBillingAndDeadlineTime() {
+        QuizGenerationJob a = fixture(true, false), b = fixture(true, false);
+        var claim = service.claimNext().orElseThrow();
+        // Existing leases use the application's clock zone; billing remains on systemClock.
+        var applicationClock = Clock.fixed(clock.instant(), ZoneId.of("Asia/Tokyo"));
+        transactions.executeWithoutResult(tx -> works.findById(a.getId()).orElseThrow()
+                .heartbeat(LocalDateTime.now(applicationClock), 120));
+        var reader = new uk.gegc.quizmaker.features.quiz.application.query.impl.GenerationQueuePositionServiceImpl(
+                works, applicationClock, clock, metrics, transactionManager);
+        assertThat(reader.findPositions(List.of(b.getId()), b.getUser().getUsername()).get(b.getId()).queuePosition()).isEqualTo(1);
+        clock.advance(120);
+        assertThat(reader.findPositions(List.of(b.getId()), b.getUser().getUsername()).get(b.getId()).queuePosition()).isEqualTo(2);
+        assertThat(works.findById(a.getId()).orElseThrow().getFence()).isEqualTo(claim.fence());
+    }
+
+    @Test void fifoPositionQueryHasAnIndexedPlanOverPersistedQueueMetadata() throws Exception {
+        for (int i = 0; i < 80; i++) {
+            var done = fixture(true, false);
+            transactions.executeWithoutResult(tx -> {
+                works.findById(done.getId()).orElseThrow().finish();
+                jobs.findByIdForUpdate(done.getId()).orElseThrow().setStatus(GenerationStatus.FAILED);
+            });
+        }
+        fixture(true, false);
+        var waiting = fixture(true, false);
+        // This slice creates tables through Hibernate; install the exact existing V80 index.
+        transactions.executeWithoutResult(tx -> {
+            Number existing = (Number) entityManager.createNativeQuery("SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'quiz_generation_work' AND index_name = 'ix_generation_work_fifo'")
+                    .getSingleResult();
+            if (existing.intValue() == 0) entityManager.createNativeQuery(
+                    "CREATE INDEX ix_generation_work_fifo ON quiz_generation_work (state, admission_sequence)").executeUpdate();
+        });
+        String plan = transactions.execute(tx -> (String) entityManager.createNativeQuery(
+                        "EXPLAIN FORMAT=JSON " + QuizGenerationWorkRepository.QUEUE_POSITION_SQL)
+                .setParameter("jobIds", List.of(waiting.getId()))
+                .setParameter("username", waiting.getUser().getUsername())
+                .setParameter("now", LocalDateTime.now(clock))
+                .setParameter("billingNow", LocalDateTime.now(clock))
+                .setParameter("asOf", clock.instant()).getSingleResult());
+        assertThat(plan).contains("ix_generation_work_fifo");
+        var parsed = new ObjectMapper().readTree(plan);
+        assertThat(parsed.findValuesAsText("key")).contains("ix_generation_work_fifo");
+        assertThat(position(waiting)).isEqualTo(2);
+        java.nio.file.Files.writeString(java.nio.file.Path.of("target", "generation-queue-position-explain.json"), plan);
+    }
+
+    @Test void completeStatusPagesAndSerializationKeepQueryCountIndependentOfPageSize() {
+        fixture(true, false); // Another owner's earlier work affects rank, never returned rows.
+        var first = fixture(true, false);
+        for (int i = 0; i < 11; i++) {
+            var other = fixture(true, false);
+            transactions.executeWithoutResult(tx -> jobs.findByIdForUpdate(other.getId()).orElseThrow().setUser(first.getUser()));
+        }
+        var reader = new uk.gegc.quizmaker.features.quiz.application.query.impl.QuizQueryServiceImpl(
+                mock(QuizRepository.class), mock(uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository.class),
+                mock(uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper.class), users,
+                mock(uk.gegc.quizmaker.shared.security.AppPermissionEvaluator.class), jobService,
+                new uk.gegc.quizmaker.shared.config.FeatureFlags(),
+                mock(uk.gegc.quizmaker.features.quiz.application.query.impl.QuizGenerationProgressInvariantMonitor.class),
+                coverage, mock(uk.gegc.quizmaker.features.quiz.application.QuizFreshnessService.class), positions);
+        var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        List<Long> counts = new ArrayList<>();
+        for (int size : List.of(3, 10)) {
+            statistics.clear();
+            var page = transactions.execute(tx -> reader.getGenerationJobs(first.getUser().getUsername(),
+                    org.springframework.data.domain.PageRequest.of(0, size)));
+            assertThat(page.getContent()).hasSize(size).allSatisfy(status -> {
+                assertThat(status.queuePosition()).isGreaterThanOrEqualTo(2);
+                assertThat(status.jobsAhead()).isEqualTo(status.queuePosition() - 1);
+            });
+            assertThatCode(() -> new ObjectMapper().findAndRegisterModules().writeValueAsString(page)).doesNotThrowAnyException();
+            counts.add(statistics.getPrepareStatementCount());
+            assertThat(statistics.getCollectionFetchCount()).isZero();
+        }
+        assertThat(counts.get(1)).isEqualTo(counts.get(0));
+        assertThat(counts.get(0)).isLessThanOrEqualTo(6);
+        assertThatThrownBy(() -> transactions.execute(tx -> reader.getGenerationStatus(first.getId(), "wrong-owner")))
+                .isInstanceOf(uk.gegc.quizmaker.shared.exception.ValidationException.class);
+    }
+
+    private long position(QuizGenerationJob job) {
+        return positions.findPositions(List.of(job.getId()), job.getUser().getUsername()).get(job.getId()).queuePosition();
     }
 
     private QuizGenerationJob fixture(boolean enroll, boolean paid) {

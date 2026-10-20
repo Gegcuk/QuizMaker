@@ -145,4 +145,42 @@ class QuizGenerationStatusSecurityTest {
 
         verify(quizService).getGenerationStatus(jobId, USERNAME);
     }
+    @Test
+    @WithMockUser(username = USERNAME)
+    void ownerSeesQueueSnapshotInStatusAndPageWithoutOtherUserDetails() throws Exception {
+        var job = new uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob();
+        job.setId(UUID.randomUUID());
+        job.setStatus(uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus.PENDING);
+        var snapshot = uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus.fromEntity(job, false, null,
+                new uk.gegc.quizmaker.features.quiz.application.query.GenerationQueuePosition(2,
+                        java.time.Instant.parse("2026-10-20T12:00:00Z")));
+        when(quizService.getGenerationStatus(job.getId(), USERNAME)).thenReturn(snapshot);
+        mockMvc.perform(get("/api/v1/quizzes/generation-status/{jobId}", job.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.queuePosition").value(2))
+                .andExpect(jsonPath("$.jobsAhead").value(1))
+                .andExpect(jsonPath("$.queuePositionAsOf").value("2026-10-20T12:00:00Z"))
+                .andExpect(jsonPath("$.username").doesNotExist())
+                .andExpect(jsonPath("$.queue").doesNotExist());
+        when(quizService.getGenerationJobs(org.mockito.ArgumentMatchers.eq(USERNAME), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(java.util.List.of(snapshot)));
+        mockMvc.perform(get("/api/v1/quizzes/generation-jobs"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content[0].queuePosition").value(2));
+    }
+
+    @Test
+    @WithMockUser(username = USERNAME)
+    void unavailableQueueReadStillReturnsExistingStatusWithNullFields() throws Exception {
+        var job = new uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob();
+        job.setId(UUID.randomUUID());
+        job.setStatus(uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus.PENDING);
+        when(quizService.getGenerationStatus(job.getId(), USERNAME))
+                .thenReturn(uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus.fromEntity(job));
+        mockMvc.perform(get("/api/v1/quizzes/generation-status/{jobId}", job.getId()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.queuePosition").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.jobsAhead").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.queuePositionAsOf").value(org.hamcrest.Matchers.nullValue()));
+    }
+
 }

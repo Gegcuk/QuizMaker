@@ -5,6 +5,9 @@ import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.ProviderUsageState;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
 
+import uk.gegc.quizmaker.features.quiz.application.query.GenerationQueuePosition;
+
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Schema(name = "QuizGenerationStatus", description = "Current status of a quiz generation job")
@@ -86,7 +89,16 @@ public record QuizGenerationStatus(
         ProviderUsageState providerUsageState,
 
         @Schema(description = "Immutable requested-versus-accepted question coverage once reconciliation has completed. Null for legacy jobs and jobs that have not reached reconciliation. Coverage does not imply that a quiz is available; clients must still require status COMPLETED.", accessMode = Schema.AccessMode.READ_ONLY, nullable = true)
-        GenerationCoverage coverage
+        GenerationCoverage coverage,
+
+        @Schema(description = "Volatile 1-based global FIFO admission position, including earlier interrupted work awaiting recovery. Null after admission, for terminal/legacy/inconsistent jobs, or when the optional queue read is unavailable. This is not a completion estimate; recovery can increase a waiting position.", minimum = "1", example = "2", types = {"integer", "null"}, format = "int64", accessMode = Schema.AccessMode.READ_ONLY, nullable = true)
+        Long queuePosition,
+
+        @Schema(description = "Number of waiting admissions ahead of this job; queuePosition minus one. Null whenever queuePosition is null. Does not include jobs with an active execution lease.", minimum = "0", example = "1", types = {"integer", "null"}, format = "int64", accessMode = Schema.AccessMode.READ_ONLY, nullable = true)
+        Long jobsAhead,
+
+        @Schema(description = "UTC observation time of the same queue read used for both numeric fields. Position may change immediately after this snapshot. Null whenever queuePosition is null.", example = "2026-10-20T12:00:00Z", types = {"string", "null"}, format = "date-time", accessMode = Schema.AccessMode.READ_ONLY, nullable = true)
+        Instant queuePositionAsOf
 ) {
 
     /**
@@ -111,6 +123,17 @@ public record QuizGenerationStatus(
             boolean includeBillingFields,
             GenerationCoverage coverage
     ) {
+        return fromEntity(job, includeBillingFields, coverage, null);
+    }
+
+    public static QuizGenerationStatus fromEntity(
+            QuizGenerationJob job,
+            boolean includeBillingFields,
+            GenerationCoverage coverage,
+            GenerationQueuePosition position
+    ) {
+        // Never expose a queue position from a different lifecycle snapshot.
+        if (job.getStatus() != GenerationStatus.PENDING) position = null;
         return new QuizGenerationStatus(
                 job.getId().toString(),
                 job.getStatus(),
@@ -138,7 +161,10 @@ public record QuizGenerationStatus(
                 includeBillingFields ? job.getInputPromptTokens() : null,
                 includeBillingFields ? job.getEstimationVersion() : null,
                 includeBillingFields ? job.getProviderUsageState() : null,
-                coverage
+                coverage,
+                position == null ? null : position.queuePosition(),
+                position == null ? null : position.jobsAhead(),
+                position == null ? null : position.asOf()
         );
     }
 

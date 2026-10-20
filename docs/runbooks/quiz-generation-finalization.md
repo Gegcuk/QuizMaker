@@ -99,6 +99,61 @@ and follow its existing retention lifecycle. Migration V79 cascades their
 deletion with the parent job. No new endpoint, permission, public status value,
 request field, response field, or client rollout is required.
 
+## Owner-visible FIFO admission position
+
+`GET /api/v1/quizzes/generation-status/{jobId}` and the existing paginated
+`GET /api/v1/quizzes/generation-jobs` add three optional, read-only fields:
+
+- `queuePosition`: positive, 1-based position among eligible waiting admissions.
+- `jobsAhead`: `queuePosition - 1`.
+- `queuePositionAsOf`: UTC observation timestamp shared by both numbers.
+
+For example, while A, B, and C wait in acceptance order, B returns `2` and `1`.
+Once A starts or is cancelled/terminal, B returns `1` and `0`. Once B is admitted,
+all three fields become null. Active jobs consume execution slots but are not
+counted as waiting admissions. This does not predict start or completion time.
+The existing estimate, progress, billing, status, and cancellation fields retain
+their meanings; no client rollout or UI change is required.
+
+Eligible interrupted work keeps its original acceptance sequence. If A loses its
+lease while B is already running and C is waiting, A counts ahead of C. B keeps
+running and has no queue position. Restoring A uses the next available slot; it
+never preempts B. A permanently `FAILED` job does not re-enter the queue. A waiting
+position can therefore increase when earlier work becomes eligible for recovery.
+Expired/exhausted recoveries, expired billing reservations, terminal jobs, and
+jobs with durable output checkpoints do not count. Source validation and every
+scheduling/state transition remain owned by the dispatcher; a position is a
+snapshot of persisted queue eligibility, not a guarantee of successful admission.
+
+The read ranks global work before filtering to requested IDs and the authenticated
+owner. It returns no other owner's identifiers, names, or content. Position and
+count use one scalar SQL snapshot, with the existing V80 `(state,
+admission_sequence)` index; paginated status enrichment does not issue a query
+per job or traverse user/document relationships. Repeated polling writes no data.
+Lease timestamps use the application clock zone; billing timestamps use
+`systemClock`, and absolute deadlines retain their instant semantics.
+
+All three fields are null for legacy/missing or inconsistent queue metadata,
+processing/terminal jobs, or a failed optional queue read. The optional read runs
+in its own read-only transaction; a database timeout or transaction failure there
+cannot roll back an otherwise successful status read. Failure of the primary
+status/ownership read retains its existing error behavior. No stale cached or
+fabricated position is substituted. An old client can ignore the new fields; a
+new client must handle null and must not promise monotonic movement.
+
+Observe `quiz.generation.queue.position.duration` and
+`quiz.generation.queue.position.reads{outcome=available|unavailable|inconsistent|query_failed}`.
+The existing `quiz.generation.execution.waiting` gauge remains the operational
+queue-depth signal. `unavailable` includes normal non-waiting/legacy states;
+position movement alone is not an alert. Operators investigating persistent
+`inconsistent` or `query_failed` outcomes should inspect database health and the
+existing durable-work recovery signals. Metrics contain no identity labels and
+metrics failures cannot change responses. This change introduces no new alert
+threshold, retry, scheduler, billing, retention, or recovery policy.
+
+No migration is required: the feature reads the V79/V80 schema. Rolling back the
+application removes the additive fields without changing the queue or its data.
+
 ## Execution recovery signals and operations
 
 `quiz.generation.execution.operations` is tagged only by the bounded `outcome`:

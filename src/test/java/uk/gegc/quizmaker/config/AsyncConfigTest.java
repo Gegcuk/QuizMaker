@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.annotation.DirtiesContext;
 import uk.gegc.quizmaker.shared.config.AsyncConfig;
 
 import java.util.concurrent.Executor;
@@ -17,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag("db-serial")
 @SpringBootTest
 @ActiveProfiles("test-mysql")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Execution(ExecutionMode.SAME_THREAD)
 class AsyncConfigTest {
 

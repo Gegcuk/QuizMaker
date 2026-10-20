@@ -20,6 +20,34 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 class QuizGenerationStatusTest {
 
     @Test
+    void queueFieldsAreAnOptionalConsistentSnapshotAndNeverAppearAfterAdmission() throws Exception {
+        var instant = java.time.Instant.parse("2026-10-20T12:00:00Z");
+        var position = new uk.gegc.quizmaker.features.quiz.application.query.GenerationQueuePosition(2, instant);
+        var pending = QuizGenerationStatus.fromEntity(jobWithProgress(GenerationStatus.PENDING, 0), false, null, position);
+        assertEquals(2L, pending.queuePosition());
+        assertEquals(1L, pending.jobsAhead());
+        assertEquals(instant, pending.queuePositionAsOf());
+        for (var state : List.of(GenerationStatus.PROCESSING, GenerationStatus.COMPLETED, GenerationStatus.FAILED, GenerationStatus.CANCELLED)) {
+            var status = QuizGenerationStatus.fromEntity(jobWithProgress(state, 0), false, null, position);
+            assertNull(status.queuePosition());
+            assertNull(status.jobsAhead());
+            assertNull(status.queuePositionAsOf());
+        }
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        var oldPayload = "{\"jobId\":\"legacy\",\"status\":\"PENDING\",\"progressPercentage\":0}";
+        var legacy = mapper.readValue(oldPayload, QuizGenerationStatus.class);
+        assertNull(legacy.queuePosition());
+        assertNull(legacy.jobsAhead());
+        assertNull(legacy.queuePositionAsOf());
+        // Model an existing client that ignores additive response members.
+        var oldClient = mapper.readerFor(LegacyStatus.class)
+                .without(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        assertEquals("PENDING", ((LegacyStatus) oldClient.readValue(mapper.writeValueAsString(pending))).status());
+    }
+
+    private record LegacyStatus(String jobId, String status, Double progressPercentage) { }
+
+    @Test
     @DisplayName("Status mapping exposes bounded progress with at most two decimal places")
     void fromEntity_exposesBoundedProgressWithAtMostTwoDecimalPlaces() {
         QuizGenerationJob job = new QuizGenerationJob();
