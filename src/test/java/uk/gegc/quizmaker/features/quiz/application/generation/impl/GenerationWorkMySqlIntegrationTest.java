@@ -111,7 +111,7 @@ class GenerationWorkMySqlIntegrationTest {
         userIds.forEach(users::deleteById);
     }
 
-    @Test void acceptanceAndDispatchRecordRollbackTogether() {
+    @Test void enrollmentAndJobUpdateRollbackInsideTheCallingTransaction() {
         QuizGenerationJob job = fixture(false, false);
         assertThatThrownBy(() -> transactions.executeWithoutResult(tx -> {
             service.enroll(job);
