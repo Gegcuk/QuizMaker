@@ -375,7 +375,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
             List<UniversalChunker.Chunk> chunks,
             boolean storeChunks
     ) {
-        Document document = documentRepository.findById(documentId)
+        Document document = documentRepository.findByIdForDeletion(documentId)
                 .orElseThrow(() -> new DocumentNotFoundException(documentId.toString(), "Document not found"));
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -383,6 +383,7 @@ public class DocumentProcessingServiceImpl implements DocumentProcessingService 
             throw new UserNotAuthorizedException(username, documentId.toString(), "reprocess");
         }
 
+        document.setContentRevision(Math.incrementExact(documentRepository.findContentRevisionForUpdate(documentId)));
         chunkRepository.deleteByDocument(document);
         if (storeChunks) {
             chunkRepository.saveAll(chunks.stream()

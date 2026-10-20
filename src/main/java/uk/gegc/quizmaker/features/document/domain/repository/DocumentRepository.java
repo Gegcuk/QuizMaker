@@ -20,6 +20,14 @@ import java.util.UUID;
 @Repository
 public interface DocumentRepository extends JpaRepository<Document, UUID> {
 
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("SELECT d FROM Document d WHERE d.id = :id")
+    Optional<Document> findByIdForGeneration(@Param("id") UUID id);
+
+    /** A locking scalar read also avoids a stale revision in an existing persistence context. */
+    @Query(value = "SELECT content_revision FROM documents WHERE id = :id FOR UPDATE", nativeQuery = true)
+    long findContentRevisionForUpdate(@Param("id") UUID id);
+
     Page<Document> findByUploadedBy(User user, Pageable pageable);
 
     List<Document> findByUploadedByAndStatus(User user, Document.DocumentStatus status);

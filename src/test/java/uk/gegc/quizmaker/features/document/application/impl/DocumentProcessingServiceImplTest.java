@@ -343,6 +343,28 @@ class DocumentProcessingServiceImplTest {
         verify(scenario.deletionService).deleteDocument("owner", documentId);
     }
 
+    @Test
+    void successfulReprocessingAdvancesTheLockedRevisionRatherThanACachedEntityValue() throws Exception {
+        UploadScenario scenario = new UploadScenario();
+        User owner = new User(); owner.setId(UUID.randomUUID()); owner.setUsername("owner");
+        scenario.persistedDocument.setUploadedBy(owner);
+        scenario.persistedDocument.setFilePath("/synthetic/never-read");
+        scenario.persistedDocument.setOriginalFilename("synthetic.txt");
+        scenario.persistedDocument.setContentType("text/plain");
+        scenario.persistedDocument.setFileSize(100L);
+        scenario.persistedDocument.setContentRevision(2);
+        when(scenario.userRepository.findByUsername("owner")).thenReturn(Optional.of(owner));
+        when(scenario.documentRepository.findByIdWithChunksAndUser(scenario.persistedDocument.getId()))
+                .thenReturn(Optional.of(scenario.persistedDocument));
+        when(scenario.documentRepository.findByIdForDeletion(scenario.persistedDocument.getId()))
+                .thenReturn(Optional.of(scenario.persistedDocument));
+        when(scenario.documentRepository.findContentRevisionForUpdate(scenario.persistedDocument.getId())).thenReturn(5L);
+        scenario.service.reprocessDocument("owner", scenario.persistedDocument.getId(), scenario.request);
+        assertThat(scenario.persistedDocument.getContentRevision()).isEqualTo(6);
+        verify(scenario.documentRepository).findContentRevisionForUpdate(scenario.persistedDocument.getId());
+        verify(scenario.chunkRepository).deleteByDocument(scenario.persistedDocument);
+    }
+
     private static final class UploadScenario {
 
         private final byte[] content = "Study notes".getBytes(StandardCharsets.UTF_8);

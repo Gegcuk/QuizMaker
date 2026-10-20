@@ -7,10 +7,109 @@ settlement have been committed in the same database transaction. A failed or
 interrupted finalization must not leave newly generated content available to a
 user without a settled entitlement.
 
-AI/provider calls run outside database transactions. The only short,
-pessimistically locked transactions are reservation lease renewal, finalization
-claim, generated-output checkpointing, completion/settlement, cancellation, and
-recovery state updates.
+AI/provider calls run outside database transactions. Short, pessimistically
+locked transactions protect execution ownership, progress, reservation lease
+renewal, finalization claim, generated-output checkpointing,
+completion/settlement, cancellation, and recovery state updates.
+
+## Durable dispatch and pre-checkpoint execution
+
+Newly accepted jobs have one `quiz_generation_work` row, committed in the same
+transaction as acceptance. An in-memory event is only a prompt dispatch hint;
+losing it does not lose the work. Absence of a work row identifies a legacy job;
+the migration deliberately does not adopt old active jobs.
+
+The existing AI orchestration executor still controls execution concurrency.
+This change introduces neither whole-job provider budgets nor a global fairness
+policy. A bounded scan dispatches up to the existing recovery batch size of IDs.
+Scans and heartbeats use separate scheduler threads so inline execution by a
+saturated orchestration executor cannot block its heartbeat.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `quiz.jobs.execution.lease-seconds` | 120 | Persisted execution ownership interval. |
+| `quiz.jobs.execution.heartbeat-seconds` | 30 | Interval between ownership renewals. |
+| `quiz.jobs.execution.scan-seconds` | 10 | Interval between lost/expired dispatch scans. |
+
+The lease must be positive and longer than the heartbeat interval. A heartbeat
+never revives an already expired lease. All new execution time decisions use the
+injected clock. The record progresses from `READY` to `RUNNING` to `DONE`.
+Each claim increments a fencing number: every progress, coverage, output, and
+worker failure write checks that number under the job lock in the transaction
+which performs the write. Authority is explicitly propagated into provider pool
+tasks and removed when they finish; pooled threads do not inherit it.
+
+At most two executions are allowed: the original execution and one automatic
+recovery after an interrupted lease. This is a restart allowance, not another
+retry for an ordinary terminal generation error. Existing per-call retries,
+fallbacks, customer tariffs, cancellation rules, and settlement remain unchanged.
+An interrupted second execution becomes `FAILED`; reservation release uses the
+existing idempotent release operation. A failed release rolls back the failure
+transition and remains eligible for reconciliation on a later scan.
+
+No provider call is automatically repeated once durable validated output exists.
+Checkpoint ownership transfers to the existing finalization recovery path.
+If an interrupted execution saved a coverage decision without its output,
+the next claim removes that unpublished decision before regenerating. Task
+counters restart while the externally reported progress percentage remains
+monotonic and below 100 until completion.
+
+The source is bound by document ID, owner, processed status, and a persisted
+`content_revision` counter captured at acceptance. Reprocessing increments this
+counter under the document lock when replacement chunks are published. Locking
+metadata reads and eager snapshot loading prevent a mixed-version read. A
+changed, missing, or no-longer-owned document causes an explicit failure; recovery
+does not silently switch to newer content. No document text or file is hashed for
+this comparison, and no additional source copy is retained.
+
+If the reservation has expired before recovery, the job fails and the reservation
+is reconciled rather than resurrected. The ordinary reservation renewal before
+provider calls is unchanged. Billing-disabled jobs use the same dispatch and
+fencing lifecycle without requiring a reservation.
+
+During shutdown, persisted ownership is not immediately released to a second
+worker. Existing tasks may finish during the executor's shutdown allowance;
+otherwise a new instance recovers after lease expiry. A stale process may still
+receive an already-dispatched provider response, but cannot commit generation
+effects after ownership changes. This does not promise exactly-once provider
+execution: a crash can leave the provider's cost unknown, and the single allowed
+recovery can incur an additional provider cost. Provider attempt accounting
+continues to record actual observed usage independently of customer settlement.
+
+Execution records contain bounded metadata, reuse the job's persisted request,
+and follow its existing retention lifecycle. Migration V79 cascades their
+deletion with the parent job. No new endpoint, permission, public status value,
+request field, response field, or client rollout is required.
+
+## Execution recovery signals and operations
+
+`quiz.generation.execution.operations` is tagged only by the bounded `outcome`:
+`claimed`, `recovered`, `heartbeat`, `fenced`, or `failed`.
+`quiz.generation.execution.outstanding` reports unfinished durable work;
+`quiz.generation.execution.oldest.seconds` reports its oldest acceptance age.
+Backlog measurements refresh on scans using scalar queries, with no per-job
+relationship traversal. Metric recording failures do not change settlement or
+dispatch outcomes. Existing finalization metrics still describe the later stage.
+
+When outstanding age grows, first check database connectivity, executor
+saturation, heartbeat errors, and the existing reservation/finalization signals.
+For one affected job, inspect its work state, schema version, execution count,
+fencing number, lease deadline, source revision, checkpoint presence, and billing
+state. Do not infer that an unreported provider call cost zero. Do not reset the
+execution counter, extend reservations, or manually replay paid calls to repair
+the symptom. An unchanged `READY` row remains recoverable; an expired `RUNNING`
+row is reclaimed within the configured scan interval when service resumes.
+
+Use a forward fix for rollout problems. Keep V79 and its bounded metadata in
+place; do not remove the work table or reset revisions while jobs reference it.
+All document-content writers must run revision-aware code before new managed
+jobs are accepted. The current candidate/replacement deployment should stop and
+drain the previous public instance before routing requests to the replacement;
+do not mix an older document writer with newly managed work. An older binary
+cannot maintain the counter. Before any rollback to it, cancel/reconcile managed
+jobs through existing authorized operations; do not later resume them on an
+unverifiable source version. Rolling back also stops dispatch recovery. Legacy
+jobs retain their previous cleanup behavior.
 
 ## State flow
 
@@ -39,9 +138,10 @@ The recovery scheduler handles:
 - failed finalizations whose billing reservation is still `RESERVED`.
 
 Checkpointed jobs retry quiz assembly from the exact validated output already
-stored in MySQL. Recovery never calls the AI provider. Jobs with no durable
-output fail without exposing partial content, and reservation release is
-idempotent. Candidate scans return IDs in bounded pages; the job is locked and
+stored in MySQL. Finalization recovery never calls the AI provider. Jobs with no
+durable output and an expired reservation fail without exposing partial content;
+new managed jobs can first recover through the execution path above. Reservation
+release is idempotent. Candidate scans return IDs in bounded pages; the job is locked and
 checkpoint existence is rechecked before an apparently uncheckpointed job can
 be failed.
 
@@ -49,7 +149,10 @@ be failed.
 
 | Crash point | Durable state | Recovery result |
 | --- | --- | --- |
-| Before checkpoint commit | No validated output | An expired paid job fails and releases its reservation; there is no provider retry. |
+| Before dispatch hint is delivered | Committed managed work and accepted request | A scan claims and executes the work. Legacy jobs keep their existing cleanup path. |
+| Before checkpoint commit, first worker interrupted | Managed work with an expired lease, no validated output | One fenced recovery may regenerate if source and reservation remain valid. |
+| Before checkpoint commit, second worker interrupted | Two executions used, no validated output | The job fails visibly and its reservation is reconciled. |
+| Before checkpoint commit, source changed or reservation expired | No reusable validated output | The job fails without regenerating or resurrecting its reservation. |
 | After checkpoint commit, before event dispatch | Private checkpoint, `NOT_STARTED` | Scheduler claims and finalizes from the checkpoint. |
 | After event dispatch, before finalization claim | Private checkpoint, `NOT_STARTED` | Event handling or scheduler claims exactly once. |
 | After claim, before completion commit | Private checkpoint, stale `FINALIZING` | Scheduler reclaims the stale claim and retries from the same checkpoint. |

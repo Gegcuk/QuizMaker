@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import uk.gegc.quizmaker.features.quiz.application.generation.GenerationWorkerContext;
 import uk.gegc.quizmaker.features.quiz.application.generation.GenerationCoverageSnapshot;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCoverageException;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCoverageService;
@@ -88,6 +89,8 @@ public class QuizGenerationCoverageServiceImpl implements QuizGenerationCoverage
 
         QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+
+        GenerationWorkerContext.check(jobId);
         QuizGenerationCoverage existing = findCoverage(jobId);
         if (existing != null) {
             GenerationCoverageSnapshot persisted = toSnapshot(existing);

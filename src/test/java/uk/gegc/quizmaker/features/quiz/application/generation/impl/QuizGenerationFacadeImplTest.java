@@ -136,6 +136,9 @@ class QuizGenerationFacadeImplTest {
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
     
+    @org.mockito.Mock
+    private uk.gegc.quizmaker.features.quiz.application.generation.GenerationWorkService generationWorkService;
+
     @InjectMocks
     private QuizGenerationFacadeImpl facade;
     

@@ -3,6 +3,10 @@ package uk.gegc.quizmaker.features.quiz.config;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
+import org.springframework.validation.annotation.Validated;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Min;
 
 /**
  * Configuration properties for quiz generation job resilience.
@@ -12,6 +16,7 @@ import org.springframework.stereotype.Component;
 @Data
 @Component
 @ConfigurationProperties(prefix = "quiz.jobs")
+@Validated
 public class QuizJobProperties {
 
     /**
@@ -41,6 +46,24 @@ public class QuizJobProperties {
 
     /** Durable recovery policy for the short post-AI entitlement transaction. */
     private Finalization finalization = new Finalization();
+
+    @Valid
+    private Execution execution = new Execution();
+
+    @Data
+    public static class Execution {
+        @Min(1)
+        private int leaseSeconds = 120;
+        @Min(1)
+        private int heartbeatSeconds = 30;
+        @Min(1)
+        private int scanSeconds = 10;
+
+        @AssertTrue(message = "execution lease must exceed its heartbeat interval")
+        public boolean isLeaseLongerThanHeartbeat() {
+            return leaseSeconds > heartbeatSeconds;
+        }
+    }
 
     /**
      * Rate limit settings for job starts

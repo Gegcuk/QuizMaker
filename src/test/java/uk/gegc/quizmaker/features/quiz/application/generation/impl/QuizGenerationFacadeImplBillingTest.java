@@ -125,6 +125,9 @@ class QuizGenerationFacadeImplBillingTest {
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
     
+    @org.mockito.Mock
+    private uk.gegc.quizmaker.features.quiz.application.generation.GenerationWorkService generationWorkService;
+
     @InjectMocks
     private QuizGenerationFacadeImpl facade;
     
@@ -997,7 +1000,7 @@ class QuizGenerationFacadeImplBillingTest {
                     documentProcessingService, billingService, internalBillingService,
                     estimationService, generationTariffService, featureFlags, applicationEventPublisher,
                     transactionTemplate, quizAssemblyService,
-                    idempotencyService, requestCanonicalizer, quizJobProperties, checkpointService
+                    idempotencyService, requestCanonicalizer, quizJobProperties, checkpointService, generationWorkService
             );
             
             job.setBillingIdempotencyKeys(null); // Start with null to test creation path

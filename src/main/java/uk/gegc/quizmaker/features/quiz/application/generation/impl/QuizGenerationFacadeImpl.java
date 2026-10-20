@@ -33,6 +33,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromUploadRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.quiz.application.generation.GenerationWorkService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.GeneratedQuizCheckpoint;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCheckpointException;
@@ -100,6 +101,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
     private final QuizGenerationRequestCanonicalizer requestCanonicalizer;
     private final QuizJobProperties quizJobProperties;
     private final QuizGenerationCheckpointService checkpointService;
+    private final GenerationWorkService generationWorkService;
 
     @Override
     public QuizGenerationResponse generateQuizFromDocument(String username, GenerateQuizFromDocumentRequest request) {
@@ -369,6 +371,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                 log.info("Updated job {} for user {} with reservation {}, starting async generation",
                         job.getId(), ownerUsername, reservation.id());
 
+                generationWorkService.enroll(job);
                 applicationEventPublisher.publishEvent(new QuizGenerationRequestedEvent(this, job.getId(), request));
 
                 return QuizGenerationResponse.started(job.getId(), (long) estimatedSeconds);
