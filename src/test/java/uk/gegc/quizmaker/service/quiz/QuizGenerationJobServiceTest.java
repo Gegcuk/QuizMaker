@@ -301,8 +301,8 @@ class QuizGenerationJobServiceTest {
         // Given
         List<QuizGenerationJob> jobs = List.of(testJob);
         when(jobRepository.findByStatusIn(List.of(GenerationStatus.PENDING, GenerationStatus.PROCESSING))).thenReturn(jobs);
-        when(jobRepository.findByStatus(GenerationStatus.PENDING)).thenReturn(jobs);
-        when(jobRepository.findByStatusAndStartedAtBefore(eq(GenerationStatus.PENDING), any(LocalDateTime.class))).thenReturn(List.of());
+        when(jobRepository.findLegacyPendingJobsBefore(isNull(), any(LocalDateTime.class), any(Pageable.class)))
+                .thenReturn(List.of());
 
         // When
         List<QuizGenerationJob> result = jobService.getActiveJobs();
@@ -689,4 +689,4 @@ class QuizGenerationJobServiceTest {
         assertEquals(0, statistics.totalQuestionsGenerated());
         assertNull(statistics.lastJobCreated());
     }
-} 
+}

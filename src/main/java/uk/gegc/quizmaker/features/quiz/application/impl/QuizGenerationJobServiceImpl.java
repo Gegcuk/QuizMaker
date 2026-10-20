@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.quiz.application.impl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -263,15 +264,8 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
         LocalDateTime cutoffTime = LocalDateTime.now().minusMinutes(timeoutMinutes);
         log.info("Cleaning up stale pending jobs older than: {} ({} minutes)", cutoffTime, timeoutMinutes);
         
-        // First, let's see all pending jobs
-        List<QuizGenerationJob> allPendingJobs = jobRepository.findByStatus(GenerationStatus.PENDING);
-        log.info("Found {} total pending jobs", allPendingJobs.size());
-        for (QuizGenerationJob job : allPendingJobs) {
-            log.info("Pending job: {} - started at: {} - user: {}", 
-                    job.getId(), job.getStartedAt(), job.getUser().getUsername());
-        }
-        
-        List<QuizGenerationJob> staleJobs = jobRepository.findByStatusAndStartedAtBefore(GenerationStatus.PENDING, cutoffTime);
+        List<QuizGenerationJob> staleJobs = jobRepository.findLegacyPendingJobsBefore(null, cutoffTime,
+                Pageable.unpaged());
         log.info("Found {} stale pending jobs (older than {} minutes)", staleJobs.size(), timeoutMinutes);
         
         if (!staleJobs.isEmpty()) {
@@ -429,19 +423,11 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
 
         log.debug("Looking for stale pending jobs for user: {}", username);
         
-        List<QuizGenerationJob> activeJobs = jobRepository.findActiveJobsByUsername(username);
-        if (activeJobs.isEmpty()) {
-            return Optional.empty();
-        }
-
         int timeoutMinutes = quizJobProperties.getPendingActivationTimeoutMinutes();
         LocalDateTime cutoffTime = LocalDateTime.now().minusMinutes(timeoutMinutes);
 
-        // Find PENDING jobs older than the timeout
-        Optional<QuizGenerationJob> staleJob = activeJobs.stream()
-                .filter(job -> job.getStatus() == GenerationStatus.PENDING)
-                .filter(job -> job.getStartedAt().isBefore(cutoffTime))
-                .findFirst();
+        Optional<QuizGenerationJob> staleJob = jobRepository.findLegacyPendingJobsBefore(username, cutoffTime,
+                PageRequest.of(0, 1)).stream().findFirst();
 
         if (staleJob.isPresent()) {
             QuizGenerationJob job = staleJob.get();
@@ -480,4 +466,4 @@ public class QuizGenerationJobServiceImpl implements QuizGenerationJobService {
 
         return Optional.empty();
     }
-} 
+}

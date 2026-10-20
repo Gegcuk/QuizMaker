@@ -33,6 +33,7 @@ import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromUploadRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationResponse;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizGenerationStatus;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.quiz.application.generation.GenerationWorkService;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService;
 import uk.gegc.quizmaker.features.quiz.application.generation.GeneratedQuizCheckpoint;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCheckpointException;
@@ -43,6 +44,7 @@ import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationIdem
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationRequestCanonicalizer;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationRequestedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.BillingState;
+import uk.gegc.quizmaker.features.quiz.domain.model.GenerationStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationOperationType;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationJob;
@@ -100,6 +102,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
     private final QuizGenerationRequestCanonicalizer requestCanonicalizer;
     private final QuizJobProperties quizJobProperties;
     private final QuizGenerationCheckpointService checkpointService;
+    private final GenerationWorkService generationWorkService;
 
     @Override
     public QuizGenerationResponse generateQuizFromDocument(String username, GenerateQuizFromDocumentRequest request) {
@@ -369,6 +372,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                 log.info("Updated job {} for user {} with reservation {}, starting async generation",
                         job.getId(), ownerUsername, reservation.id());
 
+                generationWorkService.enroll(job);
                 applicationEventPublisher.publishEvent(new QuizGenerationRequestedEvent(this, job.getId(), request));
 
                 return QuizGenerationResponse.started(job.getId(), (long) estimatedSeconds);
@@ -999,7 +1003,7 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
 
         try {
             UncheckpointedRecoveryDecision decision = Objects.requireNonNull(
-                    transactionTemplate.execute(status -> markFailedIfStillUncheckpointed(jobId)),
+                    transactionTemplate.execute(status -> markFailedIfStillUncheckpointed(jobId, reclaimInterruptedClaim)),
                     "Uncheckpointed recovery transaction returned no result"
             );
             if (decision.checkpointAvailable()) {
@@ -1008,19 +1012,43 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
                 }
                 return;
             }
+            if (decision.skipped()) {
+                recoveredJobIds.remove(jobId);
+                return;
+            }
             releaseFinalizationReservation(jobId, decision.failureReleaseCandidate());
         } catch (Exception exception) {
             log.error("Unable to reconcile apparently uncheckpointed quiz-generation job {}", jobId, exception);
         }
     }
 
-    private UncheckpointedRecoveryDecision markFailedIfStillUncheckpointed(UUID jobId) {
+    private UncheckpointedRecoveryDecision markFailedIfStillUncheckpointed(UUID jobId, boolean reclaimInterruptedClaim) {
         QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
         if (checkpointService.exists(jobId)) {
             return UncheckpointedRecoveryDecision.checkpointFound();
         }
+        // A scan is only a hint. Renewal, cancellation, or another finalizer may
+        // have changed its predicates before this job lock was acquired.
+        if (!stillEligibleForUncheckpointedRecovery(job, reclaimInterruptedClaim)) {
+            return UncheckpointedRecoveryDecision.noLongerEligible();
+        }
         return UncheckpointedRecoveryDecision.failed(markFinalizationFailed(job));
+    }
+
+    private boolean stillEligibleForUncheckpointedRecovery(QuizGenerationJob job, boolean reclaimInterruptedClaim) {
+        if (job.getStatus() != GenerationStatus.PROCESSING) return false;
+        LocalDateTime now = LocalDateTime.now();
+        if (reclaimInterruptedClaim) {
+            return job.getFinalizationState() == QuizGenerationFinalizationState.FINALIZING
+                    && job.getFinalizationStartedAt() != null
+                    && !job.getFinalizationStartedAt().isAfter(now.minusSeconds(
+                            quizJobProperties.getFinalization().getRecoveryGraceSeconds()));
+        }
+        return job.getFinalizationState() == QuizGenerationFinalizationState.NOT_STARTED
+                && job.getBillingState() == BillingState.RESERVED
+                && job.getReservationExpiresAt() != null
+                && !job.getReservationExpiresAt().isAfter(now);
     }
 
     private boolean recoverCheckpointedFinalization(UUID jobId, boolean reclaimInterruptedClaim) {
@@ -1155,14 +1183,19 @@ public class QuizGenerationFacadeImpl implements QuizGenerationFacade {
 
     private record UncheckpointedRecoveryDecision(
             boolean checkpointAvailable,
-            FailureReleaseCandidate failureReleaseCandidate
+            FailureReleaseCandidate failureReleaseCandidate,
+            boolean skipped
     ) {
         static UncheckpointedRecoveryDecision checkpointFound() {
-            return new UncheckpointedRecoveryDecision(true, FailureReleaseCandidate.none());
+            return new UncheckpointedRecoveryDecision(true, FailureReleaseCandidate.none(), false);
         }
 
         static UncheckpointedRecoveryDecision failed(FailureReleaseCandidate candidate) {
-            return new UncheckpointedRecoveryDecision(false, candidate);
+            return new UncheckpointedRecoveryDecision(false, candidate, false);
+        }
+
+        static UncheckpointedRecoveryDecision noLongerEligible() {
+            return new UncheckpointedRecoveryDecision(false, FailureReleaseCandidate.none(), true);
         }
     }
 

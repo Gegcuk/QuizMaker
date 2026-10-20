@@ -125,6 +125,9 @@ class QuizGenerationFacadeImplBillingTest {
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
     
+    @org.mockito.Mock
+    private uk.gegc.quizmaker.features.quiz.application.generation.GenerationWorkService generationWorkService;
+
     @InjectMocks
     private QuizGenerationFacadeImpl facade;
     
@@ -274,6 +277,49 @@ class QuizGenerationFacadeImplBillingTest {
             assertThat(job.getStatus()).isEqualTo(GenerationStatus.PROCESSING);
             assertThat(job.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.FINALIZING);
             verify(internalBillingService, never()).release(any(), anyString(), anyString(), anyString());
+            verify(checkpointService, never()).delete(jobId);
+        }
+
+        @Test
+        @DisplayName("A stale scan cannot fail an uncheckpointed finalization whose claim was refreshed")
+        void recoveryDoesNotFailARefreshedFinalizationClaim() {
+            job.setBillingReservationId(UUID.randomUUID());
+            job.setBillingState(BillingState.RESERVED);
+            job.beginFinalization(LocalDateTime.now());
+            QuizJobProperties.Finalization finalization = new QuizJobProperties.Finalization();
+            finalization.setRecoveryGraceSeconds(60);
+            when(quizJobProperties.getFinalization()).thenReturn(finalization);
+            when(checkpointService.findRecoveryBatch(60, 50))
+                    .thenReturn(new QuizGenerationCheckpointService.RecoveryBatch(
+                            List.of(), List.of(), List.of(jobId), List.of()));
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+
+            assertThat(facade.recoverStalledQuizGenerationFinalizations()).isZero();
+            assertThat(job.getStatus()).isEqualTo(GenerationStatus.PROCESSING);
+            assertThat(job.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.FINALIZING);
+            assertThat(job.getBillingState()).isEqualTo(BillingState.RESERVED);
+            verifyNoInteractions(internalBillingService);
+            verify(checkpointService, never()).delete(jobId);
+        }
+
+        @Test
+        @DisplayName("A stale expired-reservation scan cannot fail a job whose settlement state changed")
+        void recoveryDoesNotFailWhenTheBillingPredicateNoLongerMatches() {
+            job.setBillingReservationId(UUID.randomUUID());
+            job.setBillingState(BillingState.RELEASED);
+            job.setReservationExpiresAt(LocalDateTime.now().minusMinutes(1));
+            QuizJobProperties.Finalization finalization = new QuizJobProperties.Finalization();
+            finalization.setRecoveryGraceSeconds(60);
+            when(quizJobProperties.getFinalization()).thenReturn(finalization);
+            when(checkpointService.findRecoveryBatch(60, 50))
+                    .thenReturn(new QuizGenerationCheckpointService.RecoveryBatch(
+                            List.of(), List.of(), List.of(), List.of(jobId)));
+            when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+
+            assertThat(facade.recoverStalledQuizGenerationFinalizations()).isZero();
+            assertThat(job.getStatus()).isEqualTo(GenerationStatus.PROCESSING);
+            assertThat(job.getFinalizationState()).isEqualTo(QuizGenerationFinalizationState.NOT_STARTED);
+            verifyNoInteractions(internalBillingService);
             verify(checkpointService, never()).delete(jobId);
         }
     }
@@ -997,7 +1043,7 @@ class QuizGenerationFacadeImplBillingTest {
                     documentProcessingService, billingService, internalBillingService,
                     estimationService, generationTariffService, featureFlags, applicationEventPublisher,
                     transactionTemplate, quizAssemblyService,
-                    idempotencyService, requestCanonicalizer, quizJobProperties, checkpointService
+                    idempotencyService, requestCanonicalizer, quizJobProperties, checkpointService, generationWorkService
             );
             
             job.setBillingIdempotencyKeys(null); // Start with null to test creation path

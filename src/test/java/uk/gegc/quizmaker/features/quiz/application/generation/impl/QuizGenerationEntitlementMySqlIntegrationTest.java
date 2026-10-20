@@ -100,6 +100,7 @@ import static org.mockito.Mockito.when;
 })
 @Import({
         QuizGenerationFacadeImpl.class,
+        GenerationWorkServiceImpl.class,
         QuizGenerationCheckpointCodec.class,
         QuizGenerationCheckpointServiceImpl.class,
         QuizGenerationEntitlementMySqlIntegrationTest.TestConfiguration.class
@@ -231,6 +232,20 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
         }
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private uk.gegc.quizmaker.features.quiz.application.generation.GenerationWorkService generationWorkService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationWorkRepository workRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private uk.gegc.quizmaker.features.document.domain.repository.DocumentRepository documentRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private TransactionTemplate transactions;
+
+    private UUID recoveryDocumentId;
+
     @MockitoBean private QuizGenerationJobService jobService;
     @MockitoBean private AiQuizGenerationService aiQuizGenerationService;
     @MockitoBean private DocumentProcessingService documentProcessingService;
@@ -283,6 +298,7 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
     void cleanUp() {
         quizAssemblyService.clearRecordedQuestions();
         if (jobId != null) {
+            workRepository.deleteById(jobId);
             checkpointService.delete(jobId);
         }
         if (userId != null) {
@@ -292,6 +308,7 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
             jobRepository.deleteById(jobId);
         }
         categoryRepository.findByName("Entitlement integration category").ifPresent(categoryRepository::delete);
+        if (recoveryDocumentId != null) documentRepository.deleteById(recoveryDocumentId);
         if (userId != null) {
             userRepository.findById(userId).ifPresent(userRepository::delete);
         }
@@ -618,6 +635,47 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
 
         assertThat(batch.checkpointedNotStarted()).contains(job.getId());
         assertThat(statistics.getPrepareStatementCount()).isEqualTo(4L);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("Pre-checkpoint restart recovery produces one quiz and one settlement")
+    void durableProviderRecoveryFeedsExistingAtomicFinalization() {
+        QuizGenerationJob job = persistFinalizingCandidate();
+        transactions.executeWithoutResult(tx -> {
+            var document = new uk.gegc.quizmaker.features.document.domain.model.Document();
+            document.setUploadedBy(userRepository.findById(userId).orElseThrow());
+            document.setOriginalFilename("synthetic.txt"); document.setContentType("text/plain");
+            document.setFileSize(100L); document.setFilePath("/synthetic/never-read");
+            document.setStatus(uk.gegc.quizmaker.features.document.domain.model.Document.DocumentStatus.PROCESSED);
+            documentRepository.saveAndFlush(document);
+            recoveryDocumentId = document.getId();
+            job.setDocumentId(document.getId());
+            try { job.setRequestData(objectMapper.writeValueAsString(request(document.getId()))); }
+            catch (Exception e) { throw new IllegalStateException(e); }
+            jobRepository.saveAndFlush(job);
+            generationWorkService.enroll(job);
+        });
+        generationWorkService.claim(job.getId()).orElseThrow();
+        transactions.executeWithoutResult(tx -> workRepository.findById(job.getId()).orElseThrow()
+                .heartbeat(LocalDateTime.now().minusMinutes(5), 120));
+        org.mockito.Mockito.doAnswer(call -> {
+            checkpointService.save(job.getId(), Map.of(0, List.of(question())));
+            return null;
+        }).when(aiQuizGenerationService).generateQuizFromDocumentAsync(eq(job.getId()), any());
+        var restarted = new GenerationWorkExecutorImpl(generationWorkService, aiQuizGenerationService, objectMapper);
+        restarted.execute(job.getId());
+        when(estimationService.computeActualBillingTokens(any(), any(), anyLong())).thenReturn(4L);
+        when(internalBillingService.commit(any(), anyLong(), any(), any()))
+                .thenReturn(new CommitResultDto(job.getBillingReservationId(), 4L, 0L));
+        facade.createQuizCollectionFromCheckpoint(job.getId());
+        facade.createQuizCollectionFromCheckpoint(job.getId());
+        restarted.execute(job.getId());
+        assertThat(quizRepository.findByCreatorId(userId)).hasSize(1);
+        assertThat(jobRepository.findById(job.getId()).orElseThrow().getStatus()).isEqualTo(GenerationStatus.COMPLETED);
+        verify(aiQuizGenerationService, times(1)).generateQuizFromDocumentAsync(eq(job.getId()), any());
+        verify(internalBillingService, times(1)).commit(any(), eq(4L), any(), any());
+        assertThat(checkpointRepository.existsById(job.getId())).isFalse();
     }
 
     private QuizGenerationJob persistFinalizingJob() {

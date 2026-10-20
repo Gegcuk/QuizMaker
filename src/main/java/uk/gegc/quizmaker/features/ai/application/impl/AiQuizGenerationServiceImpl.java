@@ -36,6 +36,8 @@ import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizScope;
 import uk.gegc.quizmaker.features.quiz.application.generation.GenerationCoverageSnapshot;
+import uk.gegc.quizmaker.features.quiz.application.generation.GenerationWorkerContext;
+import uk.gegc.quizmaker.features.quiz.application.generation.GenerationLeaseLostException;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCompletedEvent;
 import uk.gegc.quizmaker.features.quiz.domain.events.QuizGenerationCoverageReconciledEvent;
 import uk.gegc.quizmaker.features.quiz.domain.model.GenerationCoverageOutcome;
@@ -126,6 +128,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive() ? "ACTIVE" : "NONE");
         List<CompletableFuture<List<Question>>> chunkFutures = new ArrayList<>();
         ChunkFutureCancellationGroup chunkCancellationGroup = new ChunkFutureCancellationGroup(jobId);
+        GenerationProgress progress = new GenerationProgress();
 
         try {
             // Get the job from database and update status in a short transaction
@@ -134,15 +137,15 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             QuizGenerationJob freshJob = updateJobStatusToProcessing(jobId);
 
             // Initialize progress tracking
-            GenerationProgress progress = new GenerationProgress();
             generationProgress.put(jobId, progress);
 
             // Validate document
             validateDocumentForGeneration(request.documentId(), freshJob.getUser().getUsername());
 
             // Get document and chunks
-            Document document = documentRepository.findByIdWithChunksAndUser(request.documentId())
-                    .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + request.documentId()));
+            Document document = GenerationWorkerContext.write(jobId,
+                    () -> documentRepository.findByIdWithChunksAndUser(request.documentId())
+                            .orElseThrow(() -> new DocumentNotFoundException("Document not found: " + request.documentId())));
 
             List<DocumentChunk> chunks = getChunksForScope(document, request);
             progress.setTotalChunks(chunks.size());
@@ -206,6 +209,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         String.format("Processing chunk %d/%d", processedChunks, chunks.size()));
 
                 } catch (Exception e) {
+                    GenerationWorkerContext.rethrowIfLost(e);
                     propagateProviderUsagePersistenceFailure(e);
                     propagateGenerationCancellation(e);
                     if (chunkCancellationGroup.isCancellationObserved()
@@ -326,12 +330,16 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             progress.setGeneratedQuestions(acceptedQuestions);
             
             // Clean up progress map to prevent memory leaks
-            generationProgress.remove(jobId);
+            generationProgress.remove(jobId, progress);
 
+        } catch (GenerationLeaseLostException exception) {
+            chunkCancellationGroup.cancelIncomplete();
+            generationProgress.remove(jobId, progress);
         } catch (QuizGenerationCancelledException exception) {
             chunkCancellationGroup.cancelIncomplete();
             finishCancelledGeneration(jobId);
         } catch (Exception e) {
+            GenerationWorkerContext.rethrowIfLost(e);
             propagateProviderUsagePersistenceFailure(e);
             if (isJobCancelled(jobId)) {
                 chunkCancellationGroup.cancelIncomplete();
@@ -340,48 +348,52 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             }
             log.error("Quiz generation failed for job {}", jobId, e);
 
-            transactionTemplate.executeWithoutResult(status -> {
-                QuizGenerationJob failedJob = jobRepository.findById(jobId).orElse(null);
-                if (failedJob != null) {
-                    if (failedJob.isTerminal()) {
-                        log.info("Generation worker for job {} stopped after terminal state {} won",
-                                jobId, failedJob.getStatus());
-                        return;
-                    }
-                    failedJob.markFailed("Generation failed: " + e.getMessage());
-
-                    if (failedJob.getBillingReservationId() != null && failedJob.getBillingState() == BillingState.RESERVED) {
-                        try {
-                            String releaseIdempotencyKey = "quiz:" + jobId + ":release";
-                            internalBillingService.release(
-                                    failedJob.getBillingReservationId(),
-                                    "Generation failed: " + e.getMessage(),
-                                    jobId.toString(),
-                                    releaseIdempotencyKey
-                            );
-                            failedJob.setBillingState(BillingState.RELEASED);
-                            failedJob.addBillingIdempotencyKey("release", releaseIdempotencyKey);
-                            log.info("Released billing reservation {} for failed job {}", failedJob.getBillingReservationId(), jobId);
-                        } catch (Exception billingError) {
-                            log.error("Failed to release billing reservation for job {}", jobId, billingError);
-                            failedJob.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
+            GenerationWorkerContext.runWrite(jobId, () -> {
+                transactionTemplate.executeWithoutResult(status -> {
+                    QuizGenerationJob failedJob = jobRepository.findById(jobId).orElse(null);
+                    if (failedJob != null) {
+                        if (failedJob.isTerminal()) {
+                            log.info("Generation worker for job {} stopped after terminal state {} won",
+                                    jobId, failedJob.getStatus());
+                            return;
                         }
-                    }
+                        failedJob.markFailed("Generation failed: " + e.getMessage());
 
-                    jobRepository.save(failedJob);
-                }
+                        if (failedJob.getBillingReservationId() != null && failedJob.getBillingState() == BillingState.RESERVED) {
+                            try {
+                                String releaseIdempotencyKey = "quiz:" + jobId + ":release";
+                                internalBillingService.release(
+                                        failedJob.getBillingReservationId(),
+                                        "Generation failed: " + e.getMessage(),
+                                        jobId.toString(),
+                                        releaseIdempotencyKey
+                                );
+                                failedJob.setBillingState(BillingState.RELEASED);
+                                failedJob.addBillingIdempotencyKey("release", releaseIdempotencyKey);
+                                log.info("Released billing reservation {} for failed job {}", failedJob.getBillingReservationId(), jobId);
+                            } catch (Exception billingError) {
+                                log.error("Failed to release billing reservation for job {}", jobId, billingError);
+                                failedJob.setLastBillingError("{\"error\":\"Failed to release reservation: " + billingError.getMessage() + "\"}");
+                            }
+                        }
+
+                        jobRepository.save(failedJob);
+                    }
+                });
             });
 
-            GenerationProgress progress = generationProgress.get(jobId);
             if (progress != null) {
                 progress.setCompleted(true);
                 progress.addError("Generation failed: " + e.getMessage());
             }
             
             // Clean up progress map to prevent memory leaks
-            generationProgress.remove(jobId);
+            generationProgress.remove(jobId, progress);
 
             throw new AiServiceException("Failed to generate quiz: " + e.getMessage(), e);
+        } finally {
+            chunkCancellationGroup.cancelIncomplete();
+            generationProgress.remove(jobId, progress);
         }
     }
 
@@ -406,7 +418,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     ) {
         String language = GenerationLanguagePolicy.requireSupportedOrDefault(targetLanguage);
 
-        return aiProviderTaskScheduler.submit(() -> {
+        return aiProviderTaskScheduler.submit(GenerationWorkerContext.propagate(() -> {
             List<Question> allQuestions = new ArrayList<>();
             List<String> chunkErrors = new ArrayList<>();
 
@@ -488,13 +500,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             } catch (QuizGenerationCancelledException exception) {
                 throw exception;
             } catch (Exception e) {
+                GenerationWorkerContext.rethrowIfLost(e);
                 propagateProviderUsagePersistenceFailure(e);
                 propagateGenerationCancellation(e);
                 log.error("Error generating questions for chunk {}", chunk.getChunkIndex(), e);
                 throw new AiServiceException("Failed to generate questions for chunk " +
                         chunk.getChunkIndex() + ": " + e.getMessage(), e);
             }
-        });
+        }));
     }
 
     public CompletableFuture<List<Question>> generateQuestionsFromChunkWithJob(
@@ -629,6 +642,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     questionCount, questionType);
             throw exception;
         } catch (Exception e) {
+            GenerationWorkerContext.rethrowIfLost(e);
             propagateProviderUsagePersistenceFailure(e);
             throwIfJobCancelled(jobId);
             log.error("Error generating {} questions of type {} using structured client",
@@ -787,6 +801,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 logProviderAttemptBudgetExhausted(questionType, chunkIndex, providerAttemptBudget);
                 break;
             } catch (Exception e) {
+                GenerationWorkerContext.rethrowIfLost(e);
                 propagateProviderUsagePersistenceFailure(e);
                 throwIfJobCancelled(jobId);
                 log.warn("Strategy 1 (normal) attempt {} failed for {} chunk {}: {}", 
@@ -839,6 +854,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                     logProviderAttemptBudgetExhausted(questionType, chunkIndex, providerAttemptBudget);
                     break;
                 } catch (Exception e) {
+                    GenerationWorkerContext.rethrowIfLost(e);
                     propagateProviderUsagePersistenceFailure(e);
                     throwIfJobCancelled(jobId);
                     log.warn("Strategy 2 (reduced count) attempt {} failed for {} chunk {}: {}", 
@@ -945,6 +961,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                 } catch (QuizGenerationCancelledException exception) {
                     throw exception;
                 } catch (Exception e) {
+                    GenerationWorkerContext.rethrowIfLost(e);
                     propagateProviderUsagePersistenceFailure(e);
                     throwIfJobCancelled(jobId);
                     log.warn("Failed to redistribute {} questions to chunk {}: {}", 
@@ -1079,6 +1096,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             
             return chunks.size();
         } catch (Exception e) {
+            GenerationWorkerContext.rethrowIfLost(e);
             log.error("Error calculating total chunks for document: {}", documentId, e);
             // Return a reasonable default if calculation fails
             return 1;
@@ -1153,51 +1171,58 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      * Update job progress in database
      */
     public void updateJobProgress(UUID jobId, int processedChunks, String currentChunk) {
-        // Input validation
-        if (jobId == null) {
-            throw new IllegalArgumentException("Job ID cannot be null");
-        }
-        if (processedChunks < 0) {
-            throw new IllegalArgumentException("Processed chunks cannot be negative");
-        }
-        if (currentChunk == null) {
-            throw new IllegalArgumentException("Current chunk cannot be null");
-        }
-        if (currentChunk.trim().isEmpty()) {
-            throw new IllegalArgumentException("Current chunk cannot be empty");
-        }
-        
-        QuizGenerationJob job = jobRepository.findById(jobId)
-                .orElseThrow(() -> new ResourceNotFoundException("Quiz generation job not found with ID: " + jobId));
+        GenerationWorkerContext.runWrite(jobId, () -> {
+            // Input validation
+            if (jobId == null) {
+                throw new IllegalArgumentException("Job ID cannot be null");
+            }
+            if (processedChunks < 0) {
+                throw new IllegalArgumentException("Processed chunks cannot be negative");
+            }
+            if (currentChunk == null) {
+                throw new IllegalArgumentException("Current chunk cannot be null");
+            }
+            if (currentChunk.trim().isEmpty()) {
+                throw new IllegalArgumentException("Current chunk cannot be empty");
+            }
 
-        if (job.isTerminal()) {
-            return;
-        }
-        job.updateProgress(processedChunks, currentChunk);
-        jobRepository.save(job);
+            QuizGenerationJob job = jobRepository.findById(jobId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Quiz generation job not found with ID: " + jobId));
+
+            if (job.isTerminal()) {
+                return;
+            }
+            job.updateProgress(processedChunks, currentChunk);
+            jobRepository.save(job);
+
+        });
     }
 
          /**
       * Update job status safely, ensuring transaction integrity
       */
      private void updateJobStatusSafely(UUID jobId, String statusMessage) {
-         if (jobId == null) {
-             // When called from public interface without jobId, just log
-             log.debug("Job status update (no jobId): {}", statusMessage);
-             return;
-         }
-         
-         try {
-             QuizGenerationJob job = jobRepository.findById(jobId)
-                     .orElse(null);
-             if (job != null && !job.isTerminal()) {
-                 job.updateProgress(job.getProcessedChunks(), statusMessage);
-                 jobRepository.save(job);
+        GenerationWorkerContext.runWrite(jobId, () -> {
+             if (jobId == null) {
+                 // When called from public interface without jobId, just log
+                 log.debug("Job status update (no jobId): {}", statusMessage);
+                 return;
              }
-         } catch (Exception e) {
-             log.error("Failed to update job status for job {}: {}", jobId, statusMessage, e);
-         }
-     }
+
+             try {
+                 QuizGenerationJob job = jobRepository.findById(jobId)
+                         .orElse(null);
+                 if (job != null && !job.isTerminal()) {
+                     job.updateProgress(job.getProcessedChunks(), statusMessage);
+                     jobRepository.save(job);
+                 }
+             } catch (Exception e) {
+                 GenerationWorkerContext.rethrowIfLost(e);
+                 log.error("Failed to update job status for job {}: {}", jobId, statusMessage, e);
+             }
+
+        });
+    }
 
      /**
       * Update job task progress safely using atomic repository update.
@@ -1205,25 +1230,29 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
       * Uses TransactionTemplate to avoid self-invocation issues.
       */
      public void updateJobTaskProgressSafely(UUID jobId, int completedDelta, String statusMessage) {
-         if (jobId == null) {
-             return;
-         }
-         
-         try {
-             transactionTemplate.executeWithoutResult(status -> {
-                 int updated = jobRepository.incrementCompletedTasks(jobId, completedDelta, statusMessage);
-                 if (updated == 0) {
-                     log.debug("Task progress was not updated for job {} because it is terminal, missing, or the increment is invalid",
-                             jobId);
-                 } else {
-                     log.debug("Updated task progress for job {}: +{} tasks, status: {}", 
-                             jobId, completedDelta, statusMessage);
-                 }
-             });
-         } catch (Exception e) {
-             log.error("Failed to update task progress for job {}: {}", jobId, statusMessage, e);
-         }
-     }
+        GenerationWorkerContext.runWrite(jobId, () -> {
+             if (jobId == null) {
+                 return;
+             }
+
+             try {
+                 transactionTemplate.executeWithoutResult(status -> {
+                     int updated = jobRepository.incrementCompletedTasks(jobId, completedDelta, statusMessage);
+                     if (updated == 0) {
+                         log.debug("Task progress was not updated for job {} because it is terminal, missing, or the increment is invalid",
+                                 jobId);
+                     } else {
+                         log.debug("Updated task progress for job {}: +{} tasks, status: {}",
+                                 jobId, completedDelta, statusMessage);
+                     }
+                 });
+             } catch (Exception e) {
+                 GenerationWorkerContext.rethrowIfLost(e);
+                 log.error("Failed to update task progress for job {}: {}", jobId, statusMessage, e);
+             }
+
+        });
+    }
 
      /**
      * Update chunk-level progress atomically. When task counters exist, they remain authoritative
@@ -1231,22 +1260,26 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
       * Uses TransactionTemplate to avoid self-invocation issues.
       */
      public void updateJobChunkProgressSafely(UUID jobId, int processedChunks, String statusMessage) {
-         if (jobId == null) {
-             return;
-         }
-         
-         try {
-             transactionTemplate.executeWithoutResult(status -> {
-                 int updated = jobRepository.updateProcessedChunksAndStatus(jobId, processedChunks, statusMessage);
-                 if (updated == 0) {
-                     log.debug("Chunk progress was not updated for job {} because it is terminal, missing, or the counter is invalid",
-                             jobId);
-                 }
-             });
-         } catch (Exception e) {
-             log.error("Failed to update chunk progress for job {}: {}", jobId, statusMessage, e);
-         }
-     }
+        GenerationWorkerContext.runWrite(jobId, () -> {
+             if (jobId == null) {
+                 return;
+             }
+
+             try {
+                 transactionTemplate.executeWithoutResult(status -> {
+                     int updated = jobRepository.updateProcessedChunksAndStatus(jobId, processedChunks, statusMessage);
+                     if (updated == 0) {
+                         log.debug("Chunk progress was not updated for job {} because it is terminal, missing, or the counter is invalid",
+                                 jobId);
+                     }
+                 });
+             } catch (Exception e) {
+                 GenerationWorkerContext.rethrowIfLost(e);
+                 log.error("Failed to update chunk progress for job {}: {}", jobId, statusMessage, e);
+             }
+
+        });
+    }
 
     /**
      * Get chunks based on the quiz scope
@@ -1430,24 +1463,27 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      * Update job status to PROCESSING in a short transaction
      */
     public QuizGenerationJob updateJobStatusToProcessing(UUID jobId) {
-        return transactionTemplate.execute(status -> {
-            QuizGenerationJob job = jobRepository.findById(jobId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+        return GenerationWorkerContext.write(jobId, () -> {
+            return transactionTemplate.execute(status -> {
+                QuizGenerationJob job = jobRepository.findById(jobId)
+                        .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
 
-            if (job.getStatus() == GenerationStatus.CANCELLED) {
-                throw new QuizGenerationCancelledException();
-            }
-            if (job.isTerminal()) {
-                throw new AiServiceException(
-                        "Generation job is already terminal: " + job.getStatus());
-            }
-            
-            // Initialize lazy relationships we will need outside the transaction
-            job.getUser().getId();
-            job.getUser().getUsername();
-            
-            job.setStatus(GenerationStatus.PROCESSING);
-            return jobRepository.save(job);
+                if (job.getStatus() == GenerationStatus.CANCELLED) {
+                    throw new QuizGenerationCancelledException();
+                }
+                if (job.isTerminal()) {
+                    throw new AiServiceException(
+                            "Generation job is already terminal: " + job.getStatus());
+                }
+
+                // Initialize lazy relationships we will need outside the transaction
+                job.getUser().getId();
+                job.getUser().getUsername();
+
+                job.setStatus(GenerationStatus.PROCESSING);
+                return jobRepository.save(job);
+            });
+
         });
     }
 
@@ -1455,14 +1491,17 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      * Update job total chunks in a short transaction
      */
     public void updateJobTotalChunks(UUID jobId, int totalChunks) {
-        transactionTemplate.executeWithoutResult(status -> {
-            QuizGenerationJob job = jobRepository.findById(jobId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
-            if (job.isTerminal()) {
-                return;
-            }
-            job.setTotalChunks(totalChunks);
-            jobRepository.save(job);
+        GenerationWorkerContext.runWrite(jobId, () -> {
+            transactionTemplate.executeWithoutResult(status -> {
+                QuizGenerationJob job = jobRepository.findById(jobId)
+                        .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+                if (job.isTerminal()) {
+                    return;
+                }
+                job.setTotalChunks(totalChunks);
+                jobRepository.save(job);
+            });
+
         });
     }
 
@@ -1470,15 +1509,18 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      * Update job total chunks and total tasks in a short transaction
      */
     public void updateJobTotalChunksAndTasks(UUID jobId, int totalChunks, int totalTasks) {
-        transactionTemplate.executeWithoutResult(status -> {
-            QuizGenerationJob job = jobRepository.findById(jobId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
-            if (job.isTerminal()) {
-                return;
-            }
-            job.setTotalChunks(totalChunks);
-            job.setTotalTasks(totalTasks);
-            jobRepository.save(job);
+        GenerationWorkerContext.runWrite(jobId, () -> {
+            transactionTemplate.executeWithoutResult(status -> {
+                QuizGenerationJob job = jobRepository.findById(jobId)
+                        .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+                if (job.isTerminal()) {
+                    return;
+                }
+                job.setTotalChunks(totalChunks);
+                job.setTotalTasks(totalTasks);
+                jobRepository.save(job);
+            });
+
         });
     }
 
@@ -1518,12 +1560,14 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
             
             return job.get().getStatus() == GenerationStatus.CANCELLED;
         } catch (Exception e) {
+            GenerationWorkerContext.rethrowIfLost(e);
             log.error("Error checking cancellation status for job {}", jobId, e);
             return false; // On error, continue processing rather than aborting
         }
     }
 
     private void throwIfJobCancelled(UUID jobId) {
+        if (jobId != null) GenerationWorkerContext.check(jobId);
         if (isJobCancelled(jobId)) {
             throw new QuizGenerationCancelledException();
         }
@@ -1547,6 +1591,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     }
 
     private void propagateGenerationCancellation(Throwable failure) {
+        GenerationWorkerContext.rethrowIfLost(failure);
         Throwable current = failure;
         while (current != null) {
             if (current instanceof QuizGenerationCancelledException cancellation) {
@@ -1635,41 +1680,49 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
      * Uses TransactionTemplate to avoid self-invocation issues.
      */
     public void recordAiCallStarted(UUID jobId) {
-        if (jobId == null) {
-            return;
-        }
-        
-        try {
-            transactionTemplate.executeWithoutResult(status -> {
-                QuizGenerationJob job = jobRepository.findById(jobId).orElse(null);
-                if (job != null && !job.isTerminal()) {
-                    if (!Boolean.TRUE.equals(job.getHasStartedAiCalls())) {
-                        job.setHasStartedAiCalls(true);
-                        job.setFirstAiCallAt(java.time.LocalDateTime.now());
+        GenerationWorkerContext.runWrite(jobId, () -> {
+            if (jobId == null) {
+                return;
+            }
+
+            try {
+                transactionTemplate.executeWithoutResult(status -> {
+                    QuizGenerationJob job = jobRepository.findById(jobId).orElse(null);
+                    if (job != null && !job.isTerminal()) {
+                        if (!Boolean.TRUE.equals(job.getHasStartedAiCalls())) {
+                            job.setHasStartedAiCalls(true);
+                            job.setFirstAiCallAt(java.time.LocalDateTime.now());
+                        }
+                        if (job.getBillingReservationId() != null
+                                && job.getBillingState() == BillingState.RESERVED) {
+                            var renewedReservation = internalBillingService.renewReservationLease(
+                                    job.getUser().getId(),
+                                    job.getBillingReservationId(),
+                                    jobId
+                            );
+                            job.setReservationExpiresAt(renewedReservation.expiresAt());
+                        }
+                        jobRepository.save(job);
+                        log.debug("Recorded AI call and refreshed reservation lease for job {}", jobId);
                     }
-                    if (job.getBillingReservationId() != null
-                            && job.getBillingState() == BillingState.RESERVED) {
-                        var renewedReservation = internalBillingService.renewReservationLease(
-                                job.getUser().getId(),
-                                job.getBillingReservationId(),
-                                jobId
-                        );
-                        job.setReservationExpiresAt(renewedReservation.expiresAt());
-                    }
-                    jobRepository.save(job);
-                    log.debug("Recorded AI call and refreshed reservation lease for job {}", jobId);
-                }
-            });
-        } catch (Exception e) {
-            log.error("Error recording AI call start for job {}", jobId, e);
-            // Don't fail the generation if tracking fails
-        }
+                });
+            } catch (Exception e) {
+                GenerationWorkerContext.rethrowIfLost(e);
+                log.error("Error recording AI call start for job {}", jobId, e);
+                // Don't fail the generation if tracking fails
+            }
+
+        });
     }
 
     void recordProviderUsage(UUID jobId, ProviderUsageObservation usage) {
         try {
             switch (usage.state()) {
-                case STARTED -> providerUsageService.recordStarted(jobId, usage.providerAttemptId());
+                case STARTED -> {
+                    GenerationWorkerContext.check(jobId);
+                    providerUsageService.recordStarted(jobId, usage.providerAttemptId());
+                    GenerationWorkerContext.check(jobId);
+                }
                 case REPORTED -> providerUsageService.recordReported(
                         jobId, usage.providerAttemptId(), usage.providerLlmTokens());
                 case MISSING -> providerUsageService.recordMissing(jobId, usage.providerAttemptId());
@@ -1684,6 +1737,7 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
     }
 
     private void propagateProviderUsagePersistenceFailure(Throwable failure) {
+        GenerationWorkerContext.rethrowIfLost(failure);
         Throwable current = failure;
         while (current != null) {
             if (current instanceof ProviderUsagePersistenceException persistenceFailure) {

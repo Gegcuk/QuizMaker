@@ -8,6 +8,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
+import uk.gegc.quizmaker.features.quiz.application.generation.GenerationWorkerContext;
 import uk.gegc.quizmaker.features.quiz.application.generation.GeneratedQuizCheckpoint;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCheckpointException;
 import uk.gegc.quizmaker.features.quiz.application.generation.QuizGenerationCheckpointService;
@@ -75,6 +76,8 @@ public class QuizGenerationCheckpointServiceImpl implements QuizGenerationCheckp
         );
         QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
+
+        GenerationWorkerContext.check(jobId);
 
         if (job.isTerminal() || job.getStatus() != GenerationStatus.PROCESSING) {
             rejectedCounter.increment();

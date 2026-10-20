@@ -10,6 +10,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.quiz.application.generation.ProviderUsageRecordResult;
+import uk.gegc.quizmaker.features.quiz.application.generation.GenerationWorkerContext;
 import uk.gegc.quizmaker.features.quiz.application.generation.ProviderUsageService;
 import uk.gegc.quizmaker.features.quiz.domain.model.ProviderUsageRecordState;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationProviderUsage;
@@ -148,6 +149,12 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
         var job = jobRepository.findByIdForUpdate(jobId)
                 .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
 
+        if (recordState == ProviderUsageRecordState.STARTED) {
+            // The fence and the new attempt must share this transaction/job lock.
+            // Reports for an already dispatched attempt remain durable audit facts
+            // even when its worker has since lost ownership.
+            GenerationWorkerContext.check(jobId);
+        }
         var existing = usageRepository.findByJobIdAndProviderAttemptId(jobId, providerAttemptId);
         if (recordState == ProviderUsageRecordState.STARTED) {
             if (existing.isPresent()) {

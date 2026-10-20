@@ -62,6 +62,10 @@ public class Document {
     @Column
     private Integer totalChunks;
 
+    /** Changes only when the published chunk content is replaced. */
+    @Column(name = "content_revision", nullable = false)
+    private long contentRevision;
+
     @Column(columnDefinition = "TEXT")
     private String processingError;
 
@@ -81,4 +85,4 @@ public class Document {
         PROCESSED,
         FAILED
     }
-} 
+}
