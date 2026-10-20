@@ -993,16 +993,23 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
 
                 try {
                     int countToTry = Math.min(neededCount - attemptedCount, 2); // Max 2 per chunk
-                    
-                    List<Question> redistributedQuestions = generateQuestionsByTypeWithFallbacks(
-                            chunk.getContent(),
-                            missingType,
-                            countToTry,
-                            difficulty,
-                            chunk.getChunkIndex(),
-                            jobId,
-                            language
-                    );
+                    ChunkGenerationBuffer resultBuffer = new ChunkGenerationBuffer();
+                    try {
+                        List<Question> questions = generateQuestionsByTypeWithFallbacks(
+                                chunk.getContent(),
+                                missingType,
+                                countToTry,
+                                difficulty,
+                                chunk.getChunkIndex(),
+                                jobId,
+                                language,
+                                candidates -> resultBuffer.record(missingType, candidates)
+                        );
+                        resultBuffer.complete(questions);
+                    } catch (GenerationDeadlineExceededException exception) {
+                        // Reconcile validated output from this invocation before stopping redistribution.
+                    }
+                    List<Question> redistributedQuestions = resultBuffer.freeze();
 
                     if (!redistributedQuestions.isEmpty()) {
                         allQuestions.addAll(redistributedQuestions);
@@ -1018,8 +1025,6 @@ public class AiQuizGenerationServiceImpl implements AiQuizGenerationService {
                         log.info("Redistributed {} {} questions to chunk {}", 
                                 redistributedQuestions.size(), missingType, chunk.getChunkIndex());
                     }
-                } catch (GenerationDeadlineExceededException exception) {
-                    return;
                 } catch (QuizGenerationCancelledException exception) {
                     throw exception;
                 } catch (Exception e) {
