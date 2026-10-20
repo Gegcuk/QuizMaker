@@ -12,6 +12,7 @@ public interface GenerationWorkService {
     boolean isManaged(UUID jobId);
     List<UUID> findDue();
     Optional<GenerationWorkClaim> claim(UUID jobId);
+    Optional<GenerationWorkClaim> claimNext();
     void heartbeat(GenerationWorkClaim claim);
     <T> T protect(GenerationWorkClaim claim, Supplier<T> action);
     void finished(GenerationWorkClaim claim);

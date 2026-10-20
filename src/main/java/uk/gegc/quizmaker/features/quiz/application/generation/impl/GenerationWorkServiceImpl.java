@@ -42,6 +42,8 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
     private final Clock systemClock;
     private final MeterRegistry metrics;
     private final TransactionTemplate transactions;
+    private final AtomicLong active = new AtomicLong();
+    private final AtomicLong waiting = new AtomicLong();
     private final AtomicLong outstanding = new AtomicLong();
     private final AtomicLong oldestSeconds = new AtomicLong();
 
@@ -74,6 +76,8 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
     @PostConstruct
     void registerMetrics() {
         try {
+            Gauge.builder("quiz.generation.execution.active", active, AtomicLong::get).register(metrics);
+            Gauge.builder("quiz.generation.execution.waiting", waiting, AtomicLong::get).register(metrics);
             Gauge.builder("quiz.generation.execution.outstanding", outstanding, AtomicLong::get).register(metrics);
             Gauge.builder("quiz.generation.execution.oldest.seconds", oldestSeconds, AtomicLong::get).register(metrics);
         } catch (RuntimeException ignored) {
@@ -84,13 +88,15 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void enroll(QuizGenerationJob job) {
+        workRepository.initializeAdmission();
+        long sequence = workRepository.lockAdmission().allocate();
         Document source = documentRepository.findByIdForGeneration(job.getDocumentId())
                 .orElseThrow(() -> new IllegalStateException("Generation source is unavailable"));
         if (!source.getUploadedBy().getId().equals(job.getUser().getId())
                 || source.getStatus() != Document.DocumentStatus.PROCESSED) {
             throw new IllegalStateException("Generation source is unavailable");
         }
-        workRepository.saveAndFlush(new QuizGenerationWork(job.getId(), source.getContentRevision(), now()));
+        workRepository.saveAndFlush(new QuizGenerationWork(job.getId(), source.getContentRevision(), now(), sequence));
     }
 
     @Override
@@ -104,6 +110,8 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
     public List<UUID> findDue() {
         List<UUID> due = workRepository.findDue(now(), PageRequest.of(0, properties.getFinalization().getRecoveryBatchSize()));
         try {
+            active.set(workRepository.countRunning(now()));
+            waiting.set(workRepository.countWaiting(now()));
             outstanding.set(workRepository.countOutstanding());
             LocalDateTime oldest = workRepository.findOldestOutstanding();
             oldestSeconds.set(oldest == null ? 0 : Math.max(0, Duration.between(oldest, now()).getSeconds()));
@@ -115,28 +123,54 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
 
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public Optional<GenerationWorkClaim> claim(UUID jobId) {
-        ClaimResult result = Objects.requireNonNull(transactions.execute(tx -> claimInTransaction(jobId)));
-        if (result.failed()) releaseFailedReservation(jobId);
-        return Optional.ofNullable(result.claim());
+    public Optional<GenerationWorkClaim> claimNext() {
+        return claim(null);
     }
 
-    private record ClaimResult(GenerationWorkClaim claim, boolean failed) { }
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public Optional<GenerationWorkClaim> claim(UUID requestedId) {
+        // Skip terminal/expired queue heads without making healthy work wait for the next scan.
+        while (true) {
+            ClaimResult result = Objects.requireNonNull(transactions.execute(tx -> admit(requestedId)));
+            if (result.failed()) releaseFailedReservation(result.jobId());
+            if (result.claim() != null || result.jobId() == null || requestedId != null) {
+                return Optional.ofNullable(result.claim());
+            }
+        }
+    }
+
+    private record ClaimResult(UUID jobId, GenerationWorkClaim claim, boolean failed) { }
+
+    private ClaimResult admit(UUID requestedId) {
+        workRepository.initializeAdmission();
+        workRepository.lockAdmission();
+        if (workRepository.countRunning(now()) >= properties.getExecution().getMaxActiveJobs()) {
+            return new ClaimResult(null, null, false);
+        }
+        List<UUID> due = workRepository.findDue(now(), PageRequest.of(0, 1));
+        if (due.isEmpty() || (requestedId != null && !requestedId.equals(due.get(0)))) {
+            return new ClaimResult(null, null, false);
+        }
+        return claimInTransaction(due.get(0));
+    }
 
     private ClaimResult claimInTransaction(UUID jobId) {
         QuizGenerationJob job = jobRepository.findByIdForUpdate(jobId).orElse(null);
         QuizGenerationWork work = workRepository.findById(jobId).orElse(null);
-        if (job == null || work == null || !work.isDue(now())) return new ClaimResult(null, false);
+        if (job == null || work == null || !work.isDue(now())) return new ClaimResult(null, null, false);
         if (job.isTerminal() || checkpointRepository.existsById(jobId)) {
-            return new ClaimResult(null, finishWork(job, work));
+            return new ClaimResult(jobId, null, finishWork(job, work));
         }
         String failure = work.getSchemaVersion() != 1 ? "Unsupported generation work schema"
+                : work.deadlineExpired(systemClock.instant()) ? "Generation deadline exceeded before recovery"
                 : work.getExecutions() >= 2 ? "Generation recovery attempts exhausted"
                 : reservationExpired(job) ? "Generation reservation expired before recovery"
                 : !sourceMatches(job, work) ? "Generation source changed or is unavailable" : null;
         if (failure != null) {
+            if (work.deadlineExpired(systemClock.instant())) count("deadline_before_recovery");
             failJob(job, work, failure);
-            return new ClaimResult(null, true);
+            return new ClaimResult(jobId, null, true);
         }
         if (work.getExecutions() > 0) {
             // An interrupted pre-checkpoint decision is not a published result.
@@ -147,10 +181,20 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
             job.setCurrentChunk("Recovering interrupted generation");
             count("recovered");
         }
+        if (work.getExecutions() == 0) {
+            try {
+                metrics.timer("quiz.generation.execution.queue.wait").record(
+                        Duration.ofMillis(Math.max(0, Duration.between(work.getCreatedAt(), now()).toMillis())));
+            } catch (RuntimeException ignored) {
+                log.warn("Generation queue wait could not be measured");
+            }
+        }
+        work.startDeadline(systemClock.instant());
         long fence = work.claim(now(), properties.getExecution().getLeaseSeconds());
         job.setStatus(GenerationStatus.PROCESSING);
         count("claimed");
-        return new ClaimResult(new GenerationWorkClaim(jobId, fence, job.getDocumentId(), job.getRequestData()), false);
+        return new ClaimResult(jobId, new GenerationWorkClaim(jobId, fence, job.getDocumentId(), job.getRequestData(),
+                work.getDeadlineAt(), properties.getExecution().getMaxConcurrentChunks()), false);
     }
 
     @Override

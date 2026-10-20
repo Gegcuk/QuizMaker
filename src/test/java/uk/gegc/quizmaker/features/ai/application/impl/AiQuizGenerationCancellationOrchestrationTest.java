@@ -364,21 +364,19 @@ class AiQuizGenerationCancellationOrchestrationTest {
         secondChunk.setId(UUID.randomUUID());
         secondChunk.setChunkIndex(1);
         secondChunk.setContent("A second sufficiently detailed chunk that reports persisted cancellation.");
-        DocumentChunk completedThirdChunk = new DocumentChunk();
-        completedThirdChunk.setId(UUID.randomUUID());
-        completedThirdChunk.setChunkIndex(2);
-        completedThirdChunk.setContent("A third sufficiently detailed chunk that completed before cancellation.");
+        DocumentChunk waitingThirdChunk = new DocumentChunk();
+        waitingThirdChunk.setId(UUID.randomUUID());
+        waitingThirdChunk.setChunkIndex(2);
+        waitingThirdChunk.setContent("A third sufficiently detailed chunk still waiting for a free slot.");
         fixture.document().getChunks().add(secondChunk);
-        fixture.document().getChunks().add(completedThirdChunk);
+        fixture.document().getChunks().add(waitingThirdChunk);
 
         CompletableFuture<List<Question>> blockedFirst = new CompletableFuture<>();
         CompletableFuture<List<Question>> cancelledSecond = new CompletableFuture<>();
-        List<Question> completedQuestions = questions(2);
-        CompletableFuture<List<Question>> completedThird = CompletableFuture.completedFuture(completedQuestions);
         List<CompletableFuture<List<Question>>> scheduled = List.of(
-                blockedFirst, cancelledSecond, completedThird);
+                blockedFirst, cancelledSecond);
         AtomicInteger submissions = new AtomicInteger();
-        CountDownLatch allChunksScheduled = new CountDownLatch(3);
+        CountDownLatch allChunksScheduled = new CountDownLatch(2);
         CountDownLatch blockedFirstCancelled = new CountDownLatch(1);
         blockedFirst.whenComplete((ignored, failure) -> {
             if (blockedFirst.isCancelled()) {
@@ -407,10 +405,8 @@ class AiQuizGenerationCancellationOrchestrationTest {
 
         assertThat(blockedFirst).isCancelled();
         assertThat(cancelledSecond).isCancelled();
-        assertThat(completedThird.isCancelled()).isFalse();
-        assertThat(completedThird.join()).isSameAs(completedQuestions);
         assertThat(service.getProgress(fixture.job().getId())).isNull();
-        verify(service, times(3)).generateQuestionsFromChunkWithJob(
+        verify(service, times(2)).generateQuestionsFromChunkWithJob(
                 any(DocumentChunk.class), any(), any(Difficulty.class),
                 any(UUID.class), anyString());
         verify(eventPublisher, never()).publishEvent(any(ApplicationEvent.class));

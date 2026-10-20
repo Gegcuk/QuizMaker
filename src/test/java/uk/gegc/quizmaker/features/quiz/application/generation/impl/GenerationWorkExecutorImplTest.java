@@ -36,7 +36,7 @@ class GenerationWorkExecutorImplTest {
             assertThat(finish.await(5, TimeUnit.SECONDS)).isTrue();
             return null;
         }).when(ai).generateQuizFromDocumentAsync(eq(id), any());
-        var worker = new GenerationWorkExecutorImpl(service, ai, new ObjectMapper());
+        var worker = new GenerationWorkExecutorImpl(service, ai, new ObjectMapper(), java.time.Clock.systemUTC(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
             Future<?> old = pool.submit(() -> worker.execute(id));
@@ -63,7 +63,7 @@ class GenerationWorkExecutorImplTest {
         AiQuizGenerationService ai = mock(AiQuizGenerationService.class);
         var claim = new GenerationWorkClaim(UUID.randomUUID(), 1, null, "not-json");
         when(service.claim(claim.jobId())).thenReturn(Optional.of(claim));
-        var worker = new GenerationWorkExecutorImpl(service, ai, new ObjectMapper());
+        var worker = new GenerationWorkExecutorImpl(service, ai, new ObjectMapper(), java.time.Clock.systemUTC(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         worker.execute(claim.jobId()); worker.heartbeat();
         verify(service).failed(claim);
         verify(service, never()).heartbeat(any());
@@ -75,7 +75,7 @@ class GenerationWorkExecutorImplTest {
         AiQuizGenerationService ai = mock(AiQuizGenerationService.class);
         var claim = new GenerationWorkClaim(UUID.randomUUID(), 1, null, "{}");
         when(service.claim(claim.jobId())).thenReturn(Optional.of(claim));
-        var worker = new GenerationWorkExecutorImpl(service, ai, new ObjectMapper());
+        var worker = new GenerationWorkExecutorImpl(service, ai, new ObjectMapper(), java.time.Clock.systemUTC(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         doThrow(new IllegalStateException("local DB unavailable")).when(service).heartbeat(claim);
         doAnswer(c -> {
             assertThatCode(worker::heartbeat).doesNotThrowAnyException();
@@ -92,7 +92,7 @@ class GenerationWorkExecutorImplTest {
         AiQuizGenerationService ai = mock(AiQuizGenerationService.class);
         var claim = new GenerationWorkClaim(UUID.randomUUID(), 1, null, "{}");
         when(service.claim(claim.jobId())).thenReturn(Optional.empty()).thenReturn(Optional.of(claim));
-        var worker = new GenerationWorkExecutorImpl(service, ai, new ObjectMapper());
+        var worker = new GenerationWorkExecutorImpl(service, ai, new ObjectMapper(), java.time.Clock.systemUTC(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         worker.execute(claim.jobId()); worker.execute(claim.jobId());
         verify(ai, times(1)).generateQuizFromDocumentAsync(eq(claim.jobId()), any());
         verify(service).finished(claim);

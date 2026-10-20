@@ -94,6 +94,11 @@ import java.util.UUID;
 @Validated
 @Slf4j
 public class QuizController {
+    private static final String GENERATION_EXECUTION_DESCRIPTION = " Accepted jobs wait in global FIFO order, without user or tier priority. "
+            + "Default limits are four active jobs and two concurrent chunks per job; completion order may differ. "
+            + "AI generation has a five-minute deadline from first execution, excluding queue wait and retained across restart. "
+            + "On expiry, strictly more than 80% validated coverage may complete under the existing billing tariff; otherwise the job fails without charge. "
+            + "Finalization can finish after the deadline. Jobs already started before this policy was introduced retain their previous deadline behavior.";
 
     private static final String BULK_QUIZ_UPDATE_REQUEST_EXAMPLE = """
             {
@@ -778,7 +783,7 @@ public class QuizController {
 
     @Operation(
             summary = "Generate quiz from document using AI (Async)",
-            description = "Start an asynchronous quiz generation job from uploaded document chunks using AI. The document must be owned by the authenticated user and have chunks available. Reuse the same Idempotency-Key for a retry of the same command; reusing it with material changes returns 409. Clients not yet sending the optional header remain supported, but do not receive replay guarantees. Requires QUIZ_CREATE permission.",
+            description = "Start an asynchronous quiz generation job from uploaded document chunks using AI. The document must be owned by the authenticated user and have chunks available. Reuse the same Idempotency-Key for a retry of the same command; reusing it with material changes returns 409. Clients not yet sending the optional header remain supported, but do not receive replay guarantees. Requires QUIZ_CREATE permission." + GENERATION_EXECUTION_DESCRIPTION,
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -857,7 +862,7 @@ public class QuizController {
                     + "The server streams the upload into bounded staging and verifies the staged content bytes; a filename and multipart content type alone never determine the accepted type. "
                     + "Client-extracted selected text is supported when sent as UTF-8 text with a .txt or .text filename. "
                     + "Reuse the same Idempotency-Key only for a retry of the same upload command; the actual file bytes and material settings are bound to the key, so a different same-size file returns 409. "
-                    + "The raw upload is never stored in idempotency metadata; only a one-way source digest contributes to the command fingerprint. Requires QUIZ_CREATE permission.",
+                    + "The raw upload is never stored in idempotency metadata; only a one-way source digest contributes to the command fingerprint. Requires QUIZ_CREATE permission." + GENERATION_EXECUTION_DESCRIPTION,
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,
@@ -1002,7 +1007,7 @@ public class QuizController {
 
     @Operation(
             summary = "Generate quiz from plain text (Async)",
-            description = "Generate a quiz from plain text in one operation. Reuse the same Idempotency-Key only for a retry with identical text and generation settings; different same-length text returns 409. Raw text is never stored in idempotency metadata; only a one-way source digest contributes to the command fingerprint. Requires QUIZ_CREATE permission.",
+            description = "Generate a quiz from plain text in one operation. Reuse the same Idempotency-Key only for a retry with identical text and generation settings; different same-length text returns 409. Raw text is never stored in idempotency metadata; only a one-way source digest contributes to the command fingerprint. Requires QUIZ_CREATE permission." + GENERATION_EXECUTION_DESCRIPTION,
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,

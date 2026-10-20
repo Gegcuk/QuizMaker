@@ -388,6 +388,10 @@ class QuizOpenApiContractTest {
                 .isEqualTo("string");
         assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1bulk-update/patch/responses/400");
         assertResponseDocumented(specification, "/paths/~1api~1v1~1quizzes~1bulk-update/patch/responses/403");
+        for (String source : java.util.List.of("document", "upload", "text")) {
+            assertThat(specification.at("/paths/~1api~1v1~1quizzes~1generate-from-" + source + "/post/description").asText())
+                    .contains("global FIFO", "four active jobs", "two concurrent chunks", "five-minute", "retained across restart", "80%");
+        }
         assertIdempotencyHeader(specification, "/paths/~1api~1v1~1quizzes~1generate-from-document/post");
         assertIdempotencyHeader(specification, "/paths/~1api~1v1~1quizzes~1generate-from-upload/post");
         assertIdempotencyHeader(specification, "/paths/~1api~1v1~1quizzes~1generate-from-text/post");

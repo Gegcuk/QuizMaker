@@ -148,6 +148,29 @@ class SpringAiStructuredClientCancellationAwareRetryTest {
         }
     }
 
+    @Test void deadlineTruncatesBackoffAndSuppressesRemainingProviderAttempts() {
+        var now = new java.util.concurrent.atomic.AtomicReference<>(java.time.Instant.parse("2026-10-20T12:00:00Z"));
+        var clock = org.mockito.Mockito.mock(java.time.Clock.class);
+        when(clock.instant()).thenAnswer(call -> now.get());
+        var expirations = new java.util.concurrent.atomic.AtomicInteger();
+        var budget = new ProviderAttemptBudget(5);
+        client.afterNextSleep(() -> now.set(now.get().plusMillis(250)));
+        when(callResponseSpec.chatResponse()).thenThrow(providerFailure(Duration.ofSeconds(5)));
+        uk.gegc.quizmaker.features.ai.application.ProviderDeadline.within(
+                new uk.gegc.quizmaker.features.ai.application.ProviderDeadline(now.get().plusMillis(250), clock,
+                        expirations::incrementAndGet), () -> {
+                    assertThatThrownBy(() -> client.generateQuestions(request(budget, () -> false)))
+                            .isInstanceOf(uk.gegc.quizmaker.features.ai.application.GenerationDeadlineExceededException.class);
+                    assertThat(uk.gegc.quizmaker.features.ai.application.ProviderDeadline.isExpired()).isTrue();
+                    return null;
+                });
+        assertThat(client.recordedDelays()).containsExactly(250L);
+        assertThat(budget.consumedAttempts()).isEqualTo(1);
+        assertThat(expirations).hasValue(1);
+        assertThat(uk.gegc.quizmaker.features.ai.application.ProviderDeadline.isBounded()).isFalse();
+        verify(chatClient).prompt(any(Prompt.class));
+    }
+
     private RecordingStructuredClient recordingClient() {
         return new RecordingStructuredClient(
                 chatClient,

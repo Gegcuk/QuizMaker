@@ -465,7 +465,7 @@ class GenerationWorkBillingMySqlIntegrationTest {
             quiz.setEstimatedTime(1); quiz.setIsTimerEnabled(false); quiz.setIsRepetitionEnabled(false);
             return quizzes.saveAndFlush(quiz);
         }).when(assembly).createConsolidatedQuiz(any(), anyList(), any(), any(), anySet(), any(), anyInt());
-        new GenerationWorkExecutorImpl(work, ai, new ObjectMapper().findAndRegisterModules()).execute(job.getId());
+        new GenerationWorkExecutorImpl(work, ai, new ObjectMapper().findAndRegisterModules(), java.time.Clock.systemUTC(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry()).execute(job.getId());
         clock.advance(1); // Advance to the next recovery scan without relying on wall-clock timing.
         facade.recoverStalledQuizGenerationFinalizations();
         facade.recoverStalledQuizGenerationFinalizations();

@@ -82,6 +82,36 @@ class AiQuizGenerationTaskSchedulingTest {
         verify(structuredAiClient, never()).generateQuestions(any());
     }
 
+    @Test void deadlineKeepsValidatedTypesInsideAnUnfinishedChunkAndNeverAppendsLateOutput() {
+        var client = mock(StructuredAiClient.class);
+        var now = new java.util.concurrent.atomic.AtomicReference<>(java.time.Instant.parse("2026-10-20T12:00:00Z"));
+        var clock = mock(java.time.Clock.class);
+        when(clock.instant()).thenAnswer(call -> now.get());
+        var calls = new AtomicInteger();
+        when(client.generateQuestions(any())).thenAnswer(call -> {
+            if (calls.incrementAndGet() == 1) return response(3);
+            now.set(now.get().plusSeconds(300));
+            throw new uk.gegc.quizmaker.features.ai.application.GenerationDeadlineExceededException();
+        });
+        var buffer = new uk.gegc.quizmaker.features.ai.application.ChunkGenerationBuffer();
+        var requested = new java.util.LinkedHashMap<QuestionType, Integer>();
+        requested.put(QuestionType.MCQ_SINGLE, 3);
+        requested.put(QuestionType.TRUE_FALSE, 1);
+        var generator = service(client, new RecordingScheduler());
+        uk.gegc.quizmaker.features.ai.application.ProviderDeadline.within(
+                new uk.gegc.quizmaker.features.ai.application.ProviderDeadline(now.get().plusSeconds(300), clock), () -> {
+                    assertThatThrownBy(() -> buffer.submit(() -> generator.generateQuestionsFromChunk(
+                            chunk(), requested, Difficulty.MEDIUM)).join())
+                            .hasCauseInstanceOf(uk.gegc.quizmaker.features.ai.application.GenerationDeadlineExceededException.class);
+                    return null;
+                });
+        List<Question> partial = buffer.freeze();
+        assertThat(partial).hasSize(3).allMatch(q -> q.getType() == QuestionType.MCQ_SINGLE);
+        buffer.record(QuestionType.MCQ_SINGLE, java.util.Collections.nCopies(10, partial.get(0)));
+        assertThat(buffer.freeze()).hasSize(3);
+        assertThat(calls).hasValue(2);
+    }
+
     private AiQuizGenerationServiceImpl service(
             StructuredAiClient structuredAiClient,
             AiProviderTaskScheduler scheduler) {

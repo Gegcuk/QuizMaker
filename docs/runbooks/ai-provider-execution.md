@@ -1,8 +1,10 @@
 # AI Provider Execution
 
-Quiz generation has two local execution boundaries:
+Quiz generation separates job orchestration from provider work:
 
-- `aiTaskExecutor` runs post-commit job orchestration on `ai-*` threads.
+- `generationJobExecutor` runs durable FIFO job orchestration on `generation-job-*` threads.
+- Legacy generation without a work record also uses `generationJobExecutor`;
+  the older `aiTaskExecutor` remains available to unrelated asynchronous consumers.
 - `aiProviderTaskExecutor` runs provider-bound chunk tasks on `ai-provider-*` threads.
 
 Keeping these pools separate prevents an orchestration worker that waits for
@@ -10,7 +12,47 @@ chunk futures from occupying the workers required to complete those futures.
 Provider work does not use `ForkJoinPool.commonPool`, HTTP request threads, or a
 caller-runs rejection policy.
 
+## Admission and deadline
+
+New durable jobs receive an acceptance sequence in the same transaction as the
+work record. A short MySQL singleton-row lock serializes sequence allocation and
+admission. The oldest due work is claimed first, irrespective of owner or tier;
+completion order can differ. Defaults admit four jobs globally, each with at most
+two unfinished chunk tasks. A local executor has four workers and no task queue;
+saturation leaves accepted work in MySQL for the next worker or recovery scan.
+No managed job runs on the HTTP/event-publisher thread.
+
+The first committed execution claim records `first_started_at` and `deadline_at`
+(UTC instants, five minutes apart). Queue wait does not consume these five minutes.
+Recovery keeps the original deadline. Every fallback, retry wait, redistribution,
+and HTTP call checks the remaining time. The JDK HTTP transport uses the smaller
+of its configured read timeout and remaining job time; expiry cancels the exchange
+or closes its response stream, including when headers have already arrived.
+
+At the cutoff, queued chunk tasks are evicted and no further provider call starts.
+Validated output from completed types/attempts in an unfinished chunk is frozen;
+repeated attempts for one type are not concatenated. Normal coverage reconciliation
+still applies: strictly more than 80% may complete with partial output and the
+existing tariff, while 80% or less fails and releases the reservation. Saving the
+quiz and settling the result may finish after the AI deadline. For example, 81
+accepted questions out of 100 can become a partial quiz; 80 cannot.
+
+The existing allowance remains five provider dispatches per chunk/type fallback
+invocation, shared across the structured client's retries and the three normal /
+two reduced-count attempts. Redistribution retains its existing separate invocation
+budgets. There is no aggregate `2 × planned batches` ceiling. The deadline can
+interrupt remaining attempts, but never extends them or changes fallback eligibility.
+
 ## Configuration
+
+| Property | Default | Unit | Meaning |
+| --- | ---: | --- | --- |
+| `quiz.jobs.execution.max-active-jobs` | `4` | jobs | Global concurrent unexpired work leases; also local worker count. |
+| `quiz.jobs.execution.max-concurrent-chunks` | `2` | chunks/job | Maximum unfinished chunk tasks for one job. |
+| `quiz.jobs.execution.scan-seconds` | `10` | seconds | Retry interval for durable waiting/recoverable work. |
+
+These initial limits are not a production throughput promise. All backend instances
+must use the same limits. Provider pool sizes below remain independently bounded.
 
 | Property | Production environment variable | Default | Unit | Meaning |
 | --- | --- | ---: | --- | --- |
@@ -83,18 +125,13 @@ and malformed output. `SpringAiStructuredClientPromptPrivacyTest` checks DEBUG
 log redaction in both modes. Run these alongside the existing structured-output
 and token-limit tests before the complete Maven verification gate.
 
-No HTTP route, request/response schema, permission, migration, or JPA relationship
-read changes. N+1 query behavior is therefore not applicable to this change.
-Rollback restores the prior application version; no data migration is required.
-
 ## Work And Batching
 
 One executor task owns one document chunk. Within that task, generation remains
 sequential by requested question type. One structured-client request asks for
 the full requested count for that type and chunk; the scheduler does not create
-one provider request per question. Existing same-contract fallback attempts and
-redistribution remain unchanged until the shared retry/deadline budget in #442
-is implemented.
+one provider request per question. Types remain sequential inside each chunk. Results are consumed as chunks finish,
+so a slow first chunk does not prevent a free slot from starting the next one.
 
 ## Saturation
 
@@ -110,16 +147,24 @@ workers and queue are full:
    release path, so invalid or missing output is not charged as successful work.
 
 This is post-acceptance protection. The generation endpoints and their `202`
-contract are unchanged. Pre-acceptance admission, per-user/per-job fairness,
-queue estimates, shared retry/deadline budgets, and distributed limits remain
-separate #442 follow-ups.
+contract are unchanged. The durable FIFO sequence is internal; queue-position estimates remain a separate
+API change. Database failure during acceptance rolls back the command; after
+acceptance, scan/dispatch failures retain work for retry. Provider `429`, `5xx`,
+malformed responses and transport errors retain their existing classification and
+fallback rules, bounded by the job deadline.
 
 ## Shutdown And Recovery
 
+The dispatcher stops claiming new jobs during shutdown. Active orchestration keeps
+the existing 30-second graceful wait; any interrupted durable execution retains its
+persisted deadline. Legacy dispatch without a work record uses explicit rejection
+and the existing stale-job cleanup if the generation executor is saturated.
+
 The provider executor stops accepting new tasks during application shutdown and
-waits up to the configured termination period for accepted tasks. Durable job
-recovery remains owned by #443; this executor does not add a task table or claim
-that in-memory queued work survives a process exit.
+waits up to the configured termination period for accepted tasks. The durable work service recovers expired leases using the persisted request,
+source revision, execution fence and original deadline. Expired work without a
+checkpoint fails and releases its reservation; an existing checkpoint continues
+through the established finalization recovery path without calling AI again.
 
 If saturation appears after deployment:
 
@@ -127,16 +172,46 @@ If saturation appears after deployment:
 2. Inspect thread names and counts; provider work must use `ai-provider-*`.
 3. Compare generation arrival rate, provider latency, `429` responses, and queue
    pressure before changing limits.
-4. Prefer reducing arrival rate or implementing #442 admission/fairness over an
-   unmeasured concurrency increase.
+4. Inspect the durable outstanding count/oldest age and deadline logs before
+   changing the four-job/two-chunk limits.
 
-## Privacy And Data
+## Signals and offline evidence
 
-Executor configuration and rejection logs contain no prompts, document content,
-generated questions, answers, filenames, users, jobs, credentials, or provider
-responses. No document content is copied, reread, fingerprinted, or hashed. No
-entity, migration, repository query, or relationship-loading path is added, so
-this change cannot introduce an N+1 query.
+`quiz.generation.execution.waiting` and `.active` measure the durable queue and
+unexpired claims. `.outstanding` / `.oldest.seconds` retain backlog visibility;
+`.queue.wait` measures acceptance-to-first-claim time. `.deadlines` counts observed
+AI cutoffs once per execution; `.operations{outcome="deadline_before_recovery"}`
+counts expired recovery candidates. `quiz.generation.admission.deferred` counts
+local saturation. Existing provider-attempt records and executor instrumentation
+remain the source for provider usage, errors and active worker pressure.
 
-Rollback is application-only: revert the implementation and remove the optional
-provider executor properties. No database or stored-content operation is needed.
+Offline tests exercise 1/5/25 jobs through the real dispatcher, execution context,
+orchestration and provider scheduler with a fake AI port. Latches require an initial
+wave of `min(jobs, 4) × 2` calls, assert peaks of at most four jobs/eight calls and
+two calls per job, and require every job to complete within ten seconds after
+release. These are deterministic local correctness thresholds, not capacity claims.
+MySQL tests independently verify FIFO ordering, cross-thread admission, recovery,
+legacy migration and bounded relationship queries. Local HTTP tests cover header
+and response-body stalls, plus a request prepared before and dispatched after expiry.
+
+## Migration, rollout and privacy
+
+`V80__generation_fifo_and_deadline.sql` adds scalar work metadata and the admission
+counter. Existing work is ordered by its recorded acceptance time and UUID for
+ties; timestamps alone cannot reconstruct a historical tie. New acceptance order
+is exact. Rows with `executions > 0` are exempt from the new deadline because their
+actual first execution time was not recorded. Existing never-started rows and new
+rows acquire the deadline on their first execution. Legacy jobs without a work
+record retain their existing lifecycle.
+
+Apply the additive migration and replace all old execution instances before
+relying on global admission/deadline guarantees: old binaries do not honor the
+new gate. A mixed-version rolling window cannot enforce the new limits. Reverting
+the application leaves the additive columns/table intact but disables the new
+guarantees; do not drop work metadata to perform rollback.
+
+The admission scan reads scalar IDs; source validation compares persisted revision
+metadata without reading/hashing document content. Multi-owner/multi-chunk MySQL
+tests verify the bounded fetch plan used by generation. Logs and metric tags do
+not contain prompts, generated answers or credentials. Use job IDs only for log
+correlation, never metric dimensions.

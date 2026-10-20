@@ -29,6 +29,7 @@ class GenerationWorkMigrationTest {
     @Test void additiveMigrationPreservesLegacyRowsAndEnforcesIdentityLimitsAndCascade() throws Exception {
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         String docs = "source_" + suffix, jobs = "jobs_" + suffix, work = "quiz_work_" + suffix;
+        String admission = "quiz_admission_" + suffix;
         try {
             jdbc.execute("CREATE TABLE " + docs + " (id BINARY(16) PRIMARY KEY, marker VARCHAR(32)) ENGINE=InnoDB");
             jdbc.execute("CREATE TABLE " + jobs + " (id BINARY(16) PRIMARY KEY, status VARCHAR(16)) ENGINE=InnoDB");
@@ -53,9 +54,24 @@ class GenerationWorkMigrationTest {
                     .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
             assertThatThrownBy(() -> jdbc.update("UPDATE " + work + " SET executions=3"))
                     .isInstanceOf(org.springframework.dao.DataAccessException.class);
+            String started = UUID.randomUUID().toString();
+            jdbc.update("INSERT INTO " + jobs + " VALUES (UUID_TO_BIN(?), 'PROCESSING')", started);
+            jdbc.update("INSERT INTO " + work + " (job_id,source_revision,state,executions,created_at) VALUES (UUID_TO_BIN(?),0,'RUNNING',1,NOW(6))", started);
+            String deadlineMigration = new ClassPathResource("db/migration/V80__generation_fifo_and_deadline.sql")
+                    .getContentAsString(StandardCharsets.UTF_8)
+                    .replace("quiz_generation_work", work).replace("quiz_generation_admission", admission);
+            try (var connection = jdbc.getDataSource().getConnection()) {
+                ScriptUtils.executeSqlScript(connection, new ByteArrayResource(deadlineMigration.getBytes(StandardCharsets.UTF_8)));
+            }
+            assertThat(jdbc.queryForObject("SELECT deadline_enabled FROM " + work + " WHERE job_id=UUID_TO_BIN(?)", Boolean.class, id)).isTrue();
+            assertThat(jdbc.queryForObject("SELECT deadline_enabled FROM " + work + " WHERE job_id=UUID_TO_BIN(?)", Boolean.class, started)).isFalse();
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + work + " WHERE first_started_at IS NULL AND deadline_at IS NULL", Integer.class)).isEqualTo(2);
+            assertThat(jdbc.queryForList("SELECT admission_sequence FROM " + work + " ORDER BY admission_sequence", Long.class)).containsExactly(1L, 2L);
+            assertThat(jdbc.queryForObject("SELECT next_sequence FROM " + admission, Long.class)).isEqualTo(3);
             jdbc.update("DELETE FROM " + jobs);
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + work, Integer.class)).isZero();
         } finally {
+            jdbc.execute("DROP TABLE IF EXISTS " + admission);
             jdbc.execute("DROP TABLE IF EXISTS " + work);
             jdbc.execute("DROP TABLE IF EXISTS " + jobs);
             jdbc.execute("DROP TABLE IF EXISTS " + docs);
