@@ -3,8 +3,8 @@ package uk.gegc.quizmaker.features.quiz.application.generation.impl;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Gauge;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -29,7 +29,6 @@ import java.util.function.Supplier;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class GenerationWorkServiceImpl implements GenerationWorkService {
     private final QuizGenerationWorkRepository workRepository;
@@ -40,10 +39,37 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
     private final InternalBillingService billingService;
     private final QuizJobProperties properties;
     private final Clock clock;
+    private final Clock systemClock;
     private final MeterRegistry metrics;
     private final TransactionTemplate transactions;
     private final AtomicLong outstanding = new AtomicLong();
     private final AtomicLong oldestSeconds = new AtomicLong();
+
+    public GenerationWorkServiceImpl(
+            QuizGenerationWorkRepository workRepository,
+            QuizGenerationJobRepository jobRepository,
+            QuizGenerationOutputCheckpointRepository checkpointRepository,
+            QuizGenerationCoverageRepository coverageRepository,
+            DocumentRepository documentRepository,
+            InternalBillingService billingService,
+            QuizJobProperties properties,
+            Clock clock,
+            @Qualifier("systemClock") Clock systemClock,
+            MeterRegistry metrics,
+            TransactionTemplate transactions
+    ) {
+        this.workRepository = workRepository;
+        this.jobRepository = jobRepository;
+        this.checkpointRepository = checkpointRepository;
+        this.coverageRepository = coverageRepository;
+        this.documentRepository = documentRepository;
+        this.billingService = billingService;
+        this.properties = properties;
+        this.clock = clock;
+        this.systemClock = systemClock;
+        this.metrics = metrics;
+        this.transactions = transactions;
+    }
 
     @PostConstruct
     void registerMetrics() {
@@ -192,12 +218,12 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
     private boolean reservationExpired(QuizGenerationJob job) {
         return job.getBillingReservationId() != null
                 && (job.getBillingState() != BillingState.RESERVED || job.getReservationExpiresAt() == null
-                || !job.getReservationExpiresAt().isAfter(now()));
+                || !job.getReservationExpiresAt().isAfter(LocalDateTime.now(systemClock)));
     }
 
     private void failJob(QuizGenerationJob job, QuizGenerationWork work, String reason) {
         job.markFailed(reason);
-        job.setCompletedAt(now());
+        job.setCompletedAt(LocalDateTime.now(systemClock));
         finishWork(job, work);
         count("failed");
     }
@@ -207,7 +233,7 @@ public class GenerationWorkServiceImpl implements GenerationWorkService {
         if (failed && job.getFinalizationState() == QuizGenerationFinalizationState.NOT_STARTED) {
             // Persist the terminal decision independently of billing availability.
             // The existing finalization recovery scan retries pending releases.
-            job.markFinalizationFailed("Generation failed before durable output was saved", now());
+            job.markFinalizationFailed("Generation failed before durable output was saved", LocalDateTime.now(systemClock));
             if (job.getBillingReservationId() != null && job.getBillingState() == BillingState.RESERVED) {
                 job.setLastBillingError("{\"reason\":\"Generation reservation release pending\"}");
             }

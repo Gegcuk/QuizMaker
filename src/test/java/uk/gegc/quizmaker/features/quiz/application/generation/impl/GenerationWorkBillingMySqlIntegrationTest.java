@@ -14,6 +14,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
@@ -45,6 +46,7 @@ import uk.gegc.quizmaker.shared.config.FeatureFlags;
 
 import java.math.BigDecimal;
 import java.time.*;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
@@ -75,12 +77,23 @@ class GenerationWorkBillingMySqlIntegrationTest {
         final AtomicReference<Instant> time = new AtomicReference<>(Instant.now());
         void advance(long seconds) { time.updateAndGet(t -> t.plusSeconds(seconds)); }
         public ZoneId getZone() { return ZoneId.systemDefault(); }
-        public Clock withZone(ZoneId zone) { return Clock.fixed(instant(), zone); }
+        public Clock withZone(ZoneId zone) {
+            var source = this;
+            return new Clock() {
+                public ZoneId getZone() { return zone; }
+                public Clock withZone(ZoneId otherZone) { return source.withZone(otherZone); }
+                public Instant instant() { return source.instant(); }
+            };
+        }
         public Instant instant() { return time.get(); }
     }
     @TestConfiguration(proxyBeanMethods = false)
     static class Config {
         @Bean TestClock systemClock() { return new TestClock(); }
+        // Production has a configurable primary clock and a distinct billing/system clock.
+        @Bean @Primary Clock applicationClock(TestClock systemClock) {
+            return systemClock.withZone(ZoneOffset.ofHours(-12));
+        }
         @Bean QuizJobProperties properties() {
             var properties = new QuizJobProperties();
             properties.getFinalization().setRecoveryGraceSeconds(0);
@@ -106,6 +119,7 @@ class GenerationWorkBillingMySqlIntegrationTest {
     @Autowired TransactionTemplate transactions;
     @Autowired EntityManagerFactory entityManagerFactory;
     @Autowired TestClock clock;
+    @Autowired Clock applicationClock;
     @Autowired FeatureFlags flags;
     @Autowired QuizGenerationJobRepository jobs;
     @Autowired QuizGenerationWorkRepository works;
@@ -169,6 +183,40 @@ class GenerationWorkBillingMySqlIntegrationTest {
         facade.recoverStalledQuizGenerationFinalizations();
         facade.recoverStalledQuizGenerationFinalizations();
         assertReleasedOnce(job);
+        verifyNoInteractions(ai, assembly);
+    }
+
+    @Test void anExpiredReservationCannotStartGenerationWhenTheApplicationClockUsesAnotherZone() {
+        var job = fixture();
+        transactions.executeWithoutResult(tx -> {
+            var expiredAt = LocalDateTime.now(clock).minusMinutes(1);
+            jobs.findByIdForUpdate(job.getId()).orElseThrow().setReservationExpiresAt(expiredAt);
+            reservations.findById(job.getBillingReservationId()).orElseThrow().setExpiresAt(expiredAt);
+        });
+        worker.execute(job.getId());
+        var failed = jobs.findById(job.getId()).orElseThrow();
+        assertThat(failed.getStatus()).isEqualTo(GenerationStatus.FAILED);
+        assertThat(failed.getErrorMessage()).isEqualTo("Generation reservation expired before recovery");
+        assertThat(failed.getDurationSeconds()).isBetween(0L, 5L);
+        assertThat(failed.getFinalizationCompletedAt())
+                .isCloseTo(failed.getCompletedAt(), within(1, ChronoUnit.MILLIS));
+        assertThat(works.findById(job.getId()).orElseThrow().getExecutions()).isZero();
+        assertReleasedOnce(job);
+        verifyNoInteractions(ai, assembly);
+    }
+
+    @Test void executionLeasesRetainTheirExistingClockWhileTheReservationRemainsValid() {
+        var job = fixture();
+        var first = work.claim(job.getId()).orElseThrow();
+        assertThat(works.findById(job.getId()).orElseThrow().getLeaseUntil())
+                .isCloseTo(LocalDateTime.now(applicationClock).plusSeconds(120), within(1, ChronoUnit.MILLIS));
+        clock.advance(119);
+        assertThat(work.claim(job.getId())).isEmpty();
+        clock.advance(1);
+        var recovered = work.claim(job.getId()).orElseThrow();
+        assertThat(recovered.fence()).isGreaterThan(first.fence());
+        assertThat(jobs.findById(job.getId()).orElseThrow().getBillingState()).isEqualTo(BillingState.RESERVED);
+        assertBalance(job, 996, 4);
         verifyNoInteractions(ai, assembly);
     }
 

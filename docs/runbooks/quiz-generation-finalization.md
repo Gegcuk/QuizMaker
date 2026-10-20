@@ -32,8 +32,13 @@ saturated orchestration executor cannot block its heartbeat.
 | `quiz.jobs.execution.scan-seconds` | 10 | Interval between lost/expired dispatch scans. |
 
 The lease must be positive and longer than the heartbeat interval. A heartbeat
-never revives an already expired lease. All new execution time decisions use the
-injected clock. The record progresses from `READY` to `RUNNING` to `DONE`.
+never revives an already expired lease. Execution leases keep their existing
+injected primary clock and `app.timezone` so persisted ownership timestamps retain
+their meaning. Reservation expiry and job/finalization completion timestamps use
+the injected `systemClock`, matching the local timestamps stored by billing and
+checkpoint/finalization recovery; a different `app.timezone` cannot reinterpret a
+paid reservation's lifetime or give a failed job a negative duration.
+The record progresses from `READY` to `RUNNING` to `DONE`.
 Each claim increments a fencing number: every progress, coverage, output, and
 worker failure write checks that number under the job lock in the transaction
 which performs the write. Authority is explicitly propagated into provider pool
