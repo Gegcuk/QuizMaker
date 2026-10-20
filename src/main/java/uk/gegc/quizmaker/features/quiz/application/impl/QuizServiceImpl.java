@@ -8,6 +8,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import uk.gegc.quizmaker.features.document.api.dto.DocumentDto;
@@ -164,7 +165,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public QuizGenerationStatus getGenerationStatus(UUID jobId, String username) {
         return quizQueryService.getGenerationStatus(jobId, username);
     }
@@ -182,7 +183,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public Page<QuizGenerationStatus> getGenerationJobs(String username, Pageable pageable) {
         return quizQueryService.getGenerationJobs(username, pageable);
     }

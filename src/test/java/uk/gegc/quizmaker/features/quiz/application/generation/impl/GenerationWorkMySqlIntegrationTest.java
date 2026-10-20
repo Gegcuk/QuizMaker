@@ -1,12 +1,15 @@
 package uk.gegc.quizmaker.features.quiz.application.generation.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zaxxer.hikari.HikariDataSource;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -27,6 +30,8 @@ import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.quiz.application.generation.*;
+import uk.gegc.quizmaker.features.quiz.application.QuizService;
+import uk.gegc.quizmaker.features.quiz.application.query.QuizQueryService;
 import uk.gegc.quizmaker.features.quiz.config.QuizJobProperties;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
 import uk.gegc.quizmaker.features.quiz.domain.repository.*;
@@ -34,6 +39,7 @@ import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 
 import java.time.*;
+import java.sql.Connection;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
@@ -70,11 +76,34 @@ class GenerationWorkMySqlIntegrationTest {
         @Bean QuizJobProperties properties() { return new QuizJobProperties(); }
         @Bean ObjectMapper mapper() { return new ObjectMapper().findAndRegisterModules(); }
         @Bean MeterRegistry metrics() { return new SimpleMeterRegistry(); }
+        @Bean QuizQueryService queryService(
+                uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService jobs,
+                QuizGenerationCoverageService coverage,
+                uk.gegc.quizmaker.features.quiz.application.query.GenerationQueuePositionService positions,
+                UserRepository users) {
+            return new uk.gegc.quizmaker.features.quiz.application.query.impl.QuizQueryServiceImpl(
+                    mock(QuizRepository.class), mock(uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository.class),
+                    mock(uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper.class), users,
+                    mock(uk.gegc.quizmaker.shared.security.AppPermissionEvaluator.class), jobs,
+                    new uk.gegc.quizmaker.shared.config.FeatureFlags(),
+                    mock(uk.gegc.quizmaker.features.quiz.application.query.impl.QuizGenerationProgressInvariantMonitor.class),
+                    coverage, mock(uk.gegc.quizmaker.features.quiz.application.QuizFreshnessService.class), positions);
+        }
+        @Bean QuizService quizService(QuizQueryService queryService) {
+            return new uk.gegc.quizmaker.features.quiz.application.impl.QuizServiceImpl(queryService,
+                    mock(uk.gegc.quizmaker.features.quiz.application.command.QuizCommandService.class),
+                    mock(uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService.class),
+                    mock(uk.gegc.quizmaker.features.quiz.application.command.QuizPublishingService.class),
+                    mock(uk.gegc.quizmaker.features.quiz.application.command.QuizVisibilityService.class),
+                    mock(QuizGenerationFacade.class));
+        }
     }
     @Autowired GenerationWorkService service;
     @Autowired uk.gegc.quizmaker.features.quiz.application.query.GenerationQueuePositionService positions;
     @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
     @Autowired MeterRegistry metrics;
+    @Autowired QuizService quizService;
+    @Autowired HikariDataSource dataSource;
     @Autowired GenerationWorkExecutor worker;
     @Autowired QuizGenerationCheckpointService checkpoints;
     @Autowired QuizGenerationCoverageService coverage;
@@ -541,13 +570,23 @@ class GenerationWorkMySqlIntegrationTest {
         assertThat(positions.findPositions(List.of(UUID.randomUUID()), b.getUser().getUsername())).isEmpty();
     }
 
-    @Test void recoveringADoesNotPreemptRunningBAndCountsAheadOfWaitingC() {
-        QuizGenerationJob a = fixture(true, false), b = fixture(true, false), c = fixture(true, false);
+    @ParameterizedTest
+    @ValueSource(ints = {0, 2})
+    void recoveringADoesNotPreemptRunningBAndCountsAheadOfWaitingC(int additionalRunningJobs) {
+        QuizGenerationJob a = fixture(true, false), b = fixture(true, false);
+        for (int i = 0; i < additionalRunningJobs; i++) fixture(true, false);
+        QuizGenerationJob c = fixture(true, false);
         var aClaim = service.claimNext().orElseThrow();
         var bClaim = service.claimNext().orElseThrow();
+        assertThat(aClaim.jobId()).isEqualTo(a.getId());
+        assertThat(bClaim.jobId()).isEqualTo(b.getId());
+        List<GenerationWorkClaim> otherClaims = new ArrayList<>();
+        for (int i = 0; i < additionalRunningJobs; i++) otherClaims.add(service.claimNext().orElseThrow());
+        if (additionalRunningJobs == 2) assertThat(service.claimNext()).isEmpty();
         assertThat(position(c)).isEqualTo(1);
         clock.advance(90);
         service.heartbeat(bClaim);
+        otherClaims.forEach(service::heartbeat);
         clock.advance(30); // A's lease expires; B's renewed lease remains valid.
         assertThat(position(c)).isEqualTo(2);
         assertThat(positions.findPositions(List.of(a.getId()), a.getUser().getUsername())).isEmpty();
@@ -555,8 +594,23 @@ class GenerationWorkMySqlIntegrationTest {
         var recovered = service.claimNext().orElseThrow();
         assertThat(recovered.jobId()).isEqualTo(a.getId());
         assertThat(recovered.fence()).isGreaterThan(aClaim.fence());
+        if (additionalRunningJobs == 2) assertThat(service.claimNext()).isEmpty();
+        // The former A worker may return late, but cannot renew, fail, or write into its replacement.
+        var recoveredLease = works.findById(a.getId()).orElseThrow().getLeaseUntil();
+        clock.advance(1);
+        service.heartbeat(aClaim);
+        service.failed(aClaim);
+        assertThatThrownBy(() -> service.protect(aClaim, () -> "stale write"))
+                .isInstanceOf(GenerationLeaseLostException.class);
+        assertThat(works.findById(a.getId()).orElseThrow().getLeaseUntil()).isEqualTo(recoveredLease);
+        assertThat(jobs.findById(a.getId()).orElseThrow().getStatus()).isEqualTo(GenerationStatus.PROCESSING);
+        service.protect(bClaim, () -> {
+            jobs.findById(b.getId()).orElseThrow().setCurrentChunk("B continues during A recovery");
+            return null;
+        });
         assertThat(works.findById(b.getId()).orElseThrow().owns(bClaim.fence(), LocalDateTime.now(clock))).isTrue();
         assertThat(jobs.findById(b.getId()).orElseThrow().getStatus()).isEqualTo(GenerationStatus.PROCESSING);
+        assertThat(jobs.findById(b.getId()).orElseThrow().getCurrentChunk()).isEqualTo("B continues during A recovery");
         assertThat(position(c)).isEqualTo(1);
         service.failed(recovered);
         assertThat(position(c)).isEqualTo(1); // FAILED A never re-enters the queue.
@@ -701,19 +755,12 @@ class GenerationWorkMySqlIntegrationTest {
             var other = fixture(true, false);
             transactions.executeWithoutResult(tx -> jobs.findByIdForUpdate(other.getId()).orElseThrow().setUser(first.getUser()));
         }
-        var reader = new uk.gegc.quizmaker.features.quiz.application.query.impl.QuizQueryServiceImpl(
-                mock(QuizRepository.class), mock(uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository.class),
-                mock(uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper.class), users,
-                mock(uk.gegc.quizmaker.shared.security.AppPermissionEvaluator.class), jobService,
-                new uk.gegc.quizmaker.shared.config.FeatureFlags(),
-                mock(uk.gegc.quizmaker.features.quiz.application.query.impl.QuizGenerationProgressInvariantMonitor.class),
-                coverage, mock(uk.gegc.quizmaker.features.quiz.application.QuizFreshnessService.class), positions);
         var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         List<Long> counts = new ArrayList<>();
         for (int size : List.of(3, 10)) {
             statistics.clear();
-            var page = transactions.execute(tx -> reader.getGenerationJobs(first.getUser().getUsername(),
-                    org.springframework.data.domain.PageRequest.of(0, size)));
+            var page = quizService.getGenerationJobs(first.getUser().getUsername(),
+                    org.springframework.data.domain.PageRequest.of(0, size));
             assertThat(page.getContent()).hasSize(size).allSatisfy(status -> {
                 assertThat(status.queuePosition()).isGreaterThanOrEqualTo(2);
                 assertThat(status.jobsAhead()).isEqualTo(status.queuePosition() - 1);
@@ -724,8 +771,34 @@ class GenerationWorkMySqlIntegrationTest {
         }
         assertThat(counts.get(1)).isEqualTo(counts.get(0));
         assertThat(counts.get(0)).isLessThanOrEqualTo(6);
-        assertThatThrownBy(() -> transactions.execute(tx -> reader.getGenerationStatus(first.getId(), "wrong-owner")))
+        assertThatThrownBy(() -> quizService.getGenerationStatus(first.getId(), "wrong-owner"))
                 .isInstanceOf(uk.gegc.quizmaker.shared.exception.ValidationException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void statusPollingNeedsOnlyOneAvailableDatabaseConnection(boolean page) throws Exception {
+        fixture(true, false);
+        var waiting = fixture(true, false);
+        long originalTimeout = dataSource.getConnectionTimeout();
+        List<Connection> busyConnections = new ArrayList<>();
+        try {
+            // Other requests occupy all but one slot. The poll must release its primary read
+            // connection before starting the optional, independently isolated queue read.
+            dataSource.setConnectionTimeout(500);
+            for (int i = 1; i < dataSource.getMaximumPoolSize(); i++) busyConnections.add(dataSource.getConnection());
+            var status = page
+                    ? quizService.getGenerationJobs(waiting.getUser().getUsername(),
+                            org.springframework.data.domain.PageRequest.of(0, 10)).getContent().get(0)
+                    : quizService.getGenerationStatus(waiting.getId(), waiting.getUser().getUsername());
+            assertThat(status.status()).isEqualTo(GenerationStatus.PENDING);
+            assertThat(status.queuePosition()).isEqualTo(2);
+            assertThat(status.jobsAhead()).isEqualTo(1);
+            assertThat(status.queuePositionAsOf()).isEqualTo(clock.instant());
+        } finally {
+            for (Connection connection : busyConnections) connection.close();
+            dataSource.setConnectionTimeout(originalTimeout);
+        }
     }
 
     private long position(QuizGenerationJob job) {

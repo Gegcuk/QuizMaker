@@ -136,7 +136,10 @@ Lease timestamps use the application clock zone; billing timestamps use
 All three fields are null for legacy/missing or inconsistent queue metadata,
 processing/terminal jobs, or a failed optional queue read. The optional read runs
 in its own read-only transaction; a database timeout or transaction failure there
-cannot roll back an otherwise successful status read. Failure of the primary
+cannot roll back an otherwise successful status read. Status polling completes
+the primary status/ownership and coverage reads before starting that optional
+transaction, so a poll needs only one database connection at a time, including
+through the public service facade. Failure of the primary
 status/ownership read retains its existing error behavior. No stale cached or
 fabricated position is substituted. An old client can ignore the new fields; a
 new client must handle null and must not promise monotonic movement.

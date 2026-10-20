@@ -8,6 +8,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.quiz.api.dto.QuizDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.GenerationCoverage;
@@ -190,7 +191,9 @@ public class QuizQueryServiceImpl implements QuizQueryService {
         });
     }
 
-    @Transactional
+    // Each collaborator completes its own read transaction. Holding a primary connection
+    // while the optional queue read requests another can exhaust the pool during polling.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @Override
     public QuizGenerationStatus getGenerationStatus(UUID jobId, String username) {
         QuizGenerationJob job = jobService.getJobByIdAndUsername(jobId, username);
@@ -229,7 +232,7 @@ public class QuizQueryServiceImpl implements QuizQueryService {
         return quizMapper.toDto(quiz, questionCount);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @Override
     public Page<QuizGenerationStatus> getGenerationJobs(String username, Pageable pageable) {
         Page<QuizGenerationJob> jobs = jobService.getJobsByUser(username, pageable);
