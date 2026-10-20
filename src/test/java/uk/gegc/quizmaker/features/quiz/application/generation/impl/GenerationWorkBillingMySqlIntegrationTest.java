@@ -143,7 +143,10 @@ class GenerationWorkBillingMySqlIntegrationTest {
     final List<QuizGenerationJob> fixtures = new ArrayList<>();
     final List<UUID> categoryIds = new ArrayList<>();
 
-    @BeforeEach void resetClock() { clock.time.set(Instant.now()); }
+    @BeforeEach void resetClock() {
+        // MySQL DATETIME(6) persists microseconds; Linux Instant.now() can also include nanoseconds.
+        clock.time.set(Instant.now().truncatedTo(ChronoUnit.MICROS));
+    }
 
     @AfterEach void cleanup() {
         for (var job : fixtures) {
@@ -217,6 +220,31 @@ class GenerationWorkBillingMySqlIntegrationTest {
         assertThat(recovered.fence()).isGreaterThan(first.fence());
         assertThat(jobs.findById(job.getId()).orElseThrow().getBillingState()).isEqualTo(BillingState.RESERVED);
         assertBalance(job, 996, 4);
+        verifyNoInteractions(ai, assembly);
+    }
+
+    @Test void recoveryUsesThePersistedLeaseBoundaryWhenTheClockHasNanosecondPrecision() {
+        clock.time.set(Instant.now().truncatedTo(ChronoUnit.SECONDS).plusNanos(123_456_789));
+        var job = fixture();
+        var first = work.claim(job.getId()).orElseThrow();
+        var persistedDeadline = works.findById(job.getId()).orElseThrow().getLeaseUntil();
+        assertThat(persistedDeadline.getNano() % 1_000).isZero();
+        assertThat(persistedDeadline).isCloseTo(LocalDateTime.now(applicationClock).plusSeconds(120),
+                within(1, ChronoUnit.MICROS));
+        var deadline = persistedDeadline.atZone(applicationClock.getZone()).toInstant();
+
+        clock.time.set(deadline.minusNanos(1));
+        assertThat(work.claim(job.getId())).isEmpty();
+        assertThat(work.protect(first, () -> true)).isTrue();
+
+        clock.time.set(deadline);
+        var recovered = work.claim(job.getId()).orElseThrow();
+        assertThat(recovered.fence()).isGreaterThan(first.fence());
+        assertThatThrownBy(() -> work.protect(first, () -> true))
+                .isInstanceOf(GenerationLeaseLostException.class);
+        assertBalance(job, 996, 4);
+        assertThat(ledger.findByUserId(job.getUser().getId())).extracting(TokenTransaction::getType)
+                .containsExactly(TokenTransactionType.RESERVE);
         verifyNoInteractions(ai, assembly);
     }
 
