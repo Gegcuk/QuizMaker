@@ -30,6 +30,8 @@ import uk.gegc.quizmaker.features.ai.application.ProviderUsagePersistenceExcepti
 import uk.gegc.quizmaker.features.ai.application.SchemaDeliveryMode;
 import uk.gegc.quizmaker.features.ai.application.StructuredAiClient;
 import uk.gegc.quizmaker.features.ai.infra.schema.QuestionSchemaRegistry;
+import uk.gegc.quizmaker.features.question.application.HotspotSemantics;
+import uk.gegc.quizmaker.features.question.application.QuestionContractException;
 import uk.gegc.quizmaker.features.question.application.FillGapContentValidator;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
@@ -643,6 +645,11 @@ public class SpringAiStructuredClient implements StructuredAiClient {
                 }
                 if (!contentNode.get("regions").isArray()) {
                     throw new AIResponseParseException("HOTSPOT 'regions' must be an array");
+                }
+                try {
+                    HotspotSemantics.validate(contentNode, true);
+                } catch (QuestionContractException exception) {
+                    throw new AIResponseParseException("Invalid HOTSPOT descriptions at " + exception.getField());
                 }
             }
             case COMPLIANCE -> {

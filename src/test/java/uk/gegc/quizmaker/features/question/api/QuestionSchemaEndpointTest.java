@@ -22,6 +22,24 @@ class QuestionSchemaEndpointTest {
     private ObjectMapper objectMapper;
     private MockMvc mockMvc;
 
+    @Test
+    void hotspotDiscoverySeparatesStrictNewAiOutputFromOptionalManualDescriptions() throws Exception {
+        var response = mockMvc.perform(get("/api/v1/questions/schemas/HOTSPOT")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode document = objectMapper.readTree(response);
+        var ai = document.at("/schema/properties/questions/items/properties/content");
+        assertThat(ai.path("required").toString()).contains("imageDescription");
+        assertThat(ai.at("/properties/regions/items/required").toString()).contains("label", "description");
+        for (String view : java.util.List.of("author", "safe")) {
+            var manual = document.path("contracts").path(view);
+            assertThat(manual.path("required").toString()).doesNotContain("imageDescription");
+            assertThat(manual.at("/properties/regions/items/required").toString()).doesNotContain("label", "description");
+            assertThat(manual.at("/properties/imageDescription/maxLength").asInt()).isEqualTo(2_000);
+        }
+        assertThat(document.at("/example/content/imageDescription").asText()).isNotBlank();
+        assertThat(document.at("/example/content/regions/0/label").asText()).isNotBlank();
+    }
+
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();

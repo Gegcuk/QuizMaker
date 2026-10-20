@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import uk.gegc.quizmaker.features.question.application.HotspotSemantics;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
@@ -837,6 +838,7 @@ public class QuestionSchemaRegistry {
         
         ArrayNode required = objectMapper.createArrayNode();
         required.add("imageUrl");
+        required.add("imageDescription");
         required.add("regions");
         content.set("required", required);
         
@@ -846,6 +848,7 @@ public class QuestionSchemaRegistry {
         imageUrl.put("type", "string");
         imageUrl.put("description", "URL or reference to the image");
         properties.set("imageUrl", imageUrl);
+        properties.set("imageDescription", hotspotDescription(HotspotSemantics.IMAGE_DESCRIPTION_LIMIT));
         
         ObjectNode regions = objectMapper.createObjectNode();
         regions.put("type", "array");
@@ -864,6 +867,8 @@ public class QuestionSchemaRegistry {
         regionRequired.add("width");
         regionRequired.add("height");
         regionRequired.add("correct");
+        regionRequired.add("label");
+        regionRequired.add("description");
         regionItem.set("required", regionRequired);
         
         ObjectNode regionProps = objectMapper.createObjectNode();
@@ -901,6 +906,8 @@ public class QuestionSchemaRegistry {
         correct.put("type", "boolean");
         correct.put("description", "Whether this region is a correct hotspot");
         regionProps.set("correct", correct);
+        regionProps.set("label", hotspotDescription(HotspotSemantics.LABEL_LIMIT));
+        regionProps.set("description", hotspotDescription(HotspotSemantics.REGION_DESCRIPTION_LIMIT));
         
         regionItem.set("properties", regionProps);
         regions.set("items", regionItem);
@@ -908,6 +915,14 @@ public class QuestionSchemaRegistry {
         properties.set("regions", regions);
         content.set("properties", properties);
         return content;
+    }
+
+    private ObjectNode hotspotDescription(int maximum) {
+        ObjectNode text = objectMapper.createObjectNode();
+        text.put("type", "string");
+        text.put("minLength", 1);
+        text.put("maxLength", maximum);
+        return text;
     }
     
     /**

@@ -48,6 +48,16 @@ class AiQuizGenerationRuntimeContentValidationTest {
     private QuestionContentValidationService validationService;
     private AiQuizGenerationServiceImpl service;
 
+    @Test
+    void incompleteHotspotIsValidForManualAuthoringButRejectedAsNewAiOutput() throws Exception {
+        var content = (com.fasterxml.jackson.databind.node.ObjectNode) uk.gegc.quizmaker.features.question.application.QuestionContracts
+                .example(QuestionType.HOTSPOT, uk.gegc.quizmaker.features.question.application.QuestionContracts.View.AUTHOR);
+        content.remove("imageDescription");
+        assertThatCode(() -> validationService.validateContent(QuestionType.HOTSPOT, content)).doesNotThrowAnyException();
+        var candidate = structuredQuestion("Select the striped shape.", QuestionType.HOTSPOT, content.toString());
+        assertThat(service.convertStructuredQuestions(List.of(candidate))).isEmpty();
+    }
+
     @BeforeEach
     void setUp() {
         QuestionHandlerFactory handlerFactory = new QuestionHandlerFactory(List.of(
@@ -451,9 +461,10 @@ class AiQuizGenerationRuntimeContentValidationTest {
                         """
                                 {
                                   "imageUrl": "https://example.test/map.png",
+                                  "imageDescription": "A map with an oval and a rectangle.",
                                   "regions": [
-                                    {"id": 1, "x": 0, "y": 0, "width": 20, "height": 20, "correct": true},
-                                    {"id": 2, "x": 20, "y": 20, "width": 20, "height": 20, "correct": false}
+                                    {"id": 1, "x": 0, "y": 0, "width": 20, "height": 20, "correct": true, "label": "Oval", "description": "An outlined oval."},
+                                    {"id": 2, "x": 20, "y": 20, "width": 20, "height": 20, "correct": false, "label": "Rectangle", "description": "An outlined rectangle."}
                                   ]
                                 }
                                 """

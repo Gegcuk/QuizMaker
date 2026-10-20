@@ -68,12 +68,44 @@ answer in a batch rolls back the entire existing submission transaction.
 
 ## HOTSPOT and answer privacy
 
+HOTSPOT content supports these optional author-entered strings:
+
+| Field | Maximum Unicode characters |
+| --- | --- |
+| `imageDescription` | 2,000 |
+| `regions[].label` | 120 |
+| `regions[].description` | 1,000 |
+
+Manual create/update accepts omitted, null, or blank descriptions. Authors may
+change or remove descriptions from an AI-created question after it is saved.
+Neither publication nor attempts require descriptions; legacy questions remain
+usable. Provided fields must be strings within their bounds. Safe delivery omits
+null/blank descriptions and copies other descriptive strings by region ID, never
+by array position. Missing descriptions do not constitute a complete textual
+alternative; clients must not invent descriptions from IDs or coordinates.
+
+Only creation from a new AI response requires a nonblank image description and
+a nonblank label/description for every region. AI labels must be distinct after
+trimming and case-insensitive comparison. The generation schema, prompt, parser,
+and runtime candidate check enforce this requirement before accepting generated
+content. Existing retry, partial-output, coverage, and billing rules are unchanged.
+This requirement is not reapplied to persisted questions or manual edits.
+
+Descriptions should neutrally identify visible content without identifying the
+correct choice. Structural redaction removes correctness and undeclared fields;
+it cannot establish the truth of a description or detect every answer embedded
+in free text. Image content is not fetched or independently verified here.
+
+Attempt delivery and review continue to read current question content. This
+change adds no snapshots, migrations, historical backfill, or new attempt routes.
+Immutable historical presentation belongs to the revision/form workstream.
+
 - A participant submits `{"selectedRegionId":2}`.
 - An included correct-answer payload uses the existing canonical `{"regionId":2}`.
   No `correctRegionId` alias is introduced. With multiple correct regions, existing
   grading still accepts any correct region; review retains the existing first
   correct-region representation.
-- Safe regions contain IDs and coordinates, never `correct`. Likewise safe MCQ,
+- Safe regions contain IDs, coordinates, and optional descriptions, never `correct`. Likewise safe MCQ,
   FILL_GAP, MATCHING, COMPLIANCE, and ORDERING content excludes solution-bearing
   fields such as `correct`, gap `answer`, `matchId`, `compliant`, and `correctOrder`.
 - This change does not introduce or activate new release/authorization rules.

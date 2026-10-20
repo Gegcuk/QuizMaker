@@ -137,6 +137,7 @@ class SpringAiStructuredClientEdgeCaseValidationTest {
         // Given - HOTSPOT content with negative coordinates
         ObjectNode content = objectMapper.createObjectNode();
         content.put("imageUrl", "http://example.com/image.png");
+        content.put("imageDescription", "A diagram with geometric structures.");
         
         ArrayNode regions = objectMapper.createArrayNode();
         ObjectNode region1 = objectMapper.createObjectNode();
@@ -146,6 +147,8 @@ class SpringAiStructuredClientEdgeCaseValidationTest {
         region1.put("width", 50);
         region1.put("height", 50);
         region1.put("correct", true);
+        region1.put("label", "Circle");
+        region1.put("description", "A circular outline.");
         regions.add(region1);
         
         content.set("regions", regions);
@@ -161,6 +164,7 @@ class SpringAiStructuredClientEdgeCaseValidationTest {
         // Given - valid HOTSPOT content
         ObjectNode content = objectMapper.createObjectNode();
         content.put("imageUrl", "http://example.com/image.png");
+        content.put("imageDescription", "A diagram with geometric structures.");
         
         ArrayNode regions = objectMapper.createArrayNode();
         ObjectNode region1 = objectMapper.createObjectNode();
@@ -170,6 +174,8 @@ class SpringAiStructuredClientEdgeCaseValidationTest {
         region1.put("width", 50);
         region1.put("height", 50);
         region1.put("correct", true);
+        region1.put("label", "Circle");
+        region1.put("description", "A circular outline.");
         regions.add(region1);
         
         ObjectNode region2 = objectMapper.createObjectNode();
@@ -179,6 +185,8 @@ class SpringAiStructuredClientEdgeCaseValidationTest {
         region2.put("width", 60);
         region2.put("height", 60);
         region2.put("correct", false);
+        region2.put("label", "Square");
+        region2.put("description", "A square outline.");
         regions.add(region2);
         
         content.set("regions", regions);

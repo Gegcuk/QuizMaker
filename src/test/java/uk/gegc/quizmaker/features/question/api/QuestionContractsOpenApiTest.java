@@ -52,6 +52,14 @@ class QuestionContractsOpenApiTest {
         for (String url : new String[]{"/v3/api-docs/questions", "/v3/api-docs/attempts", "/v3/api-docs"}) {
             JsonNode spec = json.readTree(mvc.perform(get(url)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
             JsonNode schemas = spec.path("components").path("schemas");
+            var hotspot = schemas.path("HotspotAuthorContentV1");
+            assertThat(hotspot.path("required").toString()).doesNotContain("imageDescription");
+            assertThat(hotspot.at("/properties/imageDescription/maxLength").asInt()).isEqualTo(2_000);
+            assertThat(hotspot.at("/properties/regions/items/properties/label/maxLength").asInt()).isEqualTo(120);
+            assertThat(hotspot.at("/properties/regions/items/required").toString()).doesNotContain("label", "description");
+            var hotspotSafe = schemas.path("HotspotSafeContentV1");
+            assertThat(hotspotSafe.at("/properties/regions/items/properties").has("description")).isTrue();
+            assertThat(hotspotSafe.at("/properties/regions/items/properties").has("correct")).isFalse();
             for (QuestionType type : QuestionType.values()) {
                 for (var view : QuestionContracts.View.values()) {
                     JsonNode schema = schemas.path(QuestionContracts.name(type, view));

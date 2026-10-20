@@ -13,7 +13,9 @@
             "y": 150,
             "width": 60,
             "height": 60,
-            "correct": true
+            "correct": true,
+            "label": "Central round structure",
+            "description": "Central round structure in the cell diagram."
           },
           {
             "id": 2,
@@ -21,7 +23,9 @@
             "y": 175,
             "width": 40,
             "height": 50,
-            "correct": false
+            "correct": false,
+            "label": "Small oval structure",
+            "description": "Small oval structure in the cell diagram."
           },
           {
             "id": 3,
@@ -29,13 +33,15 @@
             "y": 195,
             "width": 40,
             "height": 50,
-            "correct": false
+            "correct": false,
+            "label": "Elongated outer structure",
+            "description": "Elongated outer structure in the cell diagram."
           }
-        ]
+        ],
+        "imageDescription": "A cell diagram showing a round central structure and smaller structures around it."
       },
       "hint": "The nucleus is typically the largest and most centrally located organelle",
       "explanation": "The nucleus is the large, centrally located organelle that contains the cell's genetic material (DNA). It's usually the most prominent structure in a eukaryotic cell diagram."
     }
   ]
 }
-

@@ -107,6 +107,9 @@ public final class QuestionContracts {
         }
         limits(value);
         check(SHAPES.get(type).get(view), value, view == View.RESPONSE ? "response" : "content");
+        if (type == QuestionType.HOTSPOT && (view == View.AUTHOR || view == View.SAFE)) {
+            HotspotSemantics.validate(value, false);
+        }
         if (view == View.AUTHOR || view == View.SAFE) {
             for (String field : java.util.List.of("options", "gaps", "regions", "items", "statements", "left", "right")) {
                 if (!SHAPES.get(type).get(view).path("properties").has(field)) continue;
@@ -292,7 +295,14 @@ public final class QuestionContracts {
                             "y", scalar("integer").put("minimum", 0), "width", scalar("integer").put("minimum", 0), "height", scalar("integer").put("minimum", 0));
                     ((ObjectNode) region.path("properties").path("x")).put("minimum", 0);
                     if (author) required(region, "correct", scalar("boolean"));
-                    yield object(author, "imageUrl", nonemptyText(), "regions", array(region, 2, 6));
+                    optional(region, "label", semanticText(HotspotSemantics.LABEL_LIMIT, author));
+                    optional(region, "description", semanticText(HotspotSemantics.REGION_DESCRIPTION_LIMIT, author));
+                    ObjectNode content = object(author, "imageUrl", nonemptyText(), "regions", array(region, 2, 6));
+                    optional(content, "imageDescription", semanticText(HotspotSemantics.IMAGE_DESCRIPTION_LIMIT, author));
+                    content.put("description", "Optional authored descriptions. Missing descriptions never block manual authoring or attempts. "
+                            + "AI output requires imageDescription and a distinct label plus description for every region. "
+                            + "Descriptions are associated by region id, never array position. They must describe the image without identifying the correct choice.");
+                    yield content;
                 }
                 case COMPLIANCE -> {
                     ObjectNode statement = item(author, scalar("integer"));
@@ -301,7 +311,8 @@ public final class QuestionContracts {
                 }
             };
         }
-        result.put("description", "Contract v1 for " + type + " " + view + ". Maximum 65536 UTF-8 JSON bytes; strings 10000 characters; arrays 100 items unless a smaller bound is declared. "
+        String familyDescription = result.path("description").asText("");
+        result.put("description", (familyDescription.isEmpty() ? "" : familyDescription + " ") + "Contract v1 for " + type + " " + view + ". Maximum 65536 UTF-8 JSON bytes; strings 10000 characters; arrays 100 items unless a smaller bound is declared. "
                 + (safe ? "Solution fields and all undeclared fields are forbidden."
                 : view == View.CORRECT ? "Only declared released-answer fields are allowed; existing inclusion rules are unchanged."
                 : "Unknown input fields are ignored; existing scoring and access rules are unchanged."));
@@ -343,6 +354,11 @@ public final class QuestionContracts {
         return schema;
     }
     private static ObjectNode text() { return scalar("string").put("maxLength", MAX_STRING); }
+    private static ObjectNode semanticText(int maximum, boolean author) {
+        ObjectNode text = scalar("string").put("maxLength", maximum);
+        if (author) return nullable(text);
+        return text.put("minLength", 1);
+    }
     private static ObjectNode nonemptyText() { return text().put("minLength", 1); }
     private static ObjectNode nullable(ObjectNode schema) { return schema.put("nullable", true); }
 }
