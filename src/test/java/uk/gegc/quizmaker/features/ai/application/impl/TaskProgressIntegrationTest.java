@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -47,6 +48,8 @@ import static org.mockito.Mockito.*;
     "spring.jpa.hibernate.ddl-auto=update"
 })
 @ActiveProfiles("test-mysql")
+// Stop recovery workers before another test class reuses the shared MySQL schema.
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("Task Progress Integration Tests")
 class TaskProgressIntegrationTest {
 
