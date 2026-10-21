@@ -1,0 +1,353 @@
+package uk.gegc.quizmaker.features.quiz.revision;
+
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.DelegatingDataSource;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
+import uk.gegc.quizmaker.features.question.domain.model.Question;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.question.application.QuestionContracts;
+import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision;
+import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
+import uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
+import uk.gegc.quizmaker.features.quiz.infra.repository.JdbcQuizRevisionRepository;
+
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.assertj.core.api.Assertions.*;
+import static uk.gegc.quizmaker.features.quiz.revision.RevisionFixtures.*;
+
+/** Real MySQL, real Spring transactions, no application context or remote provider. */
+@Tag("db-serial")
+class QuizRevisionMySqlIntegrationTest {
+    private static final String HISTORY = "flyway_revision_identity_history";
+    private static CountingDataSource dataSource;
+    private static JdbcTemplate sql;
+    private static QuizRevisionRepository repository;
+
+    @BeforeAll
+    static void connect() {
+        String port = System.getenv().getOrDefault("TEST_MYSQL_PORT", "3306");
+        if (!port.matches("[0-9]{1,5}")) throw new IllegalArgumentException("Invalid test MySQL port");
+        var target = new DriverManagerDataSource("jdbc:mysql://127.0.0.1:" + port
+                + "/quizmaker_test_mysql?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC",
+                System.getenv().getOrDefault("SPRING_DATASOURCE_USERNAME", "bestuser"),
+                System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "bestuser"));
+        dataSource = new CountingDataSource(target);
+        sql = new JdbcTemplate(dataSource);
+        var factory = new ProxyFactory(new JdbcQuizRevisionRepository(new NamedParameterJdbcTemplate(dataSource)));
+        factory.addAdvice(new TransactionInterceptor(new DataSourceTransactionManager(dataSource),
+                new AnnotationTransactionAttributeSource()));
+        repository = (QuizRevisionRepository) factory.getProxy();
+    }
+
+    @BeforeEach
+    void migrate() {
+        dropOwnedTables();
+        sql.execute("CREATE TABLE revision_identity_legacy_fixture (id INT PRIMARY KEY, content VARCHAR(100))");
+        sql.update("INSERT INTO revision_identity_legacy_fixture VALUES (1, 'existing content')");
+        Flyway.configure().dataSource(dataSource).table(HISTORY).locations("classpath:db/migration")
+                .baselineOnMigrate(true).baselineVersion("80").target("81").load().migrate();
+    }
+
+    @AfterEach
+    void cleanUp() {
+        dropOwnedTables();
+    }
+
+    @Test
+    void migrationPreservesLegacyRowsAndCreatesOnlyEmptyRevisionStorage() {
+        assertThat(sql.queryForObject("SELECT content FROM revision_identity_legacy_fixture WHERE id=1", String.class))
+                .isEqualTo("existing content");
+        assertThat(count("quiz_revisions")).isZero();
+        assertThat(count("question_revisions")).isZero();
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM " + HISTORY + " WHERE version='81' AND success=1", Integer.class))
+                .isEqualTo(1);
+        assertThat(sql.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.referential_constraints
+                WHERE constraint_schema=DATABASE() AND table_name IN
+                ('quiz_revisions','question_revisions','quiz_revision_items','question_option_revisions')
+                AND referenced_table_name IN ('quizzes','questions','users')
+                """, Integer.class)).isZero();
+    }
+
+    @Test
+    void reloadKeepsExactContentAfterAuthoringChangesAndPreservesStableIdentities() {
+        var question = question("historical");
+        var revision = quiz("historical", question);
+        repository.insert(revision);
+        var authoring = new Question();
+        authoring.setId(question.questionId());
+        authoring.setContent("{\"correctAnswer\":\"changed after publication\"}");
+        authoring.setExplanation("New explanation");
+        assertThat(repository.findById(OWNER, revision.id())).contains(revision);
+        assertThat(repository.findById(OWNER, revision.id()).orElseThrow().items().get(0).question().content())
+                .isNotEqualTo(authoring.getContent());
+    }
+
+    @Test
+    void multiParentAndMultiQuestionReadsUseThreePhysicalQueries() {
+        List<QuizRevision> revisions = new ArrayList<>();
+        for (int parent = 0; parent < 5; parent++) {
+            var revision = quiz("bounded-" + parent, question("bounded-" + parent + "-a"),
+                    question("bounded-" + parent + "-b"), question("bounded-" + parent + "-c"));
+            repository.insert(revision);
+            revisions.add(revision);
+        }
+        dataSource.selects.set(0);
+        assertThat(repository.findById(OWNER, revisions.get(0).id())).contains(revisions.get(0));
+        assertThat(dataSource.selects).hasValue(3);
+        dataSource.selects.set(0);
+        assertThat(repository.findByIds(OWNER, revisions.stream().map(QuizRevision::id).toList())).isEqualTo(revisions);
+        assertThat(dataSource.selects).hasValue(3);
+    }
+
+    @Test
+    void missingWrongOwnerAndEmptyReadsNeverFallBackToMutableContent() {
+        var revision = quiz("scoped", question("scoped"));
+        repository.insert(revision);
+        dataSource.selects.set(0);
+        assertThat(repository.findById(id("other-owner"), revision.id())).isEmpty();
+        assertThat(dataSource.selects).hasValue(1);
+        assertThat(repository.findById(OWNER, id("missing-revision"))).isEmpty();
+        var other = new QuizRevision(id("other-owner-revision"), revision.quizId(), id("other-owner"), 1,
+                "Another owner's quiz", null, CREATED, quiz("other-owner-items", question("other-owner")).items());
+        repository.insert(other);
+        assertThat(repository.findByIds(OWNER, List.of(revision.id(), other.id()))).containsExactly(revision);
+        dataSource.selects.set(0);
+        assertThat(repository.findByIds(OWNER, List.of())).isEmpty();
+        assertThat(dataSource.selects).hasValue(0);
+        assertThatThrownBy(() -> repository.findByIds(null, List.of(revision.id())))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void matchingQuestionRevisionsCanBeSharedWithoutUpdatingThem() {
+        var question = question("shared");
+        var first = quiz("first", question);
+        var second = quiz("second", question);
+        repository.insert(first);
+        repository.insert(second);
+        assertThat(count("question_revisions")).isEqualTo(1);
+        assertThat(count("question_option_revisions")).isEqualTo(2);
+        assertThat(repository.findByIds(OWNER, List.of(first.id(), second.id()))).containsExactly(first, second);
+    }
+
+    @Test
+    void conflictingQuestionIdentityIsRejectedWithoutChangingStoredContent() {
+        var question = question("conflict");
+        var first = quiz("first", question);
+        repository.insert(first);
+        var conflicting = changed(question);
+        assertThatThrownBy(() -> repository.insert(quiz("second", conflicting)))
+                .isInstanceOf(RevisionIntegrityException.class).hasMessageContaining("IDENTITY_CONFLICT");
+        assertThat(count("quiz_revisions")).isEqualTo(1);
+        assertThat(repository.findById(OWNER, first.id())).contains(first);
+    }
+
+    @Test
+    void duplicateRootAndLateItemConstraintFailureRollBackEveryNewRow() {
+        var first = quiz("duplicate-root", question("original"));
+        repository.insert(first);
+        assertThatThrownBy(() -> repository.insert(quiz("duplicate-root", question("orphan"))))
+                .isInstanceOf(DataAccessException.class);
+        assertThat(count("question_revisions")).isEqualTo(1);
+        // A real database failure after parent/question writes, not a mocked collaborator result.
+        sql.execute("ALTER TABLE quiz_revision_items ADD CONSTRAINT chk_synthetic_item_failure CHECK (authored_position <> 7)");
+        var lateFailure = new QuizRevision(id("late"), first.quizId(), OWNER, 1, "Title", null, CREATED,
+                List.of(new QuizRevision.Item(id("late-item"), 7, question("late"))));
+        assertThatThrownBy(() -> repository.insert(lateFailure)).isInstanceOf(DataAccessException.class);
+        assertThat(count("question_revisions")).isEqualTo(1);
+        assertThat(count("question_option_revisions")).isEqualTo(2);
+        assertThat(count("quiz_revisions")).isEqualTo(1);
+        assertThat(count("quiz_revision_items")).isEqualTo(1);
+    }
+
+    @Test
+    void stableItemAndOptionIdsSurviveReorderingInANewRevision() {
+        var original = quiz("ordered-v1", question("ordered"), question("other-ordered"));
+        var oldQuestion = original.items().get(0).question();
+        var a = oldQuestion.options().get(0);
+        var b = oldQuestion.options().get(1);
+        var reorderedQuestion = new QuestionRevision(id("reordered-question-v2"), oldQuestion.questionId(), 1,
+                oldQuestion.type(), oldQuestion.difficulty(), oldQuestion.questionText(),
+                "{\"options\":[{\"id\":\"b\",\"text\":\"London\",\"correct\":false},{\"id\":\"a\",\"text\":\"Paris\",\"correct\":true}]}",
+                oldQuestion.hint(), oldQuestion.explanation(), null, null, CREATED,
+                List.of(new QuestionRevision.Option(a.id(), a.sourceKey(), 1),
+                        new QuestionRevision.Option(b.id(), b.sourceKey(), 0)));
+        var next = new QuizRevision(id("ordered-v2"), original.quizId(), OWNER, 1, "Title", null, CREATED, List.of(
+                new QuizRevision.Item(original.items().get(0).id(), 1, reorderedQuestion),
+                new QuizRevision.Item(original.items().get(1).id(), 0, original.items().get(1).question())));
+        repository.insert(original);
+        repository.insert(next);
+        assertThat(repository.findByIds(OWNER, List.of(original.id(), next.id()))).containsExactly(original, next);
+        assertThat(repository.findById(OWNER, next.id()).orElseThrow().items().get(1).question().options())
+                .extracting(QuestionRevision.Option::id).containsExactly(b.id(), a.id());
+    }
+
+    @Test
+    void everyCurrentQuestionFamilyRoundTripsThroughMysqlJson() {
+        List<QuestionRevision> questions = new ArrayList<>();
+        for (QuestionType type : QuestionType.values()) {
+            var base = question(type.name());
+            var payload = QuestionContracts.example(type, QuestionContracts.View.AUTHOR);
+            List<QuestionRevision.Option> options = new ArrayList<>();
+            payload.fields().forEachRemaining(field -> {
+                if (field.getValue().isArray()) {
+                    for (var option : field.getValue()) {
+                        if (option.has("id")) {
+                            String key = field.getKey() + "/" + option.get("id").asText();
+                            options.add(new QuestionRevision.Option(id(type.name() + key), key, options.size()));
+                        }
+                    }
+                }
+            });
+            questions.add(new QuestionRevision(base.id(), base.questionId(), 1, type, base.difficulty(),
+                    base.questionText(), payload.toString(),
+                    null, null, "https://example.invalid/image.png", id("asset"), CREATED, options));
+        }
+        var revision = quiz("all-families", questions.toArray(QuestionRevision[]::new));
+        repository.insert(revision);
+        assertThat(repository.findById(OWNER, revision.id())).contains(revision);
+    }
+
+    @Test
+    void optionKeysAreCaseSensitiveAndInputBatchesAreDeduplicatedAndBounded() {
+        var base = question("keys");
+        var question = new QuestionRevision(base.id(), base.questionId(), 1, base.type(), base.difficulty(),
+                base.questionText(), "{\"options\":[{\"id\":\"a\",\"text\":\"Paris\",\"correct\":true},{\"id\":\"A\",\"text\":\"London\",\"correct\":false}]}", null, null, null, null, CREATED,
+                List.of(new QuestionRevision.Option(id("lower"), "a", 0),
+                        new QuestionRevision.Option(id("upper"), "A", 1)));
+        var first = quiz("batch-first", question);
+        var last = quiz("batch-last", question);
+        repository.insert(first);
+        repository.insert(last);
+        List<UUID> ids = new ArrayList<>();
+        ids.add(first.id());
+        for (int index = 0; index < 499; index++) ids.add(id("missing-" + index));
+        ids.add(last.id());
+        ids.add(first.id());
+        dataSource.selects.set(0);
+        assertThat(repository.findByIds(OWNER, ids)).containsExactly(first, last);
+        assertThat(dataSource.selects).hasValue(6);
+    }
+
+    @Test
+    void relationalConstraintsRejectInvalidIdentityPositionsAndDeletionOfReferencedRows() {
+        var revision = quiz("constraints", question("constraints"));
+        repository.insert(revision);
+        String root = revision.id().toString();
+        String question = revision.items().get(0).question().id().toString();
+        assertThatThrownBy(() -> sql.update("""
+                INSERT INTO quiz_revision_items VALUES (UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),-1)
+                """, id("negative").toString(), root, question)).isInstanceOf(DataAccessException.class);
+        assertThatThrownBy(() -> sql.update("""
+                INSERT INTO quiz_revision_items VALUES (UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),0)
+                """, id("duplicate-position").toString(), root, question)).isInstanceOf(DataAccessException.class);
+        assertThatThrownBy(() -> sql.update("""
+                INSERT INTO quiz_revision_items VALUES (UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),1)
+                """, id("missing-ref").toString(), root, id("missing").toString())).isInstanceOf(DataAccessException.class);
+        assertThatThrownBy(() -> sql.update("DELETE FROM quiz_revisions WHERE id=UUID_TO_BIN(?)", root))
+                .isInstanceOf(DataAccessException.class);
+        assertThatThrownBy(() -> sql.update("DELETE FROM question_revisions WHERE id=UUID_TO_BIN(?)", question))
+                .isInstanceOf(DataAccessException.class);
+    }
+
+    @Test
+    void unknownStoredQuestionTypeFailsClosedWithNoSensitiveContentInTheError() {
+        var revision = quiz("unknown", question("unknown"));
+        repository.insert(revision);
+        sql.update("UPDATE question_revisions SET question_type='FUTURE_TYPE'");
+        assertThatThrownBy(() -> repository.findById(OWNER, revision.id()))
+                .isInstanceOf(RevisionIntegrityException.class)
+                .hasMessage("Immutable revision rejected: INVALID_STORED_REVISION");
+    }
+
+    @Test
+    void concurrentConflictingSnapshotsHaveOneWinnerAndNoOrphanRows() throws Exception {
+        var question = question("race");
+        var gate = new CyclicBarrier(2);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var first = executor.submit(() -> insertAfterGate(gate, quiz("race-first", question)));
+            var second = executor.submit(() -> insertAfterGate(gate, quiz("race-second", changed(question))));
+            assertThat(List.of(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(true, false);
+            assertThat(count("quiz_revisions")).isEqualTo(1);
+            assertThat(count("question_revisions")).isEqualTo(1);
+            assertThat(count("quiz_revision_items")).isEqualTo(1);
+            assertThat(count("question_option_revisions")).isEqualTo(2);
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private boolean insertAfterGate(CyclicBarrier gate, QuizRevision revision) throws Exception {
+        gate.await(5, TimeUnit.SECONDS);
+        try {
+            repository.insert(revision);
+            return true;
+        } catch (DataAccessException | RevisionIntegrityException conflict) {
+            return false;
+        }
+    }
+
+    private static QuestionRevision changed(QuestionRevision q) {
+        return new QuestionRevision(q.id(), q.questionId(), 1, q.type(), q.difficulty(), "Changed question",
+                q.content(), q.hint(), q.explanation(), null, null, q.createdAt(), q.options());
+    }
+
+    private int count(String table) {
+        return sql.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class);
+    }
+
+    private static void dropOwnedTables() {
+        for (String table : List.of("quiz_revision_items", "question_option_revisions", "quiz_revisions",
+                "question_revisions", HISTORY, "revision_identity_legacy_fixture")) {
+            sql.execute("DROP TABLE IF EXISTS " + table);
+        }
+    }
+
+    private static final class CountingDataSource extends DelegatingDataSource {
+        final AtomicInteger selects = new AtomicInteger();
+
+        CountingDataSource(javax.sql.DataSource target) { super(target); }
+
+        @Override
+        public Connection getConnection() throws SQLException {
+            Connection connection = super.getConnection();
+            return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(), new Class<?>[]{Connection.class},
+                    (proxy, method, arguments) -> {
+                        if (method.getName().equals("prepareStatement") && arguments[0] instanceof String statement
+                                && statement.stripLeading().toUpperCase(java.util.Locale.ROOT).startsWith("SELECT")) {
+                            selects.incrementAndGet();
+                        }
+                        try { return method.invoke(connection, arguments); }
+                        catch (InvocationTargetException exception) { throw exception.getCause(); }
+                    });
+        }
+    }
+}
