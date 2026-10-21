@@ -6,6 +6,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -13,11 +15,19 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DelegatingDataSource;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.orm.jpa.EntityManagerFactoryUtils;
+import org.springframework.orm.jpa.JpaTransactionManager;
+import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
+import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.application.QuestionContracts;
+import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
+import uk.gegc.quizmaker.features.question.infra.handler.McqSingleHandler;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException;
@@ -57,19 +67,20 @@ class QuizRevisionMySqlIntegrationTest {
                 System.getenv().getOrDefault("SPRING_DATASOURCE_PASSWORD", "bestuser"));
         dataSource = new CountingDataSource(target);
         sql = new JdbcTemplate(dataSource);
-        var factory = new ProxyFactory(new JdbcQuizRevisionRepository(new NamedParameterJdbcTemplate(dataSource)));
-        factory.addAdvice(new TransactionInterceptor(new DataSourceTransactionManager(dataSource),
-                new AnnotationTransactionAttributeSource()));
-        repository = (QuizRevisionRepository) factory.getProxy();
+        repository = transactionalRepository(new DataSourceTransactionManager(dataSource));
     }
 
     @BeforeEach
     void migrate() {
+        migrateFreshTo("82");
+    }
+
+    private void migrateFreshTo(String version) {
         dropOwnedTables();
         sql.execute("CREATE TABLE revision_identity_legacy_fixture (id INT PRIMARY KEY, content VARCHAR(100))");
         sql.update("INSERT INTO revision_identity_legacy_fixture VALUES (1, 'existing content')");
         Flyway.configure().dataSource(dataSource).table(HISTORY).locations("classpath:db/migration")
-                .baselineOnMigrate(true).baselineVersion("80").target("81").load().migrate();
+                .baselineOnMigrate(true).baselineVersion("80").target(version).load().migrate();
     }
 
     @AfterEach
@@ -85,12 +96,101 @@ class QuizRevisionMySqlIntegrationTest {
         assertThat(count("question_revisions")).isZero();
         assertThat(sql.queryForObject("SELECT COUNT(*) FROM " + HISTORY + " WHERE version='81' AND success=1", Integer.class))
                 .isEqualTo(1);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM " + HISTORY + " WHERE version='82' AND success=1", Integer.class))
+                .isEqualTo(1);
         assertThat(sql.queryForObject("""
                 SELECT COUNT(*) FROM information_schema.referential_constraints
                 WHERE constraint_schema=DATABASE() AND table_name IN
                 ('quiz_revisions','question_revisions','quiz_revision_items','question_option_revisions')
                 AND referenced_table_name IN ('quizzes','questions','users')
                 """, Integer.class)).isZero();
+    }
+
+    @Test
+    void forwardMigrationPreservesExistingStoredSnapshotsWithoutInventingLostPrecision() {
+        migrateFreshTo("81");
+        var question = trueFalse("old-json", "{\"answer\":true,\"metadata\":18446744073709551617}");
+        var revision = quiz("old-json", question, question("old-options"));
+        repository.insert(revision);
+        String beforeContent = sql.queryForObject("SELECT content FROM question_revisions WHERE id=UUID_TO_BIN(?)",
+                String.class, question.id().toString());
+        var beforeRevision = repository.findById(OWNER, revision.id()).orElseThrow();
+        assertThat(beforeRevision).isNotEqualTo(revision); // V81 has already rounded the original integer.
+        var beforeKeys = sql.queryForList("SELECT source_key FROM question_option_revisions ORDER BY authored_position", String.class);
+
+        Flyway.configure().dataSource(dataSource).table(HISTORY).locations("classpath:db/migration")
+                .target("82").load().migrate();
+
+        assertThat(sql.queryForObject("SELECT content FROM question_revisions WHERE id=UUID_TO_BIN(?)",
+                String.class, question.id().toString())).isEqualTo(beforeContent);
+        assertThat(repository.findById(OWNER, revision.id())).contains(beforeRevision);
+        assertThat(sql.queryForList("SELECT source_key FROM question_option_revisions ORDER BY authored_position", String.class))
+                .isEqualTo(beforeKeys);
+        assertThat(sql.queryForObject("SELECT content FROM revision_identity_legacy_fixture WHERE id=1", String.class))
+                .isEqualTo("existing content");
+        assertThat(sql.queryForObject("""
+                SELECT data_type FROM information_schema.columns
+                WHERE table_schema=DATABASE() AND table_name='question_revisions' AND column_name='content'
+                """, String.class)).isEqualTo("longtext");
+        assertThat(sql.queryForObject("""
+                SELECT collation_name FROM information_schema.columns
+                WHERE table_schema=DATABASE() AND table_name='question_option_revisions' AND column_name='source_key'
+                """, String.class)).isEqualTo("utf8mb4_0900_bin");
+        repository.insert(quiz("reuse-migrated", beforeRevision.items().stream()
+                .map(QuizRevision.Item::question).toArray(QuestionRevision[]::new)));
+        assertThatThrownBy(() -> repository.insert(quiz("reuse-original-lost-number", question)))
+                .isInstanceOf(RevisionIntegrityException.class).hasMessageContaining("IDENTITY_CONFLICT");
+        assertThat(count("question_revisions")).isEqualTo(2);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"not json", "[]", "null", "true"})
+    void invalidStoredJsonAndNonObjectsFailClosedAtTheDomainBoundary(String content) {
+        repository.insert(quiz("json-constraint", question("json-constraint")));
+        sql.update("UPDATE question_revisions SET content=?", content);
+        assertThatThrownBy(() -> repository.findById(OWNER, id("json-constraint")))
+                .isInstanceOf(RevisionIntegrityException.class)
+                .hasMessage("Immutable revision rejected: INVALID_STORED_REVISION");
+    }
+
+    @Test
+    void jdbcAggregateJoinsExternalJpaTransactionForBothCommitAndRollback() {
+        var factory = new LocalContainerEntityManagerFactoryBean();
+        factory.setDataSource(dataSource);
+        factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
+        factory.setPackagesToScan("uk.gegc.quizmaker.features.quiz.revision");
+        factory.setJpaPropertyMap(java.util.Map.of("hibernate.hbm2ddl.auto", "none"));
+        factory.afterPropertiesSet();
+        try {
+            var entityManagerFactory = factory.getObject();
+            var manager = new JpaTransactionManager(entityManagerFactory);
+            manager.setDataSource(dataSource);
+            var transaction = new TransactionTemplate(manager);
+            var jpaRepository = transactionalRepository(manager);
+            var committed = quiz("jpa-commit", trueFalse("jpa-commit", "{\"answer\":true,\"metadata\":18446744073709551617}"));
+            transaction.executeWithoutResult(status -> {
+                EntityManagerFactoryUtils.getTransactionalEntityManager(entityManagerFactory)
+                        .createNativeQuery("UPDATE revision_identity_legacy_fixture SET content='JPA committed' WHERE id=1")
+                        .executeUpdate();
+                jpaRepository.insert(committed);
+            });
+            transaction.executeWithoutResult(status -> {
+                EntityManagerFactoryUtils.getTransactionalEntityManager(entityManagerFactory)
+                        .createNativeQuery("UPDATE revision_identity_legacy_fixture SET content='JPA rolled back' WHERE id=1")
+                        .executeUpdate();
+                jpaRepository.insert(quiz("jpa-rollback", question("jpa-rollback")));
+                status.setRollbackOnly();
+            });
+            assertThat(repository.findById(OWNER, committed.id())).contains(committed);
+            assertThat(repository.findById(OWNER, id("jpa-rollback"))).isEmpty();
+            assertThat(count("question_revisions")).isEqualTo(1);
+            assertThat(count("quiz_revision_items")).isEqualTo(1);
+            assertThat(count("question_option_revisions")).isZero();
+            assertThat(sql.queryForObject("SELECT content FROM revision_identity_legacy_fixture WHERE id=1", String.class))
+                    .isEqualTo("JPA committed");
+        } finally {
+            factory.destroy();
+        }
     }
 
     @Test
@@ -155,6 +255,68 @@ class QuizRevisionMySqlIntegrationTest {
         assertThat(repository.findByIds(OWNER, List.of(first.id(), second.id()))).containsExactly(first, second);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "18446744073709551617",
+            "0.1234567890123456789012345678901234567890",
+            "12345678901234567890.00000000000000000001",
+            "1.234567890123456789E+100",
+            "1.234567890123456789E-100",
+            "1E+400",
+            "1E-400"
+    })
+    void numericSnapshotsRoundTripExactly(String number) {
+        String content = "{\"answer\":true,\"metadata\":" + number + "}";
+        var revision = quiz("numeric", trueFalse("numeric", content));
+        repository.insert(revision);
+        assertThat(sql.queryForObject("SELECT content FROM question_revisions", String.class)).isEqualTo(content);
+        assertThat(repository.findById(OWNER, revision.id())).contains(revision);
+    }
+
+    @Test
+    void identicalLargeNumberQuestionCanBeReusedButChangedContentIsRejected() {
+        var question = trueFalse("reuse-number", "{\"answer\":true,\"metadata\":18446744073709551617}");
+        var first = quiz("numeric-first", question);
+        var second = quiz("numeric-second", question);
+        repository.insert(first);
+        repository.insert(second);
+        var conflicting = trueFalse("reuse-number", "{\"answer\":true,\"metadata\":18446744073709551618}");
+        assertThatThrownBy(() -> repository.insert(quiz("numeric-conflict", conflicting)))
+                .isInstanceOf(RevisionIntegrityException.class).hasMessageContaining("IDENTITY_CONFLICT");
+        assertThat(count("question_revisions")).isEqualTo(1);
+        assertThat(count("quiz_revisions")).isEqualTo(2);
+        assertThat(repository.findByIds(OWNER, List.of(first.id(), second.id()))).containsExactly(first, second);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"A", "a "})
+    void optionKeysPreserveCaseAndTrailingSpacesAndRejectExactDuplicates(String secondKey) {
+        String content = "{\"options\":[{\"id\":\"a\",\"text\":\"Paris\",\"correct\":true},"
+                + "{\"id\":\"" + secondKey + "\",\"text\":\"London\",\"correct\":false}]}";
+        var payload = QuestionContracts.read(QuestionType.MCQ_SINGLE, QuestionContracts.View.AUTHOR, content);
+        new McqSingleHandler().validateContent(new QuestionContentRequest() {
+            public QuestionType getType() { return QuestionType.MCQ_SINGLE; }
+            public com.fasterxml.jackson.databind.JsonNode getContent() { return payload; }
+        });
+        var base = question("exact-key");
+        var question = new QuestionRevision(base.id(), base.questionId(), 1, base.type(), base.difficulty(),
+                base.questionText(), content, null, null, null, null, CREATED,
+                List.of(new QuestionRevision.Option(id("exact-lower"), "a", 0),
+                        new QuestionRevision.Option(id("exact-second"), secondKey, 1)));
+        var revision = quiz("exact-key", question);
+        repository.insert(revision);
+        assertThat(repository.findById(OWNER, revision.id())).contains(revision);
+        assertThat(sql.queryForList("SELECT source_key FROM question_option_revisions ORDER BY authored_position", String.class))
+                .containsExactly("a", secondKey);
+        assertThatThrownBy(() -> sql.update("""
+                INSERT INTO question_option_revisions (id, question_revision_id, source_key, authored_position)
+                VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, 2)
+                """, id("exact-duplicate").toString(), question.id().toString(), secondKey))
+                .isInstanceOf(org.springframework.dao.DuplicateKeyException.class)
+                .hasMessageContaining("uq_question_revision_option_key");
+        assertThat(count("question_option_revisions")).isEqualTo(2);
+    }
+
     @Test
     void conflictingQuestionIdentityIsRejectedWithoutChangingStoredContent() {
         var question = question("conflict");
@@ -208,7 +370,7 @@ class QuizRevisionMySqlIntegrationTest {
     }
 
     @Test
-    void everyCurrentQuestionFamilyRoundTripsThroughMysqlJson() {
+    void everyCurrentQuestionFamilyRoundTripsThroughMysqlStorage() {
         List<QuestionRevision> questions = new ArrayList<>();
         for (QuestionType type : QuestionType.values()) {
             var base = question(type.name());
@@ -318,6 +480,19 @@ class QuizRevisionMySqlIntegrationTest {
     private static QuestionRevision changed(QuestionRevision q) {
         return new QuestionRevision(q.id(), q.questionId(), 1, q.type(), q.difficulty(), "Changed question",
                 q.content(), q.hint(), q.explanation(), null, null, q.createdAt(), q.options());
+    }
+
+    private static QuestionRevision trueFalse(String key, String content) {
+        QuestionContracts.read(QuestionType.TRUE_FALSE, QuestionContracts.View.AUTHOR, content);
+        var base = question(key);
+        return new QuestionRevision(base.id(), base.questionId(), 1, QuestionType.TRUE_FALSE, base.difficulty(),
+                "Is the statement true?", content, null, null, null, null, CREATED, List.of());
+    }
+
+    private static QuizRevisionRepository transactionalRepository(PlatformTransactionManager manager) {
+        var factory = new ProxyFactory(new JdbcQuizRevisionRepository(new NamedParameterJdbcTemplate(dataSource)));
+        factory.addAdvice(new TransactionInterceptor(manager, new AnnotationTransactionAttributeSource()));
+        return (QuizRevisionRepository) factory.getProxy();
     }
 
     private int count(String table) {

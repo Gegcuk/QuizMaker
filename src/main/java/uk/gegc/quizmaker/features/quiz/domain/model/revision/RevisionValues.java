@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.StreamReadFeature;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.cfg.JsonNodeFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -16,6 +17,8 @@ final class RevisionValues {
     private static final JsonMapper JSON = JsonMapper.builder()
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+            .disable(JsonNodeFeature.STRIP_TRAILING_BIGDECIMAL_ZEROES)
             .build();
 
     private RevisionValues() { }
@@ -38,7 +41,8 @@ final class RevisionValues {
         return value.truncatedTo(ChronoUnit.MICROS);
     }
 
-    // Normalize object keys for round trips through MySQL JSON. Array order is content, not identity.
+    // Canonicalize object keys without rounding numbers. Persist this string as text, never MySQL JSON.
+    // Array order and decimal precision/scale are retained in the accepted snapshot.
     static String json(String value) {
         require(value != null);
         try {

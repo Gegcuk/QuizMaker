@@ -79,6 +79,26 @@ class QuizRevisionTest {
         assertThat(revision.createdAt()).isEqualTo(CREATED);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "18446744073709551617",
+            "0.1234567890123456789012345678901234567890",
+            "12345678901234567890.00000000000000000001",
+            "1.234567890123456789E+100",
+            "1.234567890123456789E-100",
+            "1E+400",
+            "1E-400"
+    })
+    void normalizingAndReconstructingContentDoesNotRoundNumbers(String number) {
+        String content = "{\"answer\":true,\"metadata\":" + number + "}";
+        QuestionContracts.read(QuestionType.TRUE_FALSE, QuestionContracts.View.AUTHOR, content);
+        var base = question("numeric");
+        var accepted = new QuestionRevision(base.id(), base.questionId(), 1, QuestionType.TRUE_FALSE,
+                base.difficulty(), base.questionText(), content, null, null, null, null, CREATED, List.of());
+        assertThat(accepted.content()).isEqualTo(content);
+        assertThat(copy(accepted, accepted.content(), accepted.options())).isEqualTo(accepted);
+    }
+
     @Test
     void rejectsDuplicateOptionIdentityKeyAndPosition() {
         var base = question("duplicate");
