@@ -5,13 +5,52 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.core.env.PropertiesPropertySource;
+import org.springframework.mock.env.MockEnvironment;
 
+import java.io.IOException;
+import java.io.Reader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Properties;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("Billing configuration preflight")
 class BillingConfigurationPreflightTest {
+
+    @Test
+    @DisplayName("binds the unchanged production billing defaults without deployment overrides")
+    void preflight_withProductionConfiguration_preservesBillingDefaults() throws IOException {
+        Properties properties = new Properties();
+        try (Reader reader = Files.newBufferedReader(Path.of("server/backend/application-prod.properties"))) {
+            properties.load(reader);
+        }
+
+        preflightContext(null)
+                .withInitializer(context -> {
+                    // Resolve the real production placeholders without inheriting developer secrets or overrides.
+                    MockEnvironment environment = new MockEnvironment();
+                    environment.setActiveProfiles("config-preflight");
+                    environment.getPropertySources().addLast(new PropertiesPropertySource("production", properties));
+                    context.setEnvironment(environment);
+                })
+                .run(context -> {
+                    assertThat(context.getStartupFailure()).isNull();
+                    BillingProperties billing = context.getBean(BillingProperties.class);
+                    assertThat(billing.getReservationTtlMinutes()).isEqualTo(120);
+                    assertThat(billing.getSafetyFactor()).isEqualTo(1.2d);
+                    assertThat(billing.getCurrency()).isEqualTo("usd");
+                    assertThat(billing.getTokenToLlmRatio()).isEqualTo(1000L);
+                    assertThat(billing.getGeneration().getTariffVersion())
+                            .isEqualTo("v1-content-length-per-question-type");
+                    assertThat(billing.getGeneration().getBaseTokens()).isEqualTo(3L);
+                    assertThat(billing.getGeneration().getTokensPerThousandCharacters())
+                            .isEqualByComparingTo("0.35");
+                    BillingConfigurationPreflight.verifyConfiguredRatio(context.getEnvironment());
+                });
+    }
 
     @Test
     @DisplayName("uses the canonical default when the deployment override is absent")

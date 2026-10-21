@@ -4,6 +4,20 @@
 
 Verify that the release image and the Compose backend receive the same resolved production billing ratio, and that the image validates it before MySQL, a candidate backend, or the live backend is started. The accepted value is a positive base-10 integer. The canonical fallback is `1000`.
 
+## Production Billing Settings
+
+`BILLING_TOKEN_TO_LLM_RATIO` remains a supported deployment override with the canonical default `1000`.
+
+Production deployment retains the application defaults for these settings:
+
+- Reservation TTL: `120` minutes. This controls the reservation expiration deadline, including renewed leases; it is not the generation-job deadline.
+- Operational LLM estimate safety factor: `1.2`. Customer generation prices continue to use the separate content-length and question-type tariff.
+- Estimate currency: `usd`. Actual checkout currency continues to come from the selected payment pack.
+
+Issue #503 removes the unused `BILLING_RESERVATION_TTL_MINUTES`, `BILLING_SAFETY_FACTOR`, and `BILLING_CURRENCY` entries from the generated environment and its example. Compose does not forward these keys, including entries left in an older deployment `.env` file. Setting them as GitHub secrets does not configure the backend. Changes to this deployment contract require a reviewed configuration change.
+
+The Spring property bindings remain unchanged for other launch configurations. Existing reservations, tariff values, prices, API responses, and the Compose-based preflight command are unchanged.
+
 ## Preconditions
 
 - A staging server or maintenance environment has Docker, Docker Compose, the deployment `.env` file, and a locally loaded candidate image.
@@ -70,5 +84,5 @@ Verify that the release image and the Compose backend receive the same resolved 
 
 ## Automated Coverage
 
-- `BillingConfigurationPreflightTest` verifies canonical default, valid positive integer, zero, negative, decimal, overflow, and whitespace inputs through Spring binding and validation.
-- `DeploymentBillingConfigurationContractTest` verifies the workflow fallback, Compose environment mapping, and that preflight is ordered before service startup.
+- `BillingConfigurationPreflightTest` verifies canonical default, valid positive integer, zero, negative, decimal, overflow, and whitespace inputs through Spring binding and validation. It also binds the actual production configuration without deployment overrides and verifies the unchanged reservation, estimate, currency, ratio, and tariff defaults.
+- `DeploymentBillingConfigurationContractTest` verifies the workflow fallback, Compose environment mapping, absence of the three unsupported overrides in the workflow/Compose/example, and that preflight is ordered before service startup.
