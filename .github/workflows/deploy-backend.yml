@@ -173,10 +173,8 @@ jobs:
             MEDIA_ARTICLE_PREFIX="${{ secrets.MEDIA_ARTICLE_PREFIX || 'articles' }}"
             MEDIA_LIBRARY_PREFIX="${{ secrets.MEDIA_LIBRARY_PREFIX || 'library' }}"
             FRONTEND_BASE_URL="${{ secrets.FRONTEND_BASE_URL }}"
+            # Reservation TTL, estimate safety factor, and currency retain application defaults.
             BILLING_TOKEN_TO_LLM_RATIO="${{ secrets.BILLING_TOKEN_TO_LLM_RATIO || '1000' }}"
-            BILLING_RESERVATION_TTL_MINUTES="${{ secrets.BILLING_RESERVATION_TTL_MINUTES || '30' }}"
-            BILLING_SAFETY_FACTOR="${{ secrets.BILLING_SAFETY_FACTOR || '1.2' }}"
-            BILLING_CURRENCY="${{ secrets.BILLING_CURRENCY || 'USD' }}"
             EOF
             sed -i "s/__RELEASE_SHA__/${RELEASE_SHA}/" .env
             chmod 600 .env

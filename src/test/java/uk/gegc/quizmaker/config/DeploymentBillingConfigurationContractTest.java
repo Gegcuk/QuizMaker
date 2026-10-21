@@ -14,6 +14,23 @@ class DeploymentBillingConfigurationContractTest {
 
     private static final Path DEPLOYMENT_WORKFLOW = Path.of(".github/workflows/deploy-backend.yml");
     private static final Path DEPLOYMENT_COMPOSE_FILE = Path.of("server/backend/docker-compose.yml");
+    private static final Path PRODUCTION_ENVIRONMENT_EXAMPLE = Path.of("server/backend/env.production.example");
+
+    @Test
+    @DisplayName("does not advertise or forward unsupported production billing overrides")
+    void deploymentConfiguration_keepsUnsupportedBillingOverridesAbsent() throws IOException {
+        for (Path configuration : new Path[]{
+                DEPLOYMENT_WORKFLOW, DEPLOYMENT_COMPOSE_FILE, PRODUCTION_ENVIRONMENT_EXAMPLE
+        }) {
+            assertThat(Files.readString(configuration))
+                    .as("unsupported billing overrides in %s", configuration)
+                    .doesNotContain(
+                            "BILLING_RESERVATION_TTL_MINUTES",
+                            "BILLING_SAFETY_FACTOR",
+                            "BILLING_CURRENCY"
+                    );
+        }
+    }
 
     @Test
     @DisplayName("uses the canonical ratio for preflight and backend startup before services start")
