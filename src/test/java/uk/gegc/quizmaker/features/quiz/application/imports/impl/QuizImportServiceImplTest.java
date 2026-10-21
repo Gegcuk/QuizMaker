@@ -25,6 +25,7 @@ import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.imports.ContentHashUtil;
 import uk.gegc.quizmaker.features.quiz.application.imports.ImportParser;
 import uk.gegc.quizmaker.features.quiz.application.imports.ImportParserFactory;
+import uk.gegc.quizmaker.features.quiz.application.imports.ImportReferenceSnapshot;
 import uk.gegc.quizmaker.features.quiz.application.imports.ReferenceResolutionService;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizImportValidationService;
 import uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties;
@@ -49,6 +50,7 @@ import java.io.InputStream;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -135,8 +137,10 @@ class QuizImportServiceImplTest extends BaseUnitTest {
         when(userRepository.findByUsernameWithRolesAndPermissions(USERNAME)).thenReturn(Optional.of(actor));
         when(accessPolicy.hasAny(any(), any(), any())).thenReturn(true);
         when(parserFactory.getParser(any())).thenReturn(parser);
+        lenient().when(referenceResolutionService.preloadReferences(any(), any())).thenReturn(ImportReferenceSnapshot.empty());
         lenient().when(referenceResolutionService.resolveCategory(any(), anyBoolean(), anyString())).thenReturn(category);
         lenient().when(referenceResolutionService.resolveTags(any(), anyBoolean(), anyString())).thenReturn(tags);
+        lenient().when(tagRepository.getReferenceById(TAG_ID)).thenReturn(tag);
         lenient().when(quizImportAssembler.toEntity(any(), any(), any(), any(), any())).thenReturn(new Quiz());
         lenient().when(userRepository.getReferenceById(any())).thenReturn(actor);
         lenient().when(quizMapper.toDto(any())).thenReturn(minimalQuizDto());
@@ -745,6 +749,46 @@ class QuizImportServiceImplTest extends BaseUnitTest {
         service.importQuizzes(emptyInput(), ExportFormat.JSON_EDITABLE, options, authentication);
 
         verify(quizRepository).save(any());
+    }
+
+    @Test
+    void preloadSeedsDryRunWithoutPerItemLookupsOrWrites() {
+        QuizImportDto dto = quizDto(null, " Category ", List.of(" TAG ", "tag"), List.of(), Visibility.PRIVATE);
+        when(parser.parse(any(), any())).thenReturn(List.of(dto, dto));
+        when(referenceResolutionService.preloadReferences(Set.of("category"), Set.of("tag")))
+                .thenReturn(new ImportReferenceSnapshot(Map.of("category", category), Map.of("tag", tags.iterator().next())));
+
+        ImportSummaryDto summary = service.importQuizzes(emptyInput(), ExportFormat.JSON_EDITABLE,
+                options(UpsertStrategy.CREATE_ONLY, true, false, false), authentication);
+
+        assertThat(summary.total()).isEqualTo(2);
+        assertThat(summary.failed()).isZero();
+        assertThat(summary.created()).isZero();
+        verify(referenceResolutionService).preloadReferences(Set.of("category"), Set.of("tag"));
+        verify(categoryRepository, never()).findByNameIgnoreCase(any());
+        verify(tagRepository, never()).findByNameInIgnoreCase(any());
+        verify(quizRepository, never()).save(any());
+        verify(referenceResolutionService).clearCaches();
+    }
+
+    @Test
+    void preloadFailureRetainsPerItemPartialSuccess() {
+        QuizImportDto good = quizDto(null, "Category", List.of(), List.of(), Visibility.PRIVATE);
+        QuizImportDto bad = quizDto(UUID.randomUUID(), "Category", List.of(), List.of(), Visibility.PRIVATE);
+        when(parser.parse(any(), any())).thenReturn(List.of(bad, good));
+        when(referenceResolutionService.preloadReferences(any(), any())).thenThrow(new IllegalStateException("unavailable"));
+        when(quizImportAssembler.toEntity(eq(bad), any(), any(), any(), any()))
+                .thenThrow(new ValidationException("Invalid item"));
+
+        ImportSummaryDto summary = service.importQuizzes(emptyInput(), ExportFormat.JSON_EDITABLE,
+                options(UpsertStrategy.CREATE_ONLY, false, false, false), authentication);
+
+        assertThat(summary.created()).isEqualTo(1);
+        assertThat(summary.failed()).isEqualTo(1);
+        assertThat(summary.errors().get(0).index()).isZero();
+        verify(transactionManager).rollback(any());
+        verify(transactionManager).commit(any());
+        verify(referenceResolutionService, org.mockito.Mockito.times(2)).clearCaches();
     }
 
     private QuestionImportDto baseQuestion() {

@@ -7,9 +7,15 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
 import uk.gegc.quizmaker.BaseUnitTest;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
+import uk.gegc.quizmaker.features.quiz.application.imports.ReferenceResolutionService;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
@@ -20,6 +26,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.sql.SQLException;
+import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -29,6 +37,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.mock;
 
 @DisplayName("ReferenceResolutionService")
 class ReferenceResolutionServiceImplTest extends BaseUnitTest {
@@ -57,6 +66,79 @@ class ReferenceResolutionServiceImplTest extends BaseUnitTest {
         assertThat(result).isSameAs(category);
         verify(categoryRepository).findByNameIgnoreCase("Science");
         verify(categoryRepository, never()).save(any());
+    }
+
+    @Test
+    void preloadNormalizesDeduplicatesAndReusesOnlyRequestedReferences() {
+        Category category = categoryWithName("Science");
+        Tag tag = tagWithName("Physics");
+        when(categoryRepository.findByNameInIgnoreCase(List.of("science"))).thenReturn(List.of(category));
+        when(tagRepository.findByNameInIgnoreCase(List.of("physics"))).thenReturn(List.of(tag));
+
+        var snapshot = service.preloadReferences(Arrays.asList(" Science ", "SCIENCE", null, ""),
+                Arrays.asList(" Physics ", "physics", null, " "));
+
+        assertThat(snapshot.categories()).containsOnlyKeys("science");
+        assertThat(snapshot.tags()).containsOnlyKeys("physics");
+        assertThat(service.resolveCategory("SCIENCE", false, "user")).isSameAs(category);
+        assertThat(service.resolveTags(List.of(" PHYSICS "), false, "user")).containsExactly(tag);
+        verify(categoryRepository, never()).findByNameIgnoreCase(any());
+        verify(tagRepository).findByNameInIgnoreCase(List.of("physics"));
+        verify(categoryRepository, never()).save(any());
+        verify(tagRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void preloadBoundsEveryQueryAndSkipsEmptyInputs() {
+        service.preloadReferences(null, List.of());
+        verifyNoInteractions(categoryRepository, tagRepository);
+        List<String> names = java.util.stream.IntStream.range(0, 501).mapToObj(i -> "name" + i).toList();
+
+        service.preloadReferences(names, names);
+
+        ArgumentCaptor<List<String>> categoryBatches = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<List<String>> tagBatches = ArgumentCaptor.forClass(List.class);
+        verify(categoryRepository, times(3)).findByNameInIgnoreCase(categoryBatches.capture());
+        verify(tagRepository, times(3)).findByNameInIgnoreCase(tagBatches.capture());
+        assertThat(categoryBatches.getAllValues()).extracting(List::size).containsExactly(250, 250, 1);
+        assertThat(tagBatches.getAllValues()).extracting(List::size).containsExactly(250, 250, 1);
+        assertThat(categoryBatches.getAllValues().stream().flatMap(List::stream).toList()).containsExactlyElementsOf(names);
+        assertThat(tagBatches.getAllValues().stream().flatMap(List::stream).toList()).containsExactlyElementsOf(names);
+    }
+
+    @Test
+    void failedPreloadDoesNotRetainPreviousOrPartialCache() {
+        Category category = categoryWithName("Science");
+        when(categoryRepository.findByNameInIgnoreCase(List.of("science"))).thenReturn(List.of(category));
+        service.preloadReferences(List.of("Science"), List.of());
+        when(tagRepository.findByNameInIgnoreCase(List.of("physics"))).thenThrow(new IllegalStateException("unavailable"));
+
+        assertThatThrownBy(() -> service.preloadReferences(List.of("Science"), List.of("Physics")))
+                .isInstanceOf(IllegalStateException.class);
+        when(categoryRepository.findByNameIgnoreCase("Science")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.resolveCategory("Science", false, "user"))
+                .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void cacheCleanupStillWorksWhenDatabaseTransactionsCannotStart() throws SQLException {
+        DataSource unavailableDatabase = mock(DataSource.class);
+        when(unavailableDatabase.getConnection()).thenThrow(new SQLException("Database unavailable"));
+        ProxyFactory factory = new ProxyFactory(service);
+        factory.addAdvice(new TransactionInterceptor(new DataSourceTransactionManager(unavailableDatabase),
+                new AnnotationTransactionAttributeSource()));
+        ReferenceResolutionService transactionalService = (ReferenceResolutionService) factory.getProxy();
+        Category category = categoryWithName("Science");
+        when(categoryRepository.findByNameInIgnoreCase(List.of("science"))).thenReturn(List.of(category));
+        service.preloadReferences(List.of("Science"), List.of());
+
+        assertThatThrownBy(() -> transactionalService.preloadReferences(List.of("Science"), List.of()))
+                .isInstanceOf(CannotCreateTransactionException.class);
+        transactionalService.clearCaches();
+
+        assertThatThrownBy(() -> service.resolveCategory("Science", false, "user"))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verify(categoryRepository).findByNameIgnoreCase("Science");
     }
 
     @Test

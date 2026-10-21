@@ -20,6 +20,7 @@ import uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator;
 import uk.gegc.quizmaker.features.quiz.application.imports.ContentHashUtil;
 import uk.gegc.quizmaker.features.quiz.application.imports.ImportParser;
 import uk.gegc.quizmaker.features.quiz.application.imports.ImportParserFactory;
+import uk.gegc.quizmaker.features.quiz.application.imports.ImportReferenceSnapshot;
 import uk.gegc.quizmaker.features.quiz.application.imports.QuizImportService;
 import uk.gegc.quizmaker.features.quiz.application.imports.ReferenceResolutionService;
 import uk.gegc.quizmaker.features.quiz.application.validation.QuizImportValidationService;
@@ -112,9 +113,9 @@ public class QuizImportServiceImpl implements QuizImportService {
         TransactionTemplate template = new TransactionTemplate(transactionManager);
         template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
 
-        DryRunCache dryRunCache = options.dryRun() ? new DryRunCache() : null;
-
         try {
+            ImportReferenceSnapshot references = preloadReferences(quizzes);
+            DryRunCache dryRunCache = options.dryRun() ? new DryRunCache(references) : null;
             for (int i = 0; i < quizzes.size(); i++) {
                 QuizImportDto quiz = quizzes.get(i);
                 int index = i;
@@ -147,6 +148,30 @@ public class QuizImportServiceImpl implements QuizImportService {
         }
 
         return new ImportSummaryDto(quizzes.size(), created, updated, skipped, failed, errors);
+    }
+
+    private ImportReferenceSnapshot preloadReferences(List<QuizImportDto> quizzes) {
+        Set<String> categories = new LinkedHashSet<>();
+        Set<String> tags = new LinkedHashSet<>();
+        for (QuizImportDto quiz : quizzes) {
+            if (quiz != null) {
+                if (quiz.category() != null && !quiz.category().isBlank()) {
+                    categories.add(normalizeName(quiz.category()));
+                }
+                if (quiz.tags() != null) {
+                    quiz.tags().stream().filter(name -> name != null && !name.isBlank())
+                            .map(this::normalizeName).forEach(tags::add);
+                }
+            }
+        }
+        try {
+            return referenceResolutionService.preloadReferences(categories, tags);
+        } catch (RuntimeException ex) {
+            referenceResolutionService.clearCaches();
+            // Preloading is an optimization: retain the existing per-item failure/partial-success contract.
+            log.warn("Import reference preload failed; using per-item resolution ({})", ex.getClass().getSimpleName());
+            return ImportReferenceSnapshot.empty();
+        }
     }
 
     private ImportOutcome processSingle(QuizImportDto quiz,
@@ -449,7 +474,11 @@ public class QuizImportServiceImpl implements QuizImportService {
         if (options.dryRun()) {
             return resolveTagsDryRun(tagNames, options.autoCreateTags(), dryRunCache);
         }
-        return referenceResolutionService.resolveTags(tagNames, options.autoCreateTags(), username);
+        Set<Tag> resolved = referenceResolutionService.resolveTags(tagNames, options.autoCreateTags(), username);
+        // Quiz.tags cascades persist/merge. References loaded in another transaction are detached;
+        // use current-transaction proxies by id, without selecting each tag again.
+        return resolved.stream().map(tag -> tagRepository.getReferenceById(tag.getId()))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     private Category resolveCategoryDryRun(String categoryName, boolean autoCreate, DryRunCache cache) {
@@ -561,5 +590,10 @@ public class QuizImportServiceImpl implements QuizImportService {
     private static final class DryRunCache {
         private final Map<String, Category> categories = new HashMap<>();
         private final Map<String, Tag> tags = new HashMap<>();
+
+        private DryRunCache(ImportReferenceSnapshot references) {
+            categories.putAll(references.categories());
+            tags.putAll(references.tags());
+        }
     }
 }
