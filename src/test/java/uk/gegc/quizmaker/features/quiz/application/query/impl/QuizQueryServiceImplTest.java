@@ -85,6 +85,9 @@ class QuizQueryServiceImplTest {
     private QuizGenerationCoverageService generationCoverageService;
 
     @Mock
+    private uk.gegc.quizmaker.features.quiz.application.query.GenerationQueuePositionService queuePositionService;
+
+    @Mock
     private uk.gegc.quizmaker.features.quiz.application.QuizFreshnessService freshnessService;
     
     @Mock
@@ -116,6 +119,27 @@ class QuizQueryServiceImplTest {
         lenient().when(questionRepository.countQuestionsForQuizzes(any(List.class))).thenReturn(List.of());
     }
     
+    @Test
+    void statusAndPageEnrichOwnedPendingJobsInOneBatchAndKeepUnavailableFieldsNull() {
+        var first = createJob(UUID.randomUUID(), testUser, GenerationStatus.PENDING);
+        var second = createJob(UUID.randomUUID(), testUser, GenerationStatus.PENDING);
+        var instant = java.time.Instant.parse("2026-10-20T12:00:00Z");
+        var position = new uk.gegc.quizmaker.features.quiz.application.query.GenerationQueuePosition(2, instant);
+        when(jobService.getJobByIdAndUsername(first.getId(), "testuser")).thenReturn(first);
+        when(queuePositionService.findPositions(List.of(first.getId()), "testuser"))
+                .thenReturn(Map.of(first.getId(), position));
+        assertThat(queryService.getGenerationStatus(first.getId(), "testuser").queuePosition()).isEqualTo(2);
+        reset(queuePositionService);
+        when(jobService.getJobsByUser("testuser", pageable)).thenReturn(new PageImpl<>(List.of(first, second)));
+        when(queuePositionService.findPositions(List.of(first.getId(), second.getId()), "testuser"))
+                .thenReturn(Map.of(first.getId(), position));
+        var page = queryService.getGenerationJobs("testuser", pageable).getContent();
+        assertThat(page.get(0).queuePosition()).isEqualTo(2);
+        assertThat(page.get(1).queuePosition()).isNull();
+        verify(queuePositionService).findPositions(List.of(first.getId(), second.getId()), "testuser");
+        verifyNoMoreInteractions(queuePositionService);
+    }
+
     // =============== getQuizById Tests ===============
     
     @Nested
@@ -716,6 +740,7 @@ class QuizQueryServiceImplTest {
             assertThat(result.coverage()).isNotNull();
             assertThat(result.coverage().outcome()).isEqualTo(GenerationCoverageOutcome.PARTIAL);
             verify(jobService).getJobByIdAndUsername(jobId, "testuser");
+            verifyNoInteractions(queuePositionService);
             verify(progressInvariantMonitor).observe(job);
             verify(featureFlags).isBilling();
         }
@@ -746,7 +771,7 @@ class QuizQueryServiceImplTest {
             // When & Then
             assertThatThrownBy(() -> queryService.getGenerationStatus(jobId, "otheruser"))
                 .isInstanceOf(ForbiddenException.class);
-            verifyNoInteractions(generationCoverageService);
+            verifyNoInteractions(generationCoverageService, queuePositionService);
         }
         
         @Test
@@ -916,6 +941,7 @@ class QuizQueryServiceImplTest {
             verify(progressInvariantMonitor, times(1)).observe(job1);
             verify(progressInvariantMonitor, times(1)).observe(job2);
             verify(featureFlags, times(1)).isBilling();
+            verifyNoInteractions(queuePositionService);
         }
         
         @Test
@@ -931,7 +957,7 @@ class QuizQueryServiceImplTest {
             
             // Then
             assertThat(result).isEmpty();
-            verifyNoInteractions(generationCoverageService);
+            verifyNoInteractions(generationCoverageService, queuePositionService);
         }
         
         @Test
