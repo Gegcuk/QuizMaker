@@ -1169,6 +1169,58 @@ It must not modify:
 
 A physical deep clone and a strictly immutable versioned representation may be implementation alternatives, but their external semantics must be identical.
 
+### Immutable identity storage boundary (#597)
+
+`QuizRevisionRepository` stores complete immutable content aggregates in `quiz_revisions`,
+`question_revisions`, `quiz_revision_items`, and `question_option_revisions`. Its supported
+operations are insert and owner-scoped reads; it exposes no update or delete operation.
+Revision IDs identify immutable versions. Item and option IDs remain stable independently
+of authored/display positions and are scoped by their containing revision. A new revision
+can therefore reorder the same logical items/options without rewriting the old revision.
+
+The repository accepts already authorized, server-owned publication input. Its owner argument
+is an additional persistence scope, not a substitute for principal/permission/visibility checks.
+Publication authorization, idempotency and the current pointer belong to #700. Response/scoring
+contract versions and family-specific option-key interpretation belong to #598/#701. Question
+content is validated as a JSON object and stored as the accepted canonical string in UTF-8
+`LONGTEXT`. Object keys are sorted, array order is preserved, integers retain arbitrary precision,
+and decimal numbers use Jackson `BigDecimal` nodes without stripping trailing zeros. MySQL binary
+JSON is not used: it can round large integers and decimals. JSON validation stays at the immutable
+Java boundary because MySQL JSON validation functions also reject valid numbers outside the
+`DOUBLE` range. Malformed/non-object stored text fails closed on read. Option source keys use the
+case-sensitive, `NO PAD` binary collation `utf8mb4_0900_bin`, so `a`, `A`, and `a ` are distinct;
+exact duplicates are rejected both in Java and by the unique index. This storage boundary does
+not reinterpret grading rules or hash documents.
+
+An insert is one transaction across the complete aggregate. Existing question-revision IDs may
+be reused only with exactly matching immutable content and metadata. A conflicting identity,
+constraint error or concurrent conflicting insert aborts the transaction; no partial graph or
+silent overwrite is accepted. Publication retry/idempotency remains the responsibility of #700.
+Reads perform three SQL queries per batch of at most 500 requested revision IDs, independently
+of the number of questions/options. Missing or wrong-owner revisions return no result; invalid
+stored versions/content fail with a bounded integrity error and never fall back to mutable rows.
+
+The additive migration does not backfill or rebind current attempts. `RevisionReference` classifies
+missing identity as `LEGACY`; a non-null reference still requires successful repository resolution.
+Historical content is not reconstructed from the current draft. Revision tables have no foreign
+keys or cascades to mutable authoring/user records, so deleting a draft cannot silently remove or
+rewrite retained revision content. Retention/erasure remains owned by the governance programme;
+this port adds no retention duration or public history endpoint.
+
+Current controllers, training feedback, scoring and legacy attempt reads retain their existing
+behavior. A saved revision is not publicly activated by this foundation alone. Application rollback
+before new writes leaves empty additive tables; after revision writes, preserve them and use a
+forward fix rather than dropping history or editing an applied migration.
+
+V82 upgrades V81 in place without rewriting its migration checksum. Conversion from binary JSON
+retains the representation actually stored in each existing row; it cannot recover digits already
+rounded by MySQL or Jackson. Historical snapshots are never reconstructed from mutable drafts.
+Existing stored snapshots remain readable/reusable. An original pre-write object that differs from
+an already rounded snapshot still conflicts under strict immutable equality; the migration does not
+invent lost content or weaken identity checks. New writes retain the exact accepted snapshot.
+The column/index alterations can rebuild revision storage and take metadata locks; migration
+duration depends on retained history size. Apply V82 before accepting new writes with this fix.
+
 ---
 
 ## Question and Response Contract Versioning
