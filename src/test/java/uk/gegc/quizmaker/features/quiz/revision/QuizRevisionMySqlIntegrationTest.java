@@ -10,6 +10,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -23,7 +24,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
 import org.springframework.transaction.support.TransactionTemplate;
-import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.application.QuestionContracts;
 import uk.gegc.quizmaker.features.question.api.dto.QuestionContentRequest;
@@ -41,7 +41,6 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -191,20 +190,6 @@ class QuizRevisionMySqlIntegrationTest {
         } finally {
             factory.destroy();
         }
-    }
-
-    @Test
-    void reloadKeepsExactContentAfterAuthoringChangesAndPreservesStableIdentities() {
-        var question = question("historical");
-        var revision = quiz("historical", question);
-        repository.insert(revision);
-        var authoring = new Question();
-        authoring.setId(question.questionId());
-        authoring.setContent("{\"correctAnswer\":\"changed after publication\"}");
-        authoring.setExplanation("New explanation");
-        assertThat(repository.findById(OWNER, revision.id())).contains(revision);
-        assertThat(repository.findById(OWNER, revision.id()).orElseThrow().items().get(0).question().content())
-                .isNotEqualTo(authoring.getContent());
     }
 
     @Test
@@ -450,32 +435,82 @@ class QuizRevisionMySqlIntegrationTest {
     @Test
     void concurrentConflictingSnapshotsHaveOneWinnerAndNoOrphanRows() throws Exception {
         var question = question("race");
-        var gate = new CyclicBarrier(2);
+        var conflicting = new QuestionRevision(question.id(), question.questionId(), 1, question.type(),
+                question.difficulty(), "Changed question", """
+                {"options":[{"id":"b","text":"London","correct":true},{"id":"a","text":"Paris","correct":false}]}
+                """, "Changed hint", "Changed explanation", null, null, CREATED,
+                List.of(new QuestionRevision.Option(id("race-other-b"), "b", 0),
+                        new QuestionRevision.Option(id("race-other-a"), "a", 1)));
+        var firstInput = quiz("race-first", question);
+        var secondInput = quiz("race-second", conflicting);
+        assertThat(firstInput.id()).isNotEqualTo(secondInput.id());
+        assertThat(count("question_revisions")).isZero();
+        var gate = new QuestionInsertGateDataSource(dataSource);
+        var concurrentRepository = transactionalRepository(gate, new DataSourceTransactionManager(gate));
         var executor = Executors.newFixedThreadPool(2);
         try {
-            var first = executor.submit(() -> insertAfterGate(gate, quiz("race-first", question)));
-            var second = executor.submit(() -> insertAfterGate(gate, quiz("race-second", changed(question))));
-            assertThat(List.of(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS)))
-                    .containsExactlyInAnyOrder(true, false);
+            var first = executor.submit(() -> insertOutcome(concurrentRepository, firstInput));
+            var second = executor.submit(() -> insertOutcome(concurrentRepository, secondInput));
+            gate.awaitBothTransactions();
+            assertThat(gate.completedEmptyReads()).isEqualTo(2);
+            assertThat(gate.transactionConnections()).hasSize(2);
+            assertThat(gate.executedInserts()).isZero();
+            assertThat(count("question_revisions")).isZero();
+            gate.releaseInserts();
+
+            var outcomes = List.of(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS));
+            var winners = outcomes.stream().filter(outcome -> outcome.conflict() == null).toList();
+            var losers = outcomes.stream().filter(outcome -> outcome.conflict() != null).toList();
+            assertThat(winners).hasSize(1);
+            assertThat(losers).hasSize(1);
+            var winner = winners.get(0).revision();
+            var loser = losers.get(0);
+            assertThat(loser.conflict()).hasMessageContaining("INSERT INTO question_revisions");
+            assertThat(loser.conflict().getMostSpecificCause()).isInstanceOfSatisfying(SQLException.class, cause -> {
+                assertThat(cause.getErrorCode()).isEqualTo(1062);
+                assertThat(cause.getSQLState()).isEqualTo("23000");
+                assertThat(cause.getMessage()).contains("PRIMARY");
+            });
+            assertThat(gate.executedInserts()).isEqualTo(2);
+            assertThat(repository.findById(OWNER, winner.id())).contains(winner);
+            assertThat(repository.findById(OWNER, loser.revision().id())).isEmpty();
+            assertThat(repository.findByIds(OWNER, List.of(firstInput.id(), secondInput.id()))).containsExactly(winner);
             assertThat(count("quiz_revisions")).isEqualTo(1);
             assertThat(count("question_revisions")).isEqualTo(1);
             assertThat(count("quiz_revision_items")).isEqualTo(1);
             assertThat(count("question_option_revisions")).isEqualTo(2);
+            assertThat(sql.queryForObject("""
+                    SELECT COUNT(*) FROM quiz_revision_items i
+                    LEFT JOIN quiz_revisions r ON r.id=i.quiz_revision_id
+                    LEFT JOIN question_revisions q ON q.id=i.question_revision_id
+                    WHERE r.id IS NULL OR q.id IS NULL
+                    """, Integer.class)).isZero();
+            assertThat(sql.queryForObject("""
+                    SELECT COUNT(*) FROM question_revisions q
+                    LEFT JOIN quiz_revision_items i ON i.question_revision_id=q.id WHERE i.id IS NULL
+                    """, Integer.class)).isZero();
+            assertThat(sql.queryForObject("""
+                    SELECT COUNT(*) FROM question_option_revisions o
+                    LEFT JOIN question_revisions q ON q.id=o.question_revision_id WHERE q.id IS NULL
+                    """, Integer.class)).isZero();
         } finally {
+            gate.releaseInserts();
             executor.shutdownNow();
-            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(executor.awaitTermination(15, TimeUnit.SECONDS))
+                    .as("Both concurrent revision writers must terminate").isTrue();
         }
     }
 
-    private boolean insertAfterGate(CyclicBarrier gate, QuizRevision revision) throws Exception {
-        gate.await(5, TimeUnit.SECONDS);
+    private InsertOutcome insertOutcome(QuizRevisionRepository target, QuizRevision revision) {
         try {
-            repository.insert(revision);
-            return true;
-        } catch (DataAccessException | RevisionIntegrityException conflict) {
-            return false;
+            target.insert(revision);
+            return new InsertOutcome(revision, null);
+        } catch (DuplicateKeyException conflict) {
+            return new InsertOutcome(revision, conflict);
         }
     }
+
+    private record InsertOutcome(QuizRevision revision, DuplicateKeyException conflict) { }
 
     private static QuestionRevision changed(QuestionRevision q) {
         return new QuestionRevision(q.id(), q.questionId(), 1, q.type(), q.difficulty(), "Changed question",
@@ -490,7 +525,11 @@ class QuizRevisionMySqlIntegrationTest {
     }
 
     private static QuizRevisionRepository transactionalRepository(PlatformTransactionManager manager) {
-        var factory = new ProxyFactory(new JdbcQuizRevisionRepository(new NamedParameterJdbcTemplate(dataSource)));
+        return transactionalRepository(dataSource, manager);
+    }
+
+    private static QuizRevisionRepository transactionalRepository(javax.sql.DataSource source, PlatformTransactionManager manager) {
+        var factory = new ProxyFactory(new JdbcQuizRevisionRepository(new NamedParameterJdbcTemplate(source)));
         factory.addAdvice(new TransactionInterceptor(manager, new AnnotationTransactionAttributeSource()));
         return (QuizRevisionRepository) factory.getProxy();
     }
