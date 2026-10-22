@@ -530,7 +530,7 @@ Expose summaries via projections for tables; page aggressively.
 ## 19) Issue Readiness
 
 - Follow `docs/github-issue-guide.md` for issue structure and labels.
-- Check `docs/open-issue-roadmap.md` before starting implementation.
+- Check `docs/architecture/decision-register.md`, `docs/architecture/open-questions.md` and the exact owning issue before starting implementation.
 - Prefer a vertical, testable outcome over separate controller/service/repository tickets.
 
 ## 20) Anti-Patterns (hard NOs)

@@ -116,7 +116,7 @@ So that ...
 ## Documentation
 
 - OpenAPI, user documentation, developer/architecture docs, runbooks, migration notes, and frontend guidance where affected
-- A required `docs/manual-testing/issue-<number>-<slug>.md` manual guide for implemented product, API, security, data, or operational work
+- A `docs/manual-testing/issue-<number>-<slug>.md` guide only when directly requested by the repository owner; otherwise record essential manual/operator verification in the implementation handoff
 
 ## Dependencies
 

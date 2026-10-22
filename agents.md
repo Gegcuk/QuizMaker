@@ -318,5 +318,5 @@ Ask before:
 ## Issue readiness
 
 - Read `docs/github-issue-guide.md` before creating or refining issues.
-- Check `docs/open-issue-roadmap.md` for dependency order and stale/duplicate candidates.
+- Check `docs/architecture/decision-register.md`, `docs/architecture/open-questions.md` and the exact owning GitHub issue for approved scope, dependency order and unresolved gates.
 - Prefer vertical, independently verifiable outcomes over horizontal class-by-class tasks.

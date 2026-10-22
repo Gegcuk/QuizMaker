@@ -42,9 +42,19 @@ hardening does not force another sign-in or change the token response schema.
 
 ## Lifetime and cleanup
 
-The current configuration is a 12-hour access token and a 7-day absolute
-refresh-session lifetime. Refresh rotation does not extend the seven-day
-deadline. The hourly session cleanup task removes rows after that deadline.
+The current configuration is a 12-hour access token and a four-day rolling
+refresh-session inactivity window. Each successful refresh atomically replaces
+the refresh verifier and sets the session and replacement refresh-token expiry
+to four days after that refresh. Ordinary authenticated requests do not extend
+the window. An expired session cannot be renewed by refresh.
+
+For example, a successful refresh three days after login moves expiry to day
+seven; another successful refresh on day six moves it to day ten. There is no
+seven-day absolute cap in this implementation. The hourly cleanup task removes
+rows after their current stored expiry. These values come from
+`jwt.access-expiration-ms` and `jwt.refresh-expiration-ms` in
+`src/main/resources/application.properties`; the public refresh contract is
+documented by `AuthController`.
 
 Do not manually modify `auth_sessions`, token claims, or the Flyway history.
 For a suspected token incident, rotate the JWT signing secret through the normal

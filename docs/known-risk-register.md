@@ -1,21 +1,33 @@
 # Known Risk Register
 
-This register preserves verified concerns found while cleaning older reviews. Each item must be rechecked against the current branch before implementation and converted into a properly scoped issue. It does not grant permission to change code or deployment configuration without approval.
+Current source review: 21 October 2026. This file retains unresolved verification
+and coverage risks only. Current implemented contracts belong in their runbooks;
+completed fixes are not open product decisions.
 
-## P0: Deployment Workflow Exposes Sensitive Values In Logs
+## Deployment security evidence remains unverified
 
-Evidence: `.github/workflows/deploy-backend.yml` enables `MYSQL_INIT_SHOW_SECRETS` and prints database credential fragments and debug information while creating and loading the production `.env` file.
+The checked-in deploy workflow disables `MYSQL_INIT_SHOW_SECRETS` and uses
+`docker compose config --quiet`. Source inspection does not establish which
+workflow versions ran, whether accessible logs contain credentials, or whether
+any necessary log-access restriction and credential rotation was completed.
+Verify those facts through the responsible deployment/security process without
+requesting or reproducing secrets. This is an evidence gap, not a claim of an
+active exposure or a reason to change the working authentication model.
 
-Risk: deployment logs can expose credentials or enough material to weaken their protection. This should be remediated before the next deployment by removing secret-oriented diagnostics, rotating any potentially exposed credentials, and verifying that logs show variable names or lengths only where operationally necessary.
+Related scope: [release verification](architecture/open-questions.md#oq-release)
+and [#427](https://github.com/Gegcuk/QuizMaker/issues/427).
 
-## P1: Logout Contract Does Not Match Behaviour
+## Security scanning coverage is not established
 
-Evidence: `AuthController` documents logout as revoking the access token, but `AuthServiceImpl.logout` has no implementation.
+The checked-in workflows provide build/test and deployment jobs but no CodeQL,
+dependency-vulnerability scan or equivalent scheduled check. Repository settings
+or external scanners have not been verified.
 
-Risk: clients can reasonably assume a successful logout invalidates the token when it does not. Decide and document one supported session model: token revocation or blacklist, refresh-token/session invalidation, or explicit stateless logout that only clears the client. Align OpenAPI and tests with that decision.
+Confirm actual coverage before choosing a tool or declaring scanning absent.
+Any missing policy must identify triage responsibility, false-positive handling,
+severity thresholds, report retention and whether findings block merges. No tool,
+dependency or merge-blocking threshold is selected by this register.
 
-## P2: No Automated Dependency Or Static Security Scanning
-
-Evidence: the current GitHub workflows have build/test and deployment jobs but no CodeQL, dependency vulnerability scan, or equivalent scheduled security check.
-
-Risk: known vulnerable dependencies and common static-analysis findings can remain undetected between manual reviews. Create a separate CI issue that defines the chosen tools, false-positive process, severity threshold, report retention, and whether findings block merges.
+Related scope: [release verification](architecture/open-questions.md#oq-release),
+[#460](https://github.com/Gegcuk/QuizMaker/issues/460), and
+[#427](https://github.com/Gegcuk/QuizMaker/issues/427).

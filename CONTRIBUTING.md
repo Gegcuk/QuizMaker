@@ -8,7 +8,7 @@ This repository accepts implementation work through a local-first workflow. The 
 - Use [the issue-writing guide](docs/github-issue-guide.md) when creating or refining an issue.
 - Use [the developer workflow](docs/developer-workflow.md) to take an issue from discovery through verification.
 - Use [the testing guide](docs/testing-guide.md) to select the correct test layer and assertions.
-- Check [the open-issue roadmap](docs/open-issue-roadmap.md) before starting work that may depend on another issue.
+- Check [approved decisions](docs/architecture/decision-register.md), [near-term dependencies and open questions](docs/architecture/open-questions.md#near-term-order), and the exact owning issue before starting dependent work.
 - Read [the known risk register](docs/known-risk-register.md) before changing authentication, CI, deployment, or secret handling.
 
 ## Local-Only Git Policy

@@ -8,7 +8,7 @@ Read these documents in order:
 
 1. [Contribution and local Git rules](../CONTRIBUTING.md)
 2. [Issue-writing guide](github-issue-guide.md)
-3. [Open-issue dependency roadmap](open-issue-roadmap.md)
+3. [Approved architecture decisions](architecture/decision-register.md) and [near-term dependencies/open questions](architecture/open-questions.md#near-term-order)
 4. [Detailed development rules](agents.md)
 5. [Testing guide](testing-guide.md)
 6. [Known risk register](known-risk-register.md), when touching authentication, deployment, CI, or secrets.

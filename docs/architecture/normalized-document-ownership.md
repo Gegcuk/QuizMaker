@@ -22,6 +22,12 @@ Nullability is intentional for rollout compatibility. Existing rows have no trus
 
 Physical user deletion sets `owner_id` to null, so retained document content becomes inaccessible. Soft-deleted and inactive owners are also denied. Deleting quarantined content requires a separately approved retention/backup procedure.
 
+The remaining sharing and quarantined-content lifecycle questions are tracked in
+[open questions: normalized documents](open-questions.md#oq-documents). This
+ownership boundary sets no retention duration or cleanup policy; applying
+execution-data governance to these source documents requires an explicit scope
+decision.
+
 ## Bounded Multipart Ingestion
 
 Multipart uploads use the same `DocumentUploadStagingService` and singleton `DocumentParseExecutor` as `/api/documents`. Files are streamed to server-owned staging, checked against the shared size/type/resource limits, and parsed under the same global and per-owner admission budget. The controller never calls `MultipartFile.getBytes()`.
