@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.documentProcess.application;
 
+import uk.gegc.quizmaker.features.documentProcess.application.impl.StructureServiceImpl;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,7 +30,7 @@ import static org.mockito.Mockito.*;
 class StructureServiceEdgeCaseTest {
 
     @Mock
-    private OpenAiLlmClient llmClient;
+    private LlmClient llmClient;
 
     @Mock
     private AnchorOffsetCalculator anchorOffsetCalculator;
@@ -45,8 +47,13 @@ class StructureServiceEdgeCaseTest {
     @Mock
     private ChunkedStructureService chunkedStructureService;
 
+    @org.mockito.Spy
+    private org.springframework.transaction.support.TransactionTemplate transactionTemplate = new ImmediateTransactionTemplate();
+    @org.mockito.Spy
+    private java.time.Clock clock = java.time.Clock.systemUTC();
+
     @InjectMocks
-    private StructureService service;
+    private StructureServiceImpl service;
 
     private UUID documentId;
     private NormalizedDocument document;
@@ -54,6 +61,12 @@ class StructureServiceEdgeCaseTest {
 
     @BeforeEach
     void setUp() {
+        GuardedLlmClientDefaults.enable(llmClient);
+        org.mockito.Mockito.lenient().when(documentRepository.publishStructureVersion(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(1);
+        org.mockito.Mockito.lenient().when(documentRepository.getReferenceById(org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(call -> documentRepository.findById(call.getArgument(0)).orElseThrow());
         documentId = UUID.randomUUID();
         document = new NormalizedDocument();
         document.setId(documentId);
@@ -96,7 +109,7 @@ class StructureServiceEdgeCaseTest {
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(lowConfidenceNodes);
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(lowConfidenceNodes);
+
         lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
         lenient().doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 
@@ -127,7 +140,7 @@ class StructureServiceEdgeCaseTest {
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(highConfidenceNodes);
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(highConfidenceNodes);
+
         lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
         lenient().doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 
@@ -232,7 +245,7 @@ class StructureServiceEdgeCaseTest {
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(deepNestedNodes);
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(deepNestedNodes);
+
         lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
         lenient().doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 
@@ -263,7 +276,7 @@ class StructureServiceEdgeCaseTest {
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(mixedDepthNodes);
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(mixedDepthNodes);
+
         lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
         lenient().doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 
@@ -293,7 +306,7 @@ class StructureServiceEdgeCaseTest {
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(createTestNodes());
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(createTestNodes());
+
         lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
         lenient().doThrow(new RuntimeException("Sibling overlap detected")).when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 
@@ -324,7 +337,7 @@ class StructureServiceEdgeCaseTest {
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(createTestNodes());
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(createTestNodes());
+
         lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
         lenient().doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 
@@ -354,7 +367,7 @@ class StructureServiceEdgeCaseTest {
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(createTestNodes());
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(createTestNodes());
+
         lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
         lenient().doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 
@@ -448,7 +461,7 @@ class StructureServiceEdgeCaseTest {
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(createTestNodes());
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(any())).thenReturn(createTestNodes());
+
         lenient().doNothing().when(hierarchyBuilder).validateParentChildContainment(anyList());
         lenient().doNothing().when(anchorOffsetCalculator).validateSiblingNonOverlap(anyList());
 

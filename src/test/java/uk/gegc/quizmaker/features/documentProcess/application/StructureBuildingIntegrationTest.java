@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.documentProcess.application;
 
+import uk.gegc.quizmaker.features.documentProcess.application.impl.StructureServiceImpl;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -37,7 +39,7 @@ class StructureBuildingIntegrationTest {
     private NormalizedDocumentRepository documentRepository;
 
     @Mock
-    private OpenAiLlmClient llmClient;
+    private LlmClient llmClient;
 
     @Mock
     private AnchorOffsetCalculator anchorOffsetCalculator;
@@ -48,8 +50,13 @@ class StructureBuildingIntegrationTest {
     @Mock
     private ChunkedStructureService chunkedStructureService;
 
+    @org.mockito.Spy
+    private org.springframework.transaction.support.TransactionTemplate transactionTemplate = new ImmediateTransactionTemplate();
+    @org.mockito.Spy
+    private java.time.Clock clock = java.time.Clock.systemUTC();
+
     @InjectMocks
-    private StructureService service;
+    private StructureServiceImpl service;
 
     private UUID documentId;
     private NormalizedDocument document;
@@ -58,6 +65,12 @@ class StructureBuildingIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        GuardedLlmClientDefaults.enable(llmClient);
+        org.mockito.Mockito.lenient().when(documentRepository.publishStructureVersion(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(1);
+        org.mockito.Mockito.lenient().when(documentRepository.getReferenceById(org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(call -> documentRepository.findById(call.getArgument(0)).orElseThrow());
         documentId = UUID.randomUUID();
         
         document = new NormalizedDocument();
@@ -93,14 +106,14 @@ class StructureBuildingIntegrationTest {
         lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
         lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+
 
         // When
         service.buildStructure(documentId);
 
         // Then
         verify(nodeRepository, times(1)).saveAll(anyList());
-        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
+        verify(nodeRepository, never()).findByDocument_IdOrderByStartOffset(documentId); // Prepared in memory, without a relationship read
     }
 
     @Test
@@ -115,14 +128,14 @@ class StructureBuildingIntegrationTest {
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+
 
         // When
         service.buildStructure(documentId);
 
         // Then
         verify(nodeRepository, times(3)).saveAll(anyList()); // One for each depth level
-        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
+        verify(nodeRepository, never()).findByDocument_IdOrderByStartOffset(documentId); // Prepared in memory, without a relationship read
     }
 
     @Test
@@ -185,14 +198,14 @@ class StructureBuildingIntegrationTest {
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+
 
         // When
         service.buildStructure(documentId);
 
         // Then
         verify(nodeRepository, times(4)).saveAll(anyList()); // One for each depth level
-        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
+        verify(nodeRepository, never()).findByDocument_IdOrderByStartOffset(documentId); // Prepared in memory, without a relationship read
     }
 
     @Test
@@ -207,14 +220,14 @@ class StructureBuildingIntegrationTest {
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+
 
         // When
         service.buildStructure(documentId);
 
         // Then
         verify(nodeRepository, times(2)).saveAll(anyList());
-        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
+        verify(nodeRepository, never()).findByDocument_IdOrderByStartOffset(documentId); // Prepared in memory, without a relationship read
     }
 
     @Test
@@ -227,14 +240,14 @@ class StructureBuildingIntegrationTest {
         lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
         lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+
 
         // When
         service.buildStructure(documentId);
 
         // Then
         verify(nodeRepository, times(1)).saveAll(anyList());
-        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
+        verify(nodeRepository, never()).findByDocument_IdOrderByStartOffset(documentId); // Prepared in memory, without a relationship read
     }
 
     @Test
@@ -247,14 +260,14 @@ class StructureBuildingIntegrationTest {
         lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
         lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+
 
         // When
         service.buildStructure(documentId);
 
         // Then
         verify(nodeRepository, times(1)).saveAll(anyList());
-        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
+        verify(nodeRepository, never()).findByDocument_IdOrderByStartOffset(documentId); // Prepared in memory, without a relationship read
     }
 
     @Test
@@ -267,14 +280,14 @@ class StructureBuildingIntegrationTest {
         lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
         lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+
 
         // When
         service.buildStructure(documentId);
 
         // Then
         verify(nodeRepository, times(1)).saveAll(anyList());
-        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
+        verify(nodeRepository, never()).findByDocument_IdOrderByStartOffset(documentId); // Prepared in memory, without a relationship read
     }
 
     @Test
@@ -287,14 +300,14 @@ class StructureBuildingIntegrationTest {
         lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
         lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+
 
         // When
         service.buildStructure(documentId);
 
         // Then
         verify(nodeRepository, times(1)).saveAll(anyList());
-        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
+        verify(nodeRepository, never()).findByDocument_IdOrderByStartOffset(documentId); // Prepared in memory, without a relationship read
     }
 
     @Test
@@ -308,21 +321,21 @@ class StructureBuildingIntegrationTest {
         List<DocumentNode> aiNodes = createMultiLevelStructure();
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
         lenient().when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
-        lenient().when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
+        lenient().when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString()), any(Runnable.class)))
             .thenReturn(aiNodes);
         lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+
 
         // When
         service.buildStructure(documentId);
 
         // Then
-        verify(chunkedStructureService).processLargeDocument(eq(largeText), any(), eq(documentId.toString()));
+        verify(chunkedStructureService).processLargeDocument(eq(largeText), any(), eq(documentId.toString()), any(Runnable.class));
         verify(nodeRepository, times(3)).saveAll(anyList()); // One for each depth level
-        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId);
+        verify(nodeRepository, never()).findByDocument_IdOrderByStartOffset(documentId);
         verify(llmClient, never()).generateStructure(any(), any());
     }
 
@@ -336,7 +349,7 @@ class StructureBuildingIntegrationTest {
         
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
         lenient().when(chunkedStructureService.needsChunking(largeText)).thenReturn(true);
-        lenient().when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString())))
+        lenient().when(chunkedStructureService.processLargeDocument(eq(largeText), any(), eq(documentId.toString()), any(Runnable.class)))
             .thenThrow(new RuntimeException("Chunked processing failed"));
 
         // When & Then
@@ -344,7 +357,7 @@ class StructureBuildingIntegrationTest {
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("Unexpected error during structure building");
 
-        verify(chunkedStructureService).processLargeDocument(eq(largeText), any(), eq(documentId.toString()));
+        verify(chunkedStructureService).processLargeDocument(eq(largeText), any(), eq(documentId.toString()), any(Runnable.class));
         verify(llmClient, never()).generateStructure(any(), any());
     }
 
@@ -371,16 +384,16 @@ class StructureBuildingIntegrationTest {
                 return nodes;
             });
         lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+
 
         // When
         service.buildStructure(documentId);
 
         // Then
         verify(llmClient).generateStructure(eq(smallText), any());
-        verify(chunkedStructureService, never()).processLargeDocument(anyString(), any(), anyString());
+        verify(chunkedStructureService, never()).processLargeDocument(anyString(), any(), anyString(), any(Runnable.class));
         verify(nodeRepository, times(1)).saveAll(anyList());
-        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId);
+        verify(nodeRepository, never()).findByDocument_IdOrderByStartOffset(documentId);
     }
 
     // Helper methods to create test data

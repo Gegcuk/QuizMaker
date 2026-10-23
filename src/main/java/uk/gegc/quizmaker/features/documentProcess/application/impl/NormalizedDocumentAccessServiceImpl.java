@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -20,6 +21,8 @@ import uk.gegc.quizmaker.features.documentProcess.application.NormalizedDocument
 import uk.gegc.quizmaker.features.documentProcess.application.NormalizedDocumentAccessService;
 import uk.gegc.quizmaker.features.documentProcess.application.NormalizedDocumentFilePreparationService;
 import uk.gegc.quizmaker.features.documentProcess.application.StructureService;
+import uk.gegc.quizmaker.features.documentProcess.application.StructureBuildSource;
+import uk.gegc.quizmaker.features.documentProcess.domain.model.DocumentNode;
 import uk.gegc.quizmaker.features.documentProcess.domain.model.NormalizedDocument;
 import uk.gegc.quizmaker.features.documentProcess.infra.repository.NormalizedDocumentRepository;
 import uk.gegc.quizmaker.features.documentProcess.infra.repository.NormalizedDocumentRepository.OwnerAuthorization;
@@ -30,6 +33,7 @@ import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.time.Duration;
 import java.util.Objects;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -167,11 +171,43 @@ public class NormalizedDocumentAccessServiceImpl implements NormalizedDocumentAc
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.NEVER)
     public void buildStructure(String username, UUID documentId) {
-        withOwnedDocument(username, documentId, () -> {
-            structureService.buildStructure(documentId);
-            return null;
+        StructureBuildSource source = Objects.requireNonNull(transactionTemplate.execute(status ->
+                withOwnedDocument(username, documentId, () -> structureService.readBuildSource(documentId))));
+        List<DocumentNode> nodes;
+        try {
+            nodes = structureService.prepare(source, LlmClient.StructureOptions.defaultOptions(),
+                () -> transactionTemplate.executeWithoutResult(status ->
+                        withOwnedDocument(username, documentId, () -> {
+                            long current = documentRepository.findSourceVersion(documentId)
+                                    .orElseThrow(() -> denied(NormalizedDocumentAccessMetrics.Outcome.OWNER_DENIED));
+                            if (current != source.version()) {
+                                throw new IllegalStateException("Document changed during structure building");
+                            }
+                            return null;
+                        })));
+        } catch (RuntimeException failure) {
+            recordDependencyFailure(failure);
+            throw failure;
+        }
+        transactionTemplate.executeWithoutResult(status -> {
+            // Lock the user first, matching deletion/FK ordering; provider waits never hold this lock.
+            User owner = source.ownerId() == null ? null :
+                    userRepository.findByIdForOwnershipWrite(source.ownerId()).orElse(null);
+            if (owner == null || !owner.isActive() || owner.isDeleted()
+                    || !username.equals(owner.getUsername())) {
+                throw denied(NormalizedDocumentAccessMetrics.Outcome.OWNER_DENIED);
+            }
+            long version = documentRepository.lockSourceVersionForOwner(documentId, source.ownerId())
+                    .orElseThrow(() -> denied(NormalizedDocumentAccessMetrics.Outcome.OWNER_DENIED));
+            if (version != source.version()) {
+                throw new IllegalStateException("Document changed during structure building");
+            }
+            withOwnedDocument(username, documentId, () -> {
+                structureService.publish(source, nodes);
+                return null;
+            });
         });
     }
 

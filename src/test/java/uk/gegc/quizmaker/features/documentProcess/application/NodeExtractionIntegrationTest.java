@@ -53,6 +53,7 @@ class NodeExtractionIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        GuardedLlmClientDefaults.enable(llmClient);
         // Clean up before each test
         nodeRepository.deleteAll();
         documentRepository.deleteAll();

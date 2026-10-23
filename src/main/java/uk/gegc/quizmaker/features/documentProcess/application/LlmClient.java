@@ -39,6 +39,18 @@ public interface LlmClient {
         return generateStructure(text, options);
     }
 
+    /** Revalidate immediately before dispatch; adapters with internal retries must guard every attempt. */
+    default List<DocumentNode> generateStructure(String text, StructureOptions options, Runnable authorizeDispatch) {
+        authorizeDispatch.run();
+        return generateStructure(text, options);
+    }
+
+    default List<DocumentNode> generateStructureWithContext(String text, StructureOptions options,
+            List<DocumentNode> previousNodes, int chunkIndex, int totalChunks, Runnable authorizeDispatch) {
+        authorizeDispatch.run();
+        return generateStructureWithContext(text, options, previousNodes, chunkIndex, totalChunks);
+    }
+
     /**
      * Configuration options for structure generation.
      */

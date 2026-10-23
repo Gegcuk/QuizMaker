@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
+@org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
 class StructureServiceIntegrationTest extends BaseIntegrationTest {
 
     @Autowired
@@ -38,11 +39,15 @@ class StructureServiceIntegrationTest extends BaseIntegrationTest {
     @MockitoBean
     private LlmClient llmClient;
 
+    @Autowired
+    private uk.gegc.quizmaker.features.user.domain.repository.UserRepository users;
+
     private UUID documentId;
     private NormalizedDocument document;
 
     @BeforeEach
     void setUp() {
+        GuardedLlmClientDefaults.enable(llmClient);
         // Clean up any existing data
         nodeRepository.deleteAll();
         documentRepository.deleteAll();
@@ -63,6 +68,52 @@ class StructureServiceIntegrationTest extends BaseIntegrationTest {
                 String documentText = invocation.getArgument(0);
                 return createTestNodesForDocument(documentText);
             });
+    }
+
+    @Test
+    void unauthenticatedHttpBuildUsesRealSecurityAndNeverDispatchesProvider() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                        "/api/v1/documentProcess/documents/{id}/structure", documentId).accept("application/json"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
+        org.mockito.Mockito.verifyNoInteractions(llmClient);
+    }
+
+    @Test
+    void realHttpBuildPreservesSuccessDenialAndRepeatContracts() throws Exception {
+        var owner = new uk.gegc.quizmaker.features.user.domain.model.User();
+        owner.setUsername("http850-" + UUID.randomUUID().toString().substring(0, 12));
+        owner.setEmail(owner.getUsername() + "@example.invalid");
+        owner.setHashedPassword("unused-synthetic-hash");
+        owner.setPasswordChangedAt(java.time.LocalDateTime.of(2026, 1, 1, 0, 0));
+        owner.setActive(true);
+        owner.setDeleted(false);
+        owner = users.saveAndFlush(owner);
+        document.setOwner(owner);
+        document = documentRepository.saveAndFlush(document);
+        try {
+            var post = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                    "/api/v1/documentProcess/documents/{id}/structure", documentId);
+            mockMvc.perform(post.with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user(owner.getUsername())))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.status").value("STRUCTURED"));
+            var before = structureService.getTree(documentId);
+            mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                    "/api/v1/documentProcess/documents/{id}/structure", documentId)
+                    .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("another-owner").roles("ADMIN")))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.detail").value("Document not found"));
+            mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                    "/api/v1/documentProcess/documents/{id}/structure", documentId)
+                    .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user(owner.getUsername())))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isBadRequest())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.status").value("FAILED"));
+            assertThat(structureService.getTree(documentId)).isEqualTo(before);
+            org.mockito.Mockito.verify(llmClient, org.mockito.Mockito.times(1)).generateStructure(anyString(), any());
+        } finally {
+            nodeRepository.deleteAll();
+            documentRepository.deleteById(documentId);
+            users.deleteById(owner.getId());
+        }
     }
 
     @Test
@@ -140,41 +191,28 @@ class StructureServiceIntegrationTest extends BaseIntegrationTest {
 
     @Test
     @DisplayName("Should handle concurrent access to same document")
-    void shouldHandleConcurrentAccessToSameDocument() throws InterruptedException {
-        // Given
-        AtomicInteger successCount = new AtomicInteger(0);
-        AtomicInteger failureCount = new AtomicInteger(0);
-        
-        Runnable buildStructureTask = () -> {
-            try {
-                structureService.buildStructure(documentId);
-                successCount.incrementAndGet();
-            } catch (Exception e) {
-                failureCount.incrementAndGet();
-                // Expected for concurrent access - one might fail due to race condition
-            }
+    void shouldHandleConcurrentAccessToSameDocument() throws Exception {
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.Callable<Throwable> task = () -> {
+            if (!start.await(10, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("start timeout");
+            try { structureService.buildStructure(documentId); return null; }
+            catch (RuntimeException failure) { return failure; }
         };
-        
-        // When - Start multiple threads
-        Thread thread1 = new Thread(buildStructureTask);
-        Thread thread2 = new Thread(buildStructureTask);
-        
-        thread1.start();
-        thread2.start();
-        
-        thread1.join();
-        thread2.join();
-        
-        // Then - At least one should succeed OR if both fail, we should have no nodes
-        List<DocumentNode> savedNodes = nodeRepository.findByDocument_IdOrderByStartOffset(documentId);
-        
-        if (successCount.get() > 0) {
-            // At least one thread succeeded, so we should have nodes
-            assertThat(savedNodes).isNotEmpty();
-        } else {
-            // Both threads failed, so we should have no nodes
-            assertThat(savedNodes).isEmpty();
-            assertThat(failureCount.get()).isEqualTo(2);
+        try {
+            var first = executor.submit(task);
+            var second = executor.submit(task);
+            start.countDown();
+            var outcomes = java.util.Arrays.asList(first.get(10, java.util.concurrent.TimeUnit.SECONDS),
+                    second.get(10, java.util.concurrent.TimeUnit.SECONDS));
+            assertThat(outcomes.stream().filter(java.util.Objects::isNull).count()).isEqualTo(1);
+            assertThat(outcomes.stream().filter(java.util.Objects::nonNull).toList()).singleElement()
+                    .isInstanceOf(IllegalStateException.class);
+            assertThat(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).isNotEmpty();
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
         }
     }
 

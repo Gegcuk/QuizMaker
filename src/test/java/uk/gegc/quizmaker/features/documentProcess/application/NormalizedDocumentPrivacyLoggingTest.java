@@ -54,6 +54,9 @@ class NormalizedDocumentPrivacyLoggingTest {
     private Logger attachedLogger;
     private ListAppender<ILoggingEvent> appender;
 
+    @org.junit.jupiter.api.BeforeEach
+    void guardedPortDefaults() { GuardedLlmClientDefaults.enable(llmClient); }
+
     @AfterEach
     void detachAppender() {
         if (attachedLogger != null && appender != null) {
@@ -130,9 +133,9 @@ class NormalizedDocumentPrivacyLoggingTest {
     @Test
     @DisplayName("fake AI response failure is sanitized before logging and before the application error")
     void fakeAiFailureOmitsRawResponse() {
-        capture(StructureService.class);
+        capture(uk.gegc.quizmaker.features.documentProcess.application.impl.StructureServiceImpl.class);
         AnchorOffsetCalculator anchorOffsetCalculator = new AnchorOffsetCalculator();
-        StructureService service = new StructureService(
+        StructureService service = new uk.gegc.quizmaker.features.documentProcess.application.impl.StructureServiceImpl(
                 nodeRepository,
                 documentRepository,
                 nodeMapper,
@@ -140,7 +143,7 @@ class NormalizedDocumentPrivacyLoggingTest {
                 anchorOffsetCalculator,
                 hierarchyBuilder,
                 queryService,
-                chunkedStructureService
+                chunkedStructureService, new ImmediateTransactionTemplate(), java.time.Clock.systemUTC()
         );
         UUID documentId = UUID.randomUUID();
         NormalizedDocument document = new NormalizedDocument();

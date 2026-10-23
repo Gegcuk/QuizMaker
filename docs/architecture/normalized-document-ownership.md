@@ -9,7 +9,7 @@ This boundary protects `/api/v1/documentProcess/documents` and all derived metad
 - The authenticated principal is resolved server-side. Requests never contain an owner identifier.
 - Every newly ingested `NormalizedDocument` has an active, non-deleted `User` owner.
 - Metadata, text, structure reads/builds, and extraction execute through `NormalizedDocumentAccessService`.
-- Current short reads lock the document and load only bounded owner-decision fields in one transaction. Current structure building also holds that transaction across AI; this is a known defect tracked in #850, not the required long-operation pattern.
+- Short reads lock the document and load only bounded owner-decision fields in one transaction. Structure builds use short source capture and publication transactions; AI and level preparation run with transactions forbidden.
 - Missing documents, wrong owners, deleted owners, and legacy rows with no owner all return the same `404 Document not found` response.
 - Existing paths and successful DTOs are unchanged.
 - There is no administrator or compatibility bypass. Future sharing requires a separate explicit visibility policy.
@@ -34,17 +34,21 @@ Parsing and normalization run with transactions forbidden. Publication then re-l
 
 ## Concurrency
 
-Owner authorization uses a native MySQL `FOR SHARE` query that returns only owner username/active/deleted fields. It does not materialize normalized document text for a denied or length-only request. For current delegated reads the lock remains until the read completes. The existing structure-build path also retains it across external AI and therefore blocks owner mutation during provider wait; #850 must correct that behavior without weakening ownership.
+Owner authorization uses a native MySQL `FOR SHARE` query that returns only owner username/active/deleted fields. It does not materialize normalized document text for a denied or length-only request. For current delegated reads the lock remains until the read completes. Structure building releases the initial authorization transaction before external AI. Each chunk dispatch and each physical retry in the OpenAI structure adapter rechecks current ownership and the captured source version in a separate short transaction. Publication locks the owner, then the document row, rechecks access/version, and commits the complete tree atomically.
 
 The owner decision is fetched in one authorization statement, regardless of how many other documents exist. Authorized content is loaded only by the requested operation. Structure node queries remain bounded by the existing document-level queries; no list endpoint was added.
 
 ### Required long-operation transaction boundary
 
-1. In a short transaction, authorize the active owner, capture bounded source/version identity and claim the build.
+1. In a short transaction, authorize the active owner and capture the source once, its owner identity and the persisted `source_version`. That version is an optimistic publication claim; it is not a lease or a publicly visible processing status.
 2. Perform bounded source processing and provider calls outside database transactions; no connection/owner lock is held during retry/backoff.
-3. In a short transaction, recheck owner activity/access, source version and claim, then publish the complete structure atomically. A stale/unauthorized result cannot publish nodes or overwrite another build's committed tree.
+3. In a short transaction, lock/recheck the active owner, acquire the document write lock before the shared authorization read, and compare the captured version. A conditional metadata update advances `source_version` and status together with all node inserts. A stale/unauthorized result cannot publish nodes or overwrite another build's committed tree.
 
 Account deactivation/deletion must be able to commit while the fake provider is blocked. An already-authorized in-flight provider request cannot be retroactively unsent; after revocation no new dispatch/publication is authorized. Compare persisted bounded versions, not a hash of complete document text.
+
+Migration `V83__add_normalized_document_source_version.sql` adds a non-null `BIGINT` counter defaulting to zero. Existing content/status/owners are preserved. JPA updates increment the counter; publication compares and advances it without rereading `LONGTEXT`. Source updates outside JPA must preserve this invariant too. Keep the additive column when rolling application code back; a forward fix is preferred over dropping version evidence.
+
+Concurrent callers may prepare the same captured source, as before, but only one can publish it. The loser receives the existing sanitized `400` / `StructureBuildResponse` failure envelope. There is no new automatic retry, claim timeout, provider-attempt limit or recovery scheduler. A failed pre-commit publication rolls back nodes, status and version, allowing an explicit first-build retry. After a committed success or a lost success response, a fresh read is authoritative; repeating build still refuses a `STRUCTURED` document before any further provider call.
 
 The current public build accepts only `NORMALIZED` documents. `STRUCTURED` is rejected before AI; the current API provides no reset/rebuild operation. Preserve that status guard and atomic first publication. The internal deletion of existing nodes in `StructureService` does not establish a public replacement capability.
 
@@ -85,7 +89,7 @@ Normalized-document processing must not log or expose filenames, source text, se
 
 ## Deployment And Rollback
 
-Apply V74 before starting the new application. The migration is additive and old binaries ignore the nullable column, but old binaries do not enforce this security boundary.
+Apply V74 and V83 before starting the new application. The migration is additive and old binaries ignore the nullable column, but old binaries do not enforce this security boundary.
 
 After the owner-aware version has served traffic, do not roll back to a pre-V74 application by itself: that would make UUID-only reads possible again and new rows created by the old binary would be unowned. Use one of these rollback paths:
 
@@ -97,3 +101,8 @@ Do not drop `owner_id` or backfill legacy rows during an application rollback. T
 ## Offline Testing
 
 Tests use repository doubles, a fake `LlmClient` failure, MockMvc, Micrometer's in-memory registry, and local MySQL. They never contact OpenAI or another external service. No document-content hashing is used for ownership or version control.
+
+
+`NormalizedDocumentStructureBuildMySqlIntegrationTest` proves transaction-free provider dispatch, owner mutation during provider wait, source/claim conflicts, a successful concurrent winner, real first-build rollback, and repeat-build refusal after a fresh persistence unit and service restart. Its multiple-document fixture measures the tree and flat reads at 21 SQL statements for three documents with either one or eight parent groups (three levels each); statement count does not grow with those relationships. Source capture is the only full-text SELECT in a successful build. The real OpenAI adapter is also composed with the real ownership transactions and a fake ChatModel: allowed processing succeeds, while revocation after its first failed call prevents another physical dispatch; retry limits and backoff settings are unchanged.
+
+`NormalizedDocumentSourceVersionMigrationTest` applies the actual V83 Flyway migration to a connection-local MySQL table and proves legacy content/status preservation and non-null zero defaults. `DocumentStructureOpenApiContractTest` covers the full/group specifications, named success/failure envelopes, examples and discovery. `StructureServiceIntegrationTest` checks the real HTTP security, owner-only success, wrong-owner denial and unchanged repeat-build refusal using a fake provider.
