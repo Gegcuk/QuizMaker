@@ -8,6 +8,8 @@ Do not implement an issue until it identifies the user or system problem, testab
 
 An incomplete issue is not ready. Refine it before implementation rather than silently making product, security, privacy, persistence, or client-contract decisions. A good issue describes an independently verifiable vertical slice; it does not prescribe a class name or design pattern unless an approved architectural constraint requires one.
 
+Aim for about **750 added handwritten lines of implementation logic**, excluding tests and test fixtures. This is a preferred reviewability guideline, not a hard limit or an automatic reason to split. A larger coherent change is acceptable; split only into independently useful, compatible and verifiable outcomes.
+
 Prefer a vertical slice that delivers useful behavior across the necessary layers. Do not split one outcome into separate entity, repository, service, and controller issues unless they are independently releasable and explicitly linked as dependencies.
 
 ### Definition Of Ready
@@ -116,7 +118,7 @@ So that ...
 ## Documentation
 
 - OpenAPI, user documentation, developer/architecture docs, runbooks, migration notes, and frontend guidance where affected
-- A required `docs/manual-testing/issue-<number>-<slug>.md` manual guide for implemented product, API, security, data, or operational work
+- A `docs/manual-testing/issue-<number>-<slug>.md` guide only when directly requested by the repository owner; otherwise record essential manual/operator verification in the implementation handoff
 
 ## Dependencies
 
@@ -137,10 +139,24 @@ So that ...
 - [ ] Injected application services are used through their interfaces and feature package boundaries remain intact.
 - [ ] Logs expose no secrets or sensitive location data.
 - [ ] Automated checks and essential manual verification are recorded.
-- [ ] Work is committed locally only; no AI push, merge, or deployment occurs.
 ```
 
 Do not retain the old `## Dependencies and related work` heading in new issues; use the required `## Dependencies` heading.
+
+## Acceptance ownership and semantic reconciliation
+
+- Replace superseded AC in place. Appending a new contract while retaining contradictory old requirements leaves the issue unready.
+- For a shared scenario, name the assertion this issue owns, the realistic collaborator fake/contract it may use, and the downstream issue that proves the integrated outcome. A generic “shared scenarios do not expand scope” disclaimer is insufficient.
+- Replace copied full-flow checkboxes and matrix rows with those local assertions; do not retain them as mandatory runtime tests under a scope disclaimer. State whether a fixture proves configuration, mapping, orchestration or actual durable writes. Put the complete scenario in its named integration owner, including any conditional capability activation gate.
+- Follow both prerequisites and consumers when checking ownership. An acyclic native graph is insufficient if a prerequisite's AC requires its consumer's completed feature. Every real integration test must name the implementation that supplies each runtime operation; “section-runtime issue” or a generic fake is not an implementation dependency.
+- Check the transitive native prerequisite closure for every mandatory runtime operation, including adjacent foundation tasks. Add the smallest set of direct edges that supplies the consumed contracts; distinguish already delivered foundations and conditional extensions. A mandatory baseline cannot substitute ALL_AT_ONCE for ONE_AT_A_TIME or immediate release for scheduled release just because its declared prerequisites implement only the former.
+- Check both missing and unnecessary prerequisites against the exact selected baseline. A strategy contract needed by a producer must be upstream of that producer, not merely elsewhere in its consumer's graph. An unused stratified strategy must not block a RANDOM_COUNT baseline. For event pipelines, name the first real source writer and prove source/outbox atomicity separately from the consumer's durable delivery behavior; require their actual composition before activating the corresponding notification path.
+- Assign restore/replay per data family. An object/source erasure owner does not implicitly own restored history/result rows. The DB-family owner must prove real replay and serving guards with a committed pre-deletion snapshot, independently retained deletion facts, missing/incomplete evidence, restart and fresh reads. Provider/topology evidence is a separate deployment gate and cannot replace this local proof.
+- A denial test for an optional capability needs a successful positive control through the same implemented path. For example, complete formal translation must create one attempt and consume one allowance before an incomplete-translation fixture can prove the specific unavailable-language denial. Universal unsupported-flow rejection proves neither translation validation nor safe allowance handling.
+- Keep preparation/design tasks independently completable; distinguish deployment/capability activation evidence from unconditional native blockers. Team/custom/full-cutover checks must not block a narrower individual/FSRS/limited-activation outcome.
+- Use fresh-transaction reads for rollback/durability tests, committed fixtures for worker threads and controlled barriers for races. “Both workers failed” or mocked save counts cannot establish successful concurrency/durability.
+- Establish that a failure fixture reaches the intended operation through the current public/application preconditions. Assert the injected checkpoint was reached. A status guard before writes is a compatibility test, not rollback proof; do not add a public rebuild/reset operation merely to make a rollback fixture reachable.
+- Verify current issue bodies, relevant owner comments, native dependencies and source-document availability. A local document path or outdated `master` URL does not identify an unpublished reviewed snapshot.
 
 ## Instruction Quality
 

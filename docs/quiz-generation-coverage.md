@@ -69,6 +69,7 @@ cached pages even when freshness or the parent timestamp is unchanged.
 - Existing jobs and jobs that have not reached reconciliation return `coverage: null`.
 - No guessed values are backfilled for historical jobs.
 - Coverage may become visible while a job is still `PROCESSING` because it is persisted before checkpointing and finalization.
+- Before a durable output checkpoint exists, coverage is preliminary. If an interrupted execution is claimed for recovery, the server removes its unpublished coverage before regenerating. Polling can therefore observe coverage become null and later see a different decision. Once a durable output checkpoint exists, recovery uses that output for finalization and does not regenerate it.
 - Only `status == COMPLETED` means the quiz and billing settlement are durable and the quiz is available. A `COMPLETE` or `PARTIAL` coverage outcome alone never grants access.
 
 ## Response Contract
@@ -134,7 +135,7 @@ Optional frontend presentation is tracked separately in [QuizMaker-Frontend issu
 
 Use an unknown-value fallback for `coverage.outcome`. A client built before a future outcome is introduced must continue to rely on the stable job `status`, not fail the entire response or infer entitlement from an unfamiliar coverage value.
 
-Offline clients do not need a separate recovery endpoint. Resume polling the existing status endpoint after reconnecting. Identical server-side reconciliation retries retain the same immutable fact; a conflicting retry fails closed rather than replacing the first decision.
+Offline clients do not need a separate recovery endpoint. Resume polling the existing status endpoint after reconnecting. Identical reconciliation retries within one execution retain the same fact; a conflicting retry fails closed rather than overwriting it. A new fenced recovery execution may discard an unpublished decision only when no durable output checkpoint exists, as described in [durable dispatch and pre-checkpoint execution](runbooks/quiz-generation-finalization.md#durable-dispatch-and-pre-checkpoint-execution). A `PROCESSING` coverage observation is not a final result.
 
 ## Persistence And Privacy
 

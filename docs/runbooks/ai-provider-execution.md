@@ -147,8 +147,13 @@ workers and queue are full:
    release path, so invalid or missing output is not charged as successful work.
 
 This is post-acceptance protection. The generation endpoints and their `202`
-contract are unchanged. The durable FIFO sequence is internal; queue-position estimates remain a separate
-API change. Database failure during acceptance rolls back the command; after
+contract are unchanged. Existing generation-status responses expose optional
+`queuePosition`, `jobsAhead`, and `queuePositionAsOf` fields; see
+[owner-visible FIFO admission position](quiz-generation-finalization.md#owner-visible-fifo-admission-position).
+They report a snapshot of waiting admission order, not an estimated start or
+completion time. Recovery can increase a waiting position, and clients must
+handle null when the optional observation is unavailable. Database failure
+during acceptance rolls back the command; after
 acceptance, scan/dispatch failures retain work for retry. Provider `429`, `5xx`,
 malformed responses and transport errors retain their existing classification and
 fallback rules, bounded by the job deadline.

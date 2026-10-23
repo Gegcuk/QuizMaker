@@ -109,7 +109,8 @@ Human contributors and AI agents use the same local-first workflow:
 
 - [Contribution and local Git rules](CONTRIBUTING.md)
 - [GitHub issue format](docs/github-issue-guide.md)
-- [Open-issue implementation roadmap](docs/open-issue-roadmap.md)
+- [Architecture decisions and sources](docs/architecture/decision-register.md)
+- [Open questions and near-term dependencies](docs/architecture/open-questions.md#near-term-order)
 - [Developer workflow](docs/developer-workflow.md)
 - [Detailed architecture and quality rules](docs/agents.md)
 - [Testing guide](docs/testing-guide.md)
@@ -142,6 +143,10 @@ Implementation agents must not push, open or merge pull requests, release, or de
   - **`db/migration/`** — Flyway SQL migrations
   - **`email/`** — email templates
   - **`prompts/`** — AI prompts
+
+## Architecture and decisions
+
+Start with the [architecture decision register](docs/architecture/decision-register.md) for approved outcomes and their sources, then [remaining architecture questions](docs/architecture/open-questions.md) for unresolved contracts and cross-policy conflicts. The [policy-driven execution design](docs/architecture/policy-driven-quiz-execution.md) describes the target model; approval does not imply implementation or public activation. The register also distinguishes implemented contracts, proposals, and historical audits.
 
 ## API documentation
 
