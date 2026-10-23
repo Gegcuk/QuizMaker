@@ -67,6 +67,40 @@ class OpenAiLlmClientTest {
                 .thenReturn("Test prompt");
     }
 
+    @Test
+    void revokedAuthorizationStopsInternalRetryBeforeAnotherPhysicalDispatch() {
+        var authorized = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var checks = new java.util.concurrent.atomic.AtomicInteger();
+        var denial = new uk.gegc.quizmaker.shared.exception.ResourceNotFoundException("Document not found");
+        when(chatModel.call(any(Prompt.class))).thenAnswer(call -> {
+            authorized.set(false);
+            throw new IllegalStateException("controlled provider failure");
+        });
+        assertThatThrownBy(() -> llmClient.generateStructure("source", defaultOptions, () -> {
+            checks.incrementAndGet();
+            if (!authorized.get()) throw denial;
+        })).isSameAs(denial);
+        verify(chatModel, times(1)).call(any(Prompt.class));
+        assertThat(checks).hasValue(2);
+    }
+
+    @Test
+    void deniedFirstDispatchDoesNotCallProvider() {
+        var denial = new uk.gegc.quizmaker.shared.exception.ResourceNotFoundException("Document not found");
+        assertThatThrownBy(() -> llmClient.generateStructure("source", defaultOptions, () -> { throw denial; }))
+                .isSameAs(denial);
+        verifyNoInteractions(chatModel);
+    }
+
+    @Test
+    void authorizedGuardRetainsSuccessfulProviderResponse() {
+        when(chatModel.call(any(Prompt.class))).thenReturn(createChatResponse(createValidJsonResponse()));
+        var checks = new java.util.concurrent.atomic.AtomicInteger();
+        assertThat(llmClient.generateStructure("source", defaultOptions, checks::incrementAndGet)).hasSize(2);
+        assertThat(checks).hasValue(1);
+        verify(chatModel, times(1)).call(any(Prompt.class));
+    }
+
     @Nested
     @DisplayName("generateStructure Tests")
     class GenerateStructureTests {

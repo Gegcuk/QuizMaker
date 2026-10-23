@@ -379,22 +379,24 @@ public class DocumentProcessController {
 
     @Operation(
             summary = "Build document structure",
-            description = "Triggers AI-based structure extraction for the authenticated document owner. Missing, unowned, and other users' documents all return 404."
+            description = "Builds the first complete structure for the authenticated active owner of a NORMALIZED document. AI runs outside database transactions; ownership and source version are rechecked before atomic publication. Concurrent or stale builds and repeat builds of STRUCTURED documents return the existing 400 failure envelope. Missing, unowned, inactive-owner and other users' documents return the same 404. No public rebuild or partial-success state is provided."
     )
     @ApiResponses({
             @ApiResponse(
                     responseCode = "200",
                     description = "Structure built successfully",
-                    content = @Content(schema = @Schema(implementation = StructureBuildResponse.class))
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = StructureBuildResponse.class),
+                            examples = @ExampleObject(value = "{\"status\":\"STRUCTURED\",\"message\":\"Structure built successfully\"}"))
             ),
-            @ApiResponse(responseCode = "400", description = "Structure building failed (see message)",
-                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "400", description = "Build failed, source changed, another build won, or document is already structured; existing compatible failure envelope",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = StructureBuildResponse.class),
+                            examples = @ExampleObject(value = "{\"status\":\"FAILED\",\"message\":\"Structure could not be built\"}"))),
             @ApiResponse(responseCode = "401", description = "Authentication required",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "Document not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "500", description = "Unexpected error during structure building",
-                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+            @ApiResponse(responseCode = "500", description = "Unexpected error during structure building; existing compatible error envelope",
+                    content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE, schema = @Schema(implementation = StructureBuildResponse.class)))
     })
     @PostMapping("/{id}/structure")
     public ResponseEntity<StructureBuildResponse> buildStructure(

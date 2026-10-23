@@ -46,6 +46,7 @@ class ChunkedStructureServiceTest {
 
     @BeforeEach
     void setUp() {
+        GuardedLlmClientDefaults.enable(llmClient);
         options = LlmClient.StructureOptions.defaultOptions();
         documentId = "test-doc-123";
         

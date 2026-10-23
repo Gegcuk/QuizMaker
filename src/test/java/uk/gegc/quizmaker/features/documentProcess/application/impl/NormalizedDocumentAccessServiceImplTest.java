@@ -83,6 +83,15 @@ class NormalizedDocumentAccessServiceImplTest {
         document.setNormalizedText("private text");
         document.setSource(NormalizedDocument.DocumentSource.TEXT);
         document.setStatus(NormalizedDocument.DocumentStatus.NORMALIZED);
+        org.mockito.Mockito.lenient().when(transactionTemplate.execute(any())).thenAnswer(call -> {
+            org.springframework.transaction.support.TransactionCallback<?> action = call.getArgument(0);
+            return action.doInTransaction(new org.springframework.transaction.support.SimpleTransactionStatus());
+        });
+        org.mockito.Mockito.lenient().doAnswer(call -> {
+            java.util.function.Consumer<org.springframework.transaction.TransactionStatus> action = call.getArgument(0);
+            action.accept(new org.springframework.transaction.support.SimpleTransactionStatus());
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(any());
     }
 
     @Nested
@@ -280,10 +289,18 @@ class NormalizedDocumentAccessServiceImplTest {
 
             assertThat(service.getTree("owner", documentId)).isSameAs(tree);
             assertThat(service.getFlat("owner", documentId)).isSameAs(flat);
+            var source = new uk.gegc.quizmaker.features.documentProcess.application.StructureBuildSource(
+                    documentId, owner.getId(), 0, "private text", 12);
+            when(structureService.readBuildSource(documentId)).thenReturn(source);
+            when(structureService.prepare(org.mockito.ArgumentMatchers.eq(source), any(), any()))
+                    .thenAnswer(call -> { ((Runnable) call.getArgument(2)).run(); return List.of(); });
+            when(documentRepository.findSourceVersion(documentId)).thenReturn(Optional.of(0L));
+            when(documentRepository.lockSourceVersionForOwner(documentId, owner.getId())).thenReturn(Optional.of(0L));
+            when(userRepository.findByIdForOwnershipWrite(owner.getId())).thenReturn(Optional.of(owner));
             service.buildStructure("owner", documentId);
             assertThat(service.extractByNode("owner", documentId, nodeId)).isSameAs(extract);
 
-            verify(structureService).buildStructure(documentId);
+            verify(structureService).publish(source, List.of());
         }
 
         @Test
@@ -302,10 +319,11 @@ class NormalizedDocumentAccessServiceImplTest {
         void recordsFakeAiFailure() {
             when(documentRepository.findOwnerForAuthorization(documentId))
                     .thenReturn(Optional.of(ownerAuthorization("owner", true, false)));
-            doThrow(new IllegalStateException(
-                    "safe wrapper",
-                    new LlmClient.LlmException("CANARY_RAW_AI_RESPONSE")
-            )).when(structureService).buildStructure(documentId);
+            var source = new uk.gegc.quizmaker.features.documentProcess.application.StructureBuildSource(
+                    documentId, owner.getId(), 0, "private text", 12);
+            when(structureService.readBuildSource(documentId)).thenReturn(source);
+            when(structureService.prepare(org.mockito.ArgumentMatchers.eq(source), any(), any()))
+                    .thenThrow(new IllegalStateException("safe wrapper", new LlmClient.LlmException("CANARY_RAW_AI_RESPONSE")));
 
             assertThatThrownBy(() -> service.buildStructure("owner", documentId))
                     .isInstanceOf(IllegalStateException.class);
@@ -342,9 +360,9 @@ class NormalizedDocumentAccessServiceImplTest {
 
     @SuppressWarnings("unchecked")
     private void executeTransactions() {
-        when(transactionTemplate.execute(any())).thenAnswer(invocation ->
+        org.mockito.Mockito.doAnswer(invocation ->
                 invocation.<TransactionCallback<NormalizedDocument>>getArgument(0)
-                        .doInTransaction(null));
+                        .doInTransaction(null)).when(transactionTemplate).execute(any());
     }
 
     private OwnerAuthorization ownerAuthorization(String username, Boolean active, Boolean deleted) {

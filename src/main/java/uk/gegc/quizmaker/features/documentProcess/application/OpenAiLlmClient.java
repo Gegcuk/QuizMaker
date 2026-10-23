@@ -45,6 +45,11 @@ public class OpenAiLlmClient implements LlmClient {
 
     @Override
     public List<DocumentNode> generateStructure(String text, StructureOptions options) {
+        return generateStructure(text, options, () -> { });
+    }
+
+    @Override
+    public List<DocumentNode> generateStructure(String text, StructureOptions options, Runnable authorizeDispatch) {
         // Safety check: prevent sending huge documents
         if (text != null && text.length() > getMaxSafeChars()) {
             log.error("CRITICAL: Attempting to send {} characters to AI without chunking! This will likely fail!", 
@@ -58,13 +63,19 @@ public class OpenAiLlmClient implements LlmClient {
                     text.length(), getMaxSafeChars()));
         }
         
-        return generateStructureWithContext(text, options, List.of(), 0, 1);
+        return generateStructureWithContext(text, options, List.of(), 0, 1, authorizeDispatch);
     }
 
         @Override
     public List<DocumentNode> generateStructureWithContext(String text, StructureOptions options, 
                                                          List<DocumentNode> previousNodes, 
                                                          int chunkIndex, int totalChunks) {
+        return generateStructureWithContext(text, options, previousNodes, chunkIndex, totalChunks, () -> { });
+    }
+
+    @Override
+    public List<DocumentNode> generateStructureWithContext(String text, StructureOptions options,
+            List<DocumentNode> previousNodes, int chunkIndex, int totalChunks, Runnable authorizeDispatch) {
         // Safety check for chunk size as well
         if (text != null && text.length() > getMaxSafeChars() * 2) {
             log.error("CRITICAL: Chunk {} is too large: {} characters", chunkIndex + 1, text.length());
@@ -84,6 +95,12 @@ public class OpenAiLlmClient implements LlmClient {
             int retryCount = 0;
             
             while (retryCount < maxRetries) {
+                try {
+                    authorizeDispatch.run();
+                } catch (RuntimeException denial) {
+                    // Authorization/storage failures are not provider failures and must never be retried.
+                    throw new DispatchGuardFailure(denial);
+                }
                 try {
                     // Use ChatModel directly with BeanOutputConverter to avoid template parsing
                     BeanOutputConverter<DocumentStructureRecords.DocumentStructureResponse> outputConverter = 
@@ -124,6 +141,8 @@ public class OpenAiLlmClient implements LlmClient {
             
             throw new LlmException("Unexpected error: exceeded retry loop");
             
+        } catch (DispatchGuardFailure failure) {
+            throw failure.denial;
         } catch (LlmException e) {
             throw e;
         } catch (Exception e) {
@@ -223,4 +242,12 @@ public class OpenAiLlmClient implements LlmClient {
         double jitter = 1.0 + (Math.random() * 2 - 1) * jitterFactor;
         return Math.round(delay * jitter);
     }
+    private static final class DispatchGuardFailure extends RuntimeException {
+        private final RuntimeException denial;
+        private DispatchGuardFailure(RuntimeException denial) {
+            super("Dispatch authorization failed", denial);
+            this.denial = denial;
+        }
+    }
+
 }

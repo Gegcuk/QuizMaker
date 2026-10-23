@@ -40,6 +40,7 @@ class ChunkedStructureProcessingTest {
 
     @BeforeEach
     void setUp() {
+        GuardedLlmClientDefaults.enable(llmClient);
         chunkedStructureService = new ChunkedStructureService(
                 documentChunker, llmClient, tokenCounter, chunkingConfig);
     }

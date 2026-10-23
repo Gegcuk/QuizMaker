@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.documentProcess.application;
 
+import uk.gegc.quizmaker.features.documentProcess.application.impl.StructureServiceImpl;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,7 +38,7 @@ class RealAiResponseStructureTest {
     private NormalizedDocumentRepository documentRepository;
 
     @Mock
-    private OpenAiLlmClient llmClient;
+    private LlmClient llmClient;
 
     @Mock
     private AnchorOffsetCalculator anchorOffsetCalculator;
@@ -47,8 +49,13 @@ class RealAiResponseStructureTest {
     @Mock
     private ChunkedStructureService chunkedStructureService;
 
+    @org.mockito.Spy
+    private org.springframework.transaction.support.TransactionTemplate transactionTemplate = new ImmediateTransactionTemplate();
+    @org.mockito.Spy
+    private java.time.Clock clock = java.time.Clock.systemUTC();
+
     @InjectMocks
-    private StructureService service;
+    private StructureServiceImpl service;
 
     private UUID documentId;
     private NormalizedDocument document;
@@ -57,6 +64,12 @@ class RealAiResponseStructureTest {
 
     @BeforeEach
     void setUp() {
+        GuardedLlmClientDefaults.enable(llmClient);
+        org.mockito.Mockito.lenient().when(documentRepository.publishStructureVersion(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(1);
+        org.mockito.Mockito.lenient().when(documentRepository.getReferenceById(org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(call -> documentRepository.findById(call.getArgument(0)).orElseThrow());
         documentId = UUID.randomUUID();
         
         document = new NormalizedDocument();
@@ -90,18 +103,17 @@ class RealAiResponseStructureTest {
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
         lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
-        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
-        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        StructurePreparationTestFixtures.stubLevelOffsets(anchorOffsetCalculator, aiNodes);
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+
 
         // When
         service.buildStructure(documentId);
 
         // Then
-        verify(nodeRepository, times(3)).saveAll(anyList()); // One for each depth level (1, 2, 3)
-        verify(nodeRepository, times(1)).findByDocument_IdOrderByStartOffset(documentId); // Called in performGlobalValidation
+        StructurePreparationTestFixtures.assertEachNodePublishedOnce(nodeRepository, aiNodes);
+        verify(nodeRepository, never()).findByDocument_IdOrderByStartOffset(documentId); // Prepared in memory, without a relationship read
     }
 
     @Test
@@ -112,21 +124,20 @@ class RealAiResponseStructureTest {
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
         lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
-        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
-        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        StructurePreparationTestFixtures.stubLevelOffsets(anchorOffsetCalculator, aiNodes);
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
-        lenient().when(nodeRepository.findByDocument_IdOrderByStartOffset(documentId)).thenReturn(aiNodes);
+
 
         // When
         service.buildStructure(documentId);
 
         // Then
         // Verify that nodes are processed level by level
-        verify(nodeRepository, times(3)).saveAll(anyList());
+        StructurePreparationTestFixtures.assertEachNodePublishedOnce(nodeRepository, aiNodes);
         
         // Verify that parent relationships are assigned correctly
-        verify(nodeRepository, times(3)).findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort());
+        verify(nodeRepository, never()).findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort());
     }
 
     @Test

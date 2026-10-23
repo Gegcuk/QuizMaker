@@ -47,6 +47,7 @@ class ChunkedStructureServiceComprehensiveTest {
 
     @BeforeEach
     void setUp() {
+        GuardedLlmClientDefaults.enable(llmClient);
         options = LlmClient.StructureOptions.defaultOptions();
         
         // Default configuration

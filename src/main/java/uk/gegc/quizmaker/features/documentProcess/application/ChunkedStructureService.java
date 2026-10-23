@@ -34,6 +34,11 @@ public class ChunkedStructureService {
      * @return merged list of document nodes
      */
     public List<DocumentNode> processLargeDocument(String text, LlmClient.StructureOptions options, String documentId) {
+        return processLargeDocument(text, options, documentId, () -> { });
+    }
+
+    public List<DocumentNode> processLargeDocument(String text, LlmClient.StructureOptions options,
+                                                   String documentId, Runnable authorizeDispatch) {
         log.info("Processing large document {} with {} characters", documentId, text.length());
         
         // Step 1: Chunk the document
@@ -46,17 +51,17 @@ public class ChunkedStructureService {
                     documentId, text.length());
                 // Force chunking by creating smaller chunks manually
                 List<DocumentChunker.DocumentChunk> emergencyChunks = createEmergencyChunks(text, documentId);
-                return processChunksSequentialWithContext(emergencyChunks, options, documentId);
+                return processChunksSequentialWithContext(emergencyChunks, options, documentId, authorizeDispatch);
             }
             
             // Small document, process normally but still apply filtering
             log.info("Document {} is small enough for single-chunk processing", documentId);
-            List<DocumentNode> nodes = llmClient.generateStructure(text, options);
+            List<DocumentNode> nodes = llmClient.generateStructure(text, options, authorizeDispatch);
             return filterQuizRelevantNodes(nodes);
         }
         
         // Step 2: Process chunks sequentially with context
-        List<DocumentNode> allNodes = processChunksSequentialWithContext(chunks, options, documentId);
+        List<DocumentNode> allNodes = processChunksSequentialWithContext(chunks, options, documentId, authorizeDispatch);
         
         log.info("Successfully processed large document {}: {} chunks -> {} final nodes", 
             documentId, chunks.size(), allNodes.size());
@@ -72,7 +77,7 @@ public class ChunkedStructureService {
      */
     private List<DocumentNode> processChunksSequentialWithContext(List<DocumentChunker.DocumentChunk> chunks, 
                                                                 LlmClient.StructureOptions options, 
-                                                                String documentId) {
+                                                                String documentId, Runnable authorizeDispatch) {
         List<DocumentNode> allNodes = new ArrayList<>();
         List<DocumentNode> previousNodes = new ArrayList<>();
         
@@ -88,7 +93,7 @@ public class ChunkedStructureService {
                 
                 // Generate structure for this chunk with context
                 List<DocumentNode> chunkNodes = llmClient.generateStructureWithContext(
-                    chunk.getText(), contextOptions, previousNodes, i, chunks.size());
+                    chunk.getText(), contextOptions, previousNodes, i, chunks.size(), authorizeDispatch);
                 
                 // Adjust offsets to global document coordinates
                 adjustNodeOffsets(chunkNodes, chunk.getStartOffset());
@@ -103,6 +108,8 @@ public class ChunkedStructureService {
                 log.info("Chunk {} completed with {} nodes ({} after filtering)", 
                     i + 1, chunkNodes.size(), filteredNodes.size());
                 
+            } catch (uk.gegc.quizmaker.shared.exception.ResourceNotFoundException denied) {
+                throw denied;
             } catch (Exception e) {
                 log.error("Failed to process chunk {} of document {}", i + 1, documentId);
                 

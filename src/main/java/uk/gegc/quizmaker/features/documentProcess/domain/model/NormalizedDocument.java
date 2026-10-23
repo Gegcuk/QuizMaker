@@ -23,6 +23,10 @@ public class NormalizedDocument {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Version
+    @Column(name = "source_version", nullable = false)
+    private long version;
+
     @Column(name = "original_name")
     private String originalName;
 

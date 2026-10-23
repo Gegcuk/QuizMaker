@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.documentProcess.application;
 
+import uk.gegc.quizmaker.features.documentProcess.application.impl.StructureServiceImpl;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -40,8 +42,13 @@ class StructureServiceTest {
     @Mock
     private DocumentNodeMapper nodeMapper;
 
+    @org.mockito.Spy
+    private org.springframework.transaction.support.TransactionTemplate transactionTemplate = new ImmediateTransactionTemplate();
+    @org.mockito.Spy
+    private java.time.Clock clock = java.time.Clock.systemUTC();
+
     @InjectMocks
-    private StructureService service;
+    private StructureServiceImpl service;
 
     private UUID documentId;
     private NormalizedDocument document;
@@ -54,6 +61,11 @@ class StructureServiceTest {
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.lenient().when(documentRepository.publishStructureVersion(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(1);
+        org.mockito.Mockito.lenient().when(documentRepository.getReferenceById(org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(call -> documentRepository.findById(call.getArgument(0)).orElseThrow());
         documentId = UUID.randomUUID();
         
         document = new NormalizedDocument();
