@@ -103,8 +103,7 @@ class RealAiResponseStructureTest {
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
         lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
-        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
-        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        StructurePreparationTestFixtures.stubLevelOffsets(anchorOffsetCalculator, aiNodes);
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
 
@@ -113,7 +112,7 @@ class RealAiResponseStructureTest {
         service.buildStructure(documentId);
 
         // Then
-        verify(nodeRepository, times(3)).saveAll(anyList()); // One for each depth level (1, 2, 3)
+        StructurePreparationTestFixtures.assertEachNodePublishedOnce(nodeRepository, aiNodes);
         verify(nodeRepository, never()).findByDocument_IdOrderByStartOffset(documentId); // Prepared in memory, without a relationship read
     }
 
@@ -125,8 +124,7 @@ class RealAiResponseStructureTest {
         when(documentRepository.findById(documentId)).thenReturn(Optional.of(document));
         lenient().when(chunkedStructureService.needsChunking(anyString())).thenReturn(false);
         lenient().when(llmClient.generateStructure(any(), any())).thenReturn(aiNodes);
-        lenient().when(anchorOffsetCalculator.calculateOffsets(anyList(), anyString())).thenReturn(aiNodes);
-        lenient().when(nodeRepository.saveAll(anyList())).thenReturn(aiNodes);
+        StructurePreparationTestFixtures.stubLevelOffsets(anchorOffsetCalculator, aiNodes);
         lenient().when(nodeRepository.findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort()))
             .thenReturn(Collections.emptyList());
 
@@ -136,7 +134,7 @@ class RealAiResponseStructureTest {
 
         // Then
         // Verify that nodes are processed level by level
-        verify(nodeRepository, times(3)).saveAll(anyList());
+        StructurePreparationTestFixtures.assertEachNodePublishedOnce(nodeRepository, aiNodes);
         
         // Verify that parent relationships are assigned correctly
         verify(nodeRepository, never()).findByDocument_IdAndDepthLessThanOrderByStartOffset(any(), anyShort());

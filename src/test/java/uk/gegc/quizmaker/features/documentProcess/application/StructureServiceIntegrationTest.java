@@ -42,6 +42,10 @@ class StructureServiceIntegrationTest extends BaseIntegrationTest {
     @Autowired
     private uk.gegc.quizmaker.features.user.domain.repository.UserRepository users;
 
+    @Autowired
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
+
+
     private UUID documentId;
     private NormalizedDocument document;
 
@@ -113,6 +117,60 @@ class StructureServiceIntegrationTest extends BaseIntegrationTest {
             nodeRepository.deleteAll();
             documentRepository.deleteById(documentId);
             users.deleteById(owner.getId());
+        }
+    }
+
+    @Test
+    void httpBuildReauthorizesAfterOwnerRevocationDuringProviderCall() throws Exception {
+        var owner = new uk.gegc.quizmaker.features.user.domain.model.User();
+        owner.setUsername("http850-" + UUID.randomUUID().toString().substring(0, 12));
+        owner.setEmail(owner.getUsername() + "@example.invalid");
+        owner.setHashedPassword("unused-synthetic-hash");
+        owner.setPasswordChangedAt(java.time.LocalDateTime.of(2026, 1, 1, 0, 0));
+        owner.setActive(true);
+        owner = users.saveAndFlush(owner);
+        UUID ownerId = owner.getId();
+        document.setOwner(owner);
+        document = documentRepository.saveAndFlush(document);
+        long beforeVersion = document.getVersion();
+        var transactions = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        AtomicInteger dispatches = new AtomicInteger();
+        when(llmClient.generateStructure(anyString(), any(LlmClient.StructureOptions.class))).thenAnswer(call -> {
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager
+                    .hasResource(entityManager.getEntityManagerFactory()))
+                    .as("structure build must not retain a request persistence context during AI")
+                    .isFalse();
+            dispatches.incrementAndGet();
+            // Commit through a separate EntityManager while MVC's persistence context stays open.
+            executor.submit(() -> transactions.executeWithoutResult(status ->
+                    users.findById(ownerId).orElseThrow().setActive(false)))
+                    .get(10, java.util.concurrent.TimeUnit.SECONDS);
+            return createTestNodesForDocument(call.getArgument(0));
+        });
+        try {
+            mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                            "/api/v1/documentProcess/documents/{id}/structure", documentId)
+                            .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user(owner.getUsername())))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.detail").value("Document not found"));
+            assertThat(dispatches).hasValue(1);
+            transactions.executeWithoutResult(status -> {
+                var stored = documentRepository.findById(documentId).orElseThrow();
+                assertThat(stored.getStatus()).isEqualTo(NormalizedDocument.DocumentStatus.NORMALIZED);
+                assertThat(stored.getVersion()).isEqualTo(beforeVersion);
+                assertThat(stored.getNormalizedText()).isEqualTo(document.getNormalizedText());
+                assertThat(nodeRepository.countByDocumentId(documentId)).isZero();
+            });
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            transactions.executeWithoutResult(status -> {
+                nodeRepository.deleteByDocument_Id(documentId);
+                documentRepository.deleteById(documentId);
+                users.deleteById(ownerId);
+            });
         }
     }
 

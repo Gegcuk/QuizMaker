@@ -223,6 +223,60 @@ class AnchorOffsetCalculatorTest {
     class ValidateSiblingNonOverlapTests {
 
         @Test
+        void transientParentChildOverlapIsNotSiblingOverlap() {
+            DocumentNode root = createNodeWithOffsets("Chapter", 0, 200);
+            DocumentNode section = createNodeWithOffsets("Section", 10, 190);
+            DocumentNode leaf = createNodeWithOffsets("Paragraph", 20, 180);
+            root.setId(null);
+            section.setId(null);
+            leaf.setId(null);
+            section.setParent(root);
+            leaf.setParent(section);
+
+            calculator.validateSiblingNonOverlap(List.of(root, section, leaf));
+        }
+
+        @Test
+        void transientSiblingsStillRejectActualOverlap() {
+            DocumentNode root = createNodeWithOffsets("Chapter", 0, 200);
+            root.setId(null);
+            DocumentNode first = createNodeWithOffsets("First", 10, 100);
+            DocumentNode second = createNodeWithOffsets("Second", 90, 190);
+            first.setId(null);
+            second.setId(null);
+            first.setParent(root);
+            second.setParent(root);
+
+            assertThatThrownBy(() -> calculator.validateSiblingNonOverlap(List.of(first, second)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Overlapping sibling offsets");
+        }
+
+        @Test
+        void separateTransientParentsDoNotShareASiblingGroup() {
+            DocumentNode first = createNodeWithOffsets("First", 10, 100);
+            DocumentNode second = createNodeWithOffsets("Second", 20, 90);
+            first.setParent(new DocumentNode());
+            second.setParent(new DocumentNode());
+
+            calculator.validateSiblingNonOverlap(List.of(first, second));
+        }
+
+        @Test
+        void separateInstancesOfPersistedParentStillShareASiblingGroup() {
+            UUID parentId = UUID.randomUUID();
+            DocumentNode first = createNodeWithOffsets("First", 10, 100);
+            DocumentNode second = createNodeWithOffsets("Second", 20, 90);
+            first.setParent(new DocumentNode());
+            second.setParent(new DocumentNode());
+            first.getParent().setId(parentId);
+            second.getParent().setId(parentId);
+
+            assertThatThrownBy(() -> calculator.validateSiblingNonOverlap(List.of(first, second)))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        @Test
         @DisplayName("when siblings don't overlap then validation succeeds")
         void validateSiblingNonOverlap_noOverlap_succeeds() {
             // Given

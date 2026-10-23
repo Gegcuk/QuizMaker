@@ -57,6 +57,7 @@ import static org.mockito.Mockito.*;
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @TestPropertySource(properties = {
         "spring.jpa.hibernate.ddl-auto=validate",
+        "spring.datasource.hikari.transaction-isolation=${structure.test.isolation:TRANSACTION_REPEATABLE_READ}",
         "spring.jpa.properties.hibernate.generate_statistics=true",
         "spring.jpa.properties.hibernate.session_factory.statement_inspector=uk.gegc.quizmaker.features.documentProcess.application.StructureSqlCapture",
         "logging.level.org.hibernate.engine.internal.StatisticalLoggingSessionEventListener=OFF",
@@ -160,6 +161,7 @@ class NormalizedDocumentStructureBuildMySqlIntegrationTest {
         Future<Throwable> build = executor().submit(() -> build(f));
         try {
             await(entered);
+            assertThat(dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean().getActiveConnections()).isZero();
             executor().submit(() -> tx.executeWithoutResult(status -> {
                 User owner = users.findById(f.ownerId()).orElseThrow();
                 switch (mutation) {
@@ -190,7 +192,8 @@ class NormalizedDocumentStructureBuildMySqlIntegrationTest {
             tx.executeWithoutResult(status -> documents.findById(f.id()).orElseThrow()
                     .setNormalizedText(text(2)));
         } finally { release.countDown(); }
-        assertThat(build.get(10, TimeUnit.SECONDS)).isInstanceOf(IllegalStateException.class);
+        assertThat(build.get(10, TimeUnit.SECONDS)).isInstanceOf(IllegalStateException.class)
+                .hasMessage("Document changed during structure building");
         State state = state(f);
         assertThat(state.text()).isEqualTo(text(2));
         assertThat(state.version()).isEqualTo(1);
@@ -205,14 +208,19 @@ class NormalizedDocumentStructureBuildMySqlIntegrationTest {
         blockProvider(entered, release);
         Future<Throwable> a = executor().submit(() -> build(f));
         Future<Throwable> b = executor().submit(() -> build(f));
-        try { await(entered); } finally { release.countDown(); }
+        try {
+            await(entered);
+            assertThat(dataSource.unwrap(HikariDataSource.class).getHikariPoolMXBean().getActiveConnections()).isZero();
+        } finally { release.countDown(); }
         List<Throwable> outcomes = Arrays.asList(a.get(10, TimeUnit.SECONDS), b.get(10, TimeUnit.SECONDS));
         assertThat(outcomes.stream().filter(Objects::isNull).count()).isEqualTo(1);
         assertThat(outcomes.stream().filter(Objects::nonNull).toList()).singleElement()
-                .isInstanceOf(IllegalStateException.class);
+                .satisfies(failure -> assertThat(failure).isInstanceOf(IllegalStateException.class)
+                        .hasMessage("Document changed during structure building"));
         assertThat(state(f).count()).isEqualTo(6);
         assertThat(state(f).version()).isEqualTo(1);
-        assertThat(access.getTree(f.username(), f.id()).rootNodes()).hasSize(2);
+        assertThat(state(f).status()).isEqualTo(NormalizedDocument.DocumentStatus.STRUCTURED);
+        assertCompleteTree(f, 2);
     }
 
     @Test
@@ -230,19 +238,24 @@ class NormalizedDocumentStructureBuildMySqlIntegrationTest {
         });
         Future<Throwable> late = executor().submit(() -> build(f));
         State winner;
+        uk.gegc.quizmaker.features.documentProcess.api.dto.StructureTreeResponse winnerTree;
         try {
             await(entered);
             access.buildStructure(f.username(), f.id());
             winner = state(f);
+            winnerTree = access.getTree(f.username(), f.id());
         } finally { release.countDown(); }
-        assertThat(late.get(10, TimeUnit.SECONDS)).isInstanceOf(IllegalStateException.class);
+        assertThat(late.get(10, TimeUnit.SECONDS)).isInstanceOf(IllegalStateException.class)
+                .hasMessage("Document changed during structure building");
         assertThat(state(f)).isEqualTo(winner);
+        assertThat(access.getTree(f.username(), f.id())).isEqualTo(winnerTree);
         assertThat(access.getFlat(f.username(), f.id()).nodes()).allSatisfy(n -> assertThat(n.title()).isEqualTo("builder-2"));
     }
 
     @Test
     void processingFailureAtDepthTwoHasNoPublicationOrPartialTree() {
         Fixture f = fixture(1);
+        State before = state(f);
         AtomicBoolean reached = new AtomicBoolean();
         doAnswer(call -> {
             List<DocumentNode> level = call.getArgument(0);
@@ -254,24 +267,27 @@ class NormalizedDocumentStructureBuildMySqlIntegrationTest {
         }).when(offsets).calculateOffsets(anyList(), anyString());
         assertThatThrownBy(() -> access.buildStructure(f.username(), f.id())).isInstanceOf(IllegalStateException.class);
         assertThat(reached).isTrue();
-        assertThat(state(f)).isEqualTo(new State(NormalizedDocument.DocumentStatus.NORMALIZED, 0, text(1), 0));
+        assertThat(state(f)).isEqualTo(before);
         verify(nodes, never()).saveAll(anyList());
     }
 
     @Test
     void publicationFailureAfterRealFlushRollsBackNodesStatusAndVersion() {
         Fixture f = fixture(2);
+        State before = state(f);
         AtomicBoolean reached = new AtomicBoolean();
         doAnswer(call -> {
             entityManager.flush();
             assertThat(nodes.countByDocumentId(f.id())).isEqualTo(6);
             assertThat(documents.findSourceVersion(f.id())).contains(1L);
+            // An independent connection cannot see the flushed but uncommitted publication.
+            assertThat(executor().submit(() -> state(f)).get(10, TimeUnit.SECONDS)).isEqualTo(before);
             reached.set(true);
             throw new IllegalStateException("controlled publication fault before commit");
         }).when(nodes).flush();
         assertThatThrownBy(() -> access.buildStructure(f.username(), f.id())).isInstanceOf(IllegalStateException.class);
         assertThat(reached).isTrue();
-        assertThat(state(f)).isEqualTo(new State(NormalizedDocument.DocumentStatus.NORMALIZED, 0, text(2), 0));
+        assertThat(state(f)).isEqualTo(before);
         // A supported retry after the rolled-back first build can still succeed.
         doAnswer(call -> { entityManager.flush(); return null; }).when(nodes).flush();
         access.buildStructure(f.username(), f.id());
@@ -296,10 +312,11 @@ class NormalizedDocumentStructureBuildMySqlIntegrationTest {
     @Test
     void providerOutagePreservesSourceAndAllowsExplicitRetry() {
         Fixture f = fixture(1);
+        State before = state(f);
         when(provider.generateStructure(anyString(), any())).thenThrow(new LlmClient.LlmException("provider unavailable"));
         assertThatThrownBy(() -> access.buildStructure(f.username(), f.id()))
                 .isInstanceOf(IllegalStateException.class).hasMessage("Failed to generate document structure");
-        assertThat(state(f)).isEqualTo(new State(NormalizedDocument.DocumentStatus.NORMALIZED, 0, text(1), 0));
+        assertThat(state(f)).isEqualTo(before);
         doAnswer(call -> tree(call.getArgument(0))).when(provider).generateStructure(anyString(), any());
         access.buildStructure(f.username(), f.id());
         assertThat(state(f).count()).isEqualTo(3);
@@ -315,12 +332,13 @@ class NormalizedDocumentStructureBuildMySqlIntegrationTest {
         var prompts = mock(DocumentStructurePromptService.class);
         when(prompts.buildStructurePrompt(anyString(), any(), anyList(), anyInt(), anyInt())).thenReturn("synthetic prompt");
         var adapter = new OpenAiLlmClient(chat, rate, prompts, chunking);
+        AtomicInteger attempts = new AtomicInteger();
         doAnswer(call -> adapter.generateStructure(call.getArgument(0), call.getArgument(1), call.getArgument(2)))
                 .when(provider).generateStructure(anyString(), any(), any(Runnable.class));
         when(chat.call(any(org.springframework.ai.chat.prompt.Prompt.class))).thenAnswer(call -> {
             assertProviderHasNoTransactionOrConnection();
-            if (revoke) {
-                tx.executeWithoutResult(status -> users.findById(f.ownerId()).orElseThrow().setActive(false));
+            if (attempts.incrementAndGet() == 1) {
+                if (revoke) tx.executeWithoutResult(status -> users.findById(f.ownerId()).orElseThrow().setActive(false));
                 throw new IllegalStateException("controlled first provider attempt failure");
             }
             String json = """
@@ -341,7 +359,7 @@ class NormalizedDocumentStructureBuildMySqlIntegrationTest {
             assertThat(state(f).status()).isEqualTo(NormalizedDocument.DocumentStatus.STRUCTURED);
         }
         // The real adapter, application authorization and DB compose here; only ChatModel is remote-faked.
-        verify(chat, times(1)).call(any(org.springframework.ai.chat.prompt.Prompt.class));
+        verify(chat, times(revoke ? 1 : 2)).call(any(org.springframework.ai.chat.prompt.Prompt.class));
     }
 
     @Test
@@ -398,7 +416,7 @@ class NormalizedDocumentStructureBuildMySqlIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"revoked", "source-changed"})
+    @ValueSource(strings = {"unchanged", "revoked", "source-changed"})
     void laterChunkDispatchRechecksAuthorizationAndVersion(String change) {
         Fixture f = fixture(2);
         String text = text(2);
@@ -409,18 +427,25 @@ class NormalizedDocumentStructureBuildMySqlIntegrationTest {
                 .when(chunker).chunkDocument(text, f.id().toString());
         doAnswer(call -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
-            assertThat(calls.incrementAndGet()).isEqualTo(1);
-            tx.executeWithoutResult(status -> {
+            int attempt = calls.incrementAndGet();
+            if (attempt == 1 && !change.equals("unchanged")) tx.executeWithoutResult(status -> {
                 if (change.equals("revoked")) users.findById(f.ownerId()).orElseThrow().setActive(false);
                 else documents.findById(f.id()).orElseThrow().setNormalizedText(text + "changed");
             });
             return tree(call.getArgument(0));
         }).when(provider).generateStructureWithContext(anyString(), any(), anyList(), anyInt(), anyInt());
-        assertThatThrownBy(() -> access.buildStructure(f.username(), f.id()))
-                .isInstanceOf(change.equals("revoked") ? ResourceNotFoundException.class : IllegalStateException.class);
-        assertThat(calls).hasValue(1);
-        assertThat(state(f).status()).isEqualTo(NormalizedDocument.DocumentStatus.NORMALIZED);
-        assertThat(state(f).count()).isZero();
+        if (change.equals("unchanged")) {
+            access.buildStructure(f.username(), f.id());
+            assertThat(calls).hasValue(2);
+            assertThat(state(f).status()).isEqualTo(NormalizedDocument.DocumentStatus.STRUCTURED);
+            assertCompleteTree(f, 2);
+        } else {
+            assertThatThrownBy(() -> access.buildStructure(f.username(), f.id()))
+                    .isInstanceOf(change.equals("revoked") ? ResourceNotFoundException.class : IllegalStateException.class);
+            assertThat(calls).hasValue(1);
+            assertThat(state(f).status()).isEqualTo(NormalizedDocument.DocumentStatus.NORMALIZED);
+            assertThat(state(f).count()).isZero();
+        }
     }
 
     @Test
@@ -430,6 +455,19 @@ class NormalizedDocumentStructureBuildMySqlIntegrationTest {
                 .isInstanceOf(org.springframework.transaction.IllegalTransactionStateException.class);
         assertThat(calls).hasValue(0);
         assertThat(state(f).count()).isZero();
+    }
+
+    @Test
+    void connectionUsesTheRequestedIsolationLevel() {
+        String configured = ((HikariDataSource) dataSource).getTransactionIsolation();
+        int expected = switch (configured) {
+            case "TRANSACTION_READ_COMMITTED" -> java.sql.Connection.TRANSACTION_READ_COMMITTED;
+            case "TRANSACTION_REPEATABLE_READ" -> java.sql.Connection.TRANSACTION_REPEATABLE_READ;
+            default -> throw new AssertionError("Unexpected test isolation: " + configured);
+        };
+        int actual = tx.execute(status -> entityManager.unwrap(org.hibernate.Session.class)
+                .doReturningWork(java.sql.Connection::getTransactionIsolation));
+        assertThat(actual).isEqualTo(expected);
     }
 
     private static <T> T transactional(Class<T> contract, Object target, PlatformTransactionManager manager) {
@@ -516,8 +554,26 @@ class NormalizedDocumentStructureBuildMySqlIntegrationTest {
     private State state(Fixture f) {
         return tx.execute(status -> {
             NormalizedDocument d = documents.findById(f.id()).orElseThrow();
-            return new State(d.getStatus(), d.getVersion(), d.getNormalizedText(), nodes.countByDocumentId(f.id()));
+            return new State(d.getStatus(), d.getVersion(), d.getNormalizedText(), nodes.countByDocumentId(f.id()),
+                    d.getOwner() == null ? null : d.getOwner().getId(), d.getCharCount(), d.getUpdatedAt());
         });
+    }
+
+    private void assertCompleteTree(Fixture f, int width) {
+        var tree = access.getTree(f.username(), f.id());
+        assertThat(tree.totalNodes()).isEqualTo(width * 3);
+        assertThat(tree.rootNodes()).hasSize(width);
+        for (int i = 0; i < width; i++) {
+            int group = i;
+            var root = tree.rootNodes().get(i);
+            assertThat(root.title()).isEqualTo("ROOT" + group);
+            assertThat(root.idx()).isEqualTo(group);
+            assertThat(root.children()).singleElement().satisfies(section -> {
+                assertThat(section.title()).isEqualTo("SECTION" + group);
+                assertThat(section.children()).singleElement()
+                        .satisfies(leaf -> assertThat(leaf.title()).isEqualTo("LEAF" + group));
+            });
+        }
     }
 
     private static String text(int width) {
@@ -571,5 +627,6 @@ class NormalizedDocumentStructureBuildMySqlIntegrationTest {
     }
 
     private record Fixture(UUID ownerId, String username, UUID id) { }
-    private record State(NormalizedDocument.DocumentStatus status, long version, String text, long count) { }
+    private record State(NormalizedDocument.DocumentStatus status, long version, String text, long count,
+                         UUID ownerId, Integer charCount, java.time.Instant updatedAt) { }
 }

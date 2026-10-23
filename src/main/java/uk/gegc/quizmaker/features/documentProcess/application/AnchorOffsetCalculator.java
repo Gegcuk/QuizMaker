@@ -240,15 +240,21 @@ public class AnchorOffsetCalculator {
      */
     public void validateSiblingNonOverlap(List<DocumentNode> nodes) {
         // Group nodes by parent for sibling validation
-        Map<UUID, List<DocumentNode>> childrenByParent = new HashMap<>();
+        Map<Object, List<DocumentNode>> childrenByParent = new HashMap<>();
         
         for (DocumentNode node : nodes) {
-            UUID parentId = node.getParent() != null ? node.getParent().getId() : null;
-            childrenByParent.computeIfAbsent(parentId, k -> new ArrayList<>()).add(node);
+            DocumentNode parent = node.getParent();
+            // Before publication, parents have no generated IDs. Keep those distinct by identity;
+            // persisted parents still group by ID even when represented by separate instances.
+            Object parentKey = parent;
+            if (parent != null && parent.getId() != null) {
+                parentKey = parent.getId();
+            }
+            childrenByParent.computeIfAbsent(parentKey, k -> new ArrayList<>()).add(node);
         }
 
         // Validate each group of siblings
-        for (Map.Entry<UUID, List<DocumentNode>> entry : childrenByParent.entrySet()) {
+        for (Map.Entry<Object, List<DocumentNode>> entry : childrenByParent.entrySet()) {
             List<DocumentNode> siblings = entry.getValue();
             boolean hasParent = entry.getKey() != null;
 
