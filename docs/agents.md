@@ -232,41 +232,27 @@ public class Quiz {
 
 ## 6) AI Integration (code-level)
 
-### Service skeleton
+### Provider and transaction boundaries
 
-```java
-@Service
-@RequiredArgsConstructor
-public class AiQuizGenerationService {
-  private final ChatClient chatClient;               // Spring AI interface
-  private final QuestionParserFactory parserFactory; // polymorphic parsers
-  private final RateLimitService rateLimit;          // shared/rate_limit
-  private final Executor aiExecutor;                 // async pool
+Use a project-owned application service interface and an implementation in `application/impl`; external providers sit behind project-owned ports. Controllers, workers and other features depend on the interface.
 
-  @Async("aiTaskExecutor")
-  @Transactional
-  public void generateFromDocumentAsync(QuizGenerationJob job, GenerateQuizFromDocumentRequest req) {
-    // 1) pre-checks (size, type, user quota)
-    // 2) chunk selection
-    // 3) prompt assembly (include system + few-shot + constraints)
-    // 4) call model with retry + backoff
-    // 5) parse via parserFactory by type, collect errors
-    // 6) persist questions atomically; emit progress events
-  }
-}
+```text
+short transaction: authorize, validate bounded version metadata, claim work
+outside transaction: load/stream required input, invoke provider under the existing retry budget
+short transaction: recheck claim/version/current authority, persist complete outcome and durable event
 ```
+
+Do not place a transaction around provider calls, retry/backoff or network waits. An asynchronous method is not automatically transaction-free. Calls through `this` do not activate another method's Spring transaction interceptor. Test transaction activity inside a blocked fake provider and verify actual committed/rolled-back state in a separate transaction.
 
 ### Question generation
 
-Support the 9 types you listed (MCQ_SINGLE, MCQ_MULTI, OPEN, FILL_GAP, COMPLIANCE, TRUE_FALSE, ORDERING, HOTSPOT, MATCHING).
+Preserve the requested question family and the existing strict coverage contract: MCQ_SINGLE, MCQ_MULTI, OPEN, FILL_GAP, COMPLIANCE, TRUE_FALSE, ORDERING, HOTSPOT and MATCHING. Parser validation does not authorize substituting MATCHING with MCQ_MULTI or filling a missing family with another type. Follow `docs/question-contracts.md`, `docs/quiz-generation-coverage.md` and the current generation service/handler tests.
 
-Each parser: pure function `String → List<Question>` with strict validation and idempotent behavior (same prompt → same result).
-
-Fallback strategy: downgrade to simpler types when parsing fails (e.g., MATCHING → MCQ_MULTI), but record the downgrade.
+Parsing should be deterministic for the same input and contract version; the same prompt does not guarantee the provider returns the same output. Any approved retry remains inside its existing invocation/stage budget and preserves exact requested types. Do not invent downgrade, extra retry, fallback-provider or charging policies from this example.
 
 ### Rate limiting & retries
 
-Enforce per-user quotas in service; on 429/5xx apply exponential backoff and jitter; surface a ProblemDetail with status=503 for exhaustion.
+Use existing project-owned admission/rate and provider-attempt boundaries with persisted budgets where required. Distinguish confirmed temporary failure, permanent failure and unknown acceptance; reconcile unknown outcomes before repeating paid work. Preserve the actual feature's typed errors and retry policy instead of assigning a universal status or count here.
 
 ### Streaming responses
 

@@ -9,7 +9,7 @@ This boundary protects `/api/v1/documentProcess/documents` and all derived metad
 - The authenticated principal is resolved server-side. Requests never contain an owner identifier.
 - Every newly ingested `NormalizedDocument` has an active, non-deleted `User` owner.
 - Metadata, text, structure reads/builds, and extraction execute through `NormalizedDocumentAccessService`.
-- The service locks the document and loads only the bounded owner-decision fields in one transaction before invoking the existing document-processing implementation.
+- Current short reads lock the document and load only bounded owner-decision fields in one transaction. Current structure building also holds that transaction across AI; this is a known defect tracked in #850, not the required long-operation pattern.
 - Missing documents, wrong owners, deleted owners, and legacy rows with no owner all return the same `404 Document not found` response.
 - Existing paths and successful DTOs are unchanged.
 - There is no administrator or compatibility bypass. Future sharing requires a separate explicit visibility policy.
@@ -22,11 +22,9 @@ Nullability is intentional for rollout compatibility. Existing rows have no trus
 
 Physical user deletion sets `owner_id` to null, so retained document content becomes inaccessible. Soft-deleted and inactive owners are also denied. Deleting quarantined content requires a separately approved retention/backup procedure.
 
-The remaining sharing and quarantined-content lifecycle questions are tracked in
-[open questions: normalized documents](open-questions.md#oq-documents). This
-ownership boundary sets no retention duration or cleanup policy; applying
-execution-data governance to these source documents requires an explicit scope
-decision.
+[Q90's approved target](decision-register.md#personal-source-retention) retains durable personal source documents, including paid transcripts, without age-based cleanup and requires authorized owner/account erasure of the independently eligible personal-source scope within 24 hours after prerequisites. Preserve separately protected shared/formal evidence, resolve disputed ownership/dependencies and apply Q65's independent backup rule. Temporary ingestion files keep their separate lifecycle.
+
+This ownership implementation does not yet perform that physical erasure: `ON DELETE SET NULL` and access denial can retain source text. Deletion orchestration must establish authorized scope before losing ownership/dependency evidence; do not infer ownership for quarantined legacy rows. The approved target does not grant document-sharing permissions. Implementation preparation remains tracked in [open questions: normalized documents](open-questions.md#oq-documents).
 
 ## Bounded Multipart Ingestion
 
@@ -36,9 +34,26 @@ Parsing and normalization run with transactions forbidden. Publication then re-l
 
 ## Concurrency
 
-Owner authorization uses a native MySQL `FOR SHARE` query that returns only owner username/active/deleted fields. It does not materialize normalized document text for a denied or length-only request. The lock remains held through the delegated read or structure operation. A concurrent owner update/deletion must therefore complete before authorization starts or wait until the authorized operation ends; the next operation sees the new owner state and denies access.
+Owner authorization uses a native MySQL `FOR SHARE` query that returns only owner username/active/deleted fields. It does not materialize normalized document text for a denied or length-only request. For current delegated reads the lock remains until the read completes. The existing structure-build path also retains it across external AI and therefore blocks owner mutation during provider wait; #850 must correct that behavior without weakening ownership.
 
 The owner decision is fetched in one authorization statement, regardless of how many other documents exist. Authorized content is loaded only by the requested operation. Structure node queries remain bounded by the existing document-level queries; no list endpoint was added.
+
+### Required long-operation transaction boundary
+
+1. In a short transaction, authorize the active owner, capture bounded source/version identity and claim the build.
+2. Perform bounded source processing and provider calls outside database transactions; no connection/owner lock is held during retry/backoff.
+3. In a short transaction, recheck owner activity/access, source version and claim, then publish the complete structure atomically. A stale/unauthorized result cannot publish nodes or overwrite another build's committed tree.
+
+Account deactivation/deletion must be able to commit while the fake provider is blocked. An already-authorized in-flight provider request cannot be retroactively unsent; after revocation no new dispatch/publication is authorized. Compare persisted bounded versions, not a hash of complete document text.
+
+The current public build accepts only `NORMALIZED` documents. `STRUCTURED` is rejected before AI; the current API provides no reset/rebuild operation. Preserve that status guard and atomic first publication. The internal deletion of existing nodes in `StructureService` does not establish a public replacement capability.
+
+Tests go through `NormalizedDocumentAccessService`, commit fixtures before worker threads, propagate worker exceptions and read state in a new transaction after failure. At least one build must succeed in the valid concurrent-build fixture; “both failed and no nodes” is not success. Keep these separate proofs:
+
+- **First-build rollback:** start with a committed active-owned `NORMALIZED` document and no published nodes. Separately fail processing at a later depth and fail publication after real inserts/flush but before commit. Prove each fault checkpoint was reached. Fresh reads show no partial tree or `STRUCTURED` success, with the original public source/status preserved. Processing failure alone does not prove rollback of database writes; internal claim bookkeeping is not public completion.
+- **Repeat-build compatibility:** complete the first build, then request build again for its `STRUCTURED` document. Preserve the existing refusal, zero additional provider calls and the unchanged committed tree/status. This guard test cannot satisfy the rollback case.
+
+An optional internal `NORMALIZED` fixture with existing nodes needs a concrete reachable origin and a separately named invariant; it cannot justify introducing public rebuild. Mock `saveAll` counts and self-invoked `REQUIRES_NEW` do not prove durability. A failure after commit needs outcome reconciliation, not an expectation that committed nodes disappear. No public partial-success policy is introduced.
 
 ## Privacy And Observability
 
