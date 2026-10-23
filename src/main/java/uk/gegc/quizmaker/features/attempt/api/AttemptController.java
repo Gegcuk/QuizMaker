@@ -270,6 +270,9 @@ public class AttemptController {
             ),
             @ApiResponse(responseCode = "400", description = "Validation error",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "Attempt has timed out or is not in progress. Expiry is persisted before this response; an operation exactly at the deadline is on time.",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class),
+                    examples = @ExampleObject(name = "expired", value = "{\"type\":\"https://quizzence.com/docs/errors/illegal-state\",\"title\":\"Illegal State\",\"status\":422,\"detail\":\"Attempt has timed out\"}"))),
             @ApiResponse(responseCode = "404", description = "Attempt or question not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
@@ -345,7 +348,10 @@ public class AttemptController {
             @ApiResponse(responseCode = "404", description = "Attempt not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "409", description = "Attempt in invalid state",
-                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "Attempt has timed out or is not in progress. A timed-out attempt remains ABANDONED and creates no completed result.",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class),
+                    examples = @ExampleObject(name = "expired", value = "{\"type\":\"https://quizzence.com/docs/errors/illegal-state\",\"title\":\"Illegal State\",\"status\":422,\"detail\":\"Attempt has timed out\"}")))
     })
     @PostMapping("/{attemptId}/complete")
     public ResponseEntity<AttemptResultDto> completeAttempt(

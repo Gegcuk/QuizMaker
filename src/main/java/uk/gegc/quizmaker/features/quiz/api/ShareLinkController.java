@@ -331,7 +331,10 @@ public class ShareLinkController {
         @ApiResponse(responseCode = "404", description = "Attempt or question not found",
             content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
         @ApiResponse(responseCode = "409", description = "Attempt not in progress or duplicate/sequence violation",
-            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "422", description = "Attempt has timed out or is not in progress; expiry remains persisted after rejection",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class),
+                    examples = @ExampleObject(name = "expired", value = "{\"type\":\"https://quizzence.com/docs/errors/illegal-state\",\"title\":\"Illegal State\",\"status\":422,\"detail\":\"Attempt has timed out\"}")))
     })
     public ResponseEntity<AnswerSubmissionDto> submitAnonymousAnswer(
             @Parameter(description = "UUID of the attempt") @PathVariable UUID attemptId,
@@ -498,7 +501,10 @@ public class ShareLinkController {
         @ApiResponse(responseCode = "404", description = "Attempt not found or does not belong to shared quiz",
             content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
         @ApiResponse(responseCode = "409", description = "Attempt not in progress or already completed",
-            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+        @ApiResponse(responseCode = "422", description = "Attempt has timed out or is not in progress; a timed-out attempt cannot produce a completed result",
+            content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class),
+                    examples = @ExampleObject(name = "expired", value = "{\"type\":\"https://quizzence.com/docs/errors/illegal-state\",\"title\":\"Illegal State\",\"status\":422,\"detail\":\"Attempt has timed out\"}")))
     })
     public ResponseEntity<AttemptResultDto> completeAnonymousAttempt(
             @Parameter(description = "UUID of the attempt") @PathVariable UUID attemptId,

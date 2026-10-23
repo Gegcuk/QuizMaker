@@ -25,6 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.util.AntPathMatcher;
 
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
+import uk.gegc.quizmaker.features.attempt.api.AttemptController;
 import uk.gegc.quizmaker.features.document.application.DocumentProcessingService;
 import uk.gegc.quizmaker.features.document.application.DocumentValidationService;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
@@ -71,7 +72,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = {QuizController.class, ShareLinkController.class, QuizFreshnessController.class, ApiDiscoveryController.class})
+@WebMvcTest(controllers = {QuizController.class, ShareLinkController.class, QuizFreshnessController.class, AttemptController.class, ApiDiscoveryController.class})
 @Import({
         ApiDocumentationService.class,
         OpenApiConfig.class,
@@ -86,6 +87,47 @@ class QuizOpenApiContractTest {
 
     @Autowired
     private List<GroupedOpenApi> groups;
+
+    @Test
+    @WithMockUser
+    void legacyTimeoutResponsesHaveNamedContractsAndRemainDiscoverable() throws Exception {
+        JsonNode full = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        var matcher = new AntPathMatcher();
+        for (String groupName : List.of("attempts", "quizzes")) {
+            JsonNode grouped = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs/" + groupName))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            String prefix = groupName.equals("attempts") ? "/api/v1/attempts/" : "/api/v1/quizzes/shared/attempts/";
+            for (String command : List.of("answers", "complete")) {
+                String path = prefix + "{attemptId}/" + command;
+                JsonNode operation = grouped.path("paths").path(path).path("post");
+                assertThat(operation.isMissingNode()).isFalse();
+                assertThat(operation.at("/responses/422/content/application~1problem+json/schema/$ref").asText())
+                        .isEqualTo("#/components/schemas/ProblemDetail");
+                assertThat(operation.at("/responses/422/description").asText()).contains("timed out");
+                JsonNode example = operation.at("/responses/422/content/application~1problem+json/examples/expired/value");
+                assertThat(example.path("status").asInt()).isEqualTo(422);
+                assertThat(example.path("detail").asText()).isEqualTo("Attempt has timed out");
+                org.springframework.http.ProblemDetail problem = objectMapper.treeToValue(example, org.springframework.http.ProblemDetail.class);
+                assertThat(problem.getType().toString()).isEqualTo("https://quizzence.com/docs/errors/illegal-state");
+                assertThat(problem.getTitle()).isEqualTo("Illegal State");
+                assertThat(operation.at("/responses/200").findValuesAsText("$ref"))
+                        .contains("#/components/schemas/" + (command.equals("answers") ? "AnswerSubmissionDto" : "AttemptResultDto"));
+                if (command.equals("answers")) {
+                    assertThat(operation.path("requestBody").findValuesAsText("$ref"))
+                            .contains("#/components/schemas/AnswerSubmissionRequest");
+                }
+                assertThat(full.path("paths").path(path).path("post").path("responses").has("422")).isTrue();
+                assertThat(groups.stream().filter(group -> group.getPathsToMatch().stream()
+                        .anyMatch(pattern -> matcher.match(pattern, prefix + "example/" + command)))
+                        .map(GroupedOpenApi::getGroup).toList()).containsExactly(groupName);
+            }
+        }
+        JsonNode summary = objectMapper.readTree(mockMvc.perform(get("/api/v1/api-summary"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(summary.path("groups").findValuesAsText("specUrl"))
+                .contains("/v3/api-docs/attempts", "/v3/api-docs/quizzes");
+    }
 
     @Test
     @WithMockUser

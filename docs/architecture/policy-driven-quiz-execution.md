@@ -3322,6 +3322,10 @@ Retirement of a retained legacy boundary continues to follow #688 D30: at least 
 
 Historical attempts remain readable through compatibility adapters.
 
+The retained writer's timeout guard (#849) preserves its existing timing rule: only `TIMED` with an enabled quiz timer expires, strictly after `startedAt + timerDuration`. Equality remains on time; a stored duration does not enable a disabled timer. Answer and completion commands serialize on the attempt row and commit `ABANDONED` plus its completion timestamp before returning the existing `422 ProblemDetail`. A later completion cannot create a score or completion event. Pause/resume use the same row guard so a concurrent command cannot overwrite terminal state. Other command failures still roll back, including failures after real answer inserts or completion writes. These are legacy compatibility repairs, not activation of target expiry/finalization policy.
+
+`LegacyAttemptTimeoutMySqlIntegrationTest` covers fresh-transaction reads, reopened persistence/service components, before/equal/after boundaries, controlled command races, authenticated/shared routes, immediate practice feedback, unrelated-write rollback, and bounded relationship queries with multiple attempts and answers. OpenAPI contracts retain the existing DTOs and document the `422` response in the `attempts` and `quizzes` groups.
+
 They are not retroactively assigned invented policy snapshots unless a separate migration can derive the information unambiguously and is explicitly approved.
 
 Legacy attempts may therefore have lower reproducibility guarantees than new attempts. The API may identify their provenance internally or in authorized operator views.
