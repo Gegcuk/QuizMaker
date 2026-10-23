@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
+import uk.gegc.quizmaker.features.attempt.application.AttemptTimedOutException;
 import uk.gegc.quizmaker.features.attempt.application.ScoringService;
 import uk.gegc.quizmaker.features.attempt.domain.event.AttemptCompletedEvent;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
@@ -53,6 +54,7 @@ import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -83,6 +85,7 @@ public class AttemptServiceImpl implements AttemptService {
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final QuizAnalyticsService quizAnalyticsService;
+    private final Clock clock;
 
     @Override
     public StartAttemptResponse startAttempt(String username, UUID quizId, AttemptMode mode) {
@@ -287,28 +290,18 @@ public class AttemptServiceImpl implements AttemptService {
     }
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = AttemptTimedOutException.class)
     public AnswerSubmissionDto submitAnswer(String username,
                                             UUID attemptId,
                                             AnswerSubmissionRequest request) {
-        Attempt attempt = attemptRepository.findFullyLoadedById(attemptId)
-                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        Attempt attempt = lockAndLoadAttempt(attemptId);
         enforceOwnership(attempt, username);
 
         if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
             throw new IllegalStateException("Cannot submit answer to attempt with status " + attempt.getStatus());
         }
 
-        if (attempt.getMode() == AttemptMode.TIMED && attempt.getQuiz().getIsTimerEnabled()) {
-            Instant timeout = attempt.getStartedAt()
-                    .plusSeconds(attempt.getQuiz().getTimerDuration() * 60L);
-            if (Instant.now().isAfter(timeout)) {
-                attempt.setStatus(AttemptStatus.ABANDONED);
-                attempt.setCompletedAt(Instant.now());
-                attemptRepository.save(attempt);
-                throw new IllegalStateException("Attempt has timed out");
-            }
-        }
+        checkTimeLimit(attempt);
 
         Question question = questionRepository.findById(request.questionId())
                 .orElseThrow(() -> new ResourceNotFoundException(
@@ -404,8 +397,7 @@ public class AttemptServiceImpl implements AttemptService {
     public List<AnswerSubmissionDto> submitBatch(String username,
                                                  UUID attemptId,
                                                  BatchAnswerSubmissionRequest request) {
-        Attempt attempt = attemptRepository.findFullyLoadedById(attemptId)
-                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        Attempt attempt = lockAndLoadAttempt(attemptId);
         enforceOwnership(attempt, username);
 
         if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
@@ -421,15 +413,15 @@ public class AttemptServiceImpl implements AttemptService {
     }
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = AttemptTimedOutException.class)
     public AttemptResultDto completeAttempt(String username, UUID attemptId) {
-        Attempt attempt = attemptRepository.findFullyLoadedById(attemptId)
-                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        Attempt attempt = lockAndLoadAttempt(attemptId);
         enforceOwnership(attempt, username);
 
         if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
             throw new IllegalStateException("Cannot complete attempt with status " + attempt.getStatus());
         }
+        Instant completedAt = checkTimeLimit(attempt);
 
         // An unavailable question is never silently skipped or converted into a completed attempt.
         for (Question question : questionRepository.findAllByQuizId_IdOrderById(attempt.getQuiz().getId())) {
@@ -442,7 +434,6 @@ public class AttemptServiceImpl implements AttemptService {
         int totalQ = (int) questionRepository.countByQuizId_Id(attempt.getQuiz().getId());
 
         attempt.setStatus(AttemptStatus.COMPLETED);
-        Instant completedAt = Instant.now();
         attempt.setCompletedAt(completedAt);
 
         // Publish event for analytics snapshot update (and future subscribers)
@@ -665,7 +656,7 @@ public class AttemptServiceImpl implements AttemptService {
     @Override
     @Transactional
     public AttemptDto pauseAttempt(String username, UUID attemptId) {
-        Attempt attempt = attemptRepository.findById(attemptId)
+        Attempt attempt = attemptRepository.findByIdForUpdate(attemptId)
                 .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
         enforceOwnership(attempt, username);
 
@@ -681,7 +672,7 @@ public class AttemptServiceImpl implements AttemptService {
     @Override
     @Transactional
     public AttemptDto resumeAttempt(String username, UUID attemptId) {
-        Attempt attempt = attemptRepository.findById(attemptId)
+        Attempt attempt = attemptRepository.findByIdForUpdate(attemptId)
                 .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
         enforceOwnership(attempt, username);
 
@@ -1001,6 +992,29 @@ public class AttemptServiceImpl implements AttemptService {
         if (!attempt.getUser().getId().equals(userId)) {
             throw new AccessDeniedException("You do not have access to attempt " + attempt.getId());
         }
+    }
+
+    private Attempt lockAndLoadAttempt(UUID attemptId) {
+        // Acquire the root lock before the collection query so a waiting command sees committed answers/state.
+        attemptRepository.findByIdForUpdate(attemptId)
+                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        return attemptRepository.findFullyLoadedById(attemptId)
+                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+    }
+
+    private Instant checkTimeLimit(Attempt attempt) {
+        Instant now = clock.instant();
+        if (attempt.getMode() == AttemptMode.TIMED && Boolean.TRUE.equals(attempt.getQuiz().getIsTimerEnabled())) {
+            Instant deadline = attempt.getStartedAt().plusSeconds(attempt.getQuiz().getTimerDuration() * 60L);
+            // Preserve the legacy boundary: an operation exactly at the deadline is still on time.
+            if (now.isAfter(deadline)) {
+                attempt.setStatus(AttemptStatus.ABANDONED);
+                attempt.setCompletedAt(now);
+                // No answer, score, or event has been written. Only this typed exception commits expiry.
+                throw new AttemptTimedOutException();
+            }
+        }
+        return now;
     }
 
     /**
