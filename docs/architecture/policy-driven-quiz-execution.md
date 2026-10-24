@@ -1297,6 +1297,131 @@ Correct answers use stable domain IDs rather than:
 
 ---
 
+### Versioned registry and immutable bindings (#598)
+
+`QuestionRevisionContractService` binds the complete distinct question-revision set of an
+immutable quiz revision to exact response/scoring `(id, version)` pairs. Its caller must
+already have authorized the operation and resolved the owner from trusted server context;
+the persistence owner filter is additional protection, not permission or visibility authority.
+This internal boundary adds no public endpoint or permission and does not route existing attempts.
+
+V84 adds `question_revision_contract_bindings`, keyed by question-revision ID with a foreign
+key to the immutable question snapshot. One question revision has one binding even when reused
+in several quiz revisions. Supported ports expose no replacement/deletion. An identical bind
+is idempotent; a different pair conflicts. A new pair needs a new question revision.
+This is an invariant of the supported write boundary, not an independent database prohibition
+on privileged SQL UPDATE/DELETE. The metadata digest detects inconsistency, not an administrative
+rewrite that also recomputes the digest; V84 adds no triggers or new database access policy.
+Existing rows are not backfilled: absent bindings fail with `UNBOUND_REVISION`, rather than
+inferring a contract from the current question type, `QuestionContracts.VERSION`, or Java handler.
+Missing/wrong-owner quiz revisions have the same `REVISION_UNAVAILABLE` failure.
+
+`QuestionContractRegistry` resolves both exact references before returning a pair of project-owned
+response/scoring ports. Duplicate registrations fail at startup. Unknown or unavailable versions
+fail with `UNSUPPORTED_CONTRACT`; there is no latest-version alias or fallback. The registry has
+no built-in family implementations in this foundation. #701 and #826–#829 supply the separately
+owned adapters; existing validation, grading, feedback and web/iOS API shapes remain unchanged.
+`ContractScore` carries exact decimal earned/possible points only; it defines no normalization,
+pass threshold, stored result, release rule or concrete family algorithm.
+
+Binding format v1 is fixed-order JSON encoded in UTF-8: `bindingFormatVersion`,
+`questionRevisionId`, `response` (`id`, `version`), then `scoring` (`id`, `version`).
+Identifiers use bounded lowercase ASCII names, positive integer versions and no class-name lookup.
+SHA-256 covers only this bounded metadata; the saved digest is checked on read. No document,
+question payload, media or source text is loaded/hashed to resolve or compare versions.
+An external transaction must call `declareScope(ownerId, quizRevisionIds)` before any bind or
+resolve. The declaration covers the entire outer transaction. The service checks ownership of
+**all** declared quiz revisions, reads their immutable membership in bulk and computes the union
+of question-revision IDs itself. It reserves existing question identity rows, including unbound
+questions, in canonical BINARY(16) primary-key order. Read-write transactions use FOR UPDATE;
+read-only transactions use FOR SHARE. Disjoint question sets remain parallel and overlapping
+read-only scopes can proceed together. Lock queries select IDs only, without payloads/options.
+Standalone bind/resolve creates its own transaction and declares the single requested revision.
+Declaring a scope without an active external transaction fails with `TRANSACTION_REQUIRED`;
+using an external transaction without a declaration fails with `SCOPE_REQUIRED`.
+
+The first declaration freezes the owner and quiz-revision set until that transaction completes.
+Repeated declarations of the same set or a subset are idempotent and do not shrink the scope.
+Every later bind/resolve must name a declared quiz revision, even when another undeclared revision
+contains the same question union. An attempted expansion fails with `SCOPE_VIOLATION` and marks
+the whole transaction rollback-only, including when the caller catches the exception. The scope
+also retains a terminal violation flag outside JDBC savepoint state. Its `beforeCommit` callback
+rejects the outer commit with `SCOPE_VIOLATION` even if a manual or NESTED savepoint rollback cleared
+Spring's rollback-only marker. Ordinary savepoint rollback without a scope violation remains valid.
+REQUIRES_NEW owns an independent flag and restores the suspended outer flag on return. A missing
+scope argument fails with `INVALID_SCOPE`; null identity, unavailable or foreign-owner revisions
+fail with `REVISION_UNAVAILABLE`. Scope state follows the actual Spring transaction: inner
+REQUIRED calls and recreated service components share it, REQUIRES_NEW suspends/restores it, and
+completion clears it. Each operation rechecks persisted owner/membership, so a savepoint rollback
+cannot turn cached membership into authorization for a revision that no longer exists.
+
+For example, two callers both declare quiz revisions containing A, B and A+B. One then resolves
+A followed by B; the other resolves B followed by A and binds A+B. Their traversal order cannot
+create the former lock cycle: the second writer waits for the full union before its first read.
+Declaring only A and later requesting B is a transaction error, not an implicit scope extension.
+This addresses contract-operation lock cycles, not every possible deadlock in an arbitrary outer
+transaction. #700 must coordinate publication/current-pointer and revision-creation/FK locks with
+this declaration order; callers must not first acquire overlapping identity locks in a conflicting
+order. There is no global quiz mutex and no automatic transaction retry.
+
+Scope setup uses two metadata queries for up to 500 quiz revisions and 500 distinct questions;
+larger declarations use bounded batches in the same canonical order. Locking reads use
+UNION ALL batches of exact primary-key lookups: an IN predicate can choose a full scan and lock
+unrelated identities/bindings, even with FORCE INDEX. Each arm takes its point lock in canonical
+order, keeping disjoint sets parallel. Within the scope, resolution uses one membership query
+and a current FOR SHARE metadata query per batch of up to 500 distinct questions, regardless of
+option/payload size. A standalone nonempty resolution with up to 500 questions uses four queries.
+The binding read sees a concurrently committed identical binding even inside an older REPEATABLE
+READ transaction. Empty revisions need no identity or binding lock query and
+remain distinct from unavailable revisions. Joining an outer transaction preserves its effective
+read-only flag, isolation and completion boundary.
+
+The bind service joins the caller's transaction, including an existing JPA transaction. It
+requires the complete question set for the requested quiz revision and orders writes canonically.
+Membership checks read immutable metadata without additional source-graph locks. The unique-key
+insert/no-op and current binding read preserve an existing winner under READ COMMITTED and
+REPEATABLE READ; no metadata is overwritten. A later unknown version, conflicting binding,
+scope violation or SQL failure rolls back earlier bindings and participating revision writes;
+a joined transaction is rollback-only even if its caller catches the failure.
+TransactionTemplate execution is inside the sanitizing boundary, covering begin, SQL, and owned
+commit/rollback failures as bounded `PERSISTENCE_UNAVAILABLE` without exposing technical causes.
+If an existing transaction is joined, its eventual outer commit happens after this service returns
+and its failure handling belongs to the caller. A commit/rollback failure is not proof of rollback:
+the database may have committed before its acknowledgement was lost. Callers must reread durable
+state before retrying the same binding after an unknown outcome. There are no automatic retries.
+Domain failures extend `RuntimeException` directly so Spring JPA's repository exception translation
+preserves conflict/integrity categories rather than reclassifying them as database failures.
+`question.contract.resolutions` records only fixed `supported`/`unsupported` outcome labels.
+
+CONTRACTS-01 uses persisted v1/v2 bindings and explicit registry doubles to prove dispatch after
+component recreation, not concrete family grading. CONTRACTS-02 proves reached SQL and fresh-read
+rollback of bindings plus participating #597 revision writes. Actual publication/current-pointer
+composition remains #700; actual family compatibility remains #701 and the other family owners.
+CONTRACTS-03 proves real MySQL concurrent success/conflict, same-transaction identical replay and
+resolution, including different quiz parents sharing several questions in opposite input orders
+under READ COMMITTED and REPEATABLE READ. Connection-open, reached SQL, rollback and commit faults
+exercise real Spring transaction boundaries; fresh reads distinguish rollback from lost commit acknowledgement.
+Additional JDBC/JPA races cover same-set resolve-then-bind, opposite-order subset reads followed
+by a superset bind, resolve-only A/B composition and opposite-order binds of initially unbound
+questions. Both outer transactions must commit and preserve the binding. Separate races prove
+parallel disjoint writers and overlapping read-only scopes while both transactions stay open.
+Caught declaration/resolve/bind expansions must roll back a binding that already reached SQL.
+Scope lifecycle checks cover component recreation, input mutation, subset redeclaration,
+REQUIRES_NEW suspension/restoration, completion and savepoint rollback. JDBC regressions prove
+that manual/NESTED rollback cannot erase a scope violation after a reached binding write; fresh
+reads must find no binding after the rejected outer commit. The current Hibernate JPA dialect
+rejects savepoints even with nested transactions enabled; JPA tests cover that boundary and
+independent REQUIRES_NEW failure state. JPA invokes beforeCommit even for a global rollback-only
+transaction, so its scope guard reports the typed violation before provider commit. The concurrency
+and rollback matrix uses both isolation levels and runs against MySQL 8.0 and 8.4. CONTRACTS-04 checks
+bounded metadata SQL for bulk scope setup and read-only/read-write resolution against multiple
+quiz parents and large stored payloads.
+These local proofs do not activate target execution or claim the unavailable downstream integrations.
+
+Apply V84 before using this boundary. Preserve additive tables and retained bindings on application
+rollback; use a forward fix after writes rather than dropping history or editing an applied migration.
+There is no new retention period, offline mutation capability or destructive cleanup.
+
 ## Assignments and Legacy Share Links
 
 ### Assignment

@@ -202,7 +202,7 @@ class QuizRevisionAuthoringMySqlIntegrationTest {
     }
 
     private void dropRevisionTables() {
-        for (String table : List.of("quiz_revision_items", "question_option_revisions", "quiz_revisions", "question_revisions", HISTORY)) {
+        for (String table : List.of("question_revision_contract_bindings", "quiz_revision_items", "question_option_revisions", "quiz_revisions", "question_revisions", HISTORY)) {
             sql.execute("DROP TABLE IF EXISTS " + table);
         }
     }
