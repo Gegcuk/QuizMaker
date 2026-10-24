@@ -2,13 +2,14 @@ package uk.gegc.quizmaker.features.question.contract;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 import uk.gegc.quizmaker.features.question.application.QuestionContractRegistry;
 import uk.gegc.quizmaker.features.question.application.impl.QuestionRevisionContractServiceImpl;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionContractBindingRepository;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -29,7 +30,7 @@ class QuestionRevisionContractServiceTest {
     void databaseReadOutageIsTypedAndCannotExposeSqlDiagnostics() {
         var repository = mock(QuestionContractBindingRepository.class);
         var registry = mock(QuestionContractRegistry.class);
-        var service = new QuestionRevisionContractServiceImpl(repository, registry);
+        var service = new QuestionRevisionContractServiceImpl(repository, registry, transactions());
         when(repository.findForRevision(OWNER, id(10))).thenThrow(new DataAccessResourceFailureException("private SQL details"));
         assertThatThrownBy(() -> service.resolve(OWNER, id(10)))
                 .isInstanceOfSatisfying(ContractResolutionException.class, failure -> {
@@ -43,14 +44,19 @@ class QuestionRevisionContractServiceTest {
     @Test
     void writeOutageHasNoFallbackAndRemainsATransactionAbortingFailure() {
         var repository = mock(QuestionContractBindingRepository.class);
-        var service = new QuestionRevisionContractServiceImpl(repository, registry());
-        when(repository.findForRevision(OWNER, id(10))).thenReturn(Optional.of(
-                new QuestionContractBindingRepository.Snapshot(Set.of(id(1)), Map.of())));
+        var service = new QuestionRevisionContractServiceImpl(repository, registry(), transactions());
+        when(repository.findQuestionRevisionIds(OWNER, id(10))).thenReturn(Optional.of(Set.of(id(1))));
         doThrow(new DataAccessResourceFailureException("private SQL details"))
                 .when(repository).insert(OWNER, id(10), binding(1, 1));
         assertThatThrownBy(() -> service.bind(OWNER, id(10), List.of(binding(1, 1))))
                 .isInstanceOfSatisfying(ContractResolutionException.class,
                         failure -> assertThat(failure.reason()).isEqualTo(PERSISTENCE_UNAVAILABLE));
         verify(repository, times(1)).insert(OWNER, id(10), binding(1, 1));
+    }
+
+    private static PlatformTransactionManager transactions() {
+        var manager = mock(PlatformTransactionManager.class);
+        when(manager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        return manager;
     }
 }

@@ -6,6 +6,8 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -77,6 +79,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
 
     @AfterEach
     void clean() {
+        source.fault = null;
         source.gate = null;
         for (String table : List.of("question_revision_contract_bindings", "quiz_revision_items",
                 "question_option_revisions", "quiz_revisions", "question_revisions", IDENTITY_HISTORY, BINDING_HISTORY,
@@ -162,6 +165,25 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         assertThat(service.resolve(OWNER, id(11))).hasSize(2);
     }
 
+    @Test
+    void caughtBindingFailureStillPreventsTheOuterTransactionFromCommittingPartialWrites() {
+        var revision = quiz(10, question(1, "{\"answer\":true}"), question(2, "{\"answer\":false}"));
+        assertThatThrownBy(() -> new TransactionTemplate(manager).executeWithoutResult(status -> {
+            revisions.insert(revision);
+            rejected(() -> service.bind(OWNER, revision.id(), List.of(binding(1, 1), binding(2, 99))),
+                    UNSUPPORTED_CONTRACT);
+            assertThat(source.bindingWrites).hasValue(1);
+            assertThat(status.isRollbackOnly()).isTrue();
+        })).isInstanceOf(org.springframework.transaction.UnexpectedRollbackException.class);
+        assertThat(countBindings()).isZero();
+        assertThat(revisions.findById(OWNER, revision.id())).isEmpty();
+        new TransactionTemplate(manager).executeWithoutResult(status -> {
+            revisions.insert(revision);
+            service.bind(OWNER, revision.id(), List.of(binding(1, 1), binding(2, 2)));
+        });
+        assertThat(service.resolve(OWNER, revision.id())).hasSize(2);
+    }
+
     @ParameterizedTest
     @CsvSource({"1,2,READ_COMMITTED", "1,2,REPEATABLE_READ", "1,1,READ_COMMITTED", "1,1,REPEATABLE_READ"})
     void contracts03ConcurrentBindingsHaveSuccessfulWinnersAndImmutableReplay(int firstVersion, int secondVersion,
@@ -205,8 +227,163 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         } catch (ContractResolutionException failure) { return failure.reason(); }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"READ_COMMITTED", "REPEATABLE_READ"})
+    void identicalConcurrentBindCanResolveInsideTheSameOlderTransaction(String isolation) throws Exception {
+        revisions.insert(quiz(10, question(1, "{\"answer\":true}")));
+        var snapshotEstablished = new CountDownLatch(1);
+        var winnerCommitted = new CountDownLatch(1);
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var replay = executor.submit(() -> {
+                var tx = new TransactionTemplate(new DataSourceTransactionManager(source));
+                tx.setIsolationLevelName("ISOLATION_" + isolation);
+                return tx.execute(status -> {
+                    assertThat(countBindings()).as("Establish the loser's snapshot before the winner commits").isZero();
+                    snapshotEstablished.countDown();
+                    await(winnerCommitted);
+                    service.bind(OWNER, id(10), List.of(binding(1, 1)));
+                    return service.resolve(OWNER, id(10)).get(id(1)).binding();
+                });
+            });
+            assertThat(snapshotEstablished.await(10, TimeUnit.SECONDS)).isTrue();
+            service.bind(OWNER, id(10), List.of(binding(1, 1)));
+            winnerCommitted.countDown();
+            assertThat(replay.get(15, TimeUnit.SECONDS)).isEqualTo(binding(1, 1));
+            assertThat(service(registry(), manager).resolve(OWNER, id(10)).get(id(1)).binding()).isEqualTo(binding(1, 1));
+            assertThat(countBindings()).isEqualTo(1);
+        } finally {
+            winnerCommitted.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"1,READ_COMMITTED", "2,READ_COMMITTED", "1,REPEATABLE_READ", "2,REPEATABLE_READ"})
+    void concurrentQuizzesWithSharedQuestionsAndOppositeInputOrdersDoNotDeadlock(int secondVersion,
+                                                                               String isolation) throws Exception {
+        var firstQuestion = question(1, "{\"answer\":true}");
+        var secondQuestion = question(-1, "{\"answer\":false}");
+        revisions.insert(quiz(10, firstQuestion, secondQuestion));
+        revisions.insert(quiz(11, secondQuestion, firstQuestion));
+        var gate = new Gate();
+        source.gate = gate;
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var first = executor.submit(() -> sharedQuizBind(10, List.of(binding(1, 1), binding(-1, 1)), isolation));
+            var second = executor.submit(() -> sharedQuizBind(11,
+                    List.of(binding(-1, secondVersion), binding(1, secondVersion)), isolation));
+            assertThat(gate.arrived.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(gate.connections).hasSize(2);
+            assertThat(source.bindingWrites).hasValue(0);
+            gate.release.countDown();
+            var outcomes = Arrays.asList(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS));
+            assertThat(outcomes.stream().filter(Objects::isNull).count()).as("Writer outcomes: %s", outcomes)
+                    .isEqualTo(secondVersion == 1 ? 2 : 1);
+            if (secondVersion != 1) assertThat(outcomes).contains(BINDING_CONFLICT);
+            source.gate = null;
+            var restarted = service(registry(), manager);
+            var winner = restarted.resolve(OWNER, id(10));
+            assertThat(winner).hasSize(2);
+            assertThat(winner.get(id(1)).binding().response().version())
+                    .isEqualTo(winner.get(id(-1)).binding().response().version());
+            assertThat(restarted.resolve(OWNER, id(11))).isEqualTo(winner);
+            assertThat(countBindings()).isEqualTo(2);
+        } finally {
+            gate.release.countDown();
+            source.gate = null;
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private ContractResolutionException.Reason sharedQuizBind(long quiz, List<QuestionContractBinding> bindings,
+                                                            String isolation) {
+        var tx = new TransactionTemplate(new DataSourceTransactionManager(source));
+        tx.setIsolationLevelName("ISOLATION_" + isolation);
+        try {
+            tx.executeWithoutResult(status -> {
+                service.bind(OWNER, id(quiz), bindings);
+                assertThat(service.resolve(OWNER, id(quiz)).values().stream().map(value -> value.binding()).toList())
+                        .containsExactlyInAnyOrderElementsOf(bindings);
+            });
+            return null;
+        } catch (ContractResolutionException failure) { return failure.reason(); }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void transactionOpenFailureIsTypedForBothWriteAndRead(boolean read) {
+        revisions.insert(quiz(10, question(1, "{\"answer\":true}")));
+        source.fault = Fault.OPEN;
+        try {
+            rejected(() -> {
+                if (read) service.resolve(OWNER, id(10));
+                else service.bind(OWNER, id(10), List.of(binding(1, 1)));
+            }, PERSISTENCE_UNAVAILABLE);
+        } finally { source.fault = null; }
+        assertThat(source.bindingWrites).hasValue(0);
+        assertThat(countBindings()).isZero();
+        service.bind(OWNER, id(10), List.of(binding(1, 1)));
+        assertThat(service.resolve(OWNER, id(10))).hasSize(1);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Fault.class, names = {"SQL_AFTER_FIRST_WRITE", "ROLLBACK_AFTER"})
+    void sqlOrRollbackFailureIsTypedAndFreshConnectionProvesNoPartialBindings(Fault fault) {
+        revisions.insert(quiz(10, question(1, "{\"answer\":true}"), question(2, "{\"answer\":false}")));
+        source.fault = fault;
+        try {
+            rejected(() -> service.bind(OWNER, id(10), List.of(binding(1, 1), binding(2, 2))), PERSISTENCE_UNAVAILABLE);
+        } finally { source.fault = null; }
+        assertThat(source.bindingWrites).as("First authoritative write really executed before SQL failure").hasValue(1);
+        assertThat(source.rollbacks).hasValue(1);
+        assertThat(countBindings()).isZero();
+        rejected(() -> service(registry(), manager).resolve(OWNER, id(10)), UNBOUND_REVISION);
+        service.bind(OWNER, id(10), List.of(binding(1, 1), binding(2, 2)));
+        assertThat(service.resolve(OWNER, id(10))).hasSize(2);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Fault.class, names = {"COMMIT_BEFORE", "COMMIT_AFTER"})
+    void commitFailureIsTypedAndUnknownOutcomeCanBeReconciledAndReplayed(Fault fault) {
+        revisions.insert(quiz(10, question(1, "{\"answer\":true}")));
+        source.fault = fault;
+        try {
+            rejected(() -> service.bind(OWNER, id(10), List.of(binding(1, 1))), PERSISTENCE_UNAVAILABLE);
+        } finally { source.fault = null; }
+        assertThat(source.bindingWrites).hasValue(1);
+        assertThat(countBindings()).isEqualTo(fault == Fault.COMMIT_AFTER ? 1 : 0);
+        var restarted = service(registry(), new DataSourceTransactionManager(source));
+        if (fault == Fault.COMMIT_AFTER) {
+            assertThat(restarted.resolve(OWNER, id(10)).get(id(1)).binding()).isEqualTo(binding(1, 1));
+        } else rejected(() -> restarted.resolve(OWNER, id(10)), UNBOUND_REVISION);
+        restarted.bind(OWNER, id(10), List.of(binding(1, 1)));
+        assertThat(restarted.resolve(OWNER, id(10)).get(id(1)).binding()).isEqualTo(binding(1, 1));
+        assertThat(countBindings()).isEqualTo(1);
+    }
+
     @Test
-    void contracts04MetadataReadsAreOneQueryForMultipleParentsAndNeverSelectLargeContent() {
+    void readTransactionCommitFailureAlsoUsesTheTypedBoundary() {
+        revisions.insert(quiz(10, question(1, "{\"answer\":true}")));
+        service.bind(OWNER, id(10), List.of(binding(1, 1)));
+        source.fault = Fault.COMMIT_AFTER;
+        try { rejected(() -> service.resolve(OWNER, id(10)), PERSISTENCE_UNAVAILABLE); }
+        finally { source.fault = null; }
+        assertThat(service(registry(), manager).resolve(OWNER, id(10))).hasSize(1);
+    }
+
+    private static void await(CountDownLatch latch) {
+        try { assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue(); }
+        catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted at the transaction barrier", failure);
+        }
+    }
+
+    @Test
+    void contracts04MetadataReadsAreTwoQueriesForMultipleParentsAndNeverSelectLargeContent() {
         var questions = new ArrayList<uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision>();
         for (int index = 1; index <= 12; index++) {
             questions.add(question(index, "{\"answer\":true,\"padding\":\"" + "x".repeat(100_000) + "\"}"));
@@ -218,11 +395,12 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         for (long parent = 11; parent <= 14; parent++) revisions.insert(quiz(parent, questions.get(0), questions.get(1)));
         source.reset();
         assertThat(service.resolve(OWNER, id(10))).hasSize(12);
-        assertThat(source.selects).hasSize(1);
-        assertThat(source.selects.get(0)).doesNotContain("content", "question_text", "normalized_text", "SELECT *");
+        assertThat(source.selects).hasSize(2);
+        assertThat(source.selects).allSatisfy(statement -> assertThat(statement)
+                .doesNotContain("content", "question_text", "normalized_text", "SELECT *"));
         source.reset();
         assertThat(service.resolve(OWNER, id(11))).hasSize(2);
-        assertThat(source.selects).hasSize(1);
+        assertThat(source.selects).hasSize(2);
         assertThat(source.selects).allSatisfy(statement -> assertThat(statement).doesNotContain("content", "question_text"));
     }
 
@@ -304,12 +482,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
 
     @Test
     void bindingAndRevisionWritesJoinTheSameJpaTransaction() {
-        var factory = new org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean();
-        factory.setDataSource(source);
-        factory.setJpaVendorAdapter(new org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter());
-        factory.setPackagesToScan("uk.gegc.quizmaker.features.question.contract");
-        factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "none"));
-        factory.afterPropertiesSet();
+        var factory = jpaFactory();
         try {
             var jpa = new org.springframework.orm.jpa.JpaTransactionManager(factory.getObject());
             jpa.setDataSource(source);
@@ -335,10 +508,47 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         } finally { factory.destroy(); }
     }
 
+    @ParameterizedTest
+    @CsvSource({"OPEN,false", "OPEN,true", "COMMIT_AFTER,false", "COMMIT_AFTER,true"})
+    void ownedJpaTransactionLifecycleFailuresAlsoUseTheTypedBoundary(Fault fault, boolean read) {
+        revisions.insert(quiz(10, question(1, "{\"answer\":true}")));
+        if (read) service.bind(OWNER, id(10), List.of(binding(1, 1)));
+        var factory = jpaFactory();
+        try {
+            var jpa = new org.springframework.orm.jpa.JpaTransactionManager(factory.getObject());
+            jpa.setDataSource(source);
+            var jpaService = service(registry(), jpa);
+            source.reset();
+            source.fault = fault;
+            try {
+                rejected(() -> {
+                    if (read) jpaService.resolve(OWNER, id(10));
+                    else jpaService.bind(OWNER, id(10), List.of(binding(1, 1)));
+                }, PERSISTENCE_UNAVAILABLE);
+            } finally { source.fault = null; }
+            assertThat(source.bindingWrites).hasValue(!read && fault == Fault.COMMIT_AFTER ? 1 : 0);
+            assertThat(countBindings()).isEqualTo(read || fault == Fault.COMMIT_AFTER ? 1 : 0);
+            jpaService.bind(OWNER, id(10), List.of(binding(1, 1)));
+            assertThat(service(registry(), manager).resolve(OWNER, id(10)).get(id(1)).binding())
+                    .isEqualTo(binding(1, 1));
+            assertThat(countBindings()).isEqualTo(1);
+        } finally { factory.destroy(); }
+    }
+
+    private static org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean jpaFactory() {
+        var factory = new org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean();
+        factory.setDataSource(source);
+        factory.setJpaVendorAdapter(new org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter());
+        factory.setPackagesToScan("uk.gegc.quizmaker.features.question.contract");
+        factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "none"));
+        factory.afterPropertiesSet();
+        return factory;
+    }
+
     private static QuestionRevisionContractService service(QuestionContractRegistry registry, PlatformTransactionManager manager) {
         QuestionContractBindingRepository repository = proxy(
                 new JdbcQuestionContractBindingRepository(new NamedParameterJdbcTemplate(source)), manager);
-        return proxy(new QuestionRevisionContractServiceImpl(repository, registry), manager);
+        return proxy(new QuestionRevisionContractServiceImpl(repository, registry, manager), manager);
     }
 
     @SuppressWarnings("unchecked")
@@ -357,6 +567,8 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         assertThatThrownBy(action::run).isInstanceOfSatisfying(ContractResolutionException.class, failure -> {
             assertThat(failure.reason()).isEqualTo(reason);
             assertThat(failure.getMessage()).isEqualTo("Question contract rejected: " + reason);
+            assertThat(failure.getCause()).isNull();
+            assertThat(failure.getSuppressed()).isEmpty();
         });
     }
 
@@ -370,19 +582,35 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         final Set<Connection> connections = ConcurrentHashMap.newKeySet();
     }
 
+    private enum Fault { OPEN, SQL_AFTER_FIRST_WRITE, COMMIT_BEFORE, COMMIT_AFTER, ROLLBACK_AFTER }
+
     private static final class ObservedDataSource extends DelegatingDataSource {
         final List<String> selects = new CopyOnWriteArrayList<>();
         final AtomicInteger bindingWrites = new AtomicInteger();
+        final AtomicInteger rollbacks = new AtomicInteger();
         volatile Gate gate;
+        volatile Fault fault;
         ObservedDataSource(DataSource target) { super(target); }
-        void reset() { selects.clear(); bindingWrites.set(0); }
+        void reset() { selects.clear(); bindingWrites.set(0); rollbacks.set(0); }
 
         @Override
         public Connection getConnection() throws SQLException {
+            if (fault == Fault.OPEN) throw new SQLException("private connection diagnostics");
             Connection connection = super.getConnection();
             return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(), new Class<?>[]{Connection.class},
                     (proxy, method, arguments) -> {
+                        if (method.getName().equals("commit") && fault == Fault.COMMIT_BEFORE) {
+                            // Losing the connection before commit makes MySQL roll the transaction back.
+                            connection.close();
+                        }
                         Object result = invoke(connection, method, arguments);
+                        if (method.getName().equals("commit") && fault == Fault.COMMIT_AFTER) {
+                            throw new SQLException("private commit acknowledgement diagnostics");
+                        }
+                        if (method.getName().equals("rollback")) {
+                            rollbacks.incrementAndGet();
+                            if (fault == Fault.ROLLBACK_AFTER) throw new SQLException("private rollback diagnostics");
+                        }
                         if (method.getName().equals("prepareStatement") && arguments[0] instanceof String statement) {
                             if (statement.stripLeading().startsWith("SELECT")) selects.add(statement);
                             if (statement.stripLeading().startsWith("INSERT INTO question_revision_contract_bindings")) {
@@ -390,6 +618,10 @@ class QuestionRevisionContractsMySqlIntegrationTest {
                                 return Proxy.newProxyInstance(PreparedStatement.class.getClassLoader(), new Class<?>[]{PreparedStatement.class},
                                         (unused, operation, values) -> {
                                             if (operation.getName().equals("executeUpdate")) {
+                                                if ((fault == Fault.SQL_AFTER_FIRST_WRITE || fault == Fault.ROLLBACK_AFTER)
+                                                        && bindingWrites.get() == 1) {
+                                                    throw new SQLException("private SQL diagnostics");
+                                                }
                                                 Gate current = gate;
                                                 if (current != null) {
                                                     current.connections.add(connection);

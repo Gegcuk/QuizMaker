@@ -10,6 +10,9 @@ import java.util.UUID;
 /**
  * Internal boundary for already authorized callers using server-resolved owner context.
  * Owner scope is additional protection, not principal/permission/visibility authorization.
+ * Uses REQUIRED transactions. Persistence/transaction failures during this call are sanitized;
+ * a commit failure can have an unknown durable outcome. If joining an outer transaction,
+ * its eventual completion and failure handling remain the caller's responsibility.
  */
 public interface QuestionRevisionContractService {
     void bind(UUID ownerId, UUID quizRevisionId, List<QuestionContractBinding> bindings);

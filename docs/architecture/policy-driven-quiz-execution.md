@@ -1309,6 +1309,9 @@ V84 adds `question_revision_contract_bindings`, keyed by question-revision ID wi
 key to the immutable question snapshot. One question revision has one binding even when reused
 in several quiz revisions. Supported ports expose no replacement/deletion. An identical bind
 is idempotent; a different pair conflicts. A new pair needs a new question revision.
+This is an invariant of the supported write boundary, not an independent database prohibition
+on privileged SQL UPDATE/DELETE. The metadata digest detects inconsistency, not an administrative
+rewrite that also recomputes the digest; V84 adds no triggers or new database access policy.
 Existing rows are not backfilled: absent bindings fail with `UNBOUND_REVISION`, rather than
 inferring a contract from the current question type, `QuestionContracts.VERSION`, or Java handler.
 Missing/wrong-owner quiz revisions have the same `REVISION_UNAVAILABLE` failure.
@@ -1326,17 +1329,25 @@ Binding format v1 is fixed-order JSON encoded in UTF-8: `bindingFormatVersion`,
 Identifiers use bounded lowercase ASCII names, positive integer versions and no class-name lookup.
 SHA-256 covers only this bounded metadata; the saved digest is checked on read. No document,
 question payload, media or source text is loaded/hashed to resolve or compare versions.
-The owner-scoped aggregate read uses one SQL query regardless of item/option count and selects
-only IDs and binding metadata. Empty revisions are distinct from unavailable revisions.
+The owner-scoped aggregate read uses two SQL queries regardless of item/option count: a
+non-locking read of immutable membership, then a current locking read of binding metadata only.
+The latter sees a concurrently committed identical binding even inside an older REPEATABLE READ
+transaction. It locks binding rows in BINARY(16) primary-key order, without locking the source
+graph. Empty revisions need only the membership query and remain distinct from unavailable revisions.
 
 The bind service joins the caller's transaction, including an existing JPA transaction. It
-requires the complete question set and orders writes by question-revision ID. Membership checks
-read immutable metadata without locking the source graph. The unique-key insert/no-op and a
+requires the complete question set and orders writes in the same canonical UUID/primary-key order.
+Membership checks read immutable metadata without locking the source graph. The unique-key insert/no-op and a
 locking read of the binding row serialize competitors under both READ COMMITTED and REPEATABLE
-READ; no metadata is overwritten. A later unknown version, conflicting binding or database failure
-aborts the entire transaction, including earlier bindings and participating revision writes.
-There are no automatic database retries. Database-operation failures surface as bounded
-`PERSISTENCE_UNAVAILABLE`; callers must reconcile committed state before retrying an unknown outcome.
+READ; no metadata is overwritten. A later unknown version, conflicting binding or SQL failure
+causes rollback of earlier bindings and participating revision writes; a joined transaction is
+marked rollback-only even if its caller catches the failure.
+TransactionTemplate execution is inside the sanitizing boundary, covering begin, SQL, and owned
+commit/rollback failures as bounded `PERSISTENCE_UNAVAILABLE` without exposing technical causes.
+If an existing transaction is joined, its eventual outer commit happens after this service returns
+and its failure handling belongs to the caller. A commit/rollback failure is not proof of rollback:
+the database may have committed before its acknowledgement was lost. Callers must reread durable
+state before retrying the same binding after an unknown outcome. There are no automatic retries.
 Domain failures extend `RuntimeException` directly so Spring JPA's repository exception translation
 preserves conflict/integrity categories rather than reclassifying them as database failures.
 `question.contract.resolutions` records only fixed `supported`/`unsupported` outcome labels.
@@ -1345,7 +1356,10 @@ CONTRACTS-01 uses persisted v1/v2 bindings and explicit registry doubles to prov
 component recreation, not concrete family grading. CONTRACTS-02 proves reached SQL and fresh-read
 rollback of bindings plus participating #597 revision writes. Actual publication/current-pointer
 composition remains #700; actual family compatibility remains #701 and the other family owners.
-CONTRACTS-03 proves real MySQL concurrent success/conflict, identical replay and immutable rereads.
+CONTRACTS-03 proves real MySQL concurrent success/conflict, same-transaction identical replay and
+resolution, including different quiz parents sharing several questions in opposite input orders
+under READ COMMITTED and REPEATABLE READ. Connection-open, reached SQL, rollback and commit faults
+exercise real Spring transaction boundaries; fresh reads distinguish rollback from lost commit acknowledgement.
 CONTRACTS-04 checks bounded metadata SQL against multiple quiz parents and large stored payloads.
 These local proofs do not activate target execution or claim the unavailable downstream integrations.
 

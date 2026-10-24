@@ -15,7 +15,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException.Reason.*;
@@ -32,26 +34,46 @@ public class JdbcQuestionContractBindingRepository implements QuestionContractBi
 
     @Override
     @Transactional(readOnly = true)
-    public Optional<Snapshot> findForRevision(UUID ownerId, UUID quizRevisionId) {
-        return jdbc.query("SELECT i.question_revision_id AS item_question_id, " + COLUMNS + """
+    public Optional<Set<UUID>> findQuestionRevisionIds(UUID ownerId, UUID quizRevisionId) {
+        return jdbc.query("""
+                SELECT i.question_revision_id AS item_question_id
                 FROM quiz_revisions r
                 LEFT JOIN quiz_revision_items i ON i.quiz_revision_id=r.id
-                LEFT JOIN question_revision_contract_bindings b ON b.question_revision_id=i.question_revision_id
                 WHERE r.owner_id=:owner AND r.id=:quiz
                 """, scope(ownerId, quizRevisionId), rows -> {
             boolean found = false;
             var ids = new HashSet<UUID>();
-            var bindings = new HashMap<UUID, QuestionContractBinding>();
             while (rows.next()) {
                 found = true;
                 byte[] questionId = rows.getBytes("item_question_id");
                 if (questionId != null) ids.add(uuid(questionId));
-                if (rows.getBytes("question_revision_id") != null) {
-                    var binding = binding(rows);
-                    bindings.put(binding.questionRevisionId(), binding);
-                }
             }
-            return found ? Optional.of(new Snapshot(ids, bindings)) : Optional.empty();
+            return found ? Optional.of(Set.copyOf(ids)) : Optional.empty();
+        });
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<Snapshot> findForRevision(UUID ownerId, UUID quizRevisionId) {
+        return findQuestionRevisionIds(ownerId, quizRevisionId).map(ids -> {
+            if (ids.isEmpty()) return new Snapshot(ids, Map.of());
+            // Current read of binding rows only. A normal SELECT could retain a snapshot
+            // from before an identical concurrent bind, even after insert accepted it.
+            var parameters = new MapSqlParameterSource("questions", ids.stream()
+                    .map(JdbcQuestionContractBindingRepository::bytes).toList());
+            var bindings = jdbc.query("SELECT " + COLUMNS + """
+                    FROM question_revision_contract_bindings b
+                    WHERE b.question_revision_id IN (:questions)
+                    ORDER BY b.question_revision_id FOR SHARE
+                    """, parameters, rows -> {
+                var result = new HashMap<UUID, QuestionContractBinding>();
+                while (rows.next()) {
+                    var binding = binding(rows);
+                    result.put(binding.questionRevisionId(), binding);
+                }
+                return result;
+            });
+            return new Snapshot(ids, bindings);
         });
     }
 
