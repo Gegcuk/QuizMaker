@@ -1344,7 +1344,11 @@ The first declaration freezes the owner and quiz-revision set until that transac
 Repeated declarations of the same set or a subset are idempotent and do not shrink the scope.
 Every later bind/resolve must name a declared quiz revision, even when another undeclared revision
 contains the same question union. An attempted expansion fails with `SCOPE_VIOLATION` and marks
-the whole transaction rollback-only, including when the caller catches the exception. A missing
+the whole transaction rollback-only, including when the caller catches the exception. The scope
+also retains a terminal violation flag outside JDBC savepoint state. Its `beforeCommit` callback
+rejects the outer commit with `SCOPE_VIOLATION` even if a manual or NESTED savepoint rollback cleared
+Spring's rollback-only marker. Ordinary savepoint rollback without a scope violation remains valid.
+REQUIRES_NEW owns an independent flag and restores the suspended outer flag on return. A missing
 scope argument fails with `INVALID_SCOPE`; null identity, unavailable or foreign-owner revisions
 fail with `REVISION_UNAVAILABLE`. Scope state follows the actual Spring transaction: inner
 REQUIRED calls and recreated service components share it, REQUIRES_NEW suspends/restores it, and
@@ -1403,8 +1407,13 @@ questions. Both outer transactions must commit and preserve the binding. Separat
 parallel disjoint writers and overlapping read-only scopes while both transactions stay open.
 Caught declaration/resolve/bind expansions must roll back a binding that already reached SQL.
 Scope lifecycle checks cover component recreation, input mutation, subset redeclaration,
-REQUIRES_NEW suspension/restoration, completion and savepoint rollback. The concurrency and
-rollback matrix uses both isolation levels and runs against MySQL 8.0 and 8.4. CONTRACTS-04 checks
+REQUIRES_NEW suspension/restoration, completion and savepoint rollback. JDBC regressions prove
+that manual/NESTED rollback cannot erase a scope violation after a reached binding write; fresh
+reads must find no binding after the rejected outer commit. The current Hibernate JPA dialect
+rejects savepoints even with nested transactions enabled; JPA tests cover that boundary and
+independent REQUIRES_NEW failure state. JPA invokes beforeCommit even for a global rollback-only
+transaction, so its scope guard reports the typed violation before provider commit. The concurrency
+and rollback matrix uses both isolation levels and runs against MySQL 8.0 and 8.4. CONTRACTS-04 checks
 bounded metadata SQL for bulk scope setup and read-only/read-write resolution against multiple
 quiz parents and large stored payloads.
 These local proofs do not activate target execution or claim the unavailable downstream integrations.

@@ -76,6 +76,9 @@ public class QuestionRevisionContractServiceImpl implements QuestionRevisionCont
         var scope = new Scope(ownerId, revisions);
         TransactionSynchronizationManager.bindResource(SCOPE_KEY, scope);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void beforeCommit(boolean readOnly) {
+                if (scope.violated) throw new ContractResolutionException(SCOPE_VIOLATION);
+            }
             @Override public void suspend() { unbind(); }
             @Override public void resume() { TransactionSynchronizationManager.bindResource(SCOPE_KEY, scope); }
             @Override public void afterCompletion(int status) { unbind(); }
@@ -150,17 +153,36 @@ public class QuestionRevisionContractServiceImpl implements QuestionRevisionCont
 
     private <T> T execute(TransactionTemplate transaction, Supplier<T> action) {
         try {
-            return transaction.execute(status -> action.get());
+            return transaction.execute(status -> {
+                try {
+                    return action.get();
+                } catch (ContractResolutionException failure) {
+                    if (failure.reason() == SCOPE_VIOLATION) {
+                        var scope = currentScope();
+                        if (scope != null) scope.violated = true;
+                    }
+                    throw failure;
+                }
+            });
         } catch (DataAccessException | TransactionException failure) {
             throw new ContractResolutionException(PERSISTENCE_UNAVAILABLE);
         }
     }
 
-    private record Scope(UUID ownerId, Map<UUID, Set<UUID>> revisions) {
-        private Scope {
+    private static final class Scope {
+        private final UUID ownerId;
+        private final Map<UUID, Set<UUID>> revisions;
+        // Savepoints must not restore this terminal flag; only transaction completion discards it.
+        private boolean violated;
+
+        private Scope(UUID ownerId, Map<UUID, Set<UUID>> revisions) {
             var copy = new HashMap<UUID, Set<UUID>>();
             revisions.forEach((id, questions) -> copy.put(id, Set.copyOf(questions)));
-            revisions = Map.copyOf(copy);
+            this.ownerId = ownerId;
+            this.revisions = Map.copyOf(copy);
         }
+
+        private UUID ownerId() { return ownerId; }
+        private Map<UUID, Set<UUID>> revisions() { return revisions; }
     }
 }

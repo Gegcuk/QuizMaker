@@ -686,7 +686,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         var transactions = transactionManager(factory);
         try {
             var scoped = service(registry(), transactions);
-            assertThatThrownBy(() -> transaction(transactions, isolation).executeWithoutResult(status -> {
+            Runnable outer = () -> transaction(transactions, isolation).executeWithoutResult(status -> {
                 scoped.declareScope(OWNER, Set.of(id(10), id(11)));
                 scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
                 assertThat(source.bindingWrites).hasValue(1);
@@ -702,7 +702,10 @@ class QuestionRevisionContractsMySqlIntegrationTest {
                     }
                 }, SCOPE_VIOLATION);
                 assertThat(status.isRollbackOnly()).isTrue();
-            })).isInstanceOf(org.springframework.transaction.UnexpectedRollbackException.class);
+            });
+            // JPA invokes beforeCommit even with a global rollback marker; JDBC rolls back earlier.
+            if (jpa) rejected(outer, SCOPE_VIOLATION);
+            else assertThatThrownBy(outer::run).isInstanceOf(org.springframework.transaction.UnexpectedRollbackException.class);
             assertThat(countBindings()).isZero();
             transaction(transactions, isolation).executeWithoutResult(status -> {
                 var requested = new HashSet<>(Set.of(id(10), id(11), id(12)));
@@ -743,6 +746,153 @@ class QuestionRevisionContractsMySqlIntegrationTest {
             scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
             assertThat(scoped.resolve(OWNER, id(12))).hasSize(2);
         } finally { if (factory != null) factory.destroy(); }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"READ_COMMITTED,declare,false", "REPEATABLE_READ,declare,false",
+            "READ_COMMITTED,resolve,false", "REPEATABLE_READ,resolve,false",
+            "READ_COMMITTED,bind,false", "REPEATABLE_READ,bind,false",
+            "READ_COMMITTED,declare,true", "REPEATABLE_READ,declare,true",
+            "READ_COMMITTED,resolve,true", "REPEATABLE_READ,resolve,true",
+            "READ_COMMITTED,bind,true", "REPEATABLE_READ,bind,true"})
+    void scopeViolationSurvivesManualAndNestedSavepointRollback(String isolation, String operation, boolean nested) {
+        separateAndCombinedRevisions();
+        var transactions = manager;
+        var scoped = service(registry(), transactions);
+        rejected(() -> transaction(transactions, isolation).executeWithoutResult(status -> {
+            scoped.declareScope(OWNER, Set.of(id(10)));
+            scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
+            assertThat(source.bindingWrites).hasValue(1);
+            Runnable violation = () -> {
+                var restarted = service(registry(), transactions);
+                switch (operation) {
+                    case "declare" -> restarted.declareScope(OWNER, Set.of(id(11)));
+                    case "resolve" -> restarted.resolve(OWNER, id(11));
+                    case "bind" -> restarted.bind(OWNER, id(11), List.of(binding(-1, 1)));
+                    default -> throw new AssertionError(operation);
+                }
+            };
+            if (nested) {
+                var step = transaction(transactions, isolation);
+                step.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_NESTED);
+                rejected(() -> step.executeWithoutResult(child -> violation.run()), SCOPE_VIOLATION);
+            } else {
+                var savepoint = status.createSavepoint();
+                rejected(violation, SCOPE_VIOLATION);
+                status.rollbackToSavepoint(savepoint);
+                status.releaseSavepoint(savepoint);
+            }
+            assertThat(status.isRollbackOnly()).as("Spring clears its rollback marker at this savepoint").isFalse();
+            assertThat(countBindings()).as("A predates the savepoint and is still visible before outer completion").isEqualTo(1);
+        }), SCOPE_VIOLATION);
+        assertThat(countBindings()).as("Fresh connection after the rejected outer commit").isZero();
+        rejected(() -> service.resolve(OWNER, id(10)), UNBOUND_REVISION);
+        // Completion must clear the poisoned scope so a fresh operation can commit normally.
+        scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
+        assertThat(scoped.resolve(OWNER, id(10))).hasSize(1);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,READ_COMMITTED,false", "false,REPEATABLE_READ,false",
+            "true,READ_COMMITTED,false", "true,REPEATABLE_READ,false",
+            "false,READ_COMMITTED,true", "false,REPEATABLE_READ,true",
+            "true,READ_COMMITTED,true", "true,REPEATABLE_READ,true"})
+    void requiresNewKeepsViolationFlagsIndependent(boolean jpa, String isolation, boolean poisonOuter) {
+        separateAndCombinedRevisions();
+        var factory = jpa ? jpaFactory() : null;
+        var transactions = transactionManager(factory);
+        var scoped = service(registry(), transactions);
+        try {
+            Runnable outer = () -> transaction(transactions, isolation).executeWithoutResult(status -> {
+                scoped.declareScope(OWNER, Set.of(id(10)));
+                scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
+                if (poisonOuter) violateScope(status, scoped, 11, jpa);
+                var inner = transaction(transactions, isolation);
+                inner.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+                Runnable child = () -> inner.executeWithoutResult(childStatus -> {
+                    scoped.declareScope(OWNER, Set.of(id(11)));
+                    scoped.bind(OWNER, id(11), List.of(binding(-1, 1)));
+                    if (!poisonOuter) violateScope(childStatus, scoped, 10, jpa);
+                });
+                if (poisonOuter) child.run();
+                else rejected(child, SCOPE_VIOLATION);
+                assertThat(status.isRollbackOnly()).isEqualTo(jpa && poisonOuter);
+                assertThat(scoped.resolve(OWNER, id(10))).hasSize(1);
+            });
+            if (poisonOuter) rejected(outer, SCOPE_VIOLATION);
+            else outer.run();
+            assertThat(countBindings()).isEqualTo(1);
+            long committedRoot = poisonOuter ? 11 : 10;
+            long rolledBackRoot = poisonOuter ? 10 : 11;
+            assertThat(service.resolve(OWNER, id(committedRoot))).hasSize(1);
+            rejected(() -> service.resolve(OWNER, id(rolledBackRoot)), UNBOUND_REVISION);
+            service.bind(OWNER, id(rolledBackRoot), List.of(binding(poisonOuter ? 1 : -1, 1)));
+            assertThat(service.resolve(OWNER, id(12))).hasSize(2);
+        } finally { if (factory != null) factory.destroy(); }
+    }
+
+    private static void violateScope(org.springframework.transaction.TransactionStatus status,
+                                     QuestionRevisionContractService scoped, long undeclaredRoot, boolean jpa) {
+        if (jpa) {
+            rejected(() -> scoped.declareScope(OWNER, Set.of(id(undeclaredRoot))), SCOPE_VIOLATION);
+            assertThat(status.isRollbackOnly()).isTrue();
+            return;
+        }
+        var savepoint = status.createSavepoint();
+        rejected(() -> scoped.declareScope(OWNER, Set.of(id(undeclaredRoot))), SCOPE_VIOLATION);
+        status.rollbackToSavepoint(savepoint);
+        status.releaseSavepoint(savepoint);
+        assertThat(status.isRollbackOnly()).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"READ_COMMITTED", "REPEATABLE_READ"})
+    void ordinaryNestedRollbackDoesNotPoisonAValidScope(String isolation) {
+        separateAndCombinedRevisions();
+        var transactions = manager;
+        var scoped = service(registry(), transactions);
+        transaction(transactions, isolation).executeWithoutResult(status -> {
+            scoped.declareScope(OWNER, Set.of(id(10), id(11)));
+            scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
+            var nested = transaction(transactions, isolation);
+            nested.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_NESTED);
+            nested.executeWithoutResult(child -> {
+                scoped.bind(OWNER, id(11), List.of(binding(-1, 1)));
+                child.setRollbackOnly();
+            });
+            assertThat(status.isRollbackOnly()).isFalse();
+        });
+        assertThat(source.bindingWrites).hasValue(2);
+        assertThat(countBindings()).isEqualTo(1);
+        assertThat(service.resolve(OWNER, id(10))).hasSize(1);
+        rejected(() -> service.resolve(OWNER, id(11)), UNBOUND_REVISION);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"READ_COMMITTED,false", "REPEATABLE_READ,false", "READ_COMMITTED,true", "REPEATABLE_READ,true"})
+    void hibernateJpaRejectsSavepointsWithoutPoisoningTheOuterScope(String isolation, boolean nested) {
+        separateAndCombinedRevisions();
+        var factory = jpaFactory();
+        var transactions = (org.springframework.orm.jpa.JpaTransactionManager) transactionManager(factory);
+        // Enabling nested transactions cannot add savepoint support to HibernateJpaDialect.
+        transactions.setNestedTransactionAllowed(true);
+        var scoped = service(registry(), transactions);
+        try {
+            transaction(transactions, isolation).executeWithoutResult(status -> {
+                scoped.declareScope(OWNER, Set.of(id(10)));
+                scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
+                if (nested) {
+                    var step = transaction(transactions, isolation);
+                    step.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_NESTED);
+                    assertThatThrownBy(() -> step.executeWithoutResult(child -> fail("Unsupported nested callback must not run")))
+                            .isInstanceOf(org.springframework.transaction.NestedTransactionNotSupportedException.class);
+                } else assertThatThrownBy(status::createSavepoint)
+                        .isInstanceOf(org.springframework.transaction.NestedTransactionNotSupportedException.class);
+                assertThat(status.isRollbackOnly()).isFalse();
+            });
+            assertThat(countBindings()).isEqualTo(1);
+            assertThat(service.resolve(OWNER, id(10))).hasSize(1);
+        } finally { factory.destroy(); }
     }
 
     @Test
