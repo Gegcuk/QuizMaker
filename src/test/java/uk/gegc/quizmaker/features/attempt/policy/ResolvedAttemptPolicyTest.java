@@ -92,21 +92,26 @@ class ResolvedAttemptPolicyTest {
     static Stream<Arguments> approvedChoices() {
         return Stream.of(HintMode.DISABLED, HintMode.ON_REQUEST).flatMap(hint ->
                 Stream.of(AnswerOrder.AUTHORED, AnswerOrder.SHUFFLED_PER_ATTEMPT).flatMap(order ->
-                        Stream.of(0, 7000, 10000).map(threshold -> Arguments.of(hint, order, threshold))));
+                        Stream.of(0, 7000, 10000).flatMap(threshold -> Stream.of(false, true)
+                                .map(requireAll -> Arguments.of(hint, order, threshold, requireAll)))));
     }
 
-    @ParameterizedTest(name = "hint={0}, optionOrder={1}, thresholdBasisPoints={2}")
+    @ParameterizedTest(name = "hint={0}, optionOrder={1}, thresholdBasisPoints={2}, requireAllAnswers={3}")
     @MethodSource("approvedChoices")
     @DisplayName("policy values: when approved choices and numeric boundaries are supplied then they are retained")
-    void retainsApprovedChoicesWithoutImplementingTheirRuntime(HintMode hint, AnswerOrder order, int threshold) {
+    void retainsApprovedChoicesWithoutImplementingTheirRuntime(HintMode hint, AnswerOrder order, int threshold,
+                                                                boolean requireAllAnswers) {
         var input = fixture();
         input.hints = new HintPolicy(hint, HintSource.AUTHORED);
         input.answerOrdering = new AnswerOrderingPolicy(order, 1);
         input.results = result(true, threshold);
+        input.submission = submission(false, false, requireAllAnswers, true);
         var policy = input.build();
         assertThat(policy.hints().mode()).isEqualTo(hint);
         assertThat(policy.answerOrdering().mode()).isEqualTo(order);
         assertThat(policy.results().passThresholdBasisPoints()).isEqualTo(threshold);
+        assertThat(policy.submission().requireAllAnswers()).isEqualTo(requireAllAnswers);
+        assertThat(policy.submission().completionConfirmationRequired()).isTrue();
         // This is value construction, not proof of shuffle, allowance or grading execution.
         assertThat(policy.content()).isEqualTo(fixture().content);
     }

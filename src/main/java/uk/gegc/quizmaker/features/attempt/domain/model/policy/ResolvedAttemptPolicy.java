@@ -53,8 +53,7 @@ public record ResolvedAttemptPolicy(
         require(answerChange.mode() == AnswerChangeMode.LOCK_ON_ACCEPTANCE, UNSUPPORTED_CAPABILITY);
         require(!submission.autosaveEnabled() || submission.draftsEnabled(), INVALID_COMBINATION);
         require(!submission.draftsEnabled() && !submission.autosaveEnabled(), UNSUPPORTED_CAPABILITY);
-        require(!submission.requireAllAnswers() && submission.completionConfirmationRequired(),
-                UNSUPPORTED_COMBINATION);
+        require(submission.completionConfirmationRequired(), UNSUPPORTED_COMBINATION);
         for (DisclosureRule rule : disclosure.rules()) {
             ReleaseMoment expected = switch (rule.category()) {
                 case CORRECTNESS, QUESTION_SCORE, CORRECT_ANSWER, EXPLANATION -> ReleaseMoment.AFTER_ACCEPTANCE;

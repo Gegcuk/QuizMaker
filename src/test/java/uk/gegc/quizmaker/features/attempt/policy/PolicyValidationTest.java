@@ -105,12 +105,17 @@ class PolicyValidationTest {
         rejected(input::build, UNSUPPORTED_CAPABILITY);
         input.submission = submission(true, true, false, true);
         rejected(input::build, UNSUPPORTED_CAPABILITY);
-        input.submission = submission(false, false, true, true);
-        rejected(input::build, UNSUPPORTED_COMBINATION);
-        input.submission = submission(false, false, false, false);
-        rejected(input::build, UNSUPPORTED_COMBINATION);
         input.submission = submission(false, false, false, true);
         assertThat(input.build()).isEqualTo(fixture().build());
+    }
+
+    @ParameterizedTest(name = "requireAllAnswers={0}")
+    @ValueSource(booleans = {false, true})
+    @DisplayName("submission: when confirmation is disabled then either completeness setting is rejected")
+    void completionConfirmationRemainsRequired(boolean requireAllAnswers) {
+        var input = fixture();
+        input.submission = submission(false, false, requireAllAnswers, false);
+        rejected(input::build, UNSUPPORTED_COMBINATION);
     }
 
     static Stream<Arguments> differentReleaseRules() {

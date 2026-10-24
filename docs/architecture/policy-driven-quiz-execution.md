@@ -665,7 +665,8 @@ combinations. It has no Spring, JPA, Jackson, preset-name or `AttemptMode` depen
 No existing endpoint or attempt writer consumes it yet.
 
 The value follows #612 A01/A02, D01–D03, D07 and R01, A22 binary grading, and the subsequent
-practice-retention and server-authorization refinements. Every sub-policy is mandatory:
+practice-retention, server-authorization and [policy-controlled completeness](./decision-register.md#voluntary-completion-requirement)
+refinements. Every sub-policy is mandatory:
 omitting a dimension is not equivalent to disabling it. Nullable configuration/default
 inference and arbitrary extension maps are not supported.
 
@@ -677,7 +678,7 @@ inference and arbitrary extension maps are not supported.
 | `answerOrdering` | `AUTHORED` or the approved `SHUFFLED_PER_ATTEMPT` choice, algorithm version `1`. This is vocabulary, not an ordering implementation. |
 | `delivery` | `ALL_AT_ONCE`. |
 | `navigation` | `FREE`; membership and answer immutability still apply. |
-| `submission` | Drafts/autosave disabled, require-all off, completion confirmation required, single and atomic batch acceptance, identical replay/changed conflict, payload-free terminal submit, unanswered items receive no credit without becoming accepted incorrect answers. |
+| `submission` | Drafts/autosave disabled; policy-controlled require-all accepts both `false` and `true`, with `false` the future preset default in #516. Completion confirmation remains required, with single and atomic batch acceptance, identical replay/changed conflict, payload-free terminal submit, and no credit for unanswered items without fabricating accepted incorrect answers. |
 | `answerChange` | `LOCK_ON_ACCEPTANCE`. The known `EDIT_UNTIL_FINALIZATION` value is rejected by the aggregate; it does not activate the separately owned editable-answer capability. |
 | `disclosure` | Correctness, question score, correct answer and explanation `AFTER_ACCEPTANCE`; total score `AFTER_COMPLETION`; rubric, grader comments and cohort statistics explicitly `NEVER`. |
 | `hints` | Authored hints `ON_REQUEST`, or `DISABLED` for the permitted participant choice; no generated hint or retry mechanism. |
@@ -690,6 +691,15 @@ inference and arbitrary extension maps are not supported.
 | `results` | Running progress enabled; explicit pass threshold in integer basis points, inclusive range `0–10000`. D02's default `7000` is a named constant for the future preset owner, not a missing-value fallback. Result selection is `NOT_CONFIGURED`; leaderboard and certificates are `DISABLED`. |
 | `accessibility` | Accommodations `NOT_CONFIGURED`; this does not disable ordinary accessible presentation. |
 | `integrity` | Exact persisted identities/order, immutable engine binding, rejection of unknown versions. This describes required evidence; construction does not persist or verify it. |
+
+`submission.requireAllAnswers` retains the supplied value without substituting a default.
+Both values are supported with the same flat, untimed, immediate-lock configuration;
+they do not depend on editable answers, timers or sections. The approved default `false`
+belongs to the preset owner #516, not to value validation. #529 owns the actual completeness
+check: with eight accepted answers out of ten, OFF permits confirmed completion, while ON
+denies incomplete voluntary submission and preserves the answers and nonterminal state.
+This foundation represents that choice only; terminal-command writes and their atomicity
+must be proved by #529.
 
 Disclosure rules must contain each closed category exactly once. Review categories must be
 unique and complete for the supported aggregate. Both collections are defensively copied
