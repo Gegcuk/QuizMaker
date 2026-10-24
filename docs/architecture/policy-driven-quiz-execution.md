@@ -1704,6 +1704,59 @@ The exact option order is persisted in the form and never regenerated during res
 
 An attempt form represents exactly what may be delivered to a participant.
 
+### Fixed-form identity storage boundary (#519)
+
+`FixedFormService` is a dark internal application boundary for already authorized server callers.
+It stores identity and supplied positions only; it does not start an attempt, select questions,
+resolve participant authority, deliver content or activate a new execution route. The trusted
+owner scope is checked against the immutable quiz revision. It is additional persistence scoping,
+not permission to publish, view or take a quiz and not a client-supplied identity claim.
+
+V85 adds `attempt_form` and `attempt_form_item`. A v1 form has an immutable ID, schema version,
+quiz-revision reference and item count. Each item has a stable ID scoped by its form, one source
+item in that exact quiz revision and a nonnegative position. Item identity, source occurrence
+and position are independently unique within a form. Composite foreign keys prevent attaching
+an item from a different revision even when both sources exist. The source item identifies its
+immutable question revision; question text, answer keys and response/scoring algorithms are not
+copied or inferred. This foundation can retain unbound question identities: resolving supported
+response/scoring implementations remains the later materialization/start boundary.
+
+The service preserves supplied positions (including gaps) and returns items in position order;
+it does not implement an ordering algorithm. Empty forms are structurally representable without
+deciding whether a later use case may start one. Option order is #521, materialization is #522,
+fingerprint/legacy-read interpretation is #613, and canonical start is #600.
+
+Create/replay is atomic and keyed by the form ID. Identical immutable metadata replays successfully;
+changed revision, cardinality, item identity, source or position conflicts. The root's immutable
+item count prevents a larger retry from appending items. Unique-key no-op inserts serialize
+competing writers without overwriting the winner; a final current read compares all item metadata
+before commit. Any late mismatch rolls back provisional inserts. Different forms do not require
+an exclusive quiz lock. These guarantees cover the supported service/repository boundary, not
+privileged SQL updates/deletes. No trigger or database access-policy change is introduced.
+
+`findByIds` omits missing and foreign-owner forms, deduplicates requested IDs and retains request
+order. It reads two metadata queries per batch of up to 500 visible form IDs, independently of
+item count; an entirely missing batch needs only the root query. Parameter batching is not a
+quiz-size or selection limit. Current shared reads also see a concurrently committed identical
+form after replay inside an older `REPEATABLE READ` transaction. No JPA relationships, question
+payloads, media objects or document contents are loaded by these operations.
+
+Failures use bounded `FixedFormException` reasons without identifiers or SQL diagnostics.
+Transaction/connection failure, including an unknown commit outcome, is reported as
+`PERSISTENCE_UNAVAILABLE`: reconcile using the same form ID and exact metadata, never assume the
+write disappeared or allocate a replacement identity. No automatic transaction retry is added.
+The operations timer uses only `operation` (`create_or_replay` or `read`) and bounded `outcome`
+tags. Success describes completion of this service boundary; an enclosing transaction may still
+roll back. The combined create/replay operation does not claim to distinguish first insertion
+from replay using driver-specific affected-row counts.
+
+The migration neither alters nor backfills legacy attempts. Foreign keys retain the exact revision
+references without deletion cascades. Retention/erasure remains purpose-scoped under #664 and its
+implementation owners; this store adds no cleanup worker or retention period. Before target
+writes, application rollback leaves empty additive tables. After writes, retain the tables and
+use a forward fix. Existing quiz, training, authentication, scoring and public API contracts stay
+on their current paths until their separately owned activation gates pass.
+
 ### Precomputed form
 
 All selected questions and option orders are resolved at start.
