@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractVersion;
 import uk.gegc.quizmaker.features.question.domain.model.contract.QuestionContractBinding;
@@ -59,13 +60,16 @@ public class JdbcQuestionContractBindingRepository implements QuestionContractBi
             if (ids.isEmpty()) return new Snapshot(ids, Map.of());
             // Current read of binding rows only. A normal SELECT could retain a snapshot
             // from before an identical concurrent bind, even after insert accepted it.
+            // Reserve rows up front in a writing transaction: two shared readers that later
+            // bind the same rows would otherwise deadlock while upgrading their locks.
+            String lock = TransactionSynchronizationManager.isCurrentTransactionReadOnly() ? "FOR SHARE" : "FOR UPDATE";
             var parameters = new MapSqlParameterSource("questions", ids.stream()
                     .map(JdbcQuestionContractBindingRepository::bytes).toList());
             var bindings = jdbc.query("SELECT " + COLUMNS + """
                     FROM question_revision_contract_bindings b
                     WHERE b.question_revision_id IN (:questions)
-                    ORDER BY b.question_revision_id FOR SHARE
-                    """, parameters, rows -> {
+                    ORDER BY b.question_revision_id
+                    """ + lock, parameters, rows -> {
                 var result = new HashMap<UUID, QuestionContractBinding>();
                 while (rows.next()) {
                     var binding = binding(rows);

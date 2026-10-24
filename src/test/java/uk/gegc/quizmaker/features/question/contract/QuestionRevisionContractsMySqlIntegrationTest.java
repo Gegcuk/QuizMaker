@@ -81,7 +81,8 @@ class QuestionRevisionContractsMySqlIntegrationTest {
     void clean() {
         source.fault = null;
         source.gate = null;
-        for (String table : List.of("question_revision_contract_bindings", "quiz_revision_items",
+        source.bindingReadAttempt = null;
+        for (String table : List.of("contract_transaction_receipts", "question_revision_contract_bindings", "quiz_revision_items",
                 "question_option_revisions", "quiz_revisions", "question_revisions", IDENTITY_HISTORY, BINDING_HISTORY,
                 "contract_legacy_fixture")) {
             sql.execute("DROP TABLE IF EXISTS " + table);
@@ -313,6 +314,126 @@ class QuestionRevisionContractsMySqlIntegrationTest {
     }
 
     @ParameterizedTest
+    @CsvSource({"false,READ_COMMITTED,1", "false,REPEATABLE_READ,1",
+            "true,READ_COMMITTED,1", "true,REPEATABLE_READ,1",
+            "false,READ_COMMITTED,2", "false,REPEATABLE_READ,2",
+            "true,READ_COMMITTED,2", "true,REPEATABLE_READ,2"})
+    void concurrentResolveThenIdenticalBindCommitsBothOuterTransactions(boolean jpa, String isolation,
+                                                                       int questionCount) throws Exception {
+        var firstQuestion = question(1, "{\"answer\":true}");
+        var secondQuestion = question(-1, "{\"answer\":false}");
+        revisions.insert(questionCount == 1 ? quiz(10, firstQuestion) : quiz(10, firstQuestion, secondQuestion));
+        revisions.insert(questionCount == 1 ? quiz(11, firstQuestion) : quiz(11, secondQuestion, firstQuestion));
+        var bindings = questionCount == 1 ? List.of(binding(1, 1)) : List.of(binding(1, 1), binding(-1, 1));
+        service.bind(OWNER, id(10), bindings);
+        sql.execute("CREATE TABLE contract_transaction_receipts (writer INT PRIMARY KEY) ENGINE=InnoDB");
+        var factory = jpa ? jpaFactory() : null;
+        var transactions = transactionManager(factory);
+        var firstRead = new CountDownLatch(1);
+        var secondRead = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(2);
+        source.bindingWrites.set(0);
+        try {
+            var first = executor.submit(() -> resolveThenBind(transactions, isolation, 1, 10, 11,
+                    bindings, firstRead, release));
+            assertThat(firstRead.await(10, TimeUnit.SECONDS)).isTrue();
+            var attempt = new CountDownLatch(1);
+            source.bindingReadAttempt = attempt;
+            var reversed = new ArrayList<>(bindings);
+            Collections.reverse(reversed);
+            var second = executor.submit(() -> resolveThenBind(transactions, isolation, 2, 11, 10,
+                    reversed, secondRead, release));
+            assertThat(attempt.await(10, TimeUnit.SECONDS)).as("Second connection reached the binding SELECT").isTrue();
+            // The first transaction is still open. A writing caller must reserve its binding
+            // before returning resolve, so the second caller waits rather than taking a shared lock.
+            boolean secondResolvedBeforeFirstCompleted = secondRead.await(1, TimeUnit.SECONDS);
+            assertThat(source.bindingWrites).hasValue(0);
+            source.bindingReadAttempt = null;
+            release.countDown();
+            var outcomes = Arrays.asList(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS));
+            assertThat(outcomes).as("Both identical commands must commit: %s", outcomes).containsOnlyNulls();
+            assertThat(secondResolvedBeforeFirstCompleted).isFalse();
+            assertThat(source.bindingWrites).as("Both callers reached the real insert/no-op for every binding")
+                    .hasValue(2 * questionCount);
+            assertThat(sql.queryForList("SELECT writer FROM contract_transaction_receipts ORDER BY writer", Integer.class))
+                    .containsExactly(1, 2);
+            var restarted = service(registry(), new DataSourceTransactionManager(source));
+            for (long parent : List.of(10L, 11L)) {
+                assertThat(restarted.resolve(OWNER, id(parent)).values().stream().map(value -> value.binding()).toList())
+                        .containsExactlyInAnyOrderElementsOf(bindings);
+            }
+            assertThat(countBindings()).isEqualTo(questionCount);
+        } finally {
+            release.countDown();
+            source.bindingReadAttempt = null;
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
+            if (factory != null) factory.destroy();
+            sql.execute("DROP TABLE IF EXISTS contract_transaction_receipts");
+        }
+    }
+
+    private ContractResolutionException.Reason resolveThenBind(PlatformTransactionManager transactions, String isolation,
+            int writer, long readQuiz, long bindQuiz, List<QuestionContractBinding> bindings,
+            CountDownLatch resolved, CountDownLatch release) {
+        var tx = new TransactionTemplate(transactions);
+        tx.setIsolationLevelName("ISOLATION_" + isolation);
+        var scoped = service(registry(), transactions);
+        try {
+            tx.executeWithoutResult(status -> {
+                sql.update("INSERT INTO contract_transaction_receipts (writer) VALUES (?)", writer);
+                assertThat(scoped.resolve(OWNER, id(readQuiz))).hasSize(bindings.size());
+                resolved.countDown();
+                await(release);
+                scoped.bind(OWNER, id(bindQuiz), bindings);
+                assertThat(scoped.resolve(OWNER, id(bindQuiz)).values().stream().map(value -> value.binding()).toList())
+                        .containsExactlyInAnyOrderElementsOf(bindings);
+            });
+            return null;
+        } catch (ContractResolutionException failure) { return failure.reason(); }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,READ_COMMITTED", "false,REPEATABLE_READ", "true,READ_COMMITTED", "true,REPEATABLE_READ"})
+    void readOnlyTransactionsCanResolveTheSameBindingsConcurrently(boolean jpa, String isolation) throws Exception {
+        revisions.insert(quiz(10, question(1, "{\"answer\":true}"), question(-1, "{\"answer\":false}")));
+        service.bind(OWNER, id(10), List.of(binding(1, 1), binding(-1, 1)));
+        var factory = jpa ? jpaFactory() : null;
+        var transactions = transactionManager(factory);
+        var readers = new CountDownLatch(2);
+        var release = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(2);
+        source.bindingWrites.set(0);
+        try {
+            Callable<Void> read = () -> {
+                var tx = new TransactionTemplate(transactions);
+                tx.setReadOnly(true);
+                tx.setIsolationLevelName("ISOLATION_" + isolation);
+                tx.executeWithoutResult(status -> {
+                    assertThat(service(registry(), transactions).resolve(OWNER, id(10))).hasSize(2);
+                    readers.countDown();
+                    await(release);
+                });
+                return null;
+            };
+            var first = executor.submit(read);
+            var second = executor.submit(read);
+            assertThat(readers.await(10, TimeUnit.SECONDS)).as("Both reads finish while both transactions stay open").isTrue();
+            release.countDown();
+            first.get(15, TimeUnit.SECONDS);
+            second.get(15, TimeUnit.SECONDS);
+            assertThat(source.bindingWrites).hasValue(0);
+            assertThat(countBindings()).isEqualTo(2);
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
+            if (factory != null) factory.destroy();
+        }
+    }
+
+    @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void transactionOpenFailureIsTypedForBothWriteAndRead(boolean read) {
         revisions.insert(quiz(10, question(1, "{\"answer\":true}")));
@@ -402,6 +523,12 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         assertThat(service.resolve(OWNER, id(11))).hasSize(2);
         assertThat(source.selects).hasSize(2);
         assertThat(source.selects).allSatisfy(statement -> assertThat(statement).doesNotContain("content", "question_text"));
+        source.reset();
+        new TransactionTemplate(manager).executeWithoutResult(status -> assertThat(service.resolve(OWNER, id(10))).hasSize(12));
+        assertThat(source.selects).hasSize(2);
+        assertThat(source.selects).allSatisfy(statement -> assertThat(statement)
+                .doesNotContain("content", "question_text", "normalized_text", "SELECT *"));
+        assertThat(source.bindingWrites).hasValue(0);
     }
 
     @Test
@@ -545,6 +672,13 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         return factory;
     }
 
+    private static PlatformTransactionManager transactionManager(org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean factory) {
+        if (factory == null) return manager;
+        var jpa = new org.springframework.orm.jpa.JpaTransactionManager(factory.getObject());
+        jpa.setDataSource(source);
+        return jpa;
+    }
+
     private static QuestionRevisionContractService service(QuestionContractRegistry registry, PlatformTransactionManager manager) {
         QuestionContractBindingRepository repository = proxy(
                 new JdbcQuestionContractBindingRepository(new NamedParameterJdbcTemplate(source)), manager);
@@ -590,6 +724,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         final AtomicInteger rollbacks = new AtomicInteger();
         volatile Gate gate;
         volatile Fault fault;
+        volatile CountDownLatch bindingReadAttempt;
         ObservedDataSource(DataSource target) { super(target); }
         void reset() { selects.clear(); bindingWrites.set(0); rollbacks.set(0); }
 
@@ -613,6 +748,16 @@ class QuestionRevisionContractsMySqlIntegrationTest {
                         }
                         if (method.getName().equals("prepareStatement") && arguments[0] instanceof String statement) {
                             if (statement.stripLeading().startsWith("SELECT")) selects.add(statement);
+                            if (statement.stripLeading().startsWith("SELECT")
+                                    && statement.contains("FROM question_revision_contract_bindings b")) {
+                                var prepared = (PreparedStatement) result;
+                                return Proxy.newProxyInstance(PreparedStatement.class.getClassLoader(), new Class<?>[]{PreparedStatement.class},
+                                        (unused, operation, values) -> {
+                                            var attempt = bindingReadAttempt;
+                                            if (operation.getName().equals("executeQuery") && attempt != null) attempt.countDown();
+                                            return invoke(prepared, operation, values);
+                                        });
+                            }
                             if (statement.stripLeading().startsWith("INSERT INTO question_revision_contract_bindings")) {
                                 var prepared = (PreparedStatement) result;
                                 return Proxy.newProxyInstance(PreparedStatement.class.getClassLoader(), new Class<?>[]{PreparedStatement.class},

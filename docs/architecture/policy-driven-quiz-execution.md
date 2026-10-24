@@ -1333,7 +1333,12 @@ The owner-scoped aggregate read uses two SQL queries regardless of item/option c
 non-locking read of immutable membership, then a current locking read of binding metadata only.
 The latter sees a concurrently committed identical binding even inside an older REPEATABLE READ
 transaction. It locks binding rows in BINARY(16) primary-key order, without locking the source
-graph. Empty revisions need only the membership query and remain distinct from unavailable revisions.
+graph. Standalone resolution and existing read-only transactions use FOR SHARE so readers can
+proceed concurrently. In an existing read-write transaction, resolution uses FOR UPDATE up front:
+another composing writer waits until completion rather than taking a shared lock that would need
+an S-to-X upgrade during a later identical bind. The effective outer transaction's read-only flag
+determines this choice; joining it does not change its isolation, completion or rollback boundary.
+Empty revisions need only the membership query and remain distinct from unavailable revisions.
 
 The bind service joins the caller's transaction, including an existing JPA transaction. It
 requires the complete question set and orders writes in the same canonical UUID/primary-key order.
@@ -1360,7 +1365,11 @@ CONTRACTS-03 proves real MySQL concurrent success/conflict, same-transaction ide
 resolution, including different quiz parents sharing several questions in opposite input orders
 under READ COMMITTED and REPEATABLE READ. Connection-open, reached SQL, rollback and commit faults
 exercise real Spring transaction boundaries; fresh reads distinguish rollback from lost commit acknowledgement.
-CONTRACTS-04 checks bounded metadata SQL against multiple quiz parents and large stored payloads.
+Additional JDBC/JPA races cover resolve-then-bind with one or several shared questions and opposite
+input orders: both outer transactions must commit their own receipts and preserve the binding.
+Separate read-only races require both readers to finish resolution while both transactions stay open.
+The same matrix runs against MySQL 8.0 and 8.4. CONTRACTS-04 checks bounded metadata SQL in both
+read-only and read-write transactions against multiple quiz parents and large stored payloads.
 These local proofs do not activate target execution or claim the unavailable downstream integrations.
 
 Apply V84 before using this boundary. Preserve additive tables and retained bindings on application

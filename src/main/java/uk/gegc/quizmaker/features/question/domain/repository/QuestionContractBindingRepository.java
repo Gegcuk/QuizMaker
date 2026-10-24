@@ -19,7 +19,10 @@ public interface QuestionContractBindingRepository {
     /** Immutable membership only: no binding-row locks before the ordered inserts. */
     Optional<Set<UUID>> findQuestionRevisionIds(UUID ownerId, UUID quizRevisionId);
 
-    /** Reads current binding rows, including a concurrent winner absent from an older transaction snapshot. */
+    /**
+     * Reads current binding rows, including a winner absent from an older transaction snapshot.
+     * Read-write transactions reserve rows for a subsequent bind; read-only transactions share them.
+     */
     Optional<Snapshot> findForRevision(UUID ownerId, UUID quizRevisionId);
 
     /** Requires the caller's transaction; exposes no replace/delete operation. */
