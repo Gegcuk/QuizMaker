@@ -14,17 +14,23 @@ import uk.gegc.quizmaker.features.question.domain.repository.QuestionContractBin
 import java.nio.ByteBuffer;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException.Reason.*;
 
 @Repository
 public class JdbcQuestionContractBindingRepository implements QuestionContractBindingRepository {
+    private static final int SQL_BATCH = 500;
     private static final String COLUMNS = """
             b.question_revision_id, b.response_contract_id, b.response_contract_version,
             b.scoring_contract_id, b.scoring_contract_version, b.binding_hash
@@ -36,21 +42,51 @@ public class JdbcQuestionContractBindingRepository implements QuestionContractBi
     @Override
     @Transactional(readOnly = true)
     public Optional<Set<UUID>> findQuestionRevisionIds(UUID ownerId, UUID quizRevisionId) {
-        return jdbc.query("""
-                SELECT i.question_revision_id AS item_question_id
-                FROM quiz_revisions r
-                LEFT JOIN quiz_revision_items i ON i.quiz_revision_id=r.id
-                WHERE r.owner_id=:owner AND r.id=:quiz
-                """, scope(ownerId, quizRevisionId), rows -> {
-            boolean found = false;
-            var ids = new HashSet<UUID>();
-            while (rows.next()) {
-                found = true;
-                byte[] questionId = rows.getBytes("item_question_id");
+        scope(ownerId, quizRevisionId);
+        return Optional.ofNullable(findQuestionRevisionIds(ownerId, Set.of(quizRevisionId)).get(quizRevisionId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<UUID, Set<UUID>> findQuestionRevisionIds(UUID ownerId, Set<UUID> quizRevisionIds) {
+        if (ownerId == null || quizRevisionIds == null || quizRevisionIds.stream().anyMatch(Objects::isNull)) {
+            throw new ContractResolutionException(REVISION_UNAVAILABLE);
+        }
+        var ordered = quizRevisionIds.stream().sorted(Comparator.comparing(UUID::toString)).toList();
+        var result = new HashMap<UUID, Set<UUID>>();
+        for (int start = 0; start < ordered.size(); start += SQL_BATCH) {
+            var batch = ordered.subList(start, Math.min(start + SQL_BATCH, ordered.size()));
+            var parameters = new MapSqlParameterSource("owner", bytes(ownerId))
+                    .addValue("quizzes", batch.stream().map(JdbcQuestionContractBindingRepository::bytes).toList());
+            jdbc.query("""
+                    SELECT r.id AS quiz_revision_id, i.question_revision_id AS item_question_id
+                    FROM quiz_revisions r LEFT JOIN quiz_revision_items i ON i.quiz_revision_id=r.id
+                    WHERE r.owner_id=:owner AND r.id IN (:quizzes)
+                    """, parameters, (org.springframework.jdbc.core.RowCallbackHandler) row -> {
+                var ids = result.computeIfAbsent(uuid(row.getBytes("quiz_revision_id")), ignored -> new HashSet<>());
+                byte[] questionId = row.getBytes("item_question_id");
                 if (questionId != null) ids.add(uuid(questionId));
-            }
-            return found ? Optional.of(Set.copyOf(ids)) : Optional.empty();
-        });
+            });
+        }
+        result.replaceAll((id, ids) -> Set.copyOf(ids));
+        return Map.copyOf(result);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockQuestionRevisions(Set<UUID> questionRevisionIds) {
+        var ordered = questionRevisionIds.stream().sorted(Comparator.comparing(UUID::toString)).toList();
+        String lock = TransactionSynchronizationManager.isCurrentTransactionReadOnly() ? "FOR SHARE" : "FOR UPDATE";
+        for (int start = 0; start < ordered.size(); start += SQL_BATCH) {
+            var batch = ordered.subList(start, Math.min(start + SQL_BATCH, ordered.size()));
+            // Every identity exists before declaration, including questions with no binding.
+            // UNION ALL executes exact primary-key lookups in canonical arm order. An IN query
+            // can choose a full scan and lock unrelated identities even with FORCE INDEX.
+            String points = pointReads("SELECT q.id FROM question_revisions q", "q.id", batch.size(), lock);
+            var locked = jdbc.query("SELECT locked.id FROM (" + points + ") locked", pointParameters(batch),
+                    (row, index) -> uuid(row.getBytes("id")));
+            if (locked.size() != batch.size()) throw new ContractResolutionException(REVISION_UNAVAILABLE);
+        }
     }
 
     @Override
@@ -60,25 +96,31 @@ public class JdbcQuestionContractBindingRepository implements QuestionContractBi
             if (ids.isEmpty()) return new Snapshot(ids, Map.of());
             // Current read of binding rows only. A normal SELECT could retain a snapshot
             // from before an identical concurrent bind, even after insert accepted it.
-            // Reserve rows up front in a writing transaction: two shared readers that later
-            // bind the same rows would otherwise deadlock while upgrading their locks.
-            String lock = TransactionSynchronizationManager.isCurrentTransactionReadOnly() ? "FOR SHARE" : "FOR UPDATE";
-            var parameters = new MapSqlParameterSource("questions", ids.stream()
-                    .map(JdbcQuestionContractBindingRepository::bytes).toList());
-            var bindings = jdbc.query("SELECT " + COLUMNS + """
-                    FROM question_revision_contract_bindings b
-                    WHERE b.question_revision_id IN (:questions)
-                    ORDER BY b.question_revision_id
-                    """ + lock, parameters, rows -> {
-                var result = new HashMap<UUID, QuestionContractBinding>();
-                while (rows.next()) {
-                    var binding = binding(rows);
-                    result.put(binding.questionRevisionId(), binding);
-                }
-                return result;
-            });
+            var ordered = ids.stream().sorted(Comparator.comparing(UUID::toString)).toList();
+            var bindings = new HashMap<UUID, QuestionContractBinding>();
+            for (int start = 0; start < ordered.size(); start += SQL_BATCH) {
+                var batch = ordered.subList(start, Math.min(start + SQL_BATCH, ordered.size()));
+                String points = pointReads("SELECT " + COLUMNS + " FROM question_revision_contract_bindings b",
+                        "b.question_revision_id", batch.size(), "FOR SHARE");
+                jdbc.query("SELECT " + COLUMNS + " FROM (" + points + ") b", pointParameters(batch),
+                        (org.springframework.jdbc.core.RowCallbackHandler) row -> {
+                    var binding = binding(row);
+                    bindings.put(binding.questionRevisionId(), binding);
+                });
+            }
             return new Snapshot(ids, bindings);
         });
+    }
+
+    private static String pointReads(String select, String primaryKey, int count, String lock) {
+        return IntStream.range(0, count).mapToObj(index -> "(" + select + " WHERE " + primaryKey
+                + "=:question" + index + " " + lock + ")").collect(Collectors.joining(" UNION ALL "));
+    }
+
+    private static MapSqlParameterSource pointParameters(List<UUID> ids) {
+        var parameters = new MapSqlParameterSource();
+        for (int index = 0; index < ids.size(); index++) parameters.addValue("question" + index, bytes(ids.get(index)));
+        return parameters;
     }
 
     @Override

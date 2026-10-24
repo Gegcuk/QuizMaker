@@ -81,7 +81,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
     void clean() {
         source.fault = null;
         source.gate = null;
-        source.bindingReadAttempt = null;
+        source.scopeLockAttempt = null;
         for (String table : List.of("contract_transaction_receipts", "question_revision_contract_bindings", "quiz_revision_items",
                 "question_option_revisions", "quiz_revisions", "question_revisions", IDENTITY_HISTORY, BINDING_HISTORY,
                 "contract_legacy_fixture")) {
@@ -136,6 +136,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         source.bindingWrites.set(0);
         rejected(() -> new TransactionTemplate(manager).executeWithoutResult(status -> {
             revisions.insert(revision);
+            service.declareScope(OWNER, Set.of(revision.id()));
             service.bind(OWNER, revision.id(), List.of(binding(1, 1), binding(2, 99)));
         }), UNSUPPORTED_CONTRACT);
         assertThat(source.bindingWrites).as("The supported first binding reached real SQL before the failure").hasValue(1);
@@ -146,6 +147,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         });
         new TransactionTemplate(manager).executeWithoutResult(status -> {
             revisions.insert(revision);
+            service.declareScope(OWNER, Set.of(revision.id()));
             service.bind(OWNER, revision.id(), List.of(binding(1, 1), binding(2, 2)));
         });
         assertThat(service(registry(), manager).resolve(OWNER, revision.id())).hasSize(2);
@@ -171,6 +173,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         var revision = quiz(10, question(1, "{\"answer\":true}"), question(2, "{\"answer\":false}"));
         assertThatThrownBy(() -> new TransactionTemplate(manager).executeWithoutResult(status -> {
             revisions.insert(revision);
+            service.declareScope(OWNER, Set.of(revision.id()));
             rejected(() -> service.bind(OWNER, revision.id(), List.of(binding(1, 1), binding(2, 99))),
                     UNSUPPORTED_CONTRACT);
             assertThat(source.bindingWrites).hasValue(1);
@@ -180,6 +183,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         assertThat(revisions.findById(OWNER, revision.id())).isEmpty();
         new TransactionTemplate(manager).executeWithoutResult(status -> {
             revisions.insert(revision);
+            service.declareScope(OWNER, Set.of(revision.id()));
             service.bind(OWNER, revision.id(), List.of(binding(1, 1), binding(2, 2)));
         });
         assertThat(service.resolve(OWNER, revision.id())).hasSize(2);
@@ -223,7 +227,10 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         var tx = new TransactionTemplate(new DataSourceTransactionManager(source));
         tx.setIsolationLevelName("ISOLATION_" + isolation);
         try {
-            tx.executeWithoutResult(status -> service.bind(OWNER, id(10), List.of(binding(1, version))));
+            tx.executeWithoutResult(status -> {
+                service.declareScope(OWNER, Set.of(id(10)));
+                service.bind(OWNER, id(10), List.of(binding(1, version)));
+            });
             return null;
         } catch (ContractResolutionException failure) { return failure.reason(); }
     }
@@ -243,6 +250,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
                     assertThat(countBindings()).as("Establish the loser's snapshot before the winner commits").isZero();
                     snapshotEstablished.countDown();
                     await(winnerCommitted);
+                    service.declareScope(OWNER, Set.of(id(10)));
                     service.bind(OWNER, id(10), List.of(binding(1, 1)));
                     return service.resolve(OWNER, id(10)).get(id(1)).binding();
                 });
@@ -305,6 +313,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         tx.setIsolationLevelName("ISOLATION_" + isolation);
         try {
             tx.executeWithoutResult(status -> {
+                service.declareScope(OWNER, Set.of(id(quiz)));
                 service.bind(OWNER, id(quiz), bindings);
                 assertThat(service.resolve(OWNER, id(quiz)).values().stream().map(value -> value.binding()).toList())
                         .containsExactlyInAnyOrderElementsOf(bindings);
@@ -339,17 +348,16 @@ class QuestionRevisionContractsMySqlIntegrationTest {
                     bindings, firstRead, release));
             assertThat(firstRead.await(10, TimeUnit.SECONDS)).isTrue();
             var attempt = new CountDownLatch(1);
-            source.bindingReadAttempt = attempt;
+            source.scopeLockAttempt = attempt;
             var reversed = new ArrayList<>(bindings);
             Collections.reverse(reversed);
             var second = executor.submit(() -> resolveThenBind(transactions, isolation, 2, 11, 10,
                     reversed, secondRead, release));
-            assertThat(attempt.await(10, TimeUnit.SECONDS)).as("Second connection reached the binding SELECT").isTrue();
-            // The first transaction is still open. A writing caller must reserve its binding
-            // before returning resolve, so the second caller waits rather than taking a shared lock.
+            assertThat(attempt.await(10, TimeUnit.SECONDS)).as("Second connection reached the declared-scope SELECT").isTrue();
+            // The complete scope is reserved before the first resolve, while the outer transaction stays open.
             boolean secondResolvedBeforeFirstCompleted = secondRead.await(1, TimeUnit.SECONDS);
             assertThat(source.bindingWrites).hasValue(0);
-            source.bindingReadAttempt = null;
+            source.scopeLockAttempt = null;
             release.countDown();
             var outcomes = Arrays.asList(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS));
             assertThat(outcomes).as("Both identical commands must commit: %s", outcomes).containsOnlyNulls();
@@ -366,7 +374,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
             assertThat(countBindings()).isEqualTo(questionCount);
         } finally {
             release.countDown();
-            source.bindingReadAttempt = null;
+            source.scopeLockAttempt = null;
             executor.shutdownNow();
             assertThat(executor.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
             if (factory != null) factory.destroy();
@@ -382,6 +390,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         var scoped = service(registry(), transactions);
         try {
             tx.executeWithoutResult(status -> {
+                scoped.declareScope(OWNER, Set.of(id(readQuiz), id(bindQuiz)));
                 sql.update("INSERT INTO contract_transaction_receipts (writer) VALUES (?)", writer);
                 assertThat(scoped.resolve(OWNER, id(readQuiz))).hasSize(bindings.size());
                 resolved.countDown();
@@ -411,6 +420,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
                 tx.setReadOnly(true);
                 tx.setIsolationLevelName("ISOLATION_" + isolation);
                 tx.executeWithoutResult(status -> {
+                    service(registry(), transactions).declareScope(OWNER, Set.of(id(10)));
                     assertThat(service(registry(), transactions).resolve(OWNER, id(10))).hasSize(2);
                     readers.countDown();
                     await(release);
@@ -503,8 +513,354 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         }
     }
 
+    @ParameterizedTest
+    @CsvSource({"false,READ_COMMITTED,false", "false,REPEATABLE_READ,false",
+            "true,READ_COMMITTED,false", "true,REPEATABLE_READ,false",
+            "false,READ_COMMITTED,true", "false,REPEATABLE_READ,true",
+            "true,READ_COMMITTED,true", "true,REPEATABLE_READ,true"})
+    void declaredUnionAllowsOppositeSubsetReadsAndOptionalSupersetBind(boolean jpa, String isolation,
+                                                                      boolean bind) throws Exception {
+        separateAndCombinedRevisions();
+        var bindings = List.of(binding(1, 1), binding(-1, 1));
+        service.bind(OWNER, id(12), bindings);
+        sql.execute("CREATE TABLE contract_transaction_receipts (writer INT PRIMARY KEY) ENGINE=InnoDB");
+        var factory = jpa ? jpaFactory() : null;
+        var transactions = transactionManager(factory);
+        var firstRead = new CountDownLatch(1);
+        var secondRead = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(2);
+        source.reset();
+        try {
+            var first = executor.submit(() -> composedOperation(transactions, isolation, 1, bind, firstRead, release));
+            assertThat(firstRead.await(10, TimeUnit.SECONDS)).isTrue();
+            source.scopeLockAttempt = new CountDownLatch(1);
+            var second = executor.submit(() -> composedOperation(transactions, isolation, 2, bind, secondRead, release));
+            assertThat(source.scopeLockAttempt.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(secondRead.await(1, TimeUnit.SECONDS)).as("Full union is reserved before either subset read").isFalse();
+            assertThat(source.bindingWrites).hasValue(0);
+            source.scopeLockAttempt = null;
+            release.countDown();
+            first.get(15, TimeUnit.SECONDS);
+            second.get(15, TimeUnit.SECONDS);
+            assertThat(sql.queryForList("SELECT writer FROM contract_transaction_receipts ORDER BY writer", Integer.class))
+                    .containsExactly(1, 2);
+            assertThat(source.bindingWrites).hasValue(bind ? 4 : 0);
+            assertThat(service(registry(), manager).resolve(OWNER, id(12)).values().stream().map(value -> value.binding()))
+                    .containsExactlyInAnyOrderElementsOf(bindings);
+            assertThat(countBindings()).isEqualTo(2);
+        } finally {
+            release.countDown();
+            source.scopeLockAttempt = null;
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
+            if (factory != null) factory.destroy();
+        }
+    }
+
+    private void composedOperation(PlatformTransactionManager transactions, String isolation, int writer,
+                                   boolean bind, CountDownLatch firstRead, CountDownLatch release) {
+        var scoped = service(registry(), transactions);
+        transaction(transactions, isolation).executeWithoutResult(status -> {
+            var roots = new LinkedHashSet<UUID>(writer == 1 ? List.of(id(10), id(11), id(12))
+                    : List.of(id(12), id(11), id(10)));
+            scoped.declareScope(OWNER, roots);
+            sql.update("INSERT INTO contract_transaction_receipts VALUES (?)", writer);
+            assertThat(scoped.resolve(OWNER, id(writer == 1 ? 10 : 11))).hasSize(1);
+            firstRead.countDown();
+            await(release);
+            if (bind) scoped.bind(OWNER, id(12), List.of(binding(-1, 1), binding(1, 1)));
+            assertThat(scoped.resolve(OWNER, id(writer == 1 ? 11 : 10))).hasSize(1);
+        });
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,READ_COMMITTED,false", "false,REPEATABLE_READ,false",
+            "true,READ_COMMITTED,false", "true,REPEATABLE_READ,false",
+            "false,READ_COMMITTED,true", "false,REPEATABLE_READ,true",
+            "true,READ_COMMITTED,true", "true,REPEATABLE_READ,true"})
+    void disjointWritersAndOverlappingReadersRemainParallel(boolean jpa, String isolation,
+                                                            boolean readOnly) throws Exception {
+        var a = question(1, "{}");
+        var b = question(2, "{}");
+        var c = question(-1, "{}");
+        var d = question(-2, "{}");
+        revisions.insert(quiz(10, a, b));
+        revisions.insert(quiz(11, c, d));
+        revisions.insert(quiz(12, d, b, c, a));
+        if (readOnly) service.bind(OWNER, id(12), List.of(binding(1, 1), binding(2, 1), binding(-1, 1), binding(-2, 1)));
+        var factory = jpa ? jpaFactory() : null;
+        var transactions = transactionManager(factory);
+        var entered = new CountDownLatch(2);
+        var release = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var futures = new ArrayList<Future<?>>();
+            for (int writer = 1; writer <= 2; writer++) {
+                int number = writer;
+                futures.add(executor.submit(() -> {
+                    var tx = transaction(transactions, isolation);
+                    tx.setReadOnly(readOnly);
+                    var scoped = service(registry(), transactions);
+                    tx.executeWithoutResult(status -> {
+                        long root = number == 1 ? 10 : 11;
+                        scoped.declareScope(OWNER, readOnly ? Set.of(id(10), id(11)) : Set.of(id(root)));
+                        if (readOnly) {
+                            assertThat(scoped.resolve(OWNER, id(root))).hasSize(2);
+                            assertThat(scoped.resolve(OWNER, id(number == 1 ? 11 : 10))).hasSize(2);
+                        } else {
+                            scoped.bind(OWNER, id(root), number == 1 ? List.of(binding(1, 1), binding(2, 1))
+                                    : List.of(binding(-1, 1), binding(-2, 1)));
+                            assertThat(scoped.resolve(OWNER, id(root))).hasSize(2);
+                        }
+                        entered.countDown();
+                        await(release);
+                    });
+                }));
+            }
+            boolean bothEntered = entered.await(5, TimeUnit.SECONDS);
+            if (!bothEntered) {
+                for (var future : futures) if (future.isDone()) future.get(1, TimeUnit.SECONDS);
+            }
+            assertThat(bothEntered).as("Both operations enter while both transactions stay open; binding writes=%s, SQL=%s",
+                    source.bindingWrites.get(), source.selects).isTrue();
+            release.countDown();
+            for (var future : futures) future.get(15, TimeUnit.SECONDS);
+            assertThat(service.resolve(OWNER, id(12))).hasSize(4);
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
+            if (factory != null) factory.destroy();
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,READ_COMMITTED", "false,REPEATABLE_READ", "true,READ_COMMITTED", "true,REPEATABLE_READ"})
+    void unboundQuestionsAreReservedBeforeOppositeOrderMultiCallBinds(boolean jpa, String isolation) throws Exception {
+        separateAndCombinedRevisions();
+        var factory = jpa ? jpaFactory() : null;
+        var transactions = transactionManager(factory);
+        var gate = new Gate();
+        source.gate = gate;
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var futures = new ArrayList<Future<?>>();
+            for (int writer = 1; writer <= 2; writer++) {
+                int number = writer;
+                futures.add(executor.submit(() -> transaction(transactions, isolation).executeWithoutResult(status -> {
+                    var scoped = service(registry(), transactions);
+                    scoped.declareScope(OWNER, Set.of(id(10), id(11)));
+                    for (long root : number == 1 ? List.of(10L, 11L) : List.of(11L, 10L)) {
+                        scoped.bind(OWNER, id(root), List.of(binding(root == 10 ? 1 : -1, 1)));
+                        assertThat(scoped.resolve(OWNER, id(root))).hasSize(1);
+                    }
+                })));
+            }
+            assertThat(gate.arrived.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(gate.connections).hasSize(2);
+            assertThat(countBindings()).isZero();
+            gate.release.countDown();
+            for (var future : futures) future.get(15, TimeUnit.SECONDS);
+            assertThat(source.bindingWrites).hasValue(4);
+            assertThat(service.resolve(OWNER, id(12))).hasSize(2);
+        } finally {
+            gate.release.countDown();
+            source.gate = null;
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
+            if (factory != null) factory.destroy();
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,READ_COMMITTED,declare", "false,REPEATABLE_READ,declare",
+            "true,READ_COMMITTED,declare", "true,REPEATABLE_READ,declare",
+            "false,READ_COMMITTED,resolve", "false,REPEATABLE_READ,resolve",
+            "true,READ_COMMITTED,resolve", "true,REPEATABLE_READ,resolve",
+            "false,READ_COMMITTED,bind", "false,REPEATABLE_READ,bind",
+            "true,READ_COMMITTED,bind", "true,REPEATABLE_READ,bind"})
+    void caughtScopeExpansionRollsBackWholeOuterTransaction(boolean jpa, String isolation, String operation) {
+        separateAndCombinedRevisions();
+        var factory = jpa ? jpaFactory() : null;
+        var transactions = transactionManager(factory);
+        try {
+            var scoped = service(registry(), transactions);
+            assertThatThrownBy(() -> transaction(transactions, isolation).executeWithoutResult(status -> {
+                scoped.declareScope(OWNER, Set.of(id(10), id(11)));
+                scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
+                assertThat(source.bindingWrites).hasValue(1);
+                // Root 12 contains exactly the same question union, but was not declared.
+                // A recreated component must not give the caller a second scope for this transaction.
+                var restarted = service(registry(), transactions);
+                rejected(() -> {
+                    switch (operation) {
+                        case "declare" -> restarted.declareScope(OWNER, Set.of(id(12)));
+                        case "resolve" -> restarted.resolve(OWNER, id(12));
+                        case "bind" -> restarted.bind(OWNER, id(12), List.of(binding(1, 1), binding(-1, 1)));
+                        default -> throw new AssertionError(operation);
+                    }
+                }, SCOPE_VIOLATION);
+                assertThat(status.isRollbackOnly()).isTrue();
+            })).isInstanceOf(org.springframework.transaction.UnexpectedRollbackException.class);
+            assertThat(countBindings()).isZero();
+            transaction(transactions, isolation).executeWithoutResult(status -> {
+                var requested = new HashSet<>(Set.of(id(10), id(11), id(12)));
+                scoped.declareScope(OWNER, requested);
+                requested.clear();
+                scoped.declareScope(OWNER, Set.of(id(10))); // Idempotent subset does not shrink the original.
+                scoped.bind(OWNER, id(11), List.of(binding(-1, 1)));
+                scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
+                assertThat(scoped.resolve(OWNER, id(12))).hasSize(2);
+            });
+            assertThat(service.resolve(OWNER, id(12))).hasSize(2);
+        } finally { if (factory != null) factory.destroy(); }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,READ_COMMITTED", "false,REPEATABLE_READ", "true,READ_COMMITTED", "true,REPEATABLE_READ"})
+    void requiresNewGetsItsOwnScopeAndRestoresOuterScope(boolean jpa, String isolation) {
+        separateAndCombinedRevisions();
+        var factory = jpa ? jpaFactory() : null;
+        var transactions = transactionManager(factory);
+        var scoped = service(registry(), transactions);
+        try {
+            transaction(transactions, isolation).executeWithoutResult(status -> {
+                scoped.declareScope(OWNER, Set.of(id(10)));
+                var inner = transaction(transactions, isolation);
+                inner.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+                inner.executeWithoutResult(child -> {
+                    scoped.declareScope(OWNER, Set.of(id(11)));
+                    scoped.bind(OWNER, id(11), List.of(binding(-1, 1)));
+                });
+                scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
+                assertThat(scoped.resolve(OWNER, id(10))).hasSize(1);
+                status.setRollbackOnly();
+            });
+            assertThat(countBindings()).isEqualTo(1);
+            assertThat(service.resolve(OWNER, id(11))).hasSize(1);
+            rejected(() -> service.resolve(OWNER, id(10)), UNBOUND_REVISION);
+            scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
+            assertThat(scoped.resolve(OWNER, id(12))).hasSize(2);
+        } finally { if (factory != null) factory.destroy(); }
+    }
+
     @Test
-    void contracts04MetadataReadsAreTwoQueriesForMultipleParentsAndNeverSelectLargeContent() {
+    void declarationValidatesAllOwnersBeforeLockingAndScopeCannotBeBypassed() {
+        separateAndCombinedRevisions();
+        rejected(() -> service.declareScope(OWNER, Set.of(id(10))), TRANSACTION_REQUIRED);
+        for (boolean read : List.of(false, true)) {
+            assertThatThrownBy(() -> new TransactionTemplate(manager).executeWithoutResult(status -> {
+                rejected(() -> {
+                    if (read) service.resolve(OWNER, id(10));
+                    else service.bind(OWNER, id(10), List.of(binding(1, 1)));
+                }, SCOPE_REQUIRED);
+                assertThat(status.isRollbackOnly()).isTrue();
+            })).isInstanceOf(org.springframework.transaction.UnexpectedRollbackException.class);
+        }
+        var foreign = quiz(13, question(3, "{}"));
+        revisions.insert(new uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision(foreign.id(), foreign.quizId(),
+                id(999), foreign.schemaVersion(), foreign.title(), foreign.description(), foreign.createdAt(), foreign.items()));
+        for (Set<UUID> invalid : Arrays.asList(null, new HashSet<>(Arrays.asList(id(10), null)),
+                Set.of(id(10), id(13)), Set.of(id(10), id(999)))) {
+            source.reset();
+            rejected(() -> new TransactionTemplate(manager).executeWithoutResult(status -> service.declareScope(OWNER, invalid)),
+                    invalid == null ? INVALID_SCOPE : REVISION_UNAVAILABLE);
+            assertThat(source.selects).noneMatch(statement -> statement.contains("FROM question_revisions q")
+                    || statement.contains("FROM question_revision_contract_bindings"));
+        }
+        new TransactionTemplate(manager).executeWithoutResult(status -> {
+            var requested = new HashSet<>(Set.of(id(10)));
+            service.declareScope(OWNER, requested);
+            requested.add(id(11));
+            rejected(() -> service.declareScope(OWNER, requested), SCOPE_VIOLATION);
+            status.setRollbackOnly();
+        });
+        assertThat(countBindings()).isZero();
+        service.bind(OWNER, id(12), List.of(binding(1, 1), binding(-1, 1)));
+        assertThat(service.resolve(OWNER, id(12))).hasSize(2);
+    }
+
+    @Test
+    void savepointRollbackCannotMakeCachedScopeAuthorizeAnAbsentRevision() {
+        var outer = new TransactionTemplate(manager);
+        outer.executeWithoutResult(status -> {
+            var nested = new TransactionTemplate(manager);
+            nested.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_NESTED);
+            nested.executeWithoutResult(child -> {
+                revisions.insert(quiz(10, question(1, "{}")));
+                service.declareScope(OWNER, Set.of(id(10)));
+                child.setRollbackOnly();
+            });
+            rejected(() -> service.resolve(OWNER, id(10)), REVISION_UNAVAILABLE);
+            assertThat(status.isRollbackOnly()).isTrue();
+            status.setRollbackOnly();
+        });
+        assertThat(countBindings()).isZero();
+        revisions.insert(quiz(10, question(1, "{}")));
+        service.bind(OWNER, id(10), List.of(binding(1, 1)));
+        assertThat(service.resolve(OWNER, id(10))).hasSize(1);
+    }
+
+    @Test
+    void bulkScopeLoadsAllParentsInTwoMetadataQueriesThenTwoPerResolve() {
+        separateAndCombinedRevisions();
+        service.bind(OWNER, id(12), List.of(binding(1, 1), binding(-1, 1)));
+        source.reset();
+        new TransactionTemplate(manager).executeWithoutResult(status -> {
+            service.declareScope(OWNER, Set.of(id(12), id(11), id(10)));
+            assertThat(source.selects).hasSize(2);
+            assertThat(source.selects.get(1)).contains("FOR UPDATE");
+            for (long root : List.of(10L, 11L, 12L)) service.resolve(OWNER, id(root));
+            assertThat(source.selects).hasSize(8);
+        });
+        assertThat(source.selects).allSatisfy(statement -> assertThat(statement)
+                .doesNotContain("content", "question_text", "normalized_text", "SELECT *"));
+        assertThat(source.bindingWrites).hasValue(0);
+    }
+
+    private static TransactionTemplate transaction(PlatformTransactionManager transactions, String isolation) {
+        var tx = new TransactionTemplate(transactions);
+        tx.setIsolationLevelName("ISOLATION_" + isolation);
+        return tx;
+    }
+
+    @Test
+    void largeScopeAndResolutionUseBoundedBatchesWithoutLosingAnIdentity() {
+        var questions = java.util.stream.LongStream.rangeClosed(1, 501).mapToObj(index -> question(index, "{}"))
+                .toArray(uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision[]::new);
+        revisions.insert(quiz(10_000, questions));
+        var roots = new HashSet<>(Set.of(id(10_000)));
+        for (long root = 10_001; root <= 10_500; root++) {
+            revisions.insert(quiz(root));
+            roots.add(id(root));
+        }
+        service.bind(OWNER, id(10_000), java.util.stream.LongStream.rangeClosed(1, 501)
+                .mapToObj(index -> binding(index, 1)).toList());
+        source.reset();
+        new TransactionTemplate(manager).executeWithoutResult(status -> {
+            service.declareScope(OWNER, roots);
+            assertThat(source.selects).hasSize(4);
+            assertThat(service.resolve(OWNER, id(10_000))).hasSize(501);
+            assertThat(source.selects).hasSize(7);
+            assertThat(service.resolve(OWNER, id(10_500))).isEmpty();
+            assertThat(source.selects).hasSize(8);
+        });
+        assertThat(source.selects).allSatisfy(statement -> assertThat(statement)
+                .doesNotContain("content", "question_text", "normalized_text", "SELECT *"));
+        assertThat(source.bindingWrites).hasValue(0);
+    }
+
+    private static void separateAndCombinedRevisions() {
+        var a = question(1, "{\"answer\":true}");
+        var b = question(-1, "{\"answer\":false}");
+        revisions.insert(quiz(10, a));
+        revisions.insert(quiz(11, b));
+        revisions.insert(quiz(12, b, a));
+    }
+
+    @Test
+    void contracts04MetadataReadsAreFourQueriesForMultipleParentsAndNeverSelectLargeContent() {
         var questions = new ArrayList<uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision>();
         for (int index = 1; index <= 12; index++) {
             questions.add(question(index, "{\"answer\":true,\"padding\":\"" + "x".repeat(100_000) + "\"}"));
@@ -516,16 +872,19 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         for (long parent = 11; parent <= 14; parent++) revisions.insert(quiz(parent, questions.get(0), questions.get(1)));
         source.reset();
         assertThat(service.resolve(OWNER, id(10))).hasSize(12);
-        assertThat(source.selects).hasSize(2);
+        assertThat(source.selects).hasSize(4);
         assertThat(source.selects).allSatisfy(statement -> assertThat(statement)
                 .doesNotContain("content", "question_text", "normalized_text", "SELECT *"));
         source.reset();
         assertThat(service.resolve(OWNER, id(11))).hasSize(2);
-        assertThat(source.selects).hasSize(2);
+        assertThat(source.selects).hasSize(4);
         assertThat(source.selects).allSatisfy(statement -> assertThat(statement).doesNotContain("content", "question_text"));
         source.reset();
-        new TransactionTemplate(manager).executeWithoutResult(status -> assertThat(service.resolve(OWNER, id(10))).hasSize(12));
-        assertThat(source.selects).hasSize(2);
+        new TransactionTemplate(manager).executeWithoutResult(status -> {
+            service.declareScope(OWNER, Set.of(id(10)));
+            assertThat(service.resolve(OWNER, id(10))).hasSize(12);
+        });
+        assertThat(source.selects).hasSize(4);
         assertThat(source.selects).allSatisfy(statement -> assertThat(statement)
                 .doesNotContain("content", "question_text", "normalized_text", "SELECT *"));
         assertThat(source.bindingWrites).hasValue(0);
@@ -618,12 +977,14 @@ class QuestionRevisionContractsMySqlIntegrationTest {
             var first = quiz(10, question(1, "{\"answer\":true}"));
             new TransactionTemplate(jpa).executeWithoutResult(status -> {
                 jpaRevisions.insert(first);
+                jpaService.declareScope(OWNER, Set.of(first.id()));
                 jpaService.bind(OWNER, first.id(), List.of(binding(1, 1)));
             });
             source.bindingWrites.set(0);
             new TransactionTemplate(jpa).executeWithoutResult(status -> {
                 var second = quiz(11, question(2, "{\"answer\":false}"));
                 jpaRevisions.insert(second);
+                jpaService.declareScope(OWNER, Set.of(second.id()));
                 jpaService.bind(OWNER, second.id(), List.of(binding(2, 2)));
                 assertThat(source.bindingWrites).hasValue(1);
                 status.setRollbackOnly();
@@ -724,7 +1085,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         final AtomicInteger rollbacks = new AtomicInteger();
         volatile Gate gate;
         volatile Fault fault;
-        volatile CountDownLatch bindingReadAttempt;
+        volatile CountDownLatch scopeLockAttempt;
         ObservedDataSource(DataSource target) { super(target); }
         void reset() { selects.clear(); bindingWrites.set(0); rollbacks.set(0); }
 
@@ -749,12 +1110,20 @@ class QuestionRevisionContractsMySqlIntegrationTest {
                         if (method.getName().equals("prepareStatement") && arguments[0] instanceof String statement) {
                             if (statement.stripLeading().startsWith("SELECT")) selects.add(statement);
                             if (statement.stripLeading().startsWith("SELECT")
-                                    && statement.contains("FROM question_revision_contract_bindings b")) {
+                                    && statement.contains("FROM question_revisions q")) {
                                 var prepared = (PreparedStatement) result;
                                 return Proxy.newProxyInstance(PreparedStatement.class.getClassLoader(), new Class<?>[]{PreparedStatement.class},
                                         (unused, operation, values) -> {
-                                            var attempt = bindingReadAttempt;
-                                            if (operation.getName().equals("executeQuery") && attempt != null) attempt.countDown();
+                                            var attempt = scopeLockAttempt;
+                                            if (operation.getName().equals("executeQuery")) {
+                                                if (attempt != null) attempt.countDown();
+                                                Gate current = gate;
+                                                if (current != null) {
+                                                    current.connections.add(connection);
+                                                    current.arrived.countDown();
+                                                    if (!current.release.await(10, TimeUnit.SECONDS)) throw new AssertionError("Scope gate timed out");
+                                                }
+                                            }
                                             return invoke(prepared, operation, values);
                                         });
                             }
@@ -766,12 +1135,6 @@ class QuestionRevisionContractsMySqlIntegrationTest {
                                                 if ((fault == Fault.SQL_AFTER_FIRST_WRITE || fault == Fault.ROLLBACK_AFTER)
                                                         && bindingWrites.get() == 1) {
                                                     throw new SQLException("private SQL diagnostics");
-                                                }
-                                                Gate current = gate;
-                                                if (current != null) {
-                                                    current.connections.add(connection);
-                                                    current.arrived.countDown();
-                                                    if (!current.release.await(10, TimeUnit.SECONDS)) throw new AssertionError("Writer gate timed out");
                                                 }
                                                 Object count = invoke(prepared, operation, values);
                                                 bindingWrites.incrementAndGet();
