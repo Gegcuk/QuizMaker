@@ -261,23 +261,126 @@ class FixedFormMySqlIntegrationTest {
     }
 
     @ParameterizedTest
+    @CsvSource({"READ_COMMITTED,false", "READ_COMMITTED,true", "REPEATABLE_READ,false", "REPEATABLE_READ,true"})
+    void readThenIdenticalCreateOrReplayDoesNotDeadlock(String isolation, boolean exists) throws Exception {
+        var r = savedRevision("read-race", 2);
+        var f = form("read-race-form", r, 2);
+        if (exists) service.createOrReplay(OWNER, f);
+        var race = createAfterBothReads(f, f, isolation, exists);
+        assertThat(race.connections()).hasSize(2);
+        assertThat(race.outcomes()).allSatisfy(outcome -> {
+            assertThat(outcome.failure()).as("Real SQL error codes: %s", race.sqlErrors()).isNull();
+            assertThat(outcome.form()).isEqualTo(f);
+        });
+        assertThat(race.sqlErrors()).isEmpty();
+        assertThat(service.findByIds(OWNER, List.of(f.id()))).containsExactly(f);
+        assertThat(count("attempt_form")).isEqualTo(1);
+        assertThat(count("attempt_form_item")).isEqualTo(2);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"READ_COMMITTED,false", "READ_COMMITTED,true", "REPEATABLE_READ,false", "REPEATABLE_READ,true"})
+    void readThenChangedCreateRetainsOneCompleteWinnerAndReturnsFormConflict(String isolation, boolean exists) throws Exception {
+        var r = savedRevision("read-conflict", 3);
+        var first = form("read-conflict-form", r, 2);
+        var changed = new FixedForm(first.id(), 1, r.id(), List.of(first.items().get(0),
+                new FixedForm.Item(id("read-conflict-alternative"), r.items().get(2).id(), 4)));
+        if (exists) service.createOrReplay(OWNER, first);
+        var race = createAfterBothReads(first, changed, isolation, exists);
+        assertThat(race.connections()).hasSize(2);
+        assertThat(race.sqlErrors()).isEmpty();
+        var winners = race.outcomes().stream().filter(o -> o.failure() == null).toList();
+        assertThat(winners).hasSize(1);
+        assertThat(race.outcomes().stream().filter(o -> o.failure() != null).toList())
+                .extracting(Outcome::failure).containsExactly(FORM_CONFLICT);
+        var winner = winners.get(0).form();
+        if (exists) assertThat(winner).isEqualTo(first);
+        assertThat(service.findByIds(OWNER, List.of(first.id()))).containsExactly(winner);
+        assertThat(count("attempt_form")).isEqualTo(1);
+        assertThat(count("attempt_form_item")).isEqualTo(2);
+        service.createOrReplay(OWNER, winner);
+        var loser = race.outcomes().stream().filter(o -> o.failure() != null).findFirst().orElseThrow().form();
+        rejected(() -> service.createOrReplay(OWNER, loser), FORM_CONFLICT);
+        assertThat(service.findByIds(OWNER, List.of(first.id()))).containsExactly(winner);
+        assertThat(count("attempt_form_item")).isEqualTo(2);
+    }
+
+    private ReadRace createAfterBothReads(FixedForm first, FixedForm second, String isolation, boolean exists) throws Exception {
+        var bothRead = new CyclicBarrier(2);
+        Set<Integer> connections = ConcurrentHashMap.newKeySet();
+        source.beforeSql = (statement, connection) -> {
+            if (statement.startsWith("SELECT f.id,f.schema_version")) connections.add(connection);
+        };
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<Outcome> one = pool.submit(() -> createAfterReadOutcome(first, first, isolation, exists, bothRead));
+            Future<Outcome> two = pool.submit(() -> createAfterReadOutcome(second, first, isolation, exists, bothRead));
+            return new ReadRace(List.of(one.get(25, TimeUnit.SECONDS), two.get(25, TimeUnit.SECONDS)),
+                    Set.copyOf(connections), List.copyOf(source.sqlErrorCodes));
+        } finally {
+            pool.shutdownNow();
+            assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+            source.reset();
+        }
+    }
+
+    private Outcome createAfterReadOutcome(FixedForm input, FixedForm original, String isolation, boolean exists,
+                                           CyclicBarrier bothRead) {
+        try {
+            return new Outcome(transaction(isolation).execute(status -> {
+                assertThat(service.findByIds(OWNER, List.of(input.id())))
+                        .isEqualTo(exists ? List.of(original) : List.of());
+                try { bothRead.await(10, TimeUnit.SECONDS); }
+                catch (Exception failure) { throw new AssertionError("Both real transactions must finish reading before writing", failure); }
+                return service.createOrReplay(OWNER, input);
+            }), null);
+        } catch (FixedFormException failure) { return new Outcome(input, failure.reason()); }
+    }
+
+    private record ReadRace(List<Outcome> outcomes, Set<Integer> connections, List<Integer> sqlErrors) { }
+
+    @ParameterizedTest
     @ValueSource(strings = {"READ_COMMITTED", "REPEATABLE_READ"})
-    void replayAndReadInsideAnOlderTransactionSeeTheCommittedWinner(String isolation) throws Exception {
+    void replayReturnsVerifiedFormWhileOrdinaryReadHonorsTheTransactionSnapshot(String isolation) throws Exception {
         var r = savedRevision("old-snapshot", 2);
         var f = form("old-snapshot-form", r, 2);
         var outer = transaction(isolation);
         var pool = Executors.newSingleThreadExecutor();
         try {
             outer.executeWithoutResult(status -> {
-                assertThat(count("attempt_form")).isZero();
+                assertThat(service.findByIds(OWNER, List.of(f.id()))).isEmpty();
                 try { pool.submit(() -> service.createOrReplay(OWNER, f)).get(10, TimeUnit.SECONDS); }
                 catch (Exception failure) { throw new AssertionError(failure); }
                 assertThat(service.createOrReplay(OWNER, f)).isEqualTo(f);
-                assertThat(service.findByIds(OWNER, List.of(f.id()))).containsExactly(f);
+                assertThat(service.findByIds(OWNER, List.of(f.id())))
+                        .isEqualTo(isolation.equals("REPEATABLE_READ") ? List.of() : List.of(f));
             });
+            assertThat(service.findByIds(OWNER, List.of(f.id()))).containsExactly(f);
+            assertThat(count("attempt_form")).isEqualTo(1);
+            assertThat(count("attempt_form_item")).isEqualTo(2);
         } finally {
             pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"READ_COMMITTED", "REPEATABLE_READ"})
+    void transactionSeesItsOwnNewFormButSuccessfulServiceReturnDoesNotPreventOuterRollback(String isolation) {
+        var r = savedRevision("own-write", 2);
+        var f = form("own-write-form", r, 2);
+        var returned = transaction(isolation).execute(status -> {
+            assertThat(service.findByIds(OWNER, List.of(f.id()))).isEmpty();
+            var verified = service.createOrReplay(OWNER, f);
+            assertThat(verified).isEqualTo(f);
+            assertThat(service.findByIds(OWNER, List.of(f.id()))).containsExactly(f);
+            assertThat(count("attempt_form_item")).as("complete own insert reached rollback checkpoint").isEqualTo(2);
+            status.setRollbackOnly();
+            return verified;
+        });
+        assertThat(returned).isEqualTo(f);
+        assertThat(service.findByIds(OWNER, List.of(f.id()))).isEmpty();
+        assertThat(count("attempt_form")).isZero();
+        assertThat(count("attempt_form_item")).isZero();
     }
 
     @Test

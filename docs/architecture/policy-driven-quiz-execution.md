@@ -1737,9 +1737,17 @@ privileged SQL updates/deletes. No trigger or database access-policy change is i
 `findByIds` omits missing and foreign-owner forms, deduplicates requested IDs and retains request
 order. It reads two metadata queries per batch of up to 500 visible form IDs, independently of
 item count; an entirely missing batch needs only the root query. Parameter batching is not a
-quiz-size or selection limit. Current shared reads also see a concurrently committed identical
-form after replay inside an older `REPEATABLE READ` transaction. No JPA relationships, question
-payloads, media objects or document contents are loaded by these operations.
+quiz-size or selection limit. Both queries are ordinary non-locking reads governed by transaction
+isolation. An older `REPEATABLE READ` snapshot may still omit a form committed by another transaction
+after that snapshot, even after an identical replay succeeds; `READ COMMITTED` sees the committed
+form, and a new transaction sees it after commit. A transaction sees its own new insert immediately.
+Callers needing the verified form after creation/replay use the result of `createOrReplay` directly,
+rather than requiring a subsequent `findByIds` to refresh a snapshot. Successful return inside an
+enclosing transaction does not commit it; a later rollback still cancels the new form and its items.
+Write serialization and exact comparison remain inside `createOrReplay`. Ordinary reads take no
+shared row/gap locks that would need upgrading when concurrent callers subsequently create/replay.
+No JPA relationships, question payloads, media objects or document contents are loaded by these
+operations.
 
 Failures use bounded `FixedFormException` reasons without identifiers or SQL diagnostics.
 Transaction/connection failure, including an unknown commit outcome, is reported as

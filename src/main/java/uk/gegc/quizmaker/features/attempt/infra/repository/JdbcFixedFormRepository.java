@@ -99,12 +99,12 @@ public class JdbcFixedFormRepository implements FixedFormRepository {
             var roots = jdbc.query("""
                     SELECT f.id,f.schema_version,f.quiz_revision_id,f.item_count FROM attempt_form f
                     JOIN quiz_revisions r ON r.id=f.quiz_revision_id WHERE r.owner_id=:owner AND f.id IN (:ids)
-                    ORDER BY f.id FOR SHARE
+                    ORDER BY f.id
                     """, parameters, (row, index) -> root(row));
             if (roots.isEmpty()) continue;
             parameters.addValue("ids", roots.stream().map(root -> bytes(root.id())).toList());
             Map<UUID, List<FixedForm.Item>> items = new HashMap<>();
-            jdbc.query("SELECT form_id,id,source_item_id,position FROM attempt_form_item WHERE form_id IN (:ids) ORDER BY form_id,position FOR SHARE",
+            jdbc.query("SELECT form_id,id,source_item_id,position FROM attempt_form_item WHERE form_id IN (:ids) ORDER BY form_id,position",
                     parameters, (org.springframework.jdbc.core.RowCallbackHandler) row ->
                             items.computeIfAbsent(uuid(row, "form_id"), ignored -> new ArrayList<>()).add(item(row)));
             for (var root : roots) {

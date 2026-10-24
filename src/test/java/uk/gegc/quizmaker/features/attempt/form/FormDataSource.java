@@ -22,6 +22,7 @@ final class FormDataSource extends DelegatingDataSource {
     volatile CommitHook afterCommit;
     volatile boolean failConnection;
     final List<String> selects = new CopyOnWriteArrayList<>();
+    final List<Integer> sqlErrorCodes = new CopyOnWriteArrayList<>();
     private final AtomicInteger connections = new AtomicInteger();
 
     FormDataSource(DataSource target) { super(target); }
@@ -54,11 +55,15 @@ final class FormDataSource extends DelegatingDataSource {
                         if (hook != null) hook.run(sql, connectionId);
                     }
                     try { return method.invoke(target, arguments); }
-                    catch (InvocationTargetException failure) { throw failure.getCause(); }
+                    catch (InvocationTargetException failure) {
+                        if (failure.getCause() instanceof SQLException sqlFailure) sqlErrorCodes.add(sqlFailure.getErrorCode());
+                        throw failure.getCause();
+                    }
                 });
     }
 
     void reset() {
-        beforeSql = null; beforeCommit = null; afterCommit = null; failConnection = false; selects.clear();
+        beforeSql = null; beforeCommit = null; afterCommit = null; failConnection = false;
+        selects.clear(); sqlErrorCodes.clear();
     }
 }
