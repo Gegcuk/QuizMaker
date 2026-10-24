@@ -1297,6 +1297,62 @@ Correct answers use stable domain IDs rather than:
 
 ---
 
+### Versioned registry and immutable bindings (#598)
+
+`QuestionRevisionContractService` binds the complete distinct question-revision set of an
+immutable quiz revision to exact response/scoring `(id, version)` pairs. Its caller must
+already have authorized the operation and resolved the owner from trusted server context;
+the persistence owner filter is additional protection, not permission or visibility authority.
+This internal boundary adds no public endpoint or permission and does not route existing attempts.
+
+V84 adds `question_revision_contract_bindings`, keyed by question-revision ID with a foreign
+key to the immutable question snapshot. One question revision has one binding even when reused
+in several quiz revisions. Supported ports expose no replacement/deletion. An identical bind
+is idempotent; a different pair conflicts. A new pair needs a new question revision.
+Existing rows are not backfilled: absent bindings fail with `UNBOUND_REVISION`, rather than
+inferring a contract from the current question type, `QuestionContracts.VERSION`, or Java handler.
+Missing/wrong-owner quiz revisions have the same `REVISION_UNAVAILABLE` failure.
+
+`QuestionContractRegistry` resolves both exact references before returning a pair of project-owned
+response/scoring ports. Duplicate registrations fail at startup. Unknown or unavailable versions
+fail with `UNSUPPORTED_CONTRACT`; there is no latest-version alias or fallback. The registry has
+no built-in family implementations in this foundation. #701 and #826–#829 supply the separately
+owned adapters; existing validation, grading, feedback and web/iOS API shapes remain unchanged.
+`ContractScore` carries exact decimal earned/possible points only; it defines no normalization,
+pass threshold, stored result, release rule or concrete family algorithm.
+
+Binding format v1 is fixed-order JSON encoded in UTF-8: `bindingFormatVersion`,
+`questionRevisionId`, `response` (`id`, `version`), then `scoring` (`id`, `version`).
+Identifiers use bounded lowercase ASCII names, positive integer versions and no class-name lookup.
+SHA-256 covers only this bounded metadata; the saved digest is checked on read. No document,
+question payload, media or source text is loaded/hashed to resolve or compare versions.
+The owner-scoped aggregate read uses one SQL query regardless of item/option count and selects
+only IDs and binding metadata. Empty revisions are distinct from unavailable revisions.
+
+The bind service joins the caller's transaction, including an existing JPA transaction. It
+requires the complete question set and orders writes by question-revision ID. Membership checks
+read immutable metadata without locking the source graph. The unique-key insert/no-op and a
+locking read of the binding row serialize competitors under both READ COMMITTED and REPEATABLE
+READ; no metadata is overwritten. A later unknown version, conflicting binding or database failure
+aborts the entire transaction, including earlier bindings and participating revision writes.
+There are no automatic database retries. Database-operation failures surface as bounded
+`PERSISTENCE_UNAVAILABLE`; callers must reconcile committed state before retrying an unknown outcome.
+Domain failures extend `RuntimeException` directly so Spring JPA's repository exception translation
+preserves conflict/integrity categories rather than reclassifying them as database failures.
+`question.contract.resolutions` records only fixed `supported`/`unsupported` outcome labels.
+
+CONTRACTS-01 uses persisted v1/v2 bindings and explicit registry doubles to prove dispatch after
+component recreation, not concrete family grading. CONTRACTS-02 proves reached SQL and fresh-read
+rollback of bindings plus participating #597 revision writes. Actual publication/current-pointer
+composition remains #700; actual family compatibility remains #701 and the other family owners.
+CONTRACTS-03 proves real MySQL concurrent success/conflict, identical replay and immutable rereads.
+CONTRACTS-04 checks bounded metadata SQL against multiple quiz parents and large stored payloads.
+These local proofs do not activate target execution or claim the unavailable downstream integrations.
+
+Apply V84 before using this boundary. Preserve additive tables and retained bindings on application
+rollback; use a forward fix after writes rather than dropping history or editing an applied migration.
+There is no new retention period, offline mutation capability or destructive cleanup.
+
 ## Assignments and Legacy Share Links
 
 ### Assignment
