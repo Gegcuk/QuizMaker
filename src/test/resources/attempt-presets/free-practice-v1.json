@@ -1,0 +1,65 @@
+{
+  "preset": {"id": "FREE_PRACTICE", "version": 1},
+  "policy": {
+    "schemaVersion": 1,
+    "content": {
+      "quizRevisionId": "00000000-0000-0000-0000-00000000002a",
+      "revisionSchemaVersion": 1,
+      "formMode": "PRECOMPUTED",
+      "sections": "IMPLICIT_FLAT",
+      "cases": "NOT_CONFIGURED"
+    },
+    "questionSelection": {"mode": "ALL", "algorithmVersion": 1},
+    "questionOrdering": {"mode": "AUTHORED", "algorithmVersion": 1},
+    "answerOrdering": {"mode": "AUTHORED", "algorithmVersion": 1},
+    "delivery": {"mode": "ALL_AT_ONCE"},
+    "navigation": {"mode": "FREE"},
+    "submission": {
+      "draftsEnabled": false,
+      "autosaveEnabled": false,
+      "requireAllAnswers": false,
+      "completionConfirmationRequired": true,
+      "mode": "SINGLE_AND_ATOMIC_BATCH",
+      "retries": "IDENTICAL_REPLAY_CHANGED_CONFLICT",
+      "finalSubmitPayload": "NONE",
+      "unanswered": "NO_CREDIT_WITHOUT_ACCEPTANCE"
+    },
+    "answerChange": {"mode": "LOCK_ON_ACCEPTANCE"},
+    "disclosure": {
+      "rules": [
+        {"category": "CORRECTNESS", "when": "AFTER_ACCEPTANCE"},
+        {"category": "QUESTION_SCORE", "when": "AFTER_ACCEPTANCE"},
+        {"category": "CORRECT_ANSWER", "when": "AFTER_ACCEPTANCE"},
+        {"category": "EXPLANATION", "when": "AFTER_ACCEPTANCE"},
+        {"category": "TOTAL_SCORE", "when": "AFTER_COMPLETION"},
+        {"category": "RUBRIC", "when": "NEVER"},
+        {"category": "GRADER_COMMENTS", "when": "NEVER"},
+        {"category": "COHORT_STATISTICS", "when": "NEVER"}
+      ]
+    },
+    "hints": {"mode": "ON_REQUEST", "source": "AUTHORED"},
+    "timing": {"mode": "NONE"},
+    "pause": {"mode": "DISABLED"},
+    "attempts": {"mode": "UNLIMITED"},
+    "access": {"participant": "AUTHENTICATED", "validation": "SERVER_REVALIDATED_AT_START_AND_READ"},
+    "grading": {"mode": "BINARY", "units": "EXACT_POINTS_WITH_INTEGER_BASIS_POINTS"},
+    "review": {
+      "availability": "AFTER_COMPLETION",
+      "content": ["SUBMITTED_ANSWERS", "CORRECTNESS", "CORRECT_ANSWERS", "EXPLANATIONS"],
+      "window": "WHILE_ACCOUNT_AND_RESULT_RETAINED"
+    },
+    "results": {
+      "runningProgressEnabled": true,
+      "passThresholdBasisPoints": 7000,
+      "selection": "NOT_CONFIGURED",
+      "leaderboard": "DISABLED",
+      "certificates": "DISABLED"
+    },
+    "accessibility": {"accommodations": "NOT_CONFIGURED"},
+    "integrity": {
+      "formEvidence": "EXACT_PERSISTED_IDENTITIES_AND_ORDER",
+      "engineBinding": "IMMUTABLE",
+      "versions": "REJECT_UNKNOWN"
+    }
+  }
+}
