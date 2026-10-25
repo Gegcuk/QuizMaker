@@ -1112,6 +1112,78 @@ Integration ownership remains #517 precedence/canonical bytes/hashes, #518 snaps
 #668 formal/timed conformance. HTTP/API summary/OpenAPI contracts, current security rules,
 legacy success/error responses, database schema, retry policy and frontend behavior are unchanged.
 
+### Canonical practice-policy resolution (#517)
+
+`AttemptPolicyResolver` is a dark internal application interface. It consumes trusted server facts
+for an already selected ordinary `FREE_PRACTICE/v1` policy and returns an immutable
+`PolicyResolution`. The implementation does not load identity, grants, revisions, assignments,
+documents or accommodations, create attempts, persist snapshots, or activate an execution route.
+The caller must establish current resource authority and revision existence and revalidate at
+actual start. Prepared grant facts in unit tests are not integration proof of authorization.
+
+The supported precedence is:
+
+1. Fixed platform-safety invariants and the exact code-defined preset defaults.
+2. Explicit immutable content metadata: quiz revision ID, revision schema and flat structure.
+3. Authorized author choices within the supported typed allow-list.
+4. Authorized participant choices within the exact values permitted by the preset/author.
+5. Aggregate validation through the existing `ResolvedAttemptPolicy` constructor.
+
+Only answer-option order (`AUTHORED`/`SHUFFLED_PER_ATTEMPT`) and authored hints
+(`ON_REQUEST`/`DISABLED`) are override inputs in this increment, following A03/A04/R01. Each source
+carries explicit allowed-value sets resolved by the server; an empty set grants no change.
+For example, an author may disable hints and permit the participant only `DISABLED`; an attempted
+`ON_REQUEST` choice then fails instead of silently restoring the preset default. Where both values
+are explicitly permitted, a participant choice wins over the author choice. An explicitly selected
+value receives that source even when it equals the preset default. Missing choices retain the
+previous source/value. Input list/set iteration order never establishes precedence.
+
+Identity, access, scoring, pass thresholds, submission/retry semantics, release, versions and
+integrity have no generic override channel. The content metadata retains #597's typed structural
+constraints. Per-question shuffle restrictions and exact option order remain #521's responsibility:
+a global shuffled strategy does not authorize shuffling a protected question. Question-count,
+question-order, managed-preset, assignment and accommodation extensions retain their own owners;
+their unsupported values are not enabled by this resolver. No derived timing/arithmetic rule is
+introduced for the untimed baseline.
+
+Resolver, canonical format and source versions are exactly `1`; the hash algorithm is exactly
+`SHA-256`. Unknown versions/algorithms, duplicate sources, duplicate settings and disallowed values
+fail explicitly without a partial result or permissive fallback. Existing preset/version errors
+retain their typed non-sensitive failures. Collections are defensively copied. The service has no
+clock/random/provider/persistence dependency, so independent instances and concurrent invocations
+produce the same result from the same facts.
+
+Canonical format v1 is project-owned compact UTF-8 JSON, **not RFC 8785**. Its envelope contains
+`resolverVersion`, `canonicalVersion`, `hashAlgorithm`, `preset`, `policy` and `provenance`.
+Properties and map keys are sorted alphabetically, enum names are symbolic, UUIDs are lowercase,
+and integers/booleans retain their JSON scalar types. Policy constructors normalize category
+arrays; semantically ordered arrays are never generically sorted. The codec owns an isolated
+mapper, independent of application JSON configuration. A material representation change requires
+a new supported format/version and explicit golden evidence.
+
+Provenance has one entry per effective-policy scalar leaf, using dotted paths and `[index]` array
+positions. Each entry contains a closed source name and version. Content leaves originate from
+`REVISION`; `schemaVersion` and integrity leaves from `PLATFORM_SAFETY`; remaining unchanged leaves
+from `PRESET`; supplied choices from `AUTHOR` or `PARTICIPANT`. The lowercase hexadecimal hash
+covers the complete envelope, including provenance. Equal values selected from different actual
+sources can therefore have different hashes. The hash identifies resolution evidence; it is not
+an authorization token, command identity or replacement for the captured policy. Only the bounded
+policy structure is encoded/hashed; no document bytes or source text are read.
+
+Independent frozen fixtures in `attempt-policy-resolution/` cover the baseline and a composition.
+Tests cover every leaf's source, explicit equal-value choices, source/property/collection
+permutations, semantic changes, forbidden choices with successful controls, unknown versions,
+duplicate inputs, defensive copies, concurrent calls and reconstruction with a separate codec.
+These are pure component/contract proofs, not database restart or actual-start integration.
+No JPA read/write path changes, so N+1 is inapplicable.
+
+Metrics `attempt.policy.resolutions` and `attempt.policy.resolution.sources` use only bounded
+outcome/reason/source/version labels; they carry no policy values, IDs or sensitive rationale.
+Telemetry failure cannot change a result or replace its original rejection. No new alert threshold
+is selected for this dark component. #518 owns persisted snapshot verification, #600 actual start,
+#666 any authorized preview and #609 activation. Existing HTTP/OpenAPI/security contracts and
+legacy routes remain unchanged.
+
 ## Example Policy: Approved Free-Practice Baseline
 
 This is a conceptual excerpt of the approved target in [#612](https://github.com/Gegcuk/QuizMaker/issues/612) and [#687](https://github.com/Gegcuk/QuizMaker/issues/687), not a complete serialized DTO or a claim of runtime availability. The complete typed schema also represents disabled/not-configured dimensions explicitly.
