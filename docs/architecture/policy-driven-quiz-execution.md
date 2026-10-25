@@ -656,6 +656,86 @@ ResolvedAttemptPolicy
 
 The approved v1 schema includes all of these typed dimensions. Unimplemented capabilities have explicit disabled/not-configured values and cannot be activated by arbitrary data. Only the code-defined `FREE_PRACTICE/v1` preset is initially supported; other capabilities require their own conformance gates. This is the broad-schema choice in [#612 A01/A02/D06](https://github.com/Gegcuk/QuizMaker/issues/612), not permission to omit dimensions or build a generic extension bag.
 
+### Implemented policy vocabulary foundation (#515)
+
+`features/attempt/domain/model/policy/ResolvedAttemptPolicy` is an immutable, transport-neutral
+Java value with all 19 dimensions. Its constructor accepts the initial authenticated, flat,
+untimed practice contract and rejects unsupported versions, missing values and unsupported
+combinations. It has no Spring, JPA, Jackson, preset-name or `AttemptMode` dependency.
+No existing endpoint or attempt writer consumes it yet.
+
+The value follows #612 A01/A02, D01–D03, D07 and R01, A22 binary grading, and the subsequent
+practice-retention, server-authorization and [policy-controlled completeness](./decision-register.md#voluntary-completion-requirement)
+refinements. Every sub-policy is mandatory:
+omitting a dimension is not equivalent to disabling it. Nullable configuration/default
+inference and arbitrary extension maps are not supported.
+
+| Dimension | Initial value contract |
+|---|---|
+| `content` | Exact quiz revision UUID and revision schema `1`; `PRECOMPUTED`, `IMPLICIT_FLAT`, cases `NOT_CONFIGURED`. The UUID is a reference, not proof of existence or access. |
+| `questionSelection` | `ALL`, algorithm version `1`. |
+| `questionOrdering` | `AUTHORED`, algorithm version `1`. |
+| `answerOrdering` | `AUTHORED` or the approved `SHUFFLED_PER_ATTEMPT` choice, algorithm version `1`. This is vocabulary, not an ordering implementation. |
+| `delivery` | `ALL_AT_ONCE`. |
+| `navigation` | `FREE`; membership and answer immutability still apply. |
+| `submission` | Drafts/autosave disabled; policy-controlled require-all accepts both `false` and `true`, with `false` the future preset default in #516. Completion confirmation remains required, with single and atomic batch acceptance, identical replay/changed conflict, payload-free terminal submit, and no credit for unanswered items without fabricating accepted incorrect answers. |
+| `answerChange` | `LOCK_ON_ACCEPTANCE`. The known `EDIT_UNTIL_FINALIZATION` value is rejected by the aggregate; it does not activate the separately owned editable-answer capability. |
+| `disclosure` | Correctness, question score, correct answer and explanation `AFTER_ACCEPTANCE`; total score `AFTER_COMPLETION`; rubric, grader comments and cohort statistics explicitly `NEVER`. |
+| `hints` | Authored hints `ON_REQUEST`, or `DISABLED` for the permitted participant choice; no generated hint or retry mechanism. |
+| `timing` | `NONE`; no invented duration, deadline or grace default. |
+| `pause` | `DISABLED`. |
+| `attempts` | `UNLIMITED`; this is not exemption from authorization or existing request-rate limits. |
+| `access` | `AUTHENTICATED` with `SERVER_REVALIDATED_AT_START_AND_READ`; the value grants no identity, permission, ownership or visibility. |
+| `grading` | `BINARY`, exact points with integer basis points. Score calculation and rounding remain owned by #603 and exact question contracts. |
+| `review` | `AFTER_COMPLETION`, all four categories: submitted answers, correctness, correct answers and explanations; while the account/result is retained and current access permits it. |
+| `results` | Running progress enabled; explicit pass threshold in integer basis points, inclusive range `0–10000`. D02's default `7000` is a named constant for the future preset owner, not a missing-value fallback. Result selection is `NOT_CONFIGURED`; leaderboard and certificates are `DISABLED`. |
+| `accessibility` | Accommodations `NOT_CONFIGURED`; this does not disable ordinary accessible presentation. |
+| `integrity` | Exact persisted identities/order, immutable engine binding, rejection of unknown versions. This describes required evidence; construction does not persist or verify it. |
+
+`submission.requireAllAnswers` retains the supplied value without substituting a default.
+Both values are supported with the same flat, untimed, immediate-lock configuration;
+they do not depend on editable answers, timers or sections. The approved default `false`
+belongs to the preset owner #516, not to value validation. #529 owns the actual completeness
+check: with eight accepted answers out of ten, OFF permits confirmed completion, while ON
+denies incomplete voluntary submission and preserves the answers and nonterminal state.
+This foundation represents that choice only; terminal-command writes and their atomicity
+must be proved by #529.
+
+Disclosure rules must contain each closed category exactly once. Review categories must be
+unique and complete for the supported aggregate. Both collections are defensively copied
+and normalized into vocabulary order, making equivalent permutations equal. Their maximum
+cardinality is the number of declared categories, not a new numerical product quota.
+This normalization defines value equality only; it is not canonical JSON or a hashing format.
+
+`parseValue` accepts exact declared symbolic names without aliases, ordinal conversion,
+case folding or whitespace trimming. Unknown names fail with `UNKNOWN_VALUE`. Version
+checks distinguish policy schema, content schema and strategy versions. Other bounded
+`PolicyValidationException` reasons distinguish missing/invalid values, contradictory
+combinations, unsupported combinations and deferred capabilities. Messages contain only
+the fixed reason and never echo input. These are internal failures; no new HTTP status,
+`ProblemDetail` mapping or public schema is introduced.
+
+For example, locking an accepted answer and then disclosing its correctness is a valid
+practice value. Asking to keep that answer editable while revealing its key fails with
+`INVALID_COMBINATION`. Withholding feedback does not enable editing: that capability still
+fails with `UNSUPPORTED_CAPABILITY`. A failed construction has no persistence side effects.
+
+Pure JUnit vectors exercise the approved tuple, permitted hint/option choices, basis-point
+boundaries, all required references, category completeness/duplicates, deterministic
+permutations, immutable copies and safe failures. A compiled-class dependency check guards
+the pure boundary. These tests prove the value contract, not authorization, answer writes,
+algorithm execution, scoring, release, retries or a complete attempt.
+
+Integration ownership remains separate: #516 supplies presets and legacy mappings; #517
+resolves precedence/provenance and canonical bytes/hashes; #518 persists snapshots; #520,
+#521 and #544 supply actual ordering/selection. Exact question response/scoring bindings
+remain revision-owned under #597/#598 and are resolved through their existing boundary,
+not copied into a competing policy authority. Consumers must check content, permissions,
+question-level constraints and actual algorithm availability before writing. The dark
+start is #600 and public activation is #609. Approved formal, timed, section, editable,
+guest, Learning and other capabilities require their own typed extensions and conformance;
+they cannot be enabled by supplying arbitrary policy data.
+
 ### Content policy
 
 Defines:
