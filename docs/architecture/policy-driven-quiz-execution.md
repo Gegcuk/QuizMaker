@@ -1049,6 +1049,64 @@ Failures return stable RFC 7807 responses and create no partial attempt.
 
 ---
 
+### Built-in practice preset and legacy mapping (#516)
+
+`AttemptPresetService` exposes one code-defined `FREE_PRACTICE/v1` through
+`AttemptPresetServiceImpl`. `BuiltInPracticePreset` supplies the complete typed #515 tuple
+for explicit immutable `ContentPolicy` revision metadata. It reads no mutable quiz configuration.
+This is an internal foundation: no controller or existing attempt writer consumes it.
+
+The frozen defaults follow #612 A01/A02, D01–D03, D06 and R01: `ALL` selection, authored
+question/option order, `ALL_AT_ONCE` delivery, `FREE` navigation, untimed/no pause, authored
+hints on request, immutable accepted responses and immediate per-item feedback after acceptance.
+Final total and complete review follow completion. `requireAllAnswers=false`, completion
+confirmation is required and the pass threshold is `7000` integer basis points. Other typed
+disabled/not-configured dimensions retain the #515 values. Later participant choices and
+authorized overrides are resolver work; they do not mutate this preset version.
+
+`LegacyPracticeRequest` mapping version `1` accepts exact legacy mode names and trusted
+server-prepared launch facts. It only describes a **new** launch. The caller must establish
+identity, resource/organization/membership/visibility access, full question-and-answer editing
+authority and authorized policy versions; role labels and client-supplied identifiers cannot
+supply those facts. `AuthorizedPresetPolicy` references an unmodified preset policy version,
+not a managed or overridden policy disguised as a built-in default.
+
+| Input | Internal outcome |
+|---|---|
+| Unauthenticated or missing/ambiguous resource authority | `Unavailable`; no owner/default elevation. |
+| Ordinary owner/full-content-editor without an explicit selection | The established built-in default; no additional practice grant or ambiguity from other alternatives. |
+| Take-only with zero / one / multiple authorized alternatives | `Unavailable` / mapped supported preset / `ChoiceRequired`. No first-item selection or filtering away unsupported alternatives. |
+| Explicit policy version selection | It must occur in the captured authorized alternatives, even for an owner. Unknown preset/version is unsupported; no built-in fallback. |
+| Assignment, including an owner/full editor | `LegacyOnly(ASSIGNMENT_REQUIRES_BOUND_POLICY)`; this mapper supplies no replacement assignment policy. |
+| `ALL_AT_ONCE` with unambiguous compatible authorization | Mapped preset reference plus selected authorized policy-version identity; that identity is absent for the full-rights default. The quiz timer flag does not make this mode timed. |
+| `TIMED` with an explicitly disabled quiz timer and an unambiguous authorized untimed preset/default | Mapped untimed preset. An inactive stored duration does not participate. |
+| `TIMED` with enabled / unknown quiz timing | Explicit `LegacyOnly` / `Unavailable`; no dropped timer or invented duration. |
+| `ONE_BY_ONE` | Explicit `LegacyOnly`; never silently changed to all-at-once delivery. |
+| Unknown mapping version, mode or selected preset/version | Explicit `Unsupported`; exact symbols/versions only. |
+
+All outcomes are classifications, not authority to route to a retained engine. In particular,
+`LegacyOnly` requires separate current eligibility checks before any future routing. No mapping
+outcome starts an attempt, creates a form/snapshot, consumes an allowance, starts a clock or
+releases feedback. Input and choice collections are defensively copied, duplicate policy-version
+identities are rejected, and failure messages contain fixed reasons rather than input content.
+Existing attempts and historical engine/policy evidence are never reinterpreted.
+
+For example, an old client requesting `TIMED` with the quiz timer off and one authorized
+`FREE_PRACTICE/v1` policy receives a compatible resolver input. Two ambiguous alternatives
+produce a choice requirement. Required assignment timing remains outside this mapper and cannot
+be removed by the disabled quiz flag. These are unit-level mapping outcomes, not HTTP-start proof.
+
+The complete golden tuple and a fixed SHA-256 of a small, explicitly sorted **test-only** JSON
+fixture guard version stability and serialization reconstruction. They define no production
+canonical format/hash and never read document content. Additional tests cover mapping/version
+boundaries, immutable captures, denied/ambiguous inputs and the absence of runtime wiring or
+repository/provider/clock dependencies. No JPA read/write path is added, so N+1 does not apply.
+
+Integration ownership remains #517 precedence/canonical bytes/hashes, #518 snapshot persistence,
+#600 actual dark start, #833 public choice and current-access revalidation, #609 activation and
+#668 formal/timed conformance. HTTP/API summary/OpenAPI contracts, current security rules,
+legacy success/error responses, database schema, retry policy and frontend behavior are unchanged.
+
 ## Example Policy: Approved Free-Practice Baseline
 
 This is a conceptual excerpt of the approved target in [#612](https://github.com/Gegcuk/QuizMaker/issues/612) and [#687](https://github.com/Gegcuk/QuizMaker/issues/687), not a complete serialized DTO or a claim of runtime availability. The complete typed schema also represents disabled/not-configured dimensions explicitly.
