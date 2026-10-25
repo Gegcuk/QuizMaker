@@ -2,7 +2,9 @@ package uk.gegc.quizmaker.features.attempt.preset;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import uk.gegc.quizmaker.features.attempt.application.AttemptPresetService;
 import uk.gegc.quizmaker.features.attempt.application.impl.AttemptPresetServiceImpl;
@@ -14,6 +16,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.*;
 import static uk.gegc.quizmaker.features.attempt.preset.BuiltInPracticePresetTest.*;
@@ -78,6 +81,12 @@ class LegacyPracticeMappingTest {
         assertThat(presets.mapLegacy(new LegacyPracticeRequest(1, "TIMED", LaunchContext.ASSIGNMENT, true,
                 authority, QuizTimerState.DISABLED, List.of(FIRST), FIRST.policyVersionId())))
                 .isEqualTo(new LegacyOnly(LegacyOnly.Reason.ASSIGNMENT_REQUIRES_BOUND_POLICY));
+        var unknown = new AuthorizedPresetPolicy(FIRST.policyVersionId(), new PresetReference("FREE_PRACTICE", 2));
+        for (var mode : List.of("ONE_BY_ONE", "TIMED")) {
+            assertThat(presets.mapLegacy(new LegacyPracticeRequest(1, mode, LaunchContext.ASSIGNMENT, true,
+                    authority, QuizTimerState.ENABLED, List.of(unknown), unknown.policyVersionId())))
+                    .isEqualTo(new LegacyOnly(LegacyOnly.Reason.ASSIGNMENT_REQUIRES_BOUND_POLICY));
+        }
     }
 
     @Test
@@ -127,18 +136,30 @@ class LegacyPracticeMappingTest {
                 .isEqualTo(new Unsupported(Unsupported.Reason.UNKNOWN_MAPPING_VERSION));
     }
 
-    @Test
-    void unsupportedSelectedVersionNeverFallsBackEvenForAnOwnerOrDisabledTimer() {
+    static Stream<Arguments> ordinaryModes() {
+        return Stream.of(
+                Arguments.of("ALL_AT_ONCE", QuizTimerState.DISABLED, new Mapped(V1, FIRST.policyVersionId())),
+                Arguments.of("ONE_BY_ONE", QuizTimerState.DISABLED,
+                        new LegacyOnly(LegacyOnly.Reason.ONE_BY_ONE_NOT_IMPLEMENTED)),
+                Arguments.of("TIMED", QuizTimerState.DISABLED, new Mapped(V1, FIRST.policyVersionId())),
+                Arguments.of("TIMED", QuizTimerState.ENABLED, new LegacyOnly(LegacyOnly.Reason.TIMING_NOT_IMPLEMENTED)),
+                Arguments.of("TIMED", QuizTimerState.UNKNOWN, new Unavailable(Unavailable.Reason.UNKNOWN_TIMER_CONFIGURATION)));
+    }
+
+    @ParameterizedTest(name = "mode={0}, timer={1}")
+    @MethodSource("ordinaryModes")
+    void unsupportedAuthorizedPresetTakesPrecedenceOverOrdinaryModeLimitations(
+            String mode, QuizTimerState timer, LegacyPracticeMapping supportedOutcome) {
         for (var unsupported : List.of(new PresetReference("FREE_PRACTICE", 2), new PresetReference("FORMAL", 1))) {
             var candidate = new AuthorizedPresetPolicy(FIRST.policyVersionId(), unsupported);
             for (var authority : List.of(ResourceAuthority.OWNER, ResourceAuthority.FULL_CONTENT_EDITOR, ResourceAuthority.TAKE_ONLY)) {
-                for (var mode : List.of("ALL_AT_ONCE", "TIMED")) {
-                    assertThat(presets.mapLegacy(request(mode, authority, QuizTimerState.DISABLED,
-                            List.of(candidate), candidate.policyVersionId())))
-                            .isEqualTo(new Unsupported(Unsupported.Reason.UNSUPPORTED_PRESET));
-                }
+                // A supported v1 control reaches the same authorized selection and mode boundary.
+                assertThat(presets.mapLegacy(request(mode, authority, timer, List.of(FIRST), FIRST.policyVersionId())))
+                        .isEqualTo(supportedOutcome);
+                assertThat(presets.mapLegacy(request(mode, authority, timer, List.of(candidate), candidate.policyVersionId())))
+                        .isEqualTo(new Unsupported(Unsupported.Reason.UNSUPPORTED_PRESET));
             }
-            assertThat(presets.mapLegacy(takeOnly(List.of(candidate), null)))
+            assertThat(presets.mapLegacy(request(mode, ResourceAuthority.TAKE_ONLY, timer, List.of(candidate), null)))
                     .isEqualTo(new Unsupported(Unsupported.Reason.UNSUPPORTED_PRESET));
         }
     }

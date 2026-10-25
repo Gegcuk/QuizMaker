@@ -1084,6 +1084,11 @@ not a managed or overridden policy disguised as a built-in default.
 | `ONE_BY_ONE` | Explicit `LegacyOnly`; never silently changed to all-at-once delivery. |
 | Unknown mapping version, mode or selected preset/version | Explicit `Unsupported`; exact symbols/versions only. |
 
+Assignment classification takes precedence over ordinary preset mapping. Within an ordinary
+launch, the authorized preset reference/version is checked before delivery/timing limitations:
+an unsupported version returns `Unsupported(UNSUPPORTED_PRESET)` even for `ONE_BY_ONE` or
+`TIMED` with enabled/unknown quiz timing. A supported v1 keeps the mode outcomes listed above.
+
 All outcomes are classifications, not authority to route to a retained engine. In particular,
 `LegacyOnly` requires separate current eligibility checks before any future routing. No mapping
 outcome starts an attempt, creates a form/snapshot, consumes an allowance, starts a clock or

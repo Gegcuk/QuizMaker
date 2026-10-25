@@ -53,13 +53,15 @@ public final class AttemptPresetServiceImpl implements AttemptPresetService {
             policyVersionId = request.authorizedPolicies().get(0).policyVersionId();
         }
 
+        // Report unsupported authorized definitions before classifying ordinary mode limitations.
+        if (!REFERENCE.equals(preset)) return new Unsupported(Unsupported.Reason.UNSUPPORTED_PRESET);
+
         // Mode names are confined to this compatibility boundary, never execution decisions.
         if (request.legacyMode().equals("ONE_BY_ONE")) return new LegacyOnly(LegacyOnly.Reason.ONE_BY_ONE_NOT_IMPLEMENTED);
         if (request.legacyMode().equals("TIMED")) {
             if (request.quizTimer() == QuizTimerState.UNKNOWN) return new Unavailable(Unavailable.Reason.UNKNOWN_TIMER_CONFIGURATION);
             if (request.quizTimer() == QuizTimerState.ENABLED) return new LegacyOnly(LegacyOnly.Reason.TIMING_NOT_IMPLEMENTED);
         }
-        if (!REFERENCE.equals(preset)) return new Unsupported(Unsupported.Reason.UNSUPPORTED_PRESET);
         return new Mapped(preset, policyVersionId);
     }
 }
