@@ -1727,6 +1727,49 @@ Display identity:
 
 The server resolves the subject. A client-supplied `userId`, `participantId`, team ID, or subject type cannot establish ownership.
 
+### Authenticated subject storage (#535)
+
+`AttemptSubjectService` is an internal, dark persistence boundary for `AUTHENTICATED_USER/v1`.
+The immutable subject key is its type/version and user ID; the binding's natural key is the
+server-allocated attempt ID. `bindOrReplay(trustedUserId, subject)` rejects a mismatched user,
+missing/inactive/soft-deleted users and the reserved legacy `anonymous` sentinel. The trusted
+argument must originate in the server authentication boundary, never a request field. #536
+owns that resolver and #537 owns resource access; storage alone grants neither authentication
+nor authorization. No current attempt route invokes this service.
+
+V86 adds `attempt_participant_subject` with one row per attempt, exact type/version checks and
+a non-cascading user FK. A read-only `AttemptSubjectEntity` mapping makes Hibernate schema
+validation and test schema lifecycle aware of that FK; no runtime read traverses its lazy user
+association and JDBC remains the only application writer. It does not read, backfill or alter legacy attempts. The table deliberately
+has no FK to the legacy `attempts` model: #600 must create the target attempt and binding atomically
+in its own transaction, using the same allocated ID. This storage increment does not prove that
+start integration. It adds no guest subtype, account-erasure job or retention period; those remain
+with #624/#851/#699 and the approved record-class rules.
+
+First writes and identical retries serialize on the binding key. A conflicting user cannot replace
+the winner. `bindOrReplay` returns the verified current stored binding and joins an existing
+transaction, so a successful return is not an independent commit. Its later rollback removes the
+new binding. Confirmed rollback and lost commit acknowledgement can both be reconciled by retrying
+the same natural key after recreating the service. A shared user-row lock keeps eligibility stable
+until commit; it does not prevent later account deactivation.
+
+`read` returns either `Bound` evidence or `LegacyOrUnbound`. Absence proves no target binding, not
+that an attempt exists or belongs to a particular user. It never derives identity from a legacy
+user, sentinel or null reference. Retained evidence remains readable after soft deletion without
+granting login/access. Unknown stored types/versions fail closed. Ordinary reads honor transaction
+isolation: an older `REPEATABLE_READ` snapshot may still omit another transaction's binding after
+an identical retry; use the verified return value or a fresh transaction.
+
+Unit and real-MySQL fixtures cover identity disagreement, eligibility, unique/FK/type/version
+constraints, concurrent identical/conflicting writers under both isolation levels, reached-write
+rollback, commit uncertainty, recreated-service replay and participation in real JPA transactions.
+The nullable historical-source fixture verifies preservation only; the current legacy `attempts`
+schema does not permit null users. Reads use one indexed scalar query per binding and never traverse
+JPA user/role/answer graphs. The bounded `quizmaker.attempt.subject.operations` timer uses only
+operation/outcome tags and emits no identities. A database failure is a typed unavailable outcome,
+not a successful empty read. Before target writes, recovery can disable the dark consumer; after
+target writes, preserve the binding evidence and use a forward fix rather than destructive downgrade.
+
 After account deletion, [minimal participant identification is retained in non-training results](./decision-register.md#retained-non-training-identity) and may be read only with current access rights to that result and identity. The retained fields are the participant's name/designation from the assignment and stable participant identifier, without contact data. Do not use email or phone as a fallback name/identifier or copy the rest of the profile. The identifier distinguishes equal names within the applicable scope; the display name does not establish verified real-world identity. The retained subject/identity does not preserve login capability or grant access. Source/capture timing, identity corrections and handling of missing or contact-based historical labels remain [contract work](./open-questions.md#oq-r03); do not invent historical identity.
 
 ---
