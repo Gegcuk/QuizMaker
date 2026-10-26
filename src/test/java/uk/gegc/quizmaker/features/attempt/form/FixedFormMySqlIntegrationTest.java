@@ -90,7 +90,7 @@ class FixedFormMySqlIntegrationTest {
 
     private static void clean() {
         source.reset();
-        for (String table : List.of("attempt_form_item", "attempt_form", "question_revision_contract_bindings",
+        for (String table : List.of("attempt_policy_snapshot", "attempt_form_item", "attempt_form", "question_revision_contract_bindings",
                 "quiz_revision_items", "question_option_revisions", "quiz_revisions", "question_revisions",
                 HISTORY, FORM_HISTORY, "form_legacy_fixture")) sql.execute("DROP TABLE IF EXISTS " + table);
     }
