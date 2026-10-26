@@ -160,8 +160,14 @@ public final class AttemptCommands {
             return lifecycle(context, Event.SUBMIT, AttemptLifecycle.Context.fresh());
         }
         var facts = context.completion();
+        boolean scopesMatchPolicy = switch (context.policy().content().sections()) {
+            // Closed-section exceptions in #527 cannot waive completeness in a flat form.
+            case IMPLICIT_FLAT -> facts.items().stream()
+                    .allMatch(item -> item.scope() == CompletionFacts.Scope.APPLICABLE);
+        };
         if (facts.finalization() != CompletionFacts.FinalizationMode.LOCK_ON_ACCEPTANCE
-                || facts.requireAllAnswers() != context.policy().submission().requireAllAnswers()) {
+                || facts.requireAllAnswers() != context.policy().submission().requireAllAnswers()
+                || !scopesMatchPolicy) {
             return decision(Reason.POLICY_FACTS_MISMATCH);
         }
         return lifecycle(context, Event.SUBMIT, AttemptLifecycle.Context.submit(facts));

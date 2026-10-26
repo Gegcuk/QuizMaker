@@ -2289,7 +2289,11 @@ the command layer does not introduce another transition table or perform its pro
   undelivered/missing items and contradictory response facts do not grant item actions. Draft,
   editable and pending-confirmation item commands are outside this initial immediate-lock slice.
 - Final submission requires every form item in saved order through trusted `CompletionFacts`.
-  Captured require-all and immediate-lock finalization must match policy. #527 applies confirmation
+  Captured require-all, immediate-lock finalization and completion scopes must match policy.
+  `IMPLICIT_FLAT` requires `APPLICABLE` for every item, including already accepted responses and
+  policies with require-all OFF. A `PERMANENTLY_CLOSED` scope returns `POLICY_FACTS_MISMATCH` and
+  removes `SUBMIT_ATTEMPT` from allowed actions; #527's closed-section exception does not apply
+  to a flat form. #527 applies confirmation
   and completeness: two unanswered items are permitted with require-all OFF and denied with ON.
   This contract accepts no answer payload and neither finalizes editable work nor releases results.
 - Stateful commands require server-resolved metadata: expected optimistic version, an internal
@@ -2321,7 +2325,9 @@ and real integrations; a vocabulary/parser fixture is not runtime evidence.
 
 `AttemptCommandsTest` carries the explicit 20-row fresh table, 16-row verified replay table,
 policy/completion/item guards and projection consistency across require-all, option order,
-confirmation and response-state variations. `CommandBoundaryTest` proves non-enumerating denial,
+confirmation and response-state variations. Eight closed-scope regression cases explicitly assert
+both command denial and absence of the completion action, with applicable-scope positive controls.
+`CommandBoundaryTest` proves non-enumerating denial,
 strict parsing, lack of client authority, immutable values and isolation from legacy wiring.
 These are local contract tests, not receipt durability, authentication, HTTP or transaction proof.
 #599 owns durable receipts; #528 owns state; #537/#600 own actual access/start composition;

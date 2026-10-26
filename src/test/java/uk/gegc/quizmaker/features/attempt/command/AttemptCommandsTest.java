@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.SoftAssertions.assertSoftly;
 import static uk.gegc.quizmaker.features.attempt.command.CommandFixtures.*;
 import static uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands.evaluate;
 
@@ -169,6 +170,47 @@ class AttemptCommandsTest {
                 Reason.POLICY_FACTS_MISMATCH, "-");
         assertDecision(evaluate(new Command(1, Type.SUBMIT_ATTEMPT), withCompletion(c, null), fresh()),
                 Reason.LIFECYCLE_DENIED, "MISSING_CONTEXT");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "true, EMPTY, 0", "true, EMPTY, 1",
+            "true, ACCEPTED, 0", "true, ACCEPTED, 1",
+            "false, EMPTY, 0", "false, EMPTY, 1",
+            "false, ACCEPTED, 0", "false, ACCEPTED, 1"
+    })
+    void flatPolicyRejectsClosedCompletionScopes(boolean requireAll, ResponseState target, int closedIndex) {
+        var applicable = context(Execution.IN_PROGRESS, AnswerCollection.IN_PROGRESS, requireAll,
+                AnswerOrder.AUTHORED, target, true);
+        var facts = applicable.completion();
+        var items = new java.util.ArrayList<>(facts.items());
+        var closed = items.get(closedIndex);
+        items.set(closedIndex, new Item(closed.formItemId(), closed.response(), Scope.PERMANENTLY_CLOSED));
+        var incompatible = withCompletion(applicable, new CompletionFacts(facts.version(), facts.finalization(),
+                facts.requireAllAnswers(), facts.completionConfirmed(), items));
+        var command = new Command(1, Type.SUBMIT_ATTEMPT);
+
+        // Explicit negative assertions: two agreeing evaluators could otherwise share this bypass.
+        var result = evaluate(command, incompatible, fresh());
+        var actions = AttemptCommands.allowedActions(incompatible).actions();
+        assertSoftly(softly -> {
+            softly.assertThat(result).isEqualTo(new Decision(Reason.POLICY_FACTS_MISMATCH, null));
+            softly.assertThat(result.acknowledgement()).isEqualTo(new Acknowledgement(Outcome.DENIED));
+            softly.assertThat(actions).contains(Type.VIEW_ATTEMPT).doesNotContain(Type.SUBMIT_ATTEMPT);
+        });
+
+        // The same supported path still permits complete facts and policy-approved omissions.
+        boolean incompleteRequired = requireAll && target == ResponseState.EMPTY;
+        assertDecision(evaluate(command, applicable, fresh()),
+                incompleteRequired ? Reason.LIFECYCLE_DENIED : Reason.ALLOWED,
+                incompleteRequired ? "INCOMPLETE_REQUIRED_SCOPE" : "-");
+        if (incompleteRequired) {
+            assertThat(AttemptCommands.allowedActions(applicable).actions()).doesNotContain(Type.SUBMIT_ATTEMPT);
+        } else {
+            assertThat(AttemptCommands.allowedActions(applicable).actions()).contains(Type.SUBMIT_ATTEMPT);
+        }
+        assertThat(facts.items()).extracting(Item::scope).containsOnly(Scope.APPLICABLE);
+        assertThat(incompatible.completion().items().get(closedIndex).scope()).isEqualTo(Scope.PERMANENTLY_CLOSED);
     }
 
     static Stream<Context> supportedContexts() {
