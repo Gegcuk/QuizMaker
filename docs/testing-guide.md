@@ -30,6 +30,15 @@ The `test` and `test-mysql` profiles share CI MySQL schemas. A Spring Boot or JP
 - `DatabaseTestExecutionTagTest` enforces this policy against compiled test classes, including nested Spring contexts.
 - Preserve the existing `@DirtiesContext`, transaction, and cleanup conventions in the test being changed. The serial lane protects schema lifecycle, not test data that a scenario intentionally commits.
 
+`AttemptSubjectSchemaMySqlIntegrationTest` compares Flyway/`validate` and controlled `create-drop`
+in separate, generated `quizmaker_535_schema_<id>` catalogs. It never drops shared test catalogs.
+Its test-only administrative connection uses `TEST_MYSQL_PORT` and optional
+`TEST_MYSQL_ADMIN_USERNAME`/`TEST_MYSQL_ADMIN_PASSWORD`; defaults match the disposable MySQL
+service in CI. Those credentials need catalog create/drop privileges. This is independent of the
+application datasource credentials. Each catalog is created exclusively and removed in `finally`,
+including after a failing migration/validation. The fixture uses real `User`, `Role`, `Permission`
+and `AttemptSubjectEntity` mappings without starting the application or provider clients.
+
 ### Canonical Verification Gate
 
 The release-quality command is `./mvnw verify`. It runs the bounded parallel lane, the serial MySQL lane, JaCoCo reporting and threshold checks, then packages the tested application. CI runs this same command; `test` alone is not a release gate.
