@@ -1727,6 +1727,30 @@ Display identity:
 
 The server resolves the subject. A client-supplied `userId`, `participantId`, team ID, or subject type cannot establish ownership.
 
+### Authenticated subject resolution (#536)
+
+`AuthenticatedSubjectResolver` is an internal application interface returning the existing
+`AUTHENTICATED_USER/v1` value for a server-allocated attempt ID. Its Spring adapter reads only
+the current `SecurityContext`: the authenticated `UsernamePasswordAuthenticationToken` with
+`UserDetails` produced by the session/JWT boundary. Anonymous, unauthenticated, unsupported or
+invalid principals fail closed. Principal account flags must be valid; a contradictory token
+name and principal username is rejected. String/UUID principals and authentication details
+cannot supply an alternative user, subject or guest identity. No raw credentials are inspected.
+
+The user-owned `AuthenticatedUserLookup` performs one indexed scalar username query for current
+active, non-deleted users, excluding the reserved `anonymous` sentinel. It does not load user
+entities, roles, permissions, passwords or contact fields, and does not fall back to email or
+interpret UUID-shaped usernames as user IDs. A missing or ineligible account receives the same
+non-enumerating failure as an invalid principal. Database/transaction failures produce a typed
+unavailable outcome; bounded outcome-only timing must never change success or failure semantics.
+
+Resolution performs no writes and grants no resource permission. Its lookup checks current
+eligibility, not a lifetime guarantee: #535 rechecks and locks eligibility when binding within
+the eventual #600 start transaction. #537 owns attempt access, #625 owns guest resolution and
+mixed-credential transport integration, and #609 owns public activation. Existing routes and
+authentication responses do not invoke this resolver and remain unchanged. No endpoint, schema
+migration or historical identity inference is introduced.
+
 ### Authenticated subject storage (#535)
 
 `AttemptSubjectService` is an internal, dark persistence boundary for `AUTHENTICATED_USER/v1`.
