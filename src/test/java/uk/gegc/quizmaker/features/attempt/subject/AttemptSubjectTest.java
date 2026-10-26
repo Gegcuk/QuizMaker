@@ -1,6 +1,8 @@
 package uk.gegc.quizmaker.features.attempt.subject;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.core.instrument.Clock;
+import io.micrometer.core.instrument.simple.SimpleConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -15,6 +17,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.subject.AttemptSubjectLoo
 import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptSubjectRepository;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -73,6 +76,65 @@ class AttemptSubjectTest {
             AttemptSubjectService service = new AttemptSubjectServiceImpl(repository, transactions(), metrics);
             rejected(() -> service.bindOrReplay(user, subject), PERSISTENCE_UNAVAILABLE);
             rejected(() -> service.read(attempt), PERSISTENCE_UNAVAILABLE);
+        } finally { metrics.close(); }
+    }
+
+    @Test
+    void metricTypeCollisionCannotReplaceSuccessfulOrAbsentReadResults() {
+        var repository = mock(AttemptSubjectRepository.class);
+        var subject = AttemptSubject.authenticated(attempt, user);
+        when(repository.bindOrReplay(user, subject)).thenReturn(subject);
+        when(repository.read(attempt)).thenReturn(new AttemptSubjectLookup.LegacyOrUnbound());
+        var metrics = new SimpleMeterRegistry();
+        metrics.counter("quizmaker.attempt.subject.operations", "operation", "bind_or_replay", "outcome", "success");
+        metrics.counter("quizmaker.attempt.subject.operations", "operation", "read", "outcome", "legacy_or_unbound");
+        try {
+            var service = new AttemptSubjectServiceImpl(repository, transactions(), metrics);
+            assertThat(service.bindOrReplay(user, subject)).isEqualTo(subject);
+            assertThat(service.read(attempt)).isEqualTo(new AttemptSubjectLookup.LegacyOrUnbound());
+        } finally { metrics.close(); }
+    }
+
+    @Test
+    void metricTypeCollisionPreservesTheOriginalDomainAndPersistenceFailures() {
+        var repository = mock(AttemptSubjectRepository.class);
+        var subject = AttemptSubject.authenticated(attempt, user);
+        var conflict = new AttemptSubjectException(SUBJECT_CONFLICT);
+        when(repository.bindOrReplay(user, subject)).thenThrow(conflict);
+        when(repository.read(attempt)).thenThrow(new DataAccessResourceFailureException("synthetic outage"));
+        var metrics = new SimpleMeterRegistry();
+        metrics.counter("quizmaker.attempt.subject.operations", "operation", "bind_or_replay", "outcome", "subject_conflict");
+        metrics.counter("quizmaker.attempt.subject.operations", "operation", "read", "outcome", "persistence_unavailable");
+        try {
+            var service = new AttemptSubjectServiceImpl(repository, transactions(), metrics);
+            assertThatThrownBy(() -> service.bindOrReplay(user, subject)).isSameAs(conflict);
+            rejected(() -> service.read(attempt), PERSISTENCE_UNAVAILABLE);
+        } finally { metrics.close(); }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void metricClockFailureAtStartOrRecordingDoesNotChangeTheOperation(boolean atStart) {
+        var failed = new AtomicBoolean();
+        Clock clock = new Clock() {
+            @Override public long wallTime() { return System.currentTimeMillis(); }
+            @Override public long monotonicTime() {
+                if (failed.get()) throw new IllegalStateException("Synthetic metric clock failure");
+                return System.nanoTime();
+            }
+        };
+        var metrics = new SimpleMeterRegistry(SimpleConfig.DEFAULT, clock);
+        var repository = mock(AttemptSubjectRepository.class);
+        var subject = AttemptSubject.authenticated(attempt, user);
+        when(repository.bindOrReplay(user, subject)).thenAnswer(call -> { failed.set(true); return subject; });
+        var conflict = new AttemptSubjectException(SUBJECT_CONFLICT);
+        when(repository.read(attempt)).thenAnswer(call -> { failed.set(true); throw conflict; });
+        try {
+            var service = new AttemptSubjectServiceImpl(repository, transactions(), metrics);
+            failed.set(atStart);
+            assertThat(service.bindOrReplay(user, subject)).isEqualTo(subject);
+            failed.set(atStart);
+            assertThatThrownBy(() -> service.read(attempt)).isSameAs(conflict);
         } finally { metrics.close(); }
     }
 

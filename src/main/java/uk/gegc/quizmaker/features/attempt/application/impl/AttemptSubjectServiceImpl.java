@@ -54,7 +54,7 @@ public class AttemptSubjectServiceImpl implements AttemptSubjectService {
     }
 
     private <T> T execute(String operation, TransactionTemplate transaction, Supplier<T> action) {
-        var sample = Timer.start(metrics);
+        var sample = startTimer();
         String outcome = "persistence_unavailable";
         try {
             T result = transaction.execute(status -> action.get());
@@ -66,8 +66,24 @@ public class AttemptSubjectServiceImpl implements AttemptSubjectService {
         } catch (DataAccessException | TransactionException failure) {
             throw new AttemptSubjectException(PERSISTENCE_UNAVAILABLE);
         } finally {
-            sample.stop(Timer.builder("quizmaker.attempt.subject.operations")
+            recordTimer(sample, operation, outcome);
+        }
+    }
+
+    private Timer.Sample startTimer() {
+        try { return Timer.start(metrics); }
+        catch (RuntimeException ignored) {
+            // Telemetry must not prevent a command from reaching its transaction boundary.
+            return null;
+        }
+    }
+
+    private void recordTimer(Timer.Sample sample, String operation, String outcome) {
+        try {
+            if (sample != null) sample.stop(Timer.builder("quizmaker.attempt.subject.operations")
                     .tags("operation", operation, "outcome", outcome).register(metrics));
+        } catch (RuntimeException ignored) {
+            // Preserve a committed result and the original domain/persistence failure alike.
         }
     }
 }

@@ -231,6 +231,7 @@ class AttemptSubjectMySqlIntegrationTest {
         UUID user = user(true, false);
         var binding = AttemptSubject.authenticated(id("rollback"), user);
         var reached = new AtomicInteger();
+        metrics.counter("quizmaker.attempt.subject.operations", "operation", "bind_or_replay", "outcome", "persistence_unavailable");
         source.beforeSql = (statement, connection) -> {
             if (statement.startsWith("SELECT attempt_id")) {
                 reached.set(count());
@@ -391,6 +392,42 @@ class AttemptSubjectMySqlIntegrationTest {
             assertThat(tag.getKey()).isIn("operation", "outcome");
             assertThat(tag.getValue()).doesNotContain(user.toString(), binding.attemptId().toString());
         }));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void metricTypeCollisionCannotTurnACommittedBindingIntoAnException(boolean outerTransaction) {
+        UUID user = user(true, false);
+        var binding = AttemptSubject.authenticated(id("metric-success"), user);
+        metrics.counter("quizmaker.attempt.subject.operations", "operation", "bind_or_replay", "outcome", "success");
+        if (outerTransaction) {
+            var returned = transaction("READ_COMMITTED").execute(status -> {
+                var result = service.bindOrReplay(user, binding);
+                assertThat(count()).as("actual write reached before outer commit").isEqualTo(1);
+                assertThat(status.isRollbackOnly()).isFalse();
+                return result;
+            });
+            assertThat(returned).isEqualTo(binding);
+        } else assertThat(service.bindOrReplay(user, binding)).isEqualTo(binding);
+        assertThat(service(manager).read(binding.attemptId())).isEqualTo(new AttemptSubjectLookup.Bound(binding));
+        assertThat(service.bindOrReplay(user, binding)).isEqualTo(binding);
+        assertThat(count()).isEqualTo(1);
+    }
+
+    @Test
+    void metricTypeCollisionPreservesConflictAndOuterRollbackSemantics() {
+        UUID user = user(true, false), other = user(true, false);
+        var binding = AttemptSubject.authenticated(id("metric-conflict"), user);
+        service.bindOrReplay(user, binding);
+        metrics.counter("quizmaker.attempt.subject.operations", "operation", "bind_or_replay", "outcome", "subject_conflict");
+        assertThatThrownBy(() -> transaction("READ_COMMITTED").executeWithoutResult(status -> {
+            sql.update("UPDATE subject_legacy_fixture SET marker='partial'");
+            rejected(() -> service.bindOrReplay(other, AttemptSubject.authenticated(binding.attemptId(), other)), SUBJECT_CONFLICT);
+            assertThat(status.isRollbackOnly()).isTrue();
+        })).isInstanceOf(UnexpectedRollbackException.class);
+        assertThat(service.read(binding.attemptId())).isEqualTo(new AttemptSubjectLookup.Bound(binding));
+        assertThat(sql.queryForObject("SELECT marker FROM subject_legacy_fixture", String.class)).isEqualTo("unchanged");
+        assertThat(count()).isEqualTo(1);
     }
 
     private UUID user(boolean active, boolean deleted) {

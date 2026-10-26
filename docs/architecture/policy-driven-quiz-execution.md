@@ -1767,7 +1767,18 @@ The nullable historical-source fixture verifies preservation only; the current l
 schema does not permit null users. Reads use one indexed scalar query per binding and never traverse
 JPA user/role/answer graphs. The bounded `quizmaker.attempt.subject.operations` timer uses only
 operation/outcome tags and emits no identities. A database failure is a typed unavailable outcome,
-not a successful empty read. Before target writes, recovery can disable the dark consumer; after
+not a successful empty read. Timer startup, registration and recording failures never change the
+command result or replace its original error. Database tests prove successful standalone/outer
+commits and preserved domain/rollback semantics with a real registry meter-type collision.
+
+Schema conformance has two independent fixtures, each in its own temporary MySQL catalog: the
+complete Flyway chain through V86 followed by Hibernate `validate` with the real mappings, and a
+controlled Hibernate `create-drop` over the explicitly prepared retained-subject FK. An unmapped-FK
+negative control fails on DDL errors. These fixtures do not recreate the shared legacy schema or
+claim that mapping the new FK reconciles old Flyway/Hibernate constraint names. Timestamp precision
+is preserved during validation; the controlled lifecycle alone asserts Hibernate's generated schema.
+
+Before target writes, recovery can disable the dark consumer; after
 target writes, preserve the binding evidence and use a forward fix rather than destructive downgrade.
 
 After account deletion, [minimal participant identification is retained in non-training results](./decision-register.md#retained-non-training-identity) and may be read only with current access rights to that result and identity. The retained fields are the participant's name/designation from the assignment and stable participant identifier, without contact data. Do not use email or phone as a fallback name/identifier or copy the rest of the profile. The identifier distinguishes equal names within the applicable scope; the display name does not establish verified real-world identity. The retained subject/identity does not preserve login capability or grant access. Source/capture timing, identity corrections and handling of missing or contact-based historical labels remain [contract work](./open-questions.md#oq-r03); do not invent historical identity.
