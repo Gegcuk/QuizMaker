@@ -2257,6 +2257,85 @@ This reduces client duplication of policy logic.
 
 The server still validates every requested action. `allowedActions` is not an authorization token.
 
+### Implemented initial command decisions (#523)
+
+`AttemptCommands` is a pure, dark v1 contract consuming `ResolvedAttemptPolicy` (#515) and
+`AttemptLifecycle` (#527). It has five initial participant commands: `START`, `VIEW_ATTEMPT`,
+`NAVIGATE_TO_ITEM`, `SUBMIT_ANSWER` and `SUBMIT_ATTEMPT`. Its values have no Spring, HTTP,
+database, clock, provider or legacy-mode dependency. No existing route calls this contract.
+
+The following table assumes current verified access, supported versions, a fresh command at the
+current optimistic state version, a delivered member item with no accepted answer, confirmed
+completion and require-all OFF. View means a safe participant view, never an answer-key/review grant.
+
+| Execution / answer collection | Start | View attempt | Navigate to item | Submit answer | Submit attempt |
+|---|---|---|---|---|---|
+| `CREATED / NOT_STARTED` | Allow | Not started | Not started | Not started | Not started |
+| `IN_PROGRESS / NOT_STARTED` | Already started | Allow | Allow | Allow | Allow |
+| `IN_PROGRESS / IN_PROGRESS` | Already started | Allow | Allow | Allow | Allow |
+| `SUBMITTED / COMPLETE` | Terminal | Allow | Terminal | Terminal | Terminal |
+
+`CREATED` remains a hypothetical pre-start value, not permission to persist an ambiguous-launch
+placeholder. Start, response activity, terminal guards and replay-state checks delegate to #527;
+the command layer does not introduce another transition table or perform its proposed writes.
+
+- Each consumer supplies current identity/access checks, immutable policy and lifecycle facts,
+  the authoritative optimistic counter, and exact target membership/delivery/response facts.
+  `Access.VERIFIED` is a trusted server precondition, never a participant-provided flag. It covers
+  all applicable permission, ownership, organization, visibility and subject boundaries. Missing
+  or denied access is checked before protected facts and always returns public `DENIED` with no
+  actions, even for stale, conflicting or previously committed commands.
+- Navigation can revisit an accepted item; a fresh answer command cannot rewrite it. Non-members,
+  undelivered/missing items and contradictory response facts do not grant item actions. Draft,
+  editable and pending-confirmation item commands are outside this initial immediate-lock slice.
+- Final submission requires every form item in saved order through trusted `CompletionFacts`.
+  Captured require-all, immediate-lock finalization and completion scopes must match policy.
+  `IMPLICIT_FLAT` requires `APPLICABLE` for every item, including already accepted responses and
+  policies with require-all OFF. A `PERMANENTLY_CLOSED` scope returns `POLICY_FACTS_MISMATCH` and
+  removes `SUBMIT_ATTEMPT` from allowed actions; #527's closed-section exception does not apply
+  to a flat form. #527 applies confirmation
+  and completeness: two unanswered items are permitted with require-all OFF and denied with ON.
+  This contract accepts no answer payload and neither finalizes editable work nor releases results.
+- Stateful commands require server-resolved metadata: expected optimistic version, an internal
+  operation/receipt UUID and verified command identity. That UUID does not prescribe a transport
+  idempotency-key format. #599 must prove operation, subject/context, target and canonical-input
+  identity. `FRESH` with a different version returns `STALE`; conflicting reuse returns `CONFLICT`.
+  `VERIFIED_IDENTICAL` can return no-effect `REPLAY` despite a later state version, without
+  reevaluating new completion payload. The receipt still owns the original acknowledgement.
+  Navigation replay requires a started state; lifecycle events use #527's exact replay table.
+  `VIEW_ATTEMPT` is read-only and needs no mutation metadata or receipt.
+- `allowedActions` is a deterministic, immutable list in command-vocabulary order, using the same
+  fresh eligibility function as evaluation. It reflects the supplied item/completion context and
+  currently satisfied guards; it is not a promise that a later command/version remains eligible.
+  A caller must reevaluate every actual command. Client mode/status/allowed-action assertions are
+  absent from the command input and cannot grant authority.
+- Public `Acknowledgement` exposes only `ALLOWED`, `REPLAY`, `DENIED`, `STALE` or `CONFLICT`.
+  `Decision` and its bounded reason/lifecycle reason are internal diagnostics and must not be
+  serialized into participant responses. No existence, resource IDs, version, response or hidden
+  content is included in the acknowledgement. HTTP status/ProblemDetail mapping belongs to the
+  consuming endpoint; this foundation defines no new public HTTP contract.
+
+Unknown names/schema versions fail closed with bounded, content-free errors. Typed policy and
+lifecycle constructors retain their own strict version/tuple validation; no adapter may replace
+invalid input with a current default. `Command` itself can represent an unsupported version/null
+type so evaluation returns a denial. The broader command catalogue above/below does not enable
+drafts (#541/#542), hints (#687), batch handling (#629), review/release (#555/#556), timing,
+pause, sections, assignments or operator actions. Those capabilities need their own contracts
+and real integrations; a vocabulary/parser fixture is not runtime evidence.
+
+`AttemptCommandsTest` carries the explicit 20-row fresh table, 16-row verified replay table,
+policy/completion/item guards and projection consistency across require-all, option order,
+confirmation and response-state variations. Eight closed-scope regression cases explicitly assert
+both command denial and absence of the completion action, with applicable-scope positive controls.
+`CommandBoundaryTest` proves non-enumerating denial,
+strict parsing, lack of client authority, immutable values and isolation from legacy wiring.
+These are local contract tests, not receipt durability, authentication, HTTP or transaction proof.
+#599 owns durable receipts; #528 owns state; #537/#600 own actual access/start composition;
+#543/#529 own response/terminal writes; #526 owns participant mapping and #609 activation.
+No persistence or relationship-loading path changes, so N+1 does not apply. No document content
+is read/hashed, no new telemetry/retry/retention policy is added, and current API/training behavior
+remains on its existing path.
+
 ---
 
 ## Answer Lifecycle
