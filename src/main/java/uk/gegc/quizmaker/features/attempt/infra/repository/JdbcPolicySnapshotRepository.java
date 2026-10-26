@@ -45,7 +45,9 @@ public class JdbcPolicySnapshotRepository implements PolicySnapshotRepository {
                 ON DUPLICATE KEY UPDATE id=attempt_policy_snapshot.id
                 """, parameters);
         // Current read also sees a concurrent winner under an older REPEATABLE_READ snapshot.
-        return jdbc.query(SELECT + " FOR UPDATE", parameters, (row, index) -> stored(row)).stream().findFirst()
+        // Lock only the snapshot: upgrading the revision's FK shared lock would deadlock
+        // independent snapshot inserts referencing the same immutable revision.
+        return jdbc.query(SELECT + " FOR UPDATE OF s", parameters, (row, index) -> stored(row)).stream().findFirst()
                 .orElseThrow(() -> new PolicySnapshotException(SNAPSHOT_UNAVAILABLE));
     }
 

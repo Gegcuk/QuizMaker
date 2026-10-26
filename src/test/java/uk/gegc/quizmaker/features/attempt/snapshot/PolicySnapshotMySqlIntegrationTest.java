@@ -4,6 +4,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.dao.DataAccessException;
@@ -163,6 +164,53 @@ class PolicySnapshotMySqlIntegrationTest {
         rejected(() -> service.createOrReplay(OWNER, loser), SNAPSHOT_CONFLICT);
         assertThat(service(transactions).read(OWNER, new PolicySnapshotReference.Stored(first.id()))).isEqualTo(winner);
         assertThat(count()).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"READ_COMMITTED,true", "READ_COMMITTED,false", "REPEATABLE_READ,true", "REPEATABLE_READ,false"})
+    void independentSnapshotIdsBothCommitWithoutUpgradingTheSharedRevisionLock(String isolation, boolean sameRevision) throws Exception {
+        var revision = savedRevision("independent-first-revision", OWNER);
+        var otherRevision = sameRevision ? revision : savedRevision("independent-second-revision", OWNER);
+        var first = snapshot("independent-first-snapshot", revision, true);
+        var second = snapshot("independent-second-snapshot", otherRevision, false);
+        assertThat(first.id()).isNotEqualTo(second.id());
+        var bothInserted = new CyclicBarrier(2);
+        var connections = ConcurrentHashMap.<Integer>newKeySet();
+        source.beforeSql = (statement, connection) -> {
+            if (statement.startsWith("SELECT s.*") && statement.contains("FOR UPDATE")) {
+                // Each real INSERT has returned, retaining its FK shared lock until commit.
+                // Release both transactions together immediately before the locking read.
+                connections.add(connection);
+                try { bothInserted.await(10, TimeUnit.SECONDS); }
+                catch (Exception failure) { throw new AssertionError("Both real inserts must finish before locking reads", failure); }
+            }
+        };
+        var pool = Executors.newFixedThreadPool(2);
+        List<Outcome> outcomes;
+        List<Integer> sqlErrors;
+        try {
+            var one = pool.submit(() -> createIndependent(first, isolation));
+            var two = pool.submit(() -> createIndependent(second, isolation));
+            outcomes = List.of(one.get(25, TimeUnit.SECONDS), two.get(25, TimeUnit.SECONDS));
+            sqlErrors = List.copyOf(source.sqlErrorCodes);
+            assertThat(connections).as("two independently inserted snapshots reached the barrier").hasSize(2);
+        } finally { pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); source.reset(); }
+        assertThat(outcomes).extracting(Outcome::failure)
+                .as("independent snapshot creation; SQL error codes: %s", sqlErrors).containsExactly(null, null);
+        assertThat(outcomes).extracting(Outcome::value).containsExactly(first, second);
+        assertThat(sqlErrors).as("no deadlock or other SQL error").isEmpty();
+        assertThat(count()).isEqualTo(2);
+        var restarted = service(transactions);
+        assertThat(restarted.read(OWNER, new PolicySnapshotReference.Stored(first.id()))).isEqualTo(first);
+        assertThat(restarted.read(OWNER, new PolicySnapshotReference.Stored(second.id()))).isEqualTo(second);
+        assertThat(restarted.createOrReplay(OWNER, first)).isEqualTo(first);
+        assertThat(restarted.createOrReplay(OWNER, second)).isEqualTo(second);
+        assertThat(count()).isEqualTo(2);
+    }
+
+    private Outcome createIndependent(PolicySnapshot value, String isolation) {
+        try { return new Outcome(transaction(isolation).execute(status -> service.createOrReplay(OWNER, value)), null); }
+        catch (PolicySnapshotException failure) { return new Outcome(value, failure.reason()); }
     }
 
     private List<Outcome> race(PolicySnapshot first, PolicySnapshot second, String isolation) throws Exception {

@@ -1195,7 +1195,9 @@ Equal policies under different snapshot UUIDs are separate evidence, not globall
 
 `createOrReplay` verifies the incoming evidence before writing. Its unique root key serializes
 concurrent identical and conflicting requests, and no existing payload is overwritten. A current
-locking read verifies the winner before returning it: exact replay returns the same evidence;
+locking read uses `FOR UPDATE OF s` to lock only the snapshot while retaining the revision-owner
+scope check. Independent snapshot IDs referencing one revision do not upgrade their shared FK
+locks on that revision. The read verifies the winner: exact replay returns the same evidence;
 different evidence under that ID is a typed conflict. Both JDBC and JPA callers can include the
 write in their transaction; a later outer rollback cancels a new snapshot. Ordinary reads retain
 the caller's isolation semantics. In an older `REPEATABLE_READ` snapshot, use the returned replay
