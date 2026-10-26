@@ -2428,6 +2428,75 @@ COMPLETE
 
 Per-answer state remains separately represented.
 
+### Implemented v1 lifecycle contract (#527)
+
+`AttemptLifecycle` is a pure domain contract with `version = 1`. It is dark: no controller,
+legacy service, persistence model or execution route calls it. The wider candidate vocabulary
+above does not enable timing, pause, abandon/cancel, sections, grading, release or review.
+
+Exactly four execution/answer-collection tuples are valid. `COMPLETE` means collection is
+closed, not that every item has an accepted answer. `CREATED` is an internal pre-start value;
+it does not authorize persisting a placeholder during an ambiguous policy choice.
+
+| Current execution / collection | Fresh `START` | Fresh `RESPONSE_RECORDED` | Fresh `SUBMIT` |
+|---|---|---|---|
+| `CREATED / NOT_STARTED` | `IN_PROGRESS / NOT_STARTED` | Deny `NOT_STARTED` | Deny `NOT_STARTED` |
+| `IN_PROGRESS / NOT_STARTED` | Deny `ALREADY_STARTED` | `IN_PROGRESS / IN_PROGRESS` | `SUBMITTED / COMPLETE`, subject to completion guards |
+| `IN_PROGRESS / IN_PROGRESS` | Deny `ALREADY_STARTED` | Allowed, same tuple | `SUBMITTED / COMPLETE`, subject to completion guards |
+| `SUBMITTED / COMPLETE` | Deny `TERMINAL_STATE` | Deny `TERMINAL_STATE` | Deny `TERMINAL_STATE` |
+
+`RESPONSE_RECORDED` describes validated response activity, not an answer payload or a request
+to accept one. Collection may remain `IN_PROGRESS` after provisional work is cleared.
+Conversely, `NOT_STARTED` cannot be combined with non-empty response facts at submission.
+
+State alone is not idempotency proof. The caller must first establish the same committed
+operation/scope/key/canonical input using #599. With that `VERIFIED_IDENTICAL` context, the
+following are no-effect `Replay` decisions; every other tuple/event denies
+`REPLAY_STATE_MISMATCH`:
+
+| State | Replayable events |
+|---|---|
+| `CREATED / NOT_STARTED` | None |
+| `IN_PROGRESS / NOT_STARTED` | `START` |
+| `IN_PROGRESS / IN_PROGRESS` | `START`, `RESPONSE_RECORDED` |
+| `SUBMITTED / COMPLETE` | `START`, `RESPONSE_RECORDED`, `SUBMIT` |
+
+`CONFLICTING` command identity always denies `CONFLICTING_REPLAY`. Replay returns no plan and
+does not rerun completion against a new payload. The receipt owns the original acknowledgement;
+current authorization and disclosure remain separately enforced by its consumer.
+
+`CompletionFacts` contains trusted form-item IDs in persisted form order, response states,
+captured finalization/require-all/confirmation facts and authoritative applicable/closed scope.
+It contains no response payload. It distinguishes `EMPTY`, `DRAFT`, `EDITABLE`,
+`PENDING_CONFIRMATION` and `ACCEPTED`. The immediate-lock contract rejects ordinary `EDITABLE`
+facts. Editable-until-attempt-submission facts model the approved later capability without
+enabling it in `ResolvedAttemptPolicy` or implementing #834.
+
+- Already accepted answers remain untouched. Only ordinary eligible editable items enter the
+  proposed finalization plan. A closed scope cannot contain an ordinary still-editable answer.
+- Empty items, drafts and pending-confirmation proposals remain unanswered. With require-all
+  enabled they deny voluntary submission in applicable scope; permanently closed scope does
+  not block it. The model does not itself close any scope.
+- Voluntary completion requires confirmation, including confirmation of omissions. Denial
+  returns no partial plan and cannot change the immutable input.
+- For eight editable responses, one pending proposal and one empty item, confirmed submission
+  with require-all OFF proposes eight finalizations and two unanswered items. ON denies it.
+  For eight already accepted responses, the same OFF submission proposes no new acceptances.
+
+Every evaluation returns exactly one `Advance`, `Replay` or typed `Denied`. Structural invalid
+input, contradictory tuples/facts and unknown versions/symbolic values are rejected with bounded
+`LifecycleException` reasons; no input or protected content is echoed. Public error mapping is
+owned by the consuming HTTP boundary. No default version, access or release is inferred.
+
+`AttemptLifecycleTest` covers every valid tuple/event for fresh, verified identical and
+conflicting identities, terminal replay and invalid tuples/versions. `LifecycleCompositionTest`
+covers completion, immutable inputs/plans, eligible versus pending work and closed-scope facts.
+`LifecyclePurityTest` checks strict symbolic parsing and framework/persistence/transport isolation.
+No JPA relationship is read, so N+1 does not apply to this slice. These are pure contract proofs:
+#528 owns storage; #529/#834 own real acceptance/terminal transactions; #600/#609 own start and
+activation. Expiry workers, section runtime, durable command receipts and offline execution need
+their separately owned integration evidence. No deployed behavior changes in #527.
+
 ### Grading lifecycle
 
 ```text
