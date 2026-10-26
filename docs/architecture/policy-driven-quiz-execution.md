@@ -1184,6 +1184,58 @@ is selected for this dark component. #518 owns persisted snapshot verification, 
 #666 any authorized preview and #609 activation. Existing HTTP/OpenAPI/security contracts and
 legacy routes remain unchanged.
 
+### Immutable resolved-policy snapshot storage (#518)
+
+`PolicySnapshotService` is an internal application interface for already authorized server callers.
+It stores #517's exact canonical UTF-8 representation, including effective values, preset reference
+and per-leaf provenance, with a stable server-supplied snapshot UUID. `attempt_policy_snapshot`
+also stores the snapshot/resolver/canonical versions, algorithm/hash and immutable quiz-revision
+reference. The UUID is the replay identity; a hash alone is neither identity nor authorization.
+Equal policies under different snapshot UUIDs are separate evidence, not globally deduplicated.
+
+`createOrReplay` verifies the incoming evidence before writing. Its unique root key serializes
+concurrent identical and conflicting requests, and no existing payload is overwritten. A current
+locking read verifies the winner before returning it: exact replay returns the same evidence;
+different evidence under that ID is a typed conflict. Both JDBC and JPA callers can include the
+write in their transaction; a later outer rollback cancels a new snapshot. Ordinary reads retain
+the caller's isolation semantics. In an older `REPEATABLE_READ` snapshot, use the returned replay
+value rather than expecting an ordinary read to see another transaction's commit.
+
+The trusted `revisionOwnerId` scope is resolved by the server and checked against the immutable
+revision. It is not the current participant ID and grants no quiz/assignment/participant authority.
+The actual caller must enforce those checks at its own boundary. Missing and foreign target IDs
+share `SNAPSHOT_UNAVAILABLE`. `PolicySnapshotReference.Legacy.NO_SNAPSHOT` explicitly returns
+legacy/no-snapshot without resolving settings or writing anything. A missing required target
+snapshot is never automatically classified as legacy. Existing attempts receive no backfill or
+new engine binding; #600 owns atomic start and #609 owns public activation.
+
+Every stored read checks the exact supported versions/algorithm, revision binding, complete
+structurally valid provenance, strict named JSON fields/types, exact canonical bytes and SHA-256.
+Unknown versions, corrupt hashes, duplicate/unknown/missing JSON fields, coercion, trailing data,
+changed canonical representation and impossible provenance fail closed. Verification never calls
+the current preset service, re-resolves current grants/settings, or reads/hashes document bytes.
+Hash verification detects corruption; it is not protection against an administrator replacing
+both a payload and its digest. Application immutability comes from the write-only-once port and
+the insert/no-op/compare transaction. There is no update/delete operation in that port.
+
+V87 is additive, preserves the exact JSON string using text storage, validates version/hash/JSON
+shape, indexes the immutable revision and restricts deletion of a referenced revision. There is
+no FK to the legacy attempts table. Before any target writes, application rollback can leave this
+empty table in place. After target writes, preserve retained evidence and use a forward fix rather
+than dropping/rebuilding snapshots. Future erasure/lifecycle work retains its own decision gates.
+
+`attempt.policy.snapshots` uses closed operation/outcome/version labels without payloads, hashes,
+IDs or provenance values. `verified` means the service verified and returned evidence; it does not
+claim that an enclosing transaction has committed. Telemetry failure cannot change the operation.
+Database/JSON failures cross the service boundary as content-free typed errors without raw causes.
+
+Focused tests use real MySQL transactions for migration, identical/different concurrent writes,
+rollback after actual INSERT, commit acknowledgement loss/reconciliation, recreated-service reads,
+JPA transaction participation, corruption and scoped isolation. Frozen #517 fixtures verify byte
+compatibility independently of the resolver. Each single-snapshot read uses one joined metadata
+query across a multi-revision fixture; no JPA relationship-loading path is introduced. These tests
+prove the store, not an activated participant start, assignment, accommodation or offline package.
+
 ## Example Policy: Approved Free-Practice Baseline
 
 This is a conceptual excerpt of the approved target in [#612](https://github.com/Gegcuk/QuizMaker/issues/612) and [#687](https://github.com/Gegcuk/QuizMaker/issues/687), not a complete serialized DTO or a claim of runtime availability. The complete typed schema also represents disabled/not-configured dimensions explicitly.
