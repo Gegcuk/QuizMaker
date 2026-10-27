@@ -1991,6 +1991,37 @@ A fixed authored order is necessary when:
 - stable comparison is more important than randomization;
 - accessibility requires predictable navigation.
 
+### Authored-order contract boundary (#520)
+
+`AuthoredQuestionOrder` is a pure, internal `AUTHORED/v1` contract implementing the
+authored-order part of #612 R01. Its immutable input contains the ordering format version,
+quiz-revision ID/schema version, existing `QuestionOrderingPolicy`, complete trusted item
+metadata (source occurrence ID and authored position), and explicit already-selected item IDs.
+Selection remains a separate operation; ordering a supplied subset does not implement `ALL`
+or `MANUAL_SET`. `Input.fromRevision` projects the real #597 immutable revision and checks
+that #515's resolved content binding names that same revision. The metadata-only constructor
+accepts already-resolved server facts; neither constructor proves existence or authorization.
+
+Ordering uses authored position, independently of input/query order and UUID ordering. Positions
+are nonnegative integers and may have gaps, matching #597/#519; missing positions, repeated
+positions, duplicate source/selected IDs and selected IDs outside the revision fail explicitly.
+Ambiguous unselected source metadata is rejected too. There is no UUID tie-break, silent
+deduplication, renumbering, randomization or fallback to mutable authoring data. Empty selections
+are representable without deciding whether a later start operation may accept them.
+
+The immutable result contains the exact ordered source item IDs and typed evidence of the
+ordering format, revision/schema and strategy/algorithm version. Two occurrences of the same
+question revision retain their separate item IDs. Unknown ordering/revision versions fail closed;
+unknown strategy versions are also rejected by the existing policy contract. Errors use bounded
+`QuestionOrderingException` reasons without content or resource identifiers. Input/evidence/result
+contain no question text, answer keys, hints, explanations or caller identity.
+
+This boundary performs no I/O, relationship loading or writes and introduces no endpoint,
+migration, telemetry, selection quota or application-service dependency. #521 owns option order;
+#522 owns actual form materialization/persistence, including #612 D05's exact persisted order;
+#600 owns start composition and #609 owns public activation. A deterministic calculation is not
+proof of persisted resume/review behavior or activation of those future integrations.
+
 ### Shuffle scope
 
 Randomization may operate on different units:
