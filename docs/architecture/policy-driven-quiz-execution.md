@@ -2661,6 +2661,69 @@ No JPA relationship is read, so N+1 does not apply to this slice. These are pure
 activation. Expiry workers, section runtime, durable command receipts and offline execution need
 their separately owned integration evidence. No deployed behavior changes in #527.
 
+### Authoritative lifecycle storage (#528)
+
+`AttemptLifecycleService` persists the #527 execution/answer-collection tuple in the separate
+`attempt_lifecycle_state` table (V88). It is an internal boundary for trusted, already authorized
+server callers. It grants no access from an attempt ID and has no controller or public route.
+No legacy `AttemptStatus` row is read, changed, backfilled or treated as target evidence. There
+is deliberately no foreign key to legacy `attempts`; #600 owns atomic target start/binding.
+
+The lifecycle contract version (`1`) is distinct from the nonnegative `row_version` concurrency
+counter. Initialization creates only `CREATED / NOT_STARTED` at counter zero. `save` locks one
+root using a current `SELECT ... FOR UPDATE`, checks the expected counter, and updates with
+an explicit compare-and-set predicate. A successful write increments the counter once, including
+new response activity whose tuple remains `IN_PROGRESS / IN_PROGRESS`. Stale writes and duplicate
+initialization conflict. Storage prevents skipping start, regression and terminal rewriting;
+callers still own the #527 guards, response/finalization writes, authorization and command identity.
+Saving a tuple alone is not proof that an answer was accepted or an attempt command executed.
+
+The injected application `Clock` supplies creation/update and first-start/submission timestamps.
+They are stored as UTC `DATETIME(6)` values with microsecond precision. The original creation
+and start instants survive later updates. Invalid time ordering, unsupported contract versions,
+unknown exact symbolic names and contradictory tuples fail closed with bounded, content-free
+errors; reads neither repair corruption nor select a current default. V88 also enforces the
+supported tuple/version/time constraints, including rejection of case and trailing-space variants.
+These timestamps do not introduce deadlines, pause, expiry or scheduling behavior.
+
+`LifecycleReference.Legacy.NO_TARGET_STATE` returns an explicit legacy marker without database
+access. A missing `Target` reference is an error, never an invitation to construct target state.
+Ordinary reads respect the caller's transaction isolation. `lock` requires an existing caller
+transaction and retains the root lock until that transaction ends. Current locking reads avoid
+using an older `REPEATABLE_READ` snapshot when checking the expected write version.
+
+Writes join real JDBC/JPA caller transactions: returning a value does not commit an outer
+transaction, and a caught nested storage failure still makes that transaction rollback-only.
+There is no automatic deadlock retry. Competing first inserts may also select a real MySQL
+deadlock victim: one creator succeeds and the victim receives a typed storage failure. After
+fresh reconciliation, trying to initialize the existing winner conflicts without overwriting it.
+After an unavailable/unknown commit outcome, a caller
+must reconcile through a fresh transaction; state equality does not establish command replay.
+#599 owns durable receipts and original acknowledgements. The `attempt.lifecycle.storage` timer
+uses bounded version/operation/outcome tags, and telemetry failure cannot change persistence.
+Its `returned` outcome describes the service boundary rather than an outer transaction commit.
+
+`LifecycleStateTest` checks metadata, tuple progression and compatibility with #527 advances.
+`AttemptLifecycleMySqlIntegrationTest` applies the full V1–V87 history followed by V88 in a
+generated test-owned catalog. It covers constraints/corruption, independent concurrency under
+both isolation levels, an actual MySQL deadlock with one committed winner, explicit retry after
+fresh reconciliation, reached-write rollback, lost commit acknowledgement, reconstructed services,
+caller locks and real JPA composition. `LegacyLifecycleIsolationIntegrationTest` exercises the
+real existing start/read/answer/complete services and wrong-owner denial in all legacy modes,
+with committed commands and fresh reads, without creating target state. A synthetic legacy
+marker in the focused storage suite proves only migration/transaction isolation; it is not a
+substitute for that real legacy-service test.
+
+State reads load one indexed root and no JPA relationships. The focused SQL-count test measures
+one query for an ordinary or locking read with multiple roots present, and verifies the primary-key
+lookup plan. No list, aggregate, mapper or relationship-serialization path is added.
+
+The migration is additive and creates no historical state. Before target writes, deployment may
+disable the unused boundary. After target writes, preserve its evidence and use forward fixes;
+destructive downgrade or new retention/erasure behavior is outside this increment. Actual start,
+answer acceptance, terminal orchestration, grading and activation remain #600, #543, #529/#834,
+#603 and #609 respectively. No public API, client rollout or production activation is implied.
+
 ### Grading lifecycle
 
 ```text
