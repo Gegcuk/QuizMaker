@@ -59,30 +59,45 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         manager = new DataSourceTransactionManager(source);
         revisions = proxy(new JdbcQuizRevisionRepository(new NamedParameterJdbcTemplate(source)), manager);
         service = service(registry(), manager);
-    }
-
-    @BeforeEach
-    void migrate() {
-        clean();
+        dropSchema();
         sql.execute("CREATE TABLE contract_legacy_fixture (id INT PRIMARY KEY)");
+        sql.execute("CREATE TABLE contract_transaction_receipts (writer INT PRIMARY KEY) ENGINE=InnoDB");
         Flyway.configure().dataSource(source).table(IDENTITY_HISTORY).locations("classpath:db/migration")
                 .baselineOnMigrate(true).baselineVersion("80").target("82").load().migrate();
-        migrateBindings();
+        // V83 belongs to normalized documents, outside this revision-storage fixture.
+        Flyway.configure().dataSource(source).table(BINDING_HISTORY).locations("classpath:db/migration")
+                .baselineOnMigrate(true).baselineVersion("83").target("84").load().migrate();
         source.reset();
     }
 
-    private void migrateBindings() {
-        // V83 changes normalized_documents, outside this narrowly scoped revision-storage fixture.
-        Flyway.configure().dataSource(source).table(BINDING_HISTORY).locations("classpath:db/migration")
-                .baselineOnMigrate(true).baselineVersion("83").target("84").load().migrate();
-    }
+    @BeforeEach
+    void prepareScenario() { resetData(); }
 
     @AfterEach
-    void clean() {
+    void cleanupScenario() { resetData(); }
+
+    private static void resetData() {
         source.fault = null;
         source.gate = null;
         source.scopeLockAttempt = null;
-        for (String table : List.of("attempt_policy_snapshot", "attempt_form_item", "attempt_form", "contract_transaction_receipts", "question_revision_contract_bindings", "quiz_revision_items",
+        // Each statement commits on a fresh connection. Scenario transactions have already ended.
+        // Keep FK enforcement enabled and delete children before parents.
+        for (String table : List.of("contract_transaction_receipts", "question_revision_contract_bindings",
+                "quiz_revision_items", "question_option_revisions", "quiz_revisions", "question_revisions",
+                "contract_legacy_fixture")) {
+            sql.update("DELETE FROM " + table);
+        }
+        source.reset(); // Fixture SQL must not contribute to bounded-query or rollback assertions.
+    }
+
+    @AfterAll
+    static void dropSchema() {
+        if (source == null) return;
+        source.fault = null;
+        source.gate = null;
+        source.scopeLockAttempt = null;
+        for (String table : List.of("attempt_policy_snapshot", "attempt_form_item", "attempt_form",
+                "contract_transaction_receipts", "question_revision_contract_bindings", "quiz_revision_items",
                 "question_option_revisions", "quiz_revisions", "question_revisions", IDENTITY_HISTORY, BINDING_HISTORY,
                 "contract_legacy_fixture")) {
             sql.execute("DROP TABLE IF EXISTS " + table);
@@ -90,19 +105,35 @@ class QuestionRevisionContractsMySqlIntegrationTest {
     }
 
     @Test
-    void additiveMigrationKeepsExistingRevisionsUnboundWithoutInventingVersions() {
-        sql.execute("DROP TABLE question_revision_contract_bindings");
-        sql.execute("DROP TABLE " + BINDING_HISTORY);
-        var revision = quiz(10, question(1, "{\"answer\":true}"));
-        revisions.insert(revision);
-        migrateBindings();
-        assertThat(revisions.findById(OWNER, revision.id())).contains(revision);
+    void fixtureCleanupRemovesCommittedRowsAndFaultsWithoutChangingSchema() {
+        var history = sql.queryForList("SELECT * FROM " + BINDING_HISTORY + " ORDER BY installed_rank");
+        var definition = sql.queryForMap("SHOW CREATE TABLE question_revision_contract_bindings");
+        revisions.insert(quiz(10, question(1, "{\"answer\":true}")));
+        service.bind(OWNER, id(10), List.of(binding(1, 1)));
+        sql.update("INSERT INTO contract_transaction_receipts VALUES (1)");
+        sql.update("INSERT INTO contract_legacy_fixture VALUES (1)");
+        sql.update("INSERT INTO question_option_revisions VALUES (UUID_TO_BIN(?),UUID_TO_BIN(?),'option',0)",
+                id(700).toString(), id(1).toString());
+        source.fault = Fault.OPEN;
+        source.gate = new Gate();
+        source.scopeLockAttempt = new CountDownLatch(1);
+
+        resetData();
+
+        assertThat(source.selects).isEmpty();
+        assertThat(source.bindingWrites).hasValue(0);
+        assertThat(source.rollbacks).hasValue(0);
         assertThat(countBindings()).isZero();
-        rejected(() -> service.resolve(OWNER, revision.id()), UNBOUND_REVISION);
-        assertThat(sql.queryForObject("SELECT COUNT(*) FROM " + BINDING_HISTORY
-                + " WHERE version='84' AND success=1", Integer.class)).isEqualTo(1);
-        service.bind(OWNER, revision.id(), List.of(binding(1, 1)));
-        assertThat(service.resolve(OWNER, revision.id()).keySet()).containsExactly(id(1));
+        assertThat(revisions.findById(OWNER, id(10))).isEmpty();
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM contract_transaction_receipts", Integer.class)).isZero();
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM contract_legacy_fixture", Integer.class)).isZero();
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM question_option_revisions", Integer.class)).isZero();
+        assertThat(sql.queryForList("SELECT * FROM " + BINDING_HISTORY + " ORDER BY installed_rank")).isEqualTo(history);
+        assertThat(sql.queryForMap("SHOW CREATE TABLE question_revision_contract_bindings")).isEqualTo(definition);
+        // The same identities can now represent the next scenario, without a hidden retained binding.
+        revisions.insert(quiz(10, question(1, "{\"answer\":false}")));
+        service.bind(OWNER, id(10), List.of(binding(1, 2)));
+        assertThat(service.resolve(OWNER, id(10)).get(id(1)).binding()).isEqualTo(binding(1, 2));
     }
 
     @Test
@@ -335,7 +366,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         revisions.insert(questionCount == 1 ? quiz(11, firstQuestion) : quiz(11, secondQuestion, firstQuestion));
         var bindings = questionCount == 1 ? List.of(binding(1, 1)) : List.of(binding(1, 1), binding(-1, 1));
         service.bind(OWNER, id(10), bindings);
-        sql.execute("CREATE TABLE contract_transaction_receipts (writer INT PRIMARY KEY) ENGINE=InnoDB");
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM contract_transaction_receipts", Integer.class)).isZero();
         var factory = jpa ? jpaFactory() : null;
         var transactions = transactionManager(factory);
         var firstRead = new CountDownLatch(1);
@@ -378,7 +409,6 @@ class QuestionRevisionContractsMySqlIntegrationTest {
             executor.shutdownNow();
             assertThat(executor.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
             if (factory != null) factory.destroy();
-            sql.execute("DROP TABLE IF EXISTS contract_transaction_receipts");
         }
     }
 
@@ -523,7 +553,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         separateAndCombinedRevisions();
         var bindings = List.of(binding(1, 1), binding(-1, 1));
         service.bind(OWNER, id(12), bindings);
-        sql.execute("CREATE TABLE contract_transaction_receipts (writer INT PRIMARY KEY) ENGINE=InnoDB");
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM contract_transaction_receipts", Integer.class)).isZero();
         var factory = jpa ? jpaFactory() : null;
         var transactions = transactionManager(factory);
         var firstRead = new CountDownLatch(1);

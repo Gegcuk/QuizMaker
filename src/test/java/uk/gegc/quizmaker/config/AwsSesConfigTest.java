@@ -5,13 +5,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import software.amazon.awssdk.services.sesv2.SesV2Client;
 import uk.gegc.quizmaker.shared.config.AwsSesConfig;
+import uk.gegc.quizmaker.shared.email.EmailTestConfiguration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -38,7 +39,7 @@ class AwsSesConfigTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -46,9 +47,7 @@ class AwsSesConfigTest {
         "app.email.from=test-sender@verified-domain.com",
         "app.email.region=us-west-2",
         "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
-        "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
     })
     @DisplayName("Static Credentials Provider Tests")
     class StaticCredentialsProviderTest {
@@ -98,7 +97,7 @@ class AwsSesConfigTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -107,8 +106,6 @@ class AwsSesConfigTest {
         "app.email.region=eu-west-1",
         "AWS_ACCESS_KEY_ID=",  // Empty - force default provider chain
         "AWS_SECRET_ACCESS_KEY=",  // Empty - force default provider chain
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
     })
     @DisplayName("Default Credentials Provider Tests")
     class DefaultCredentialsProviderTest {
@@ -145,7 +142,7 @@ class AwsSesConfigTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -158,9 +155,7 @@ class AwsSesConfigTest {
         "app.email.ses.api-call-timeout-ms=60000",
         "app.email.ses.api-call-attempt-timeout-ms=20000",
         "app.email.ses.http-connection-timeout-ms=10000",
-        "app.email.ses.http-socket-timeout-ms=25000",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "app.email.ses.http-socket-timeout-ms=25000"
     })
     @DisplayName("Custom Timeout Configuration Tests")
     class CustomTimeoutConfigurationTest {
@@ -207,7 +202,7 @@ class AwsSesConfigTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -220,9 +215,7 @@ class AwsSesConfigTest {
         "app.email.ses.api-call-timeout-ms=1",
         "app.email.ses.api-call-attempt-timeout-ms=1",
         "app.email.ses.http-connection-timeout-ms=1",
-        "app.email.ses.http-socket-timeout-ms=1",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "app.email.ses.http-socket-timeout-ms=1"
     })
     @DisplayName("Minimum Timeout Enforcement Tests")
     class MinimumTimeoutEnforcementTest {
@@ -249,7 +242,7 @@ class AwsSesConfigTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -257,9 +250,7 @@ class AwsSesConfigTest {
         "app.email.from=test-sender@verified-domain.com",
         "app.email.region=ap-northeast-1",  // Tokyo region
         "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
-        "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
     })
     @DisplayName("Region Configuration Tests")
     class RegionConfigurationTest {
@@ -296,7 +287,7 @@ class AwsSesConfigTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -306,8 +297,6 @@ class AwsSesConfigTest {
         "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
         "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
         // No timeout properties - should use defaults from application.properties
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
     })
     @DisplayName("Default Configuration Tests")
     class DefaultConfigurationTest {

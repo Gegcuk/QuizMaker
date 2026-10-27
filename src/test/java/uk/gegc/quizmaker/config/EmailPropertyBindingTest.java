@@ -6,14 +6,15 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.io.Resource;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import software.amazon.awssdk.services.sesv2.SesV2Client;
 import uk.gegc.quizmaker.shared.config.AwsSesConfig;
+import uk.gegc.quizmaker.shared.email.EmailTestConfiguration;
 import uk.gegc.quizmaker.shared.email.EmailService;
 import uk.gegc.quizmaker.shared.email.impl.AwsSesEmailService;
 
@@ -32,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * - Template location properties bind and allow custom template paths
  * - Properties use appropriate defaults when not explicitly configured
  * 
- * Each test runs in a separate Spring context to ensure isolation.
+ * Each property group uses an isolated email-only Spring context.
  */
 @DisplayName("Email Property Binding Spring Context Tests")
 class EmailPropertyBindingTest {
@@ -47,7 +48,7 @@ class EmailPropertyBindingTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -60,9 +61,7 @@ class EmailPropertyBindingTest {
         "app.email.ses.api-call-timeout-ms=45000",
         "app.email.ses.api-call-attempt-timeout-ms=15000",
         "app.email.ses.http-connection-timeout-ms=8000",
-        "app.email.ses.http-socket-timeout-ms=20000",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "app.email.ses.http-socket-timeout-ms=20000"
     })
     @DisplayName("SES Timeout Property Binding Tests")
     class SesTimeoutPropertyBindingTest {
@@ -139,7 +138,7 @@ class EmailPropertyBindingTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -149,8 +148,6 @@ class EmailPropertyBindingTest {
         "AWS_ACCESS_KEY_ID=test-access-key",
         "AWS_SECRET_ACCESS_KEY=test-secret-key",
         // No custom timeout values - should use defaults from application.properties
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
     })
     @DisplayName("SES Default Timeout Tests")
     class SesDefaultTimeoutTest {
@@ -197,7 +194,7 @@ class EmailPropertyBindingTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -207,8 +204,6 @@ class EmailPropertyBindingTest {
         "AWS_ACCESS_KEY_ID=test-access-key",
         "AWS_SECRET_ACCESS_KEY=test-secret-key",
         // Use default template paths (classpath:email/*)
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
     })
     @DisplayName("Template Location Property Binding Tests")
     class TemplateLocationBindingTest {
@@ -292,7 +287,7 @@ class EmailPropertyBindingTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -301,9 +296,7 @@ class EmailPropertyBindingTest {
         "app.email.region=us-east-1",
         "AWS_ACCESS_KEY_ID=test-access-key",
         "AWS_SECRET_ACCESS_KEY=test-secret-key",
-        "app.email.ses.configuration-set=test-config-set",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "app.email.ses.configuration-set=test-config-set"
     })
     @DisplayName("Configuration Set Property Binding Tests")
     class ConfigurationSetBindingTest {
@@ -326,7 +319,7 @@ class EmailPropertyBindingTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -336,8 +329,6 @@ class EmailPropertyBindingTest {
         "AWS_ACCESS_KEY_ID=test-access-key",
         "AWS_SECRET_ACCESS_KEY=test-secret-key",
         // No configuration-set property - should default to null
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
     })
     @DisplayName("Configuration Set Default Value Tests")
     class ConfigurationSetDefaultTest {
@@ -363,7 +354,7 @@ class EmailPropertyBindingTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -372,9 +363,7 @@ class EmailPropertyBindingTest {
         "app.email.region=us-east-1",
         "AWS_ACCESS_KEY_ID=test-access-key",
         "AWS_SECRET_ACCESS_KEY=test-secret-key",
-        "app.frontend.base-url=https://quizmaker.example.com",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "app.frontend.base-url=https://quizmaker.example.com"
     })
     @DisplayName("Frontend Base URL Property Binding Tests")
     class FrontendBaseUrlBindingTest {
@@ -399,7 +388,7 @@ class EmailPropertyBindingTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -409,9 +398,7 @@ class EmailPropertyBindingTest {
         "AWS_ACCESS_KEY_ID=test-access-key",
         "AWS_SECRET_ACCESS_KEY=test-secret-key",
         "app.email.password-reset.subject=Custom Reset Your Password",
-        "app.email.verification.subject=Custom Verify Your Email",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "app.email.verification.subject=Custom Verify Your Email"
     })
     @DisplayName("Email Subject Property Binding Tests")
     class EmailSubjectBindingTest {
@@ -441,7 +428,7 @@ class EmailPropertyBindingTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -451,9 +438,7 @@ class EmailPropertyBindingTest {
         "AWS_ACCESS_KEY_ID=test-access-key",
         "AWS_SECRET_ACCESS_KEY=test-secret-key",
         "app.auth.reset-token-ttl-minutes=120",
-        "app.auth.verification-token-ttl-minutes=1440",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "app.auth.verification-token-ttl-minutes=1440"
     })
     @DisplayName("Token TTL Property Binding Tests")
     class TokenTtlBindingTest {

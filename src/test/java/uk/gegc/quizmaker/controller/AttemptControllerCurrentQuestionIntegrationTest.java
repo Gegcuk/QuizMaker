@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -8,6 +9,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureWebMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
@@ -36,6 +39,7 @@ import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import java.time.Instant;
 import java.util.*;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -45,7 +49,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureWebMvc
 @ActiveProfiles("test")
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class AttemptControllerCurrentQuestionIntegrationTest {
 
     @Autowired
@@ -66,7 +70,11 @@ class AttemptControllerCurrentQuestionIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     private MockMvc mockMvc;
+    private Category testCategory;
     private User testUser;
     private Quiz testQuiz;
     private Question question1;
@@ -80,9 +88,8 @@ class AttemptControllerCurrentQuestionIntegrationTest {
                 .apply(springSecurity())
                 .build();
 
-        // Clean up any existing test data first
-        userRepository.findByUsername("testuser").ifPresent(userRepository::delete);
-        userRepository.findByEmail("test@example.com").ifPresent(userRepository::delete);
+        // Fixtures and HTTP calls retain their real, separate transactions.
+        assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
         
         // Use unique names with timestamp to avoid conflicts
         String timestamp = String.valueOf(System.currentTimeMillis());
@@ -98,7 +105,7 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         testUser = userRepository.save(testUser);
 
         // Create test category (required for quiz)
-        Category testCategory = new Category();
+        testCategory = new Category();
         testCategory.setName(uniqueCategoryName);
         testCategory.setDescription("A test category");
         testCategory = context.getBean(CategoryRepository.class).save(testCategory);
@@ -173,6 +180,70 @@ class AttemptControllerCurrentQuestionIntegrationTest {
         testAttempt.setStartedAt(Instant.now());
         testAttempt.setAnswers(new java.util.ArrayList<>());
         testAttempt = attemptRepository.save(testAttempt);
+    }
+
+    @AfterEach
+    void cleanupFixtures() {
+        assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+        // Physical deletion is necessary: repository soft delete retains rows and unique names.
+        // Delete only this scenario's committed fixtures, with foreign keys still enforced.
+        if (testAttempt != null) {
+            deleteFixture("answers", "attempt_id", testAttempt.getId());
+            deleteFixture("attempts", "id", testAttempt.getId());
+        }
+        if (testQuiz != null) {
+            deleteFixture("quiz_questions", "quiz_id", testQuiz.getId());
+            deleteFixture("quiz_tags", "quiz_id", testQuiz.getId());
+            deleteFixture("quizzes", "quiz_id", testQuiz.getId());
+        }
+        for (Question question : Arrays.asList(question1, question2)) {
+            if (question != null) {
+                deleteFixture("question_tags", "question_id", question.getId());
+                deleteFixture("questions", "id", question.getId());
+            }
+        }
+        if (testCategory != null) deleteFixture("categories", "category_id", testCategory.getId());
+        if (testUser != null) {
+            deleteFixture("user_roles", "user_id", testUser.getId());
+            deleteFixture("users", "user_id", testUser.getId());
+        }
+        testAttempt = null; testQuiz = null; question1 = null; question2 = null;
+        testCategory = null; testUser = null;
+    }
+
+    private void deleteFixture(String table, String column, UUID id) {
+        if (id == null) return;
+        jdbcTemplate.update("DELETE FROM " + table + " WHERE " + column + "=UUID_TO_BIN(?)", id.toString());
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE " + column
+                + "=UUID_TO_BIN(?)", Integer.class, id.toString())).isZero();
+    }
+
+    @Test
+    @WithMockUser(username = "testuser")
+    void committedAnswerCleanupAllowsANewScenarioWithTheSameUsername() throws Exception {
+        UUID previousAttempt = testAttempt.getId();
+        UUID previousUser = testUser.getId();
+        Answer answer = new Answer();
+        answer.setAttempt(testAttempt);
+        answer.setQuestion(question1);
+        answer.setAnsweredAt(Instant.now());
+        answer.setResponse("{\"selectedOption\":\"3\"}");
+        answer.setIsCorrect(true);
+        answer.setScore(1.0);
+        context.getBean(AnswerRepository.class).saveAndFlush(answer);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM answers WHERE attempt_id=UUID_TO_BIN(?)",
+                Integer.class, previousAttempt.toString())).isEqualTo(1);
+
+        cleanupFixtures();
+        setUp();
+
+        assertThat(testUser.getId()).isNotEqualTo(previousUser);
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM attempts WHERE id=UUID_TO_BIN(?)",
+                Integer.class, previousAttempt.toString())).isZero();
+        mockMvc.perform(get("/api/v1/attempts/{attemptId}/current-question", testAttempt.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.questionNumber").value(1))
+                .andExpect(jsonPath("$.totalQuestions").value(2));
     }
 
     @Test

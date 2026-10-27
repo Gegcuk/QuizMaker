@@ -50,6 +50,7 @@ class PolicySnapshotMySqlIntegrationTest {
     private static JdbcTemplate sql;
     private static DataSourceTransactionManager transactions;
     private static QuizRevisionRepository revisions;
+    private static List<Map<String, Object>> snapshotChecks;
     private SimpleMeterRegistry metrics;
     private PolicySnapshotService service;
 
@@ -64,31 +65,90 @@ class PolicySnapshotMySqlIntegrationTest {
         sql = new JdbcTemplate(source);
         transactions = new DataSourceTransactionManager(source);
         revisions = proxy(new JdbcQuizRevisionRepository(new NamedParameterJdbcTemplate(source)), transactions);
-    }
-
-    @BeforeEach
-    void migrate() {
-        clean();
+        dropSchema();
         sql.execute("CREATE TABLE snapshot_legacy_fixture (id INT PRIMARY KEY, marker VARCHAR(50))");
         sql.update("INSERT INTO snapshot_legacy_fixture VALUES (1,'legacy')");
         Flyway.configure().dataSource(source).table(IDENTITY_HISTORY).locations("classpath:db/migration")
                 .baselineOnMigrate(true).baselineVersion("80").target("82").load().migrate();
         Flyway.configure().dataSource(source).table(SNAPSHOT_HISTORY).locations("classpath:db/migration")
                 .baselineOnMigrate(true).baselineVersion("86").target("87").load().migrate();
-        metrics = new SimpleMeterRegistry();
-        service = service(transactions);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_policy_snapshot", Integer.class)).isZero();
+        snapshotChecks = checkConstraints();
+        // Verify the migration preserved legacy data before any per-scenario reset can repair it.
+        assertThat(sql.queryForObject("SELECT marker FROM snapshot_legacy_fixture WHERE id=1", String.class)).isEqualTo("legacy");
         source.reset();
     }
 
-    @AfterEach
-    void cleanup() { clean(); if (metrics != null) metrics.close(); }
+    @BeforeEach
+    void prepareScenario() {
+        resetData();
+        metrics = new SimpleMeterRegistry();
+        service = service(transactions);
+    }
 
-    private static void clean() {
+    @AfterEach
+    void cleanupScenario() {
+        try { resetData(); }
+        finally { if (metrics != null) metrics.close(); }
+    }
+
+    private static void resetData() {
+        source.reset(); // Clear fault hooks before cleanup opens a connection or executes SQL.
+        for (String table : List.of("attempt_policy_snapshot", "quiz_revision_items", "question_option_revisions",
+                "quiz_revisions", "question_revisions")) {
+            sql.update("DELETE FROM " + table);
+        }
+        sql.update("UPDATE snapshot_legacy_fixture SET marker='legacy' WHERE id=1");
+        assertThat(sql.queryForObject("SELECT marker FROM snapshot_legacy_fixture WHERE id=1", String.class)).isEqualTo("legacy");
+        assertThat(checkConstraints())
+                .as("Corruption scenarios must restore every migrated CHECK constraint and its enforcement")
+                .isEqualTo(snapshotChecks);
+        source.reset(); // Keep fixture work outside the measured SQL/transaction interval.
+    }
+
+    private static List<Map<String, Object>> checkConstraints() {
+        // ALTER CHECK can normalize SHOW CREATE TABLE text; compare actual enforcement metadata.
+        return sql.queryForList("""
+                SELECT CONSTRAINT_NAME, ENFORCED FROM information_schema.TABLE_CONSTRAINTS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'attempt_policy_snapshot'
+                  AND CONSTRAINT_TYPE = 'CHECK' ORDER BY CONSTRAINT_NAME
+                """);
+    }
+
+    @AfterAll
+    static void dropSchema() {
+        if (source == null) return;
         source.reset();
         for (String table : List.of("attempt_policy_snapshot", "attempt_form_item", "attempt_form", "question_revision_contract_bindings", "quiz_revision_items", "question_option_revisions",
                 "quiz_revisions", "question_revisions", IDENTITY_HISTORY, SNAPSHOT_HISTORY, "snapshot_legacy_fixture")) {
             sql.execute("DROP TABLE IF EXISTS " + table);
         }
+    }
+
+    @Test
+    void fixtureCleanupRemovesCommittedSnapshotAndRestoresLegacyMarkerAndHooks() {
+        var history = sql.queryForList("SELECT * FROM " + SNAPSHOT_HISTORY + " ORDER BY installed_rank");
+        var definition = sql.queryForMap("SHOW CREATE TABLE attempt_policy_snapshot");
+        var revision = savedRevision("cleanup", OWNER);
+        var value = snapshot("cleanup-snapshot", revision, true);
+        service.createOrReplay(OWNER, value);
+        sql.update("UPDATE snapshot_legacy_fixture SET marker='committed' WHERE id=1");
+        source.failConnection = true;
+        source.beforeSql = (statement, connection) -> { throw new SQLException("Stale fixture hook"); };
+
+        resetData();
+
+        assertThat(source.selects).isEmpty();
+        assertThat(source.sqlErrorCodes).isEmpty();
+        rejected(() -> service.read(OWNER, new PolicySnapshotReference.Stored(value.id())), SNAPSHOT_UNAVAILABLE);
+        assertThat(revisions.findById(OWNER, revision)).isEmpty();
+        assertThat(count()).isZero();
+        assertThat(sql.queryForObject("SELECT marker FROM snapshot_legacy_fixture WHERE id=1", String.class)).isEqualTo("legacy");
+        assertThat(sql.queryForList("SELECT * FROM " + SNAPSHOT_HISTORY + " ORDER BY installed_rank")).isEqualTo(history);
+        assertThat(sql.queryForMap("SHOW CREATE TABLE attempt_policy_snapshot")).isEqualTo(definition);
+        var next = savedRevision("cleanup", OWNER);
+        var replacement = snapshot("cleanup-snapshot", next, false);
+        assertThat(service.createOrReplay(OWNER, replacement)).isEqualTo(replacement);
     }
 
     @Test
@@ -335,16 +395,22 @@ class PolicySnapshotMySqlIntegrationTest {
     void corruptedStoredVersionFailsWithoutTryingToRepairIt(String column) {
         var value = snapshot("unknown", savedRevision("unknown-revision", OWNER), true);
         service.createOrReplay(OWNER, value);
-        // Deliberately damaged isolated fixture removes its CHECK to exercise the real read guard.
-        // The next fixture reapplies the unmodified migration, including all constraints.
+        // Temporarily admit corrupt storage without replacing the migration's CHECK definition.
         boolean algorithm = column.equals("hash_algorithm");
-        sql.execute("ALTER TABLE attempt_policy_snapshot DROP CHECK " + (algorithm ? "chk_policy_snapshot_algorithm" : "chk_policy_snapshot_version"));
-        Object invalid = algorithm ? "MD5" : 2;
-        sql.update("UPDATE attempt_policy_snapshot SET " + column + "=? WHERE id=?", invalid, bytes(value.id()));
-        var reason = algorithm ? UNSUPPORTED_HASH_ALGORITHM : UNSUPPORTED_VERSION;
-        rejected(() -> service(transactions).read(OWNER, new PolicySnapshotReference.Stored(value.id())), reason);
-        rejected(() -> service.createOrReplay(OWNER, value), reason);
-        assertThat(sql.queryForObject("SELECT " + column + " FROM attempt_policy_snapshot", Object.class).toString()).isEqualTo(invalid.toString());
+        String constraint = algorithm ? "chk_policy_snapshot_algorithm" : "chk_policy_snapshot_version";
+        Object original = sql.queryForObject("SELECT " + column + " FROM attempt_policy_snapshot WHERE id=?", Object.class, bytes(value.id()));
+        sql.execute("ALTER TABLE attempt_policy_snapshot ALTER CHECK " + constraint + " NOT ENFORCED");
+        try {
+            Object invalid = algorithm ? "MD5" : 2;
+            sql.update("UPDATE attempt_policy_snapshot SET " + column + "=? WHERE id=?", invalid, bytes(value.id()));
+            var reason = algorithm ? UNSUPPORTED_HASH_ALGORITHM : UNSUPPORTED_VERSION;
+            rejected(() -> service(transactions).read(OWNER, new PolicySnapshotReference.Stored(value.id())), reason);
+            rejected(() -> service.createOrReplay(OWNER, value), reason);
+            assertThat(sql.queryForObject("SELECT " + column + " FROM attempt_policy_snapshot", Object.class).toString()).isEqualTo(invalid.toString());
+        } finally {
+            try { sql.update("UPDATE attempt_policy_snapshot SET " + column + "=? WHERE id=?", original, bytes(value.id())); }
+            finally { sql.execute("ALTER TABLE attempt_policy_snapshot ALTER CHECK " + constraint + " ENFORCED"); }
+        }
     }
 
     @Test

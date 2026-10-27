@@ -15,7 +15,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -24,6 +23,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.services.sesv2.SesV2Client;
 import software.amazon.awssdk.services.sesv2.model.SendEmailRequest;
@@ -73,7 +73,7 @@ class EmailServiceEdgeCasesTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig({EmailTestConfiguration.class, TestMeterRegistryConfiguration.class})
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -86,9 +86,7 @@ class EmailServiceEdgeCasesTest {
         "app.email.password-reset.subject=Password Reset",
         "app.email.verification.subject=Email Verification",
         "app.auth.reset-token-ttl-minutes=60",
-        "app.auth.verification-token-ttl-minutes=1440",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "app.auth.verification-token-ttl-minutes=1440"
     })
     @DisplayName("Unverified Sender Email Address Tests")
     class UnverifiedSenderEmailTest {
@@ -104,6 +102,7 @@ class EmailServiceEdgeCasesTest {
 
         private ListAppender<ILoggingEvent> listAppender;
         private Logger logger;
+        private Level previousLogLevel;
 
         @BeforeEach
         void setUp() {
@@ -112,6 +111,7 @@ class EmailServiceEdgeCasesTest {
             listAppender = new ListAppender<>();
             listAppender.start();
             logger.addAppender(listAppender);
+            previousLogLevel = logger.getLevel();
             logger.setLevel(Level.TRACE);
 
             // Reset mock and metrics
@@ -124,6 +124,7 @@ class EmailServiceEdgeCasesTest {
             if (listAppender != null) {
                 listAppender.stop();
                 logger.detachAppender(listAppender);
+                logger.setLevel(previousLogLevel);
             }
         }
 
@@ -202,7 +203,7 @@ class EmailServiceEdgeCasesTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig({EmailTestConfiguration.class, TestMeterRegistryConfiguration.class})
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -215,9 +216,7 @@ class EmailServiceEdgeCasesTest {
         "app.email.password-reset.subject=Password Reset",
         "app.email.verification.subject=Email Verification",
         "app.auth.reset-token-ttl-minutes=60",
-        "app.auth.verification-token-ttl-minutes=1440",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "app.auth.verification-token-ttl-minutes=1440"
     })
     @DisplayName("Null or Invalid Recipient Email Tests")
     class NullRecipientEmailTest {
@@ -233,6 +232,7 @@ class EmailServiceEdgeCasesTest {
 
         private ListAppender<ILoggingEvent> listAppender;
         private Logger logger;
+        private Level previousLogLevel;
 
         @BeforeEach
         void setUp() {
@@ -241,6 +241,7 @@ class EmailServiceEdgeCasesTest {
             listAppender = new ListAppender<>();
             listAppender.start();
             logger.addAppender(listAppender);
+            previousLogLevel = logger.getLevel();
             logger.setLevel(Level.TRACE);
 
             // Reset mock and metrics
@@ -253,6 +254,7 @@ class EmailServiceEdgeCasesTest {
             if (listAppender != null) {
                 listAppender.stop();
                 logger.detachAppender(listAppender);
+                logger.setLevel(previousLogLevel);
             }
         }
 
@@ -319,7 +321,7 @@ class EmailServiceEdgeCasesTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig({EmailTestConfiguration.class, TestMeterRegistryConfiguration.class})
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -333,8 +335,6 @@ class EmailServiceEdgeCasesTest {
         "app.email.verification.subject=Email Verification",
         "app.auth.reset-token-ttl-minutes=0",  // Extreme: 0 minutes
         "app.auth.verification-token-ttl-minutes=525600",  // Extreme: 1 year (525600 minutes)
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
     })
     @DisplayName("Extreme TTL Values Tests")
     class ExtremeTtlValuesTest {
@@ -403,7 +403,7 @@ class EmailServiceEdgeCasesTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig({EmailTestConfiguration.class, TestMeterRegistryConfiguration.class})
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -416,9 +416,7 @@ class EmailServiceEdgeCasesTest {
         "app.email.password-reset.subject=Password Reset",
         "app.email.verification.subject=Email Verification",
         "app.auth.reset-token-ttl-minutes=60",
-        "app.auth.verification-token-ttl-minutes=1440",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "app.auth.verification-token-ttl-minutes=1440"
     })
     @DisplayName("Unusual Base URL Format Tests")
     class UnusualBaseUrlTest {
@@ -476,7 +474,7 @@ class EmailServiceEdgeCasesTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig({EmailTestConfiguration.class, TestMeterRegistryConfiguration.class})
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -489,9 +487,7 @@ class EmailServiceEdgeCasesTest {
         "app.email.password-reset.subject=Password Reset",
         "app.email.verification.subject=Email Verification",
         "app.auth.reset-token-ttl-minutes=60",
-        "app.auth.verification-token-ttl-minutes=1440",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "app.auth.verification-token-ttl-minutes=1440"
     })
     @DisplayName("Base URL with Trailing Slash Tests")
     class BaseUrlWithTrailingSlashTest {
@@ -539,7 +535,7 @@ class EmailServiceEdgeCasesTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig({EmailTestConfiguration.class, TestMeterRegistryConfiguration.class})
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -553,9 +549,7 @@ class EmailServiceEdgeCasesTest {
         "app.email.password-reset.subject=Password Reset",
         "app.email.verification.subject=Email Verification",
         "app.auth.reset-token-ttl-minutes=60",
-        "app.auth.verification-token-ttl-minutes=1440",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "app.auth.verification-token-ttl-minutes=1440"
     })
     @DisplayName("Non-existent Configuration Set Tests")
     class NonExistentConfigurationSetTest {
@@ -571,6 +565,7 @@ class EmailServiceEdgeCasesTest {
 
         private ListAppender<ILoggingEvent> listAppender;
         private Logger logger;
+        private Level previousLogLevel;
 
         @BeforeEach
         void setUp() {
@@ -579,6 +574,7 @@ class EmailServiceEdgeCasesTest {
             listAppender = new ListAppender<>();
             listAppender.start();
             logger.addAppender(listAppender);
+            previousLogLevel = logger.getLevel();
             logger.setLevel(Level.TRACE);
 
             // Reset mock and metrics
@@ -591,6 +587,7 @@ class EmailServiceEdgeCasesTest {
             if (listAppender != null) {
                 listAppender.stop();
                 logger.detachAppender(listAppender);
+                logger.setLevel(previousLogLevel);
             }
         }
 
@@ -667,7 +664,7 @@ class EmailServiceEdgeCasesTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig({EmailTestConfiguration.class, TestMeterRegistryConfiguration.class})
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -680,9 +677,7 @@ class EmailServiceEdgeCasesTest {
         "app.email.password-reset.subject=Password Reset",
         "app.email.verification.subject=Email Verification",
         "app.auth.reset-token-ttl-minutes=60",
-        "app.auth.verification-token-ttl-minutes=1440",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "app.auth.verification-token-ttl-minutes=1440"
     })
     @DisplayName("Special Character Token Tests")
     class SpecialCharacterTokenTest {
@@ -761,7 +756,7 @@ class EmailServiceEdgeCasesTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig({EmailTestConfiguration.class, TestMeterRegistryConfiguration.class})
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -774,9 +769,7 @@ class EmailServiceEdgeCasesTest {
         "app.email.password-reset.subject=Password Reset",
         "app.email.verification.subject=Email Verification",
         "app.auth.reset-token-ttl-minutes=60",
-        "app.auth.verification-token-ttl-minutes=1440",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "app.auth.verification-token-ttl-minutes=1440"
     })
     @DisplayName("Empty or Whitespace Token Tests")
     class EmptyTokenTest {
