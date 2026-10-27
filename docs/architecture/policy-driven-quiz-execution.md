@@ -2708,7 +2708,10 @@ Its `returned` outcome describes the service boundary rather than an outer trans
 generated test-owned catalog. It covers constraints/corruption, independent concurrency under
 both isolation levels, an actual MySQL deadlock with one committed winner, explicit retry after
 fresh reconciliation, reached-write rollback, lost commit acknowledgement, reconstructed services,
-caller locks and real JPA composition. `LegacyLifecycleIsolationIntegrationTest` exercises the
+caller locks and real JPA composition. JDBC/JPA fixtures also catch a real deadlock, reach a
+subsequent SQL write, and prove that the outer commit rejects the rollback-only transaction.
+Fresh reads retain neither the victim's original changes nor its later writes.
+`LegacyLifecycleIsolationIntegrationTest` exercises the
 real existing start/read/answer/complete services and wrong-owner denial in all legacy modes,
 with committed commands and fresh reads, without creating target state. A synthetic legacy
 marker in the focused storage suite proves only migration/transaction isolation; it is not a

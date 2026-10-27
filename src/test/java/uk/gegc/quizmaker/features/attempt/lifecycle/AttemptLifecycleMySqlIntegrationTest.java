@@ -449,6 +449,82 @@ class AttemptLifecycleMySqlIntegrationTest {
         } finally { shutdown(pool); }
     }
 
+    @ParameterizedTest(name = "caught real deadlock keeps caller rollback-only (JPA={0})")
+    @ValueSource(booleans = {false, true})
+    void caughtRealDeadlockRollsBackSubsequentCallerWrites(boolean useJpa) throws Exception {
+        UUID other = UUID.randomUUID();
+        var originals = Map.of(ID, service.initialize(ID), other, service.initialize(other));
+        sql.update("INSERT INTO lifecycle_legacy_fixture VALUES (2,'legacy'),(3,'legacy')");
+        LocalContainerEntityManagerFactoryBean factory = null;
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            PlatformTransactionManager manager = transactions;
+            if (useJpa) {
+                factory = new LocalContainerEntityManagerFactoryBean();
+                factory.setDataSource(source); factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
+                factory.setPackagesToScan("uk.gegc.quizmaker.features.attempt.lifecycle");
+                factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "none")); factory.afterPropertiesSet();
+                var jpa = new JpaTransactionManager(factory.getObject()); jpa.setDataSource(source);
+                manager = jpa;
+            }
+            var boundary = service(manager, metrics);
+            var outer = new TransactionTemplate(manager);
+            outer.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+            outer.setTimeout(20);
+            var gate = new CyclicBarrier(2);
+            var continuedWrites = new AtomicInteger();
+            java.util.function.BiFunction<UUID, UUID, Outcome> command = (own, peer) -> {
+                int marker = own.equals(ID) ? 2 : 3;
+                var caught = new AtomicBoolean();
+                try {
+                    outer.executeWithoutResult(status -> {
+                        sql.update("UPDATE lifecycle_legacy_fixture SET marker='before' WHERE id=?", marker);
+                        assertThat(boundary.save(own, 0, STARTED).rowVersion()).isEqualTo(1);
+                        await(gate);
+                        try { boundary.lock(peer); }
+                        catch (LifecycleStateException failure) {
+                            assertThat(failure.reason()).isEqualTo(PERSISTENCE_UNAVAILABLE);
+                            caught.set(true);
+                            // InnoDB has rolled back the victim. The caller still attempts a new
+                            // write; prove it reached MySQL before the outer rollback-only guard.
+                            assertThat(sql.update("UPDATE lifecycle_legacy_fixture SET marker='after' WHERE id=?", marker)).isEqualTo(1);
+                            assertThat(sql.queryForObject("SELECT marker FROM lifecycle_legacy_fixture WHERE id=?", String.class, marker))
+                                    .isEqualTo("after");
+                            continuedWrites.incrementAndGet();
+                        }
+                    });
+                    assertThat(caught).as("a caught deadlock must never allow the outer transaction to commit").isFalse();
+                    return new Outcome(own, null);
+                } catch (UnexpectedRollbackException failure) {
+                    assertThat(caught).as("rollback must follow a reached real deadlock").isTrue();
+                    return new Outcome(own, PERSISTENCE_UNAVAILABLE);
+                }
+            };
+            var first = pool.submit(() -> command.apply(ID, other));
+            var second = pool.submit(() -> command.apply(other, ID));
+            var results = List.of(first.get(25, TimeUnit.SECONDS), second.get(25, TimeUnit.SECONDS));
+            assertThat(results).filteredOn(result -> result.failure() == null).hasSize(1);
+            assertThat(results).filteredOn(result -> result.failure() == PERSISTENCE_UNAVAILABLE).hasSize(1);
+            assertThat(source.sqlErrorCodes).containsExactly(1213);
+            assertThat(continuedWrites).as("one victim successfully executed its post-deadlock SQL before commit").hasValue(1);
+            // These are fresh reads after both outer transactions ended, before fixture cleanup.
+            for (var result : results) {
+                var expected = result.failure() == null ? originals.get(result.id()).advance(STARTED, NOW)
+                        : originals.get(result.id());
+                assertThat(read(result.id())).isEqualTo(expected);
+                assertThat(sql.queryForObject("SELECT marker FROM lifecycle_legacy_fixture WHERE id=?", String.class,
+                        result.id().equals(ID) ? 2 : 3)).isEqualTo(result.failure() == null ? "before" : "legacy");
+            }
+            assertThat(count()).isEqualTo(2);
+        } finally {
+            try { shutdown(pool); }
+            finally {
+                try { if (factory != null) factory.destroy(); }
+                finally { sql.update("DELETE FROM lifecycle_legacy_fixture WHERE id IN (2,3)"); }
+            }
+        }
+    }
+
     @Test
     void jdbcWritesAndRootLocksJoinRealJpaTransactions() {
         var factory = new LocalContainerEntityManagerFactoryBean();
