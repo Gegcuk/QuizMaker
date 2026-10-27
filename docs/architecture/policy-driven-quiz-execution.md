@@ -1877,6 +1877,56 @@ Ordering answers:
 
 > In what order are those selected questions shown?
 
+### Pure ALL/MANUAL_SET selection boundary (#544)
+
+`QuestionSelectionService` is an internal, side-effect-free boundary for already authorized
+server callers. It selects immutable **item occurrence IDs**, not mutable question IDs or
+question-revision IDs. Repeated occurrences of the same question remain separate items.
+`QuestionSelection` defines version 1 of its input, configuration, output, evidence and supplied
+atomic-group metadata. Each strategy also has an explicit algorithm version; only version 1
+and the exact identifiers `ALL` and `MANUAL_SET` are supported.
+
+The caller supplies the complete eligible metadata from one immutable revision. `ALL` selects
+each eligible item exactly once. `MANUAL_SET` selects exactly the configured IDs, bounded by
+that eligible membership, without a new numerical quiz-size quota. Both return authored
+revision order, independent of metadata/configuration iteration order. Positions may have gaps;
+duplicate IDs or positions are errors rather than a reason to deduplicate or break ties by UUID.
+Manual configuration IDs are canonicalized as a set; their supplied order is not display order.
+An `ALL` configuration cannot also carry unused manual IDs.
+
+An empty eligible revision produces an empty result. An explicitly empty `MANUAL_SET` also
+produces an empty result against a nonempty revision. This represents selection only: it does
+not authorize starting an empty quiz. Start eligibility belongs to the consuming use case.
+The existing resolved-policy vocabulary remains `ALL`; an internal `MANUAL_SET` configuration
+does not add a public policy option, change canonical policy bytes or activate a new route.
+
+`Input.fromRevision` checks the exact content binding from #515 against #597's real immutable
+revision and projects item IDs/positions only. All items are eligible in this projection.
+Callers applying further eligibility rules supply their complete verified metadata to `Input`;
+the selector does not resolve ownership, permissions, visibility, contract availability or bank
+membership from client claims. Neither constructor nor result is authorization evidence.
+
+Optional atomic groups are supplied metadata, not section/case authoring or a database read.
+Every group must be nonempty with distinct known eligible IDs; duplicate group declarations
+are rejected. Each supplied group must be selected whole or not at all. Partial selection fails
+without expanding the set or dropping requested items. Overlapping supplied constraints are
+evaluated independently. These fixtures prove this local validator, not future case publication
+or section-runtime integration owned by #552/#546.
+
+The immutable result contains only selected IDs and evidence of the input/configuration/strategy
+and revision versions. It omits question content, answers and unselected bank/group membership.
+Evidence is not a complete input digest, command receipt or substitute for persisted exact form
+membership/order. #522 owns materialization and persistence; #547/#600 own start integration,
+and the applicable conformance/activation gates remain separate. No content hashing occurs.
+
+Unknown versions/strategies, malformed metadata, missing/ineligible IDs and invalid/partial groups
+fail through bounded `QuestionSelectionException` reasons without rejected values or causes.
+The input's diagnostic string includes counts only. No new log, metric label, transaction,
+repository, clock, random source, public endpoint, migration or offline package is introduced.
+N+1 is inapplicable: the selector performs no storage/relationship reads. Plain tests cover
+golden results, permutations, empty/invalid inputs, defensive copies and real in-memory
+revision/policy/ordering composition; that composition is not persistence or start proof.
+
 ### Candidate selection strategies
 
 ```text
