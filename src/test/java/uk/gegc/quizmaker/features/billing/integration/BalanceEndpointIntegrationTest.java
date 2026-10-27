@@ -4,18 +4,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.transaction.AfterTransaction;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.billing.domain.model.Balance;
@@ -74,12 +75,24 @@ class BalanceEndpointIntegrationTest {
 
     @Autowired
     private UserRepository userRepository;
-    
+
     @Autowired
     private RoleRepository roleRepository;
-    
+
     @Autowired
     private PermissionRepository permissionRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @AfterTransaction
+    void fixtureWritesAreRolledBack() {
+        if (testUser != null) {
+            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM users WHERE user_id=UUID_TO_BIN(?)",
+                    Integer.class, testUser.getId().toString())).isZero();
+            assertThat(balanceRepository.findByUserId(testUser.getId())).isEmpty();
+        }
+    }
 
     private User testUser;
     private String testUsername;
@@ -93,12 +106,12 @@ class BalanceEndpointIntegrationTest {
         userRepository.deleteAllInBatch();
         roleRepository.deleteAllInBatch();
         permissionRepository.deleteAllInBatch();
-        
+
         // Create billing permissions (following ShareLinkControllerIntegrationTest pattern)
         Permission billingReadPermission = new Permission();
         billingReadPermission.setPermissionName(PermissionName.BILLING_READ.name());
         billingReadPermission = permissionRepository.save(billingReadPermission);
-        
+
         Permission billingWritePermission = new Permission();
         billingWritePermission.setPermissionName(PermissionName.BILLING_WRITE.name());
         billingWritePermission = permissionRepository.save(billingWritePermission);
@@ -120,7 +133,7 @@ class BalanceEndpointIntegrationTest {
         testUser.setRoles(Set.of(billingRole));
         testUser = userRepository.save(testUser);
         testUserToken = testUser.getId().toString();
-        
+
         // Create authorities for Spring Security context
         billingReadAuthority = new SimpleGrantedAuthority("BILLING_READ");
         billingWriteAuthority = new SimpleGrantedAuthority("BILLING_WRITE");
@@ -137,291 +150,273 @@ class BalanceEndpointIntegrationTest {
         createTestTransactions();
     }
 
-    @Nested
-    @DisplayName("Authentication Tests")
-    class AuthenticationTests {
+    // Authentication
 
-        @Test
-        @DisplayName("Should return 401 when not authenticated")
-        void shouldReturn403WhenNotAuthenticated() throws Exception {
-            mockMvc.perform(get("/api/v1/billing/balance"))
-                    .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
-        }
+    @Test
+    @DisplayName("Authentication: Should return 401 when not authenticated")
+    void shouldReturn403WhenNotAuthenticated() throws Exception {
+        mockMvc.perform(get("/api/v1/billing/balance"))
+                .andExpect(status().isUnauthorized()); // Fixed: 401 for unauthenticated, not 403
+    }
 
-        @Test
-        @DisplayName("Should return 200 when authenticated with BILLING_READ authority")
-        void shouldReturn200WhenAuthenticatedWithBillingReadAuthority() throws Exception {
-            // Use the actual test user from setUp
+    @Test
+    @DisplayName("Authentication: Should return 200 when authenticated with BILLING_READ authority")
+    void shouldReturn200WhenAuthenticatedWithBillingReadAuthority() throws Exception {
+        // Use the actual test user from setUp
+        mockMvc.perform(get("/api/v1/billing/balance")
+                .with(user(testUserToken).authorities(billingReadAuthority)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.availableTokens").value(5000))
+                .andExpect(jsonPath("$.reservedTokens").value(1000));
+    }
+
+    @Test
+    @DisplayName("Authentication: Should return 403 when authenticated without BILLING_READ authority")
+    void shouldReturn403WhenAuthenticatedWithoutBillingReadAuthority() throws Exception {
+        // Create a user without BILLING_READ authority
+        User userWithoutBillingAuth = new User();
+        userWithoutBillingAuth.setUsername("nobillinguser");
+        userWithoutBillingAuth.setEmail("nobilling@example.com");
+        userWithoutBillingAuth.setHashedPassword("password");
+        userWithoutBillingAuth.setActive(true);
+        userWithoutBillingAuth.setEmailVerified(true);
+
+        // Create a role without billing permissions
+        Permission basicPermission = permissionRepository.findByPermissionName(PermissionName.USER_READ.name())
+                .orElseGet(() -> {
+                    Permission permission = new Permission();
+                    permission.setPermissionName(PermissionName.USER_READ.name());
+                    permission.setDescription("Basic user read permission");
+                    return permissionRepository.save(permission);
+                });
+
+        Role basicRole = roleRepository.findByRoleName("ROLE_BASIC")
+                .orElseGet(() -> {
+                    Role role = new Role();
+                    role.setRoleName("ROLE_BASIC");
+                    role.setPermissions(Set.of(basicPermission));
+                    return roleRepository.save(role);
+                });
+
+        userWithoutBillingAuth.setRoles(Set.of(basicRole));
+        userWithoutBillingAuth = userRepository.save(userWithoutBillingAuth);
+
+        mockMvc.perform(get("/api/v1/billing/balance")
+                .with(user(userWithoutBillingAuth.getId().toString())))
+                .andExpect(status().isForbidden());
+    }
+
+    // Balance Response
+
+    @Test
+    @DisplayName("Balance Response: Should return correct balance information")
+    void shouldReturnCorrectBalanceInformation() throws Exception {
+        // Use the actual test user from setUp
+        mockMvc.perform(get("/api/v1/billing/balance")
+                .with(user(testUserToken).authorities(billingReadAuthority)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.userId").value(testUser.getId().toString()))
+                .andExpect(jsonPath("$.availableTokens").value(5000))
+                .andExpect(jsonPath("$.reservedTokens").value(1000))
+                .andExpect(jsonPath("$.updatedAt").exists());
+    }
+
+    @Test
+    @DisplayName("Balance Response: Should create balance if user has no balance")
+    void shouldCreateBalanceIfUserHasNoBalance() throws Exception {
+        // Create new user without balance
+        User newUser = new User();
+        newUser.setUsername("newuser");
+        newUser.setEmail("newuser@example.com");
+        newUser.setHashedPassword("hashedPassword");
+        newUser.setActive(true);
+        newUser.setEmailVerified(true);
+
+        // Assign ROLE_USER to give billing permissions
+        Role userRole = roleRepository.findByRoleName(RoleName.ROLE_USER.name()).orElseThrow();
+        newUser.setRoles(Set.of(userRole));
+        final User savedNewUser = userRepository.save(newUser);
+
+        mockMvc.perform(get("/api/v1/billing/balance")
+                .with(user(savedNewUser.getId().toString()).authorities(billingReadAuthority)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.userId").value(savedNewUser.getId().toString()))
+                .andExpect(jsonPath("$.availableTokens").value(0))
+                .andExpect(jsonPath("$.reservedTokens").value(0));
+
+        // Verify balance was created in database
+        var balance = balanceRepository.findByUserId(savedNewUser.getId());
+        assertThat(balance).isPresent();
+        assertThat(balance.get().getAvailableTokens()).isEqualTo(0L);
+        assertThat(balance.get().getReservedTokens()).isEqualTo(0L);
+    }
+
+    // Transactions Endpoint
+
+    @Test
+    @DisplayName("Transactions Endpoint: Should return transactions with pagination")
+    void shouldReturnTransactionsWithPagination() throws Exception {
+        mockMvc.perform(get("/api/v1/billing/transactions")
+                        .with(user(testUserToken).authorities(billingReadAuthority))
+                        .param("page", "0")
+                        .param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content.length()").value(3)) // We created 3 transactions
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.totalPages").value(1))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.number").value(0));
+    }
+
+    @Test
+    @DisplayName("Transactions Endpoint: Should filter transactions by type")
+    void shouldFilterTransactionsByType() throws Exception {
+        mockMvc.perform(get("/api/v1/billing/transactions")
+                        .with(user(testUserToken).authorities(billingReadAuthority))
+                        .param("type", "PURCHASE"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].type").value("PURCHASE"));
+    }
+
+    @Test
+    @DisplayName("Transactions Endpoint: Should filter transactions by source")
+    void shouldFilterTransactionsBySource() throws Exception {
+        mockMvc.perform(get("/api/v1/billing/transactions")
+                        .with(user(testUserToken).authorities(billingReadAuthority))
+                        .param("source", "STRIPE"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].source").value("STRIPE"));
+    }
+
+    @Test
+    @DisplayName("Transactions Endpoint: Should filter transactions by date range")
+    void shouldFilterTransactionsByDateRange() throws Exception {
+        LocalDateTime yesterday = LocalDateTime.now().minusDays(1);
+        LocalDateTime tomorrow = LocalDateTime.now().plusDays(1);
+
+        mockMvc.perform(get("/api/v1/billing/transactions")
+                        .with(user(testUserToken).authorities(billingReadAuthority))
+                        .param("dateFrom", yesterday.toString())
+                        .param("dateTo", tomorrow.toString()))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content.length()").value(3));
+    }
+
+    @Test
+    @DisplayName("Transactions Endpoint: Should return empty list when no transactions match filters")
+    void shouldReturnEmptyListWhenNoTransactionsMatchFilters() throws Exception {
+        mockMvc.perform(get("/api/v1/billing/transactions")
+                        .with(user(testUserToken).authorities(billingReadAuthority))
+                        .param("type", "COMMIT")) // Use a type that doesn't exist in our test data
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0));
+    }
+
+    @Test
+    @DisplayName("Transactions Endpoint: Should handle invalid date format gracefully")
+    void shouldHandleInvalidDateFormatGracefully() throws Exception {
+        mockMvc.perform(get("/api/v1/billing/transactions")
+                        .with(user(testUserToken).authorities(billingReadAuthority))
+                        .param("dateFrom", "invalid-date"))
+                .andExpect(status().isBadRequest());
+    }
+
+    // Rate Limiting
+
+    @Test
+    @DisplayName("Rate Limiting: Should respect rate limits for balance endpoint")
+    void shouldRespectRateLimitsForBalanceEndpoint() throws Exception {
+        // Make multiple requests to test rate limiting
+        for (int i = 0; i < 10; i++) {
             mockMvc.perform(get("/api/v1/billing/balance")
                     .with(user(testUserToken).authorities(billingReadAuthority)))
-                    .andExpect(status().isOk())
-                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.availableTokens").value(5000))
-                    .andExpect(jsonPath("$.reservedTokens").value(1000));
+                    .andExpect(status().isOk());
         }
 
-        @Test
-        @DisplayName("Should return 403 when authenticated without BILLING_READ authority")
-        void shouldReturn403WhenAuthenticatedWithoutBillingReadAuthority() throws Exception {
-            // Create a user without BILLING_READ authority
-            User userWithoutBillingAuth = new User();
-            userWithoutBillingAuth.setUsername("nobillinguser");
-            userWithoutBillingAuth.setEmail("nobilling@example.com");
-            userWithoutBillingAuth.setHashedPassword("password");
-            userWithoutBillingAuth.setActive(true);
-            userWithoutBillingAuth.setEmailVerified(true);
-            
-            // Create a role without billing permissions
-            Permission basicPermission = permissionRepository.findByPermissionName(PermissionName.USER_READ.name())
-                    .orElseGet(() -> {
-                        Permission permission = new Permission();
-                        permission.setPermissionName(PermissionName.USER_READ.name());
-                        permission.setDescription("Basic user read permission");
-                        return permissionRepository.save(permission);
-                    });
-            
-            Role basicRole = roleRepository.findByRoleName("ROLE_BASIC")
-                    .orElseGet(() -> {
-                        Role role = new Role();
-                        role.setRoleName("ROLE_BASIC");
-                        role.setPermissions(Set.of(basicPermission));
-                        return roleRepository.save(role);
-                    });
-            
-            userWithoutBillingAuth.setRoles(Set.of(basicRole));
-            userWithoutBillingAuth = userRepository.save(userWithoutBillingAuth);
-            
-            mockMvc.perform(get("/api/v1/billing/balance")
-                    .with(user(userWithoutBillingAuth.getId().toString())))
-                    .andExpect(status().isForbidden());
-        }
+        // Note: Actual rate limiting behavior depends on configuration
+        // This test verifies the endpoint doesn't crash under load
     }
 
-    @Nested
-    @DisplayName("Balance Response Tests")
-    class BalanceResponseTests {
-
-        @Test
-        @DisplayName("Should return correct balance information")
-        void shouldReturnCorrectBalanceInformation() throws Exception {
-            // Use the actual test user from setUp
-            mockMvc.perform(get("/api/v1/billing/balance")
-                    .with(user(testUserToken).authorities(billingReadAuthority)))
-                    .andExpect(status().isOk())
-                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.userId").value(testUser.getId().toString()))
-                    .andExpect(jsonPath("$.availableTokens").value(5000))
-                    .andExpect(jsonPath("$.reservedTokens").value(1000))
-                    .andExpect(jsonPath("$.updatedAt").exists());
-        }
-
-        @Test
-        @DisplayName("Should create balance if user has no balance")
-        void shouldCreateBalanceIfUserHasNoBalance() throws Exception {
-            // Create new user without balance
-            User newUser = new User();
-            newUser.setUsername("newuser");
-            newUser.setEmail("newuser@example.com");
-            newUser.setHashedPassword("hashedPassword");
-            newUser.setActive(true);
-            newUser.setEmailVerified(true);
-            
-            // Assign ROLE_USER to give billing permissions
-            Role userRole = roleRepository.findByRoleName(RoleName.ROLE_USER.name()).orElseThrow();
-            newUser.setRoles(Set.of(userRole));
-            final User savedNewUser = userRepository.save(newUser);
-
-            mockMvc.perform(get("/api/v1/billing/balance")
-                    .with(user(savedNewUser.getId().toString()).authorities(billingReadAuthority)))
-                    .andExpect(status().isOk())
-                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.userId").value(savedNewUser.getId().toString()))
-                    .andExpect(jsonPath("$.availableTokens").value(0))
-                    .andExpect(jsonPath("$.reservedTokens").value(0));
-
-            // Verify balance was created in database
-            var balance = balanceRepository.findByUserId(savedNewUser.getId());
-            assertThat(balance).isPresent();
-            assertThat(balance.get().getAvailableTokens()).isEqualTo(0L);
-            assertThat(balance.get().getReservedTokens()).isEqualTo(0L);
-        }
-    }
-
-    @Nested
-    @DisplayName("Transactions Endpoint Tests")
-    class TransactionsEndpointTests {
-
-        @Test
-        @DisplayName("Should return transactions with pagination")
-        void shouldReturnTransactionsWithPagination() throws Exception {
-            mockMvc.perform(get("/api/v1/billing/transactions")
-                            .with(user(testUserToken).authorities(billingReadAuthority))
-                            .param("page", "0")
-                            .param("size", "10"))
-                    .andExpect(status().isOk())
-                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.content").isArray())
-                    .andExpect(jsonPath("$.content.length()").value(3)) // We created 3 transactions
-                    .andExpect(jsonPath("$.totalElements").value(3))
-                    .andExpect(jsonPath("$.totalPages").value(1))
-                    .andExpect(jsonPath("$.size").value(10))
-                    .andExpect(jsonPath("$.number").value(0));
-        }
-
-        @Test
-        @DisplayName("Should filter transactions by type")
-        void shouldFilterTransactionsByType() throws Exception {
-            mockMvc.perform(get("/api/v1/billing/transactions")
-                            .with(user(testUserToken).authorities(billingReadAuthority))
-                            .param("type", "PURCHASE"))
-                    .andExpect(status().isOk())
-                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.content").isArray())
-                    .andExpect(jsonPath("$.content.length()").value(1))
-                    .andExpect(jsonPath("$.content[0].type").value("PURCHASE"));
-        }
-
-        @Test
-        @DisplayName("Should filter transactions by source")
-        void shouldFilterTransactionsBySource() throws Exception {
-            mockMvc.perform(get("/api/v1/billing/transactions")
-                            .with(user(testUserToken).authorities(billingReadAuthority))
-                            .param("source", "STRIPE"))
-                    .andExpect(status().isOk())
-                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.content").isArray())
-                    .andExpect(jsonPath("$.content.length()").value(2))
-                    .andExpect(jsonPath("$.content[0].source").value("STRIPE"));
-        }
-
-        @Test
-        @DisplayName("Should filter transactions by date range")
-        void shouldFilterTransactionsByDateRange() throws Exception {
-            LocalDateTime yesterday = LocalDateTime.now().minusDays(1);
-            LocalDateTime tomorrow = LocalDateTime.now().plusDays(1);
-
-            mockMvc.perform(get("/api/v1/billing/transactions")
-                            .with(user(testUserToken).authorities(billingReadAuthority))
-                            .param("dateFrom", yesterday.toString())
-                            .param("dateTo", tomorrow.toString()))
-                    .andExpect(status().isOk())
-                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.content").isArray())
-                    .andExpect(jsonPath("$.content.length()").value(3));
-        }
-
-        @Test
-        @DisplayName("Should return empty list when no transactions match filters")
-        void shouldReturnEmptyListWhenNoTransactionsMatchFilters() throws Exception {
-            mockMvc.perform(get("/api/v1/billing/transactions")
-                            .with(user(testUserToken).authorities(billingReadAuthority))
-                            .param("type", "COMMIT")) // Use a type that doesn't exist in our test data
-                    .andExpect(status().isOk())
-                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.content").isArray())
-                    .andExpect(jsonPath("$.content.length()").value(0))
-                    .andExpect(jsonPath("$.totalElements").value(0));
-        }
-
-        @Test
-        @DisplayName("Should handle invalid date format gracefully")
-        void shouldHandleInvalidDateFormatGracefully() throws Exception {
-            mockMvc.perform(get("/api/v1/billing/transactions")
-                            .with(user(testUserToken).authorities(billingReadAuthority))
-                            .param("dateFrom", "invalid-date"))
-                    .andExpect(status().isBadRequest());
-        }
-    }
-
-    @Nested
-    @DisplayName("Rate Limiting Tests")
-    class RateLimitingTests {
-
-        @Test
-        @DisplayName("Should respect rate limits for balance endpoint")
-        void shouldRespectRateLimitsForBalanceEndpoint() throws Exception {
-            // Make multiple requests to test rate limiting
-            for (int i = 0; i < 10; i++) {
-                mockMvc.perform(get("/api/v1/billing/balance")
-                        .with(user(testUserToken).authorities(billingReadAuthority)))
-                        .andExpect(status().isOk());
-            }
-
-            // Note: Actual rate limiting behavior depends on configuration
-            // This test verifies the endpoint doesn't crash under load
-        }
-
-        @Test
-        @DisplayName("Should respect rate limits for transactions endpoint")
-        void shouldRespectRateLimitsForTransactionsEndpoint() throws Exception {
-            // Make multiple requests to test rate limiting
-            for (int i = 0; i < 10; i++) {
-                mockMvc.perform(get("/api/v1/billing/transactions")
-                        .with(user(testUserToken).authorities(billingReadAuthority)))
-                        .andExpect(status().isOk());
-            }
-
-            // Note: Actual rate limiting behavior depends on configuration
-            // This test verifies the endpoint doesn't crash under load
-        }
-    }
-
-    @Nested
-    @DisplayName("Cache Headers Tests")
-    class CacheHeadersTests {
-
-        @Test
-        @DisplayName("Should include appropriate cache headers for balance")
-        void shouldIncludeAppropriateCacheHeadersForBalance() throws Exception {
-            mockMvc.perform(get("/api/v1/billing/balance")
-                    .with(user(testUserToken).authorities(billingReadAuthority)))
-                    .andExpect(status().isOk())
-                    .andExpect(header().string("Cache-Control", "private, max-age=30"));
-        }
-
-        @Test
-        @DisplayName("Should include appropriate cache headers for transactions")
-        void shouldIncludeAppropriateCacheHeadersForTransactions() throws Exception {
+    @Test
+    @DisplayName("Rate Limiting: Should respect rate limits for transactions endpoint")
+    void shouldRespectRateLimitsForTransactionsEndpoint() throws Exception {
+        // Make multiple requests to test rate limiting
+        for (int i = 0; i < 10; i++) {
             mockMvc.perform(get("/api/v1/billing/transactions")
                     .with(user(testUserToken).authorities(billingReadAuthority)))
-                    .andExpect(status().isOk())
-                    .andExpect(header().string("Cache-Control", "private, max-age=60"));
+                    .andExpect(status().isOk());
         }
+
+        // Note: Actual rate limiting behavior depends on configuration
+        // This test verifies the endpoint doesn't crash under load
     }
 
-    @Nested
-    @DisplayName("Error Handling Tests")
-    class ErrorHandlingTests {
+    // Cache Headers
 
-        @Test
-        @DisplayName("Should handle malformed pagination parameters gracefully")
-        void shouldHandleMalformedPaginationParameters() throws Exception {
-            mockMvc.perform(get("/api/v1/billing/transactions")
-                            .with(user(testUserToken).authorities(billingReadAuthority))
-                            .param("page", "invalid")
-                            .param("size", "invalid"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.pageable.pageNumber").value(0))
-                    .andExpect(jsonPath("$.pageable.pageSize").value(20));
-        }
+    @Test
+    @DisplayName("Cache Headers: Should include appropriate cache headers for balance")
+    void shouldIncludeAppropriateCacheHeadersForBalance() throws Exception {
+        mockMvc.perform(get("/api/v1/billing/balance")
+                .with(user(testUserToken).authorities(billingReadAuthority)))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "private, max-age=30"));
+    }
 
-        @Test
-        @DisplayName("Should handle invalid transaction type")
-        void shouldHandleInvalidTransactionType() throws Exception {
-            mockMvc.perform(get("/api/v1/billing/transactions")
-                            .with(user(testUserToken).authorities(billingReadAuthority))
-                            .param("type", "INVALID_TYPE"))
-                    .andExpect(status().isBadRequest());
-        }
+    @Test
+    @DisplayName("Cache Headers: Should include appropriate cache headers for transactions")
+    void shouldIncludeAppropriateCacheHeadersForTransactions() throws Exception {
+        mockMvc.perform(get("/api/v1/billing/transactions")
+                .with(user(testUserToken).authorities(billingReadAuthority)))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "private, max-age=60"));
+    }
 
-        @Test
-        @DisplayName("Should handle invalid transaction source")
-        void shouldHandleInvalidTransactionSource() throws Exception {
-            mockMvc.perform(get("/api/v1/billing/transactions")
-                            .with(user(testUserToken).authorities(billingReadAuthority))
-                            .param("source", "INVALID_SOURCE"))
-                    .andExpect(status().isBadRequest());
-        }
+    // Error Handling
+
+    @Test
+    @DisplayName("Error Handling: Should handle malformed pagination parameters gracefully")
+    void shouldHandleMalformedPaginationParameters() throws Exception {
+        mockMvc.perform(get("/api/v1/billing/transactions")
+                        .with(user(testUserToken).authorities(billingReadAuthority))
+                        .param("page", "invalid")
+                        .param("size", "invalid"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pageable.pageNumber").value(0))
+                .andExpect(jsonPath("$.pageable.pageSize").value(20));
+    }
+
+    @Test
+    @DisplayName("Error Handling: Should handle invalid transaction type")
+    void shouldHandleInvalidTransactionType() throws Exception {
+        mockMvc.perform(get("/api/v1/billing/transactions")
+                        .with(user(testUserToken).authorities(billingReadAuthority))
+                        .param("type", "INVALID_TYPE"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("Error Handling: Should handle invalid transaction source")
+    void shouldHandleInvalidTransactionSource() throws Exception {
+        mockMvc.perform(get("/api/v1/billing/transactions")
+                        .with(user(testUserToken).authorities(billingReadAuthority))
+                        .param("source", "INVALID_SOURCE"))
+                .andExpect(status().isBadRequest());
     }
 
     private void createTestTransactions() {

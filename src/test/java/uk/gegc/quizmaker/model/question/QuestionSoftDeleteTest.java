@@ -1,10 +1,13 @@
 package uk.gegc.quizmaker.model.question;
 
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.transaction.AfterTransaction;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
@@ -25,7 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest
 @ActiveProfiles("test")
 @Transactional
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class QuestionSoftDeleteTest {
 
     @Autowired
@@ -36,6 +39,24 @@ class QuestionSoftDeleteTest {
 
     @Autowired
     private TagRepository tagRepository;
+
+    @Autowired
+    private EntityManager entityManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    private final List<Question> fixtureQuestions = new ArrayList<>();
+
+    @AfterTransaction
+    void fixtureWritesAreRolledBack() {
+        for (Question question : fixtureQuestions) {
+            if (question.getId() != null) {
+                assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM questions WHERE id=UUID_TO_BIN(?)",
+                        Integer.class, question.getId().toString())).isZero();
+            }
+        }
+    }
 
     @Test
     void shouldPerformSoftDeleteWhenDeletingQuestion() {
@@ -49,17 +70,19 @@ class QuestionSoftDeleteTest {
         assertThat(savedQuestion.getIsDeleted()).isFalse();
 
         // When
+        entityManager.flush(); // Make the INSERT real before exercising @SQLDelete.
         questionRepository.delete(savedQuestion);
+        entityManager.flush();
+        entityManager.clear();
 
         // Then
         // Question should not be found in normal queries due to @SQLRestriction
         Optional<Question> foundQuestion = questionRepository.findById(questionId);
         assertThat(foundQuestion).isEmpty();
 
-        // But should still exist in database with is_deleted = true
-        // We can verify this by checking the database directly or using a custom query
-        // For now, we'll verify the entity was marked as deleted before the delete operation
         assertThat(savedQuestion.getIsDeleted()).isTrue();
+        assertThat(jdbcTemplate.queryForObject("SELECT is_deleted FROM questions WHERE id=UUID_TO_BIN(?)",
+                Boolean.class, questionId.toString())).isTrue();
     }
 
     @Test
@@ -73,6 +96,9 @@ class QuestionSoftDeleteTest {
 
         // Then
         assertThat(savedQuestion.getIsDeleted()).isFalse();
+        entityManager.flush();
+        assertThat(jdbcTemplate.queryForObject("SELECT is_deleted FROM questions WHERE id=UUID_TO_BIN(?)",
+                Boolean.class, savedQuestion.getId().toString())).isFalse();
     }
 
     @Test
@@ -85,7 +111,10 @@ class QuestionSoftDeleteTest {
         Question savedQuestion2 = questionRepository.save(question2);
 
         // When
+        entityManager.flush();
         questionRepository.delete(savedQuestion1);
+        entityManager.flush();
+        entityManager.clear();
         List<Question> allQuestions = questionRepository.findAll();
 
         // Then
@@ -100,13 +129,15 @@ class QuestionSoftDeleteTest {
         Question savedQuestion = questionRepository.save(question);
 
         // When
+        entityManager.flush(); // Make the INSERT real before exercising @SQLDelete.
         questionRepository.delete(savedQuestion);
+        entityManager.flush();
+        entityManager.clear();
 
         // Then
-        // The deletedAt should be set by the @SQLDelete annotation
-        // We can't directly verify this in the test due to @SQLRestriction,
-        // but we can verify the entity was processed correctly
         assertThat(savedQuestion.getIsDeleted()).isTrue();
+        assertThat(jdbcTemplate.queryForObject("SELECT deleted_at FROM questions WHERE id=UUID_TO_BIN(?)",
+                java.sql.Timestamp.class, savedQuestion.getId().toString())).isNotNull();
     }
 
     private Question createTestQuestion() {
@@ -119,6 +150,7 @@ class QuestionSoftDeleteTest {
         question.setExplanation("Test explanation");
         question.setQuizId(new ArrayList<>());
         question.setTags(new ArrayList<>());
+        fixtureQuestions.add(question);
         return question;
     }
 } 

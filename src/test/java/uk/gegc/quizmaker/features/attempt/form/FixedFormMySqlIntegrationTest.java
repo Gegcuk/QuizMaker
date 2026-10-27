@@ -65,11 +65,7 @@ class FixedFormMySqlIntegrationTest {
         sql = new JdbcTemplate(source);
         transactions = new DataSourceTransactionManager(source);
         revisions = proxy(new JdbcQuizRevisionRepository(new NamedParameterJdbcTemplate(source)), transactions);
-    }
-
-    @BeforeEach
-    void migrate() {
-        clean();
+        dropSchema();
         sql.execute("CREATE TABLE form_legacy_fixture (id INT PRIMARY KEY, marker VARCHAR(50))");
         sql.update("INSERT INTO form_legacy_fixture VALUES (1,'legacy')");
         Flyway.configure().dataSource(source).table(HISTORY).locations("classpath:db/migration")
@@ -77,22 +73,76 @@ class FixedFormMySqlIntegrationTest {
         // V83 belongs to normalized documents. V84 and V85 need only immutable revision storage.
         Flyway.configure().dataSource(source).table(FORM_HISTORY).locations("classpath:db/migration")
                 .baselineOnMigrate(true).baselineVersion("83").target("85").load().migrate();
-        metrics = new SimpleMeterRegistry();
-        service = service(transactions);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form", Integer.class)).isZero();
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form_item", Integer.class)).isZero();
+        // Verify the migration preserved legacy data before any per-scenario reset can repair it.
+        assertThat(sql.queryForObject("SELECT marker FROM form_legacy_fixture WHERE id=1", String.class)).isEqualTo("legacy");
         source.reset();
     }
 
-    @AfterEach
-    void cleanup() {
-        clean();
-        if (metrics != null) metrics.close();
+    @BeforeEach
+    void prepareScenario() {
+        resetData();
+        metrics = new SimpleMeterRegistry();
+        service = service(transactions);
     }
 
-    private static void clean() {
+    @AfterEach
+    void cleanupScenario() {
+        try { resetData(); }
+        finally { if (metrics != null) metrics.close(); }
+    }
+
+    private static void resetData() {
+        source.reset(); // Clear fault hooks before cleanup opens a connection or executes SQL.
+        for (String table : List.of("attempt_form_item", "attempt_form", "question_revision_contract_bindings", "quiz_revision_items",
+                "question_option_revisions", "quiz_revisions", "question_revisions")) {
+            sql.update("DELETE FROM " + table);
+        }
+        sql.update("UPDATE form_legacy_fixture SET marker='legacy' WHERE id=1");
+        assertThat(sql.queryForObject("SELECT marker FROM form_legacy_fixture WHERE id=1", String.class)).isEqualTo("legacy");
+        source.reset(); // Keep fixture work outside the measured SQL/transaction interval.
+    }
+
+    @AfterAll
+    static void dropSchema() {
+        if (source == null) return;
         source.reset();
         for (String table : List.of("attempt_policy_snapshot", "attempt_form_item", "attempt_form", "question_revision_contract_bindings",
                 "quiz_revision_items", "question_option_revisions", "quiz_revisions", "question_revisions",
                 HISTORY, FORM_HISTORY, "form_legacy_fixture")) sql.execute("DROP TABLE IF EXISTS " + table);
+    }
+
+    @Test
+    void fixtureCleanupRemovesCommittedFormAndRestoresLegacyMarkerAndHooks() {
+        var history = sql.queryForList("SELECT * FROM " + FORM_HISTORY + " ORDER BY installed_rank");
+        var definition = sql.queryForMap("SHOW CREATE TABLE attempt_form_item");
+        var revision = savedRevision("cleanup", 2);
+        var value = form("cleanup-form", revision, 2);
+        service.createOrReplay(OWNER, value);
+        var question = revision.items().get(0).question().id();
+        sql.update("INSERT INTO question_option_revisions VALUES (?,?,'option',0)", bytes(id("cleanup-option")), bytes(question));
+        sql.update("INSERT INTO question_revision_contract_bindings VALUES (?,'fixture.response',1,'fixture.scoring',1,?)",
+                bytes(question), "0".repeat(64));
+        sql.update("UPDATE form_legacy_fixture SET marker='committed' WHERE id=1");
+        source.failConnection = true;
+        source.beforeSql = (statement, connection) -> { throw new SQLException("Stale fixture hook"); };
+
+        resetData();
+
+        assertThat(source.selects).isEmpty();
+        assertThat(source.sqlErrorCodes).isEmpty();
+        assertThat(service.findByIds(OWNER, List.of(value.id()))).isEmpty();
+        assertThat(revisions.findById(OWNER, revision.id())).isEmpty();
+        assertThat(count("attempt_form_item")).isZero();
+        assertThat(count("question_option_revisions")).isZero();
+        assertThat(count("question_revision_contract_bindings")).isZero();
+        assertThat(sql.queryForObject("SELECT marker FROM form_legacy_fixture WHERE id=1", String.class)).isEqualTo("legacy");
+        assertThat(sql.queryForList("SELECT * FROM " + FORM_HISTORY + " ORDER BY installed_rank")).isEqualTo(history);
+        assertThat(sql.queryForMap("SHOW CREATE TABLE attempt_form_item")).isEqualTo(definition);
+        var next = savedRevision("cleanup", 1);
+        var replacement = form("cleanup-form", next, 1);
+        assertThat(service.createOrReplay(OWNER, replacement)).isEqualTo(replacement);
     }
 
     @Test

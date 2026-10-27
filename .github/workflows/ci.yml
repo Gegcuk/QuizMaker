@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ master, main ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   classify-changes:
     if: github.event_name == 'pull_request'
@@ -110,8 +114,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify PR change classification
-        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+      - name: Verify CI helper scripts
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py' -v
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -456,6 +460,7 @@ jobs:
           sudo -E ip netns exec "$NETNS" \
             runuser --user "$USER" --preserve-environment -- \
             env HOME="$HOME" ./mvnw -o -B -T 1C -DskipTests=false clean verify \
+            -Dorg.slf4j.simpleLogger.showDateTime=true \
             2>&1 | tee "$VERIFICATION_LOG"
           TEST_EXIT_CODE=${PIPESTATUS[0]}
           set -e
@@ -498,7 +503,7 @@ jobs:
               head -160 "$FIRST_FAILURE"
             else
               echo "No failing Surefire report was produced. Showing Maven/build errors:"
-              MAVEN_ERRORS=$(grep -E '^\[ERROR\]|BUILD FAILURE|Failed to execute goal|Could not resolve|Cannot access' \
+              MAVEN_ERRORS=$(grep -E '(^|[[:space:]])\[ERROR\]|BUILD FAILURE|Failed to execute goal|Could not resolve|Cannot access' \
                 "$VERIFICATION_LOG" | tail -120 || true)
               if [ -n "$MAVEN_ERRORS" ]; then
                 echo "$MAVEN_ERRORS"
@@ -510,6 +515,13 @@ jobs:
 
           exit $TEST_EXIT_CODE
         continue-on-error: false
+
+      - name: Publish test timing summary
+        if: ${{ always() && !cancelled() }}
+        continue-on-error: true
+        run: |
+          python3 -B .github/scripts/summarize_tests.py \
+            "${RUNNER_TEMP}/quizmaker-verify.log" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload tested backend artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -527,7 +539,7 @@ jobs:
           echo ""
           echo "=== Maven/build failures before Surefire ==="
           if [ -s "${RUNNER_TEMP}/quizmaker-verify.log" ]; then
-            MAVEN_ERRORS=$(grep -E '^\[ERROR\]|BUILD FAILURE|Failed to execute goal|Could not resolve|Cannot access' \
+            MAVEN_ERRORS=$(grep -E '(^|[[:space:]])\[ERROR\]|BUILD FAILURE|Failed to execute goal|Could not resolve|Cannot access' \
               "${RUNNER_TEMP}/quizmaker-verify.log" | tail -120 || true)
             if [ -n "$MAVEN_ERRORS" ]; then
               echo "$MAVEN_ERRORS"

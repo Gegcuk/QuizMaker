@@ -6,12 +6,13 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import software.amazon.awssdk.services.sesv2.SesV2Client;
+import uk.gegc.quizmaker.shared.email.EmailTestConfiguration;
 import uk.gegc.quizmaker.shared.email.EmailService;
 import uk.gegc.quizmaker.shared.email.impl.AwsSesEmailService;
 import uk.gegc.quizmaker.shared.email.impl.EmailServiceImpl;
@@ -32,8 +33,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * - NOOP provider: NoopEmailService bean exists, no SesV2Client required
  * - SMTP provider: EmailServiceImpl bean exists, SMTP only
  * 
- * Each test runs in a separate Spring context (DirtiesContext) to ensure
- * provider selection is isolated and accurate.
+ * Each provider group uses an isolated email-only Spring context (DirtiesContext).
  */
 @DisplayName("Email Provider Selection Spring Context Tests")
 class EmailProviderConfigTest {
@@ -46,7 +46,7 @@ class EmailProviderConfigTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -54,9 +54,7 @@ class EmailProviderConfigTest {
         "app.email.from=test-sender@verified-domain.com",
         "app.email.region=us-east-1",
         "AWS_ACCESS_KEY_ID=test-access-key",
-        "AWS_SECRET_ACCESS_KEY=test-secret-key",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "AWS_SECRET_ACCESS_KEY=test-secret-key"
     })
     @DisplayName("SES Provider Context Tests")
     class SesProviderContextTest {
@@ -119,13 +117,11 @@ class EmailProviderConfigTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
-        "app.email.provider=noop",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "app.email.provider=noop"
     })
     @DisplayName("NOOP Provider Context Tests")
     class NoopProviderContextTest {
@@ -183,8 +179,8 @@ class EmailProviderConfigTest {
      * Test for default provider selection behavior.
      * The NoopProviderContextTest above already verifies that noop provider works when explicitly set.
      * This test verifies the same behavior to document that noop is the intended default.
-     * Note: Since environment variables from .env take precedence, we can't truly test "missing" property
-     * in a way that's independent of the developer's local .env file, so we document the expected behavior here.
+     * The provider is set explicitly so these scenarios do not depend on APP_EMAIL_PROVIDER
+     * in the developer's environment. Packaged defaults are loaded without importing .env.
      */
 
     /**
@@ -196,7 +192,7 @@ class EmailProviderConfigTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -204,9 +200,7 @@ class EmailProviderConfigTest {
         "spring.mail.host=smtp.example.com",
         "spring.mail.port=587",
         "spring.mail.username=test-smtp@example.com",
-        "spring.mail.password=test-password",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
+        "spring.mail.password=test-password"
     })
     @DisplayName("SMTP Provider Context Tests")
     class SmtpProviderContextTest {
@@ -263,7 +257,7 @@ class EmailProviderConfigTest {
      */
     @Nested
     @Tag("db-serial")
-    @SpringBootTest
+    @SpringJUnitConfig(EmailTestConfiguration.class)
     @ActiveProfiles("test")
     @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
     @TestPropertySource(properties = {
@@ -271,8 +265,6 @@ class EmailProviderConfigTest {
         "spring.mail.host=smtp.example.com",
         "spring.mail.port=587",
         "spring.mail.username=",  // Empty username - should trigger skip behavior
-        "spring.jpa.hibernate.ddl-auto=create-drop",
-        "spring.flyway.enabled=false"
     })
     @DisplayName("SMTP Provider with Missing Credentials Tests")
     class SmtpProviderMissingCredentialsTest {

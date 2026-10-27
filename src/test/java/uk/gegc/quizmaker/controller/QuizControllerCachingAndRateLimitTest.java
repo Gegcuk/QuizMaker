@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -9,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.annotation.DirtiesContext;
@@ -25,6 +27,8 @@ import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.admin.aplication.RoleService;
 import uk.gegc.quizmaker.features.user.domain.model.RoleName;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -40,7 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "app.security.enable-forwarded-headers=true",
         "spring.jpa.hibernate.ddl-auto=create"
 })
-@DirtiesContext(classMode = DirtiesContext.ClassMode.BEFORE_EACH_TEST_METHOD)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class QuizControllerCachingAndRateLimitTest {
 
     @Autowired
@@ -56,30 +60,59 @@ class QuizControllerCachingAndRateLimitTest {
     @Autowired
     private RoleService roleService;
 
+    private static final AtomicInteger CLIENT_IDS = new AtomicInteger();
+    private String clientIp;
+    private User admin;
     private Category category;
 
     @BeforeEach
     void setup() {
-        jdbcTemplate.execute("DELETE FROM quiz_tags");
-        jdbcTemplate.execute("DELETE FROM quizzes");
-        jdbcTemplate.execute("DELETE FROM user_roles");
-        jdbcTemplate.execute("DELETE FROM users");
-        jdbcTemplate.execute("DELETE FROM categories");
-
-        User admin = new User();
+        assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+        clientIp = nextClientIp();
+        admin = new User();
         admin.setUsername("admin");
         admin.setEmail("admin@example.com");
         admin.setHashedPassword("pw");
         admin.setActive(true);
         admin.setDeleted(false);
-        User savedUser = userRepository.save(admin);
+        admin = userRepository.save(admin);
         
         // Assign ADMIN role to the user
-        roleService.assignRoleToUser(savedUser.getId(), roleService.getRoleByName(RoleName.ROLE_ADMIN).getRoleId());
+        roleService.assignRoleToUser(admin.getId(), roleService.getRoleByName(RoleName.ROLE_ADMIN).getRoleId());
 
         category = new Category();
         category.setName("General");
         categoryRepository.save(category);
+    }
+
+    private static String nextClientIp() {
+        int id = CLIENT_IDS.incrementAndGet();
+        return "198.18." + ((id >>> 8) & 255) + "." + (id & 255);
+    }
+
+    @AfterEach
+    void cleanupFixtures() {
+        assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+        if (admin != null && admin.getId() != null) {
+            String owner = admin.getId().toString();
+            for (String table : java.util.List.of("quiz_questions", "quiz_tags")) {
+                jdbcTemplate.update("DELETE FROM " + table
+                        + " WHERE quiz_id IN (SELECT quiz_id FROM quizzes WHERE creator_id=UUID_TO_BIN(?))", owner);
+            }
+            jdbcTemplate.update("DELETE FROM quizzes WHERE creator_id=UUID_TO_BIN(?)", owner);
+            // Real role assignment may commit an audit row referencing this fixture user.
+            jdbcTemplate.update("DELETE FROM role_permission_audit WHERE target_user_id=UUID_TO_BIN(?)"
+                    + " OR actor_id=UUID_TO_BIN(?)", owner, owner);
+            jdbcTemplate.update("DELETE FROM user_roles WHERE user_id=UUID_TO_BIN(?)", owner);
+            jdbcTemplate.update("DELETE FROM users WHERE user_id=UUID_TO_BIN(?)", owner);
+            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM quizzes WHERE creator_id=UUID_TO_BIN(?)",
+                    Integer.class, owner)).isZero();
+            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM users WHERE user_id=UUID_TO_BIN(?)",
+                    Integer.class, owner)).isZero();
+        }
+        if (category != null && category.getId() != null) {
+            jdbcTemplate.update("DELETE FROM categories WHERE category_id=UUID_TO_BIN(?)", category.getId().toString());
+        }
     }
 
     @Test
@@ -103,6 +136,12 @@ class QuizControllerCachingAndRateLimitTest {
                         .param("page", "0").param("size", "10")
                         .header("If-None-Match", etag))
                 .andExpect(status().isNotModified())
+                .andExpect(header().string("ETag", etag));
+
+        mockMvc.perform(get("/api/v1/quizzes")
+                        .param("page", "0").param("size", "10")
+                        .header("If-None-Match", "W/\"stale-validator\""))
+                .andExpect(status().isOk())
                 .andExpect(header().string("ETag", etag));
     }
 
@@ -128,6 +167,12 @@ class QuizControllerCachingAndRateLimitTest {
                         .header("If-None-Match", etag))
                 .andExpect(status().isNotModified())
                 .andExpect(header().string("ETag", etag));
+
+        mockMvc.perform(get("/api/v1/quizzes/public")
+                        .param("page", "0").param("size", "10")
+                        .header("If-None-Match", "W/\"stale-validator\""))
+                .andExpect(status().isOk())
+                .andExpect(header().string("ETag", etag));
     }
 
     @Test
@@ -135,12 +180,10 @@ class QuizControllerCachingAndRateLimitTest {
     void rateLimit_ListQuizzes() throws Exception {
         // Hit the endpoint 121 times with the same client IP
         for (int i = 0; i < 120; i++) {
-            mockMvc.perform(get("/api/v1/quizzes/public").param("page", "0").param("size", "1")
-                            .header("X-Forwarded-For", "203.0.113.10"))
+            mockMvc.perform(get("/api/v1/quizzes/public").header("X-Forwarded-For", clientIp).param("page", "0").param("size", "1"))
                     .andExpect(status().isOk());
         }
-        mockMvc.perform(get("/api/v1/quizzes/public").param("page", "0").param("size", "1")
-                        .header("X-Forwarded-For", "203.0.113.10"))
+        mockMvc.perform(get("/api/v1/quizzes/public").header("X-Forwarded-For", clientIp).param("page", "0").param("size", "1"))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().exists("Retry-After"));
     }
@@ -158,15 +201,29 @@ class QuizControllerCachingAndRateLimitTest {
                 .andExpect(status().isCreated());
 
         for (int i = 0; i < 120; i++) {
-            mockMvc.perform(get("/api/v1/quizzes/public").param("page", "0").param("size", "1")
-                            .header("X-Forwarded-For", "198.51.100.25"))
+            mockMvc.perform(get("/api/v1/quizzes/public").header("X-Forwarded-For", clientIp).param("page", "0").param("size", "1"))
                     .andExpect(status().isOk());
         }
-        mockMvc.perform(get("/api/v1/quizzes/public").param("page", "0").param("size", "1")
-                        .header("X-Forwarded-For", "198.51.100.25"))
+        mockMvc.perform(get("/api/v1/quizzes/public").header("X-Forwarded-For", clientIp).param("page", "0").param("size", "1"))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().exists("Retry-After"));
     }
+
+    @Test
+    @DisplayName("Rate limit: exhausting one client's budget leaves another client's budget intact")
+    void rateLimit_ExhaustedClientDoesNotBlockAnotherClient() throws Exception {
+        for (int i = 0; i < 120; i++) {
+            mockMvc.perform(get("/api/v1/quizzes/public").header("X-Forwarded-For", clientIp)
+                            .param("page", "0").param("size", "1"))
+                    .andExpect(status().isOk());
+        }
+        mockMvc.perform(get("/api/v1/quizzes/public").header("X-Forwarded-For", clientIp))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists("Retry-After"));
+        mockMvc.perform(get("/api/v1/quizzes/public").header("X-Forwarded-For", nextClientIp()))
+                .andExpect(status().isOk());
+    }
+
 }
 
 

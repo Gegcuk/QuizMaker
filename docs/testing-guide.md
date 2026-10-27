@@ -102,11 +102,23 @@ Use a real test database for custom queries and persistence invariants.
 - Test fetch plans where an endpoint needs relationships. Use multiple parent rows and observe generated SQL or assert a bounded query count; the count must not increase linearly with parent count. Avoid claiming that N+1 is fixed from a functional assertion or annotation alone.
 - Prefer deterministic fixtures and explicit ordering. Tests must not depend on execution order or left-over data.
 
+The focused contract, fixed-form, and policy-snapshot MySQL suites migrate their owned tables once in `@BeforeAll` and drop them in `@AfterAll`. Before and after each scenario they clear committed rows in foreign-key order, restore legacy fixture markers, and reset fault hooks and SQL counters. Keep foreign keys enabled and preserve the scenarios' real JDBC/JPA transactions; an outer test rollback is not a substitute for this cleanup. Rollback assertions must inspect durable state before cleanup runs.
+
+`QuestionRevisionContractsMigrationMySqlIntegrationTest` owns the scenario that deliberately reapplies a migration. Include it when running the contract suite. Snapshot corruption scenarios restore both the original value and CHECK enforcement in `finally`; cleanup verifies that every migrated CHECK is present with its original enforcement state.
+
+```bash
+./mvnw test '-Dtest=QuestionRevisionContracts*MySqlIntegrationTest,FixedFormMySqlIntegrationTest,PolicySnapshotMySqlIntegrationTest'
+```
+
 Before task handoff, repeat this N+1 check for every touched JPA-backed list, aggregate, mapper, and serialization path. Record the command/test and result, or state that N+1 is not applicable because no relationship-loading read path changed.
 
 ## Integration Tests
 
 Reserve integration tests for behavior that crosses real boundaries: service transactions, `AFTER_COMMIT` listeners, migration wiring, security configuration, serialization, or asynchronous job orchestration.
+
+Reuse the Spring context within a class when scenario isolation does not require a restart. `QuestionSoftDeleteTest` and `BalanceEndpointIntegrationTest` retain their test-managed rollback and verify fixture removal in `@AfterTransaction`. `AttemptControllerCurrentQuestionIntegrationTest` and `QuizControllerCachingAndRateLimitTest` retain committed fixtures and real request transactions; they physically remove only their own rows after each scenario, with foreign keys enabled. Rate-limit scenarios use a distinct client IP per scenario and keep one IP for every request within the 120/121 boundary check. ETag scenarios retain direct requests without forwarded headers. These classes still close their contexts after the class and run in the serial database lane.
+
+Avoid adding `@Nested` containers beneath a class-level `@DirtiesContext` solely for display grouping: inherited context invalidation can cause a restart after each nested container. Balance endpoint scenarios use grouped display names in one class instead. Do not globally remove `@DirtiesContext` from shared integration bases, since other suites change the shared schema or bean state.
 
 - Keep each scenario narrow and name the cross-layer contract it verifies.
 - For asynchronous behavior, invoke a synchronous seam, use a controlled executor, or wait on a deterministic signal. Do not use arbitrary sleeps.
@@ -153,14 +165,71 @@ Use Given/When/Then sections where they make a test easier to read. One test may
 
 ## Commands
 
-Run the narrowest relevant checks first:
+Use JDK 17 and run Maven commands from the repository root.
+
+### Local feedback loop
+
+Run the narrowest relevant tests while implementing a change:
 
 ```bash
-./mvnw test -Dtest=QuestionServiceImplTest
-./mvnw test -Dtest=QuestionControllerTest,QuestionSchemaServiceTest
-./mvnw verify
+./mvnw test -Dtest=PolicySnapshotTest
+./mvnw test -Dtest=PolicySnapshotTest,PolicySnapshotMySqlIntegrationTest
+```
+
+Choose tests by changed behavior and affected callers. Changes to shared
+security, transactions, configuration or migrations require broader checks
+than changes confined to one feature.
+
+Do not run `clean` after every small edit. Use it for final clean verification
+or when stale compiled/generated classes are suspected. A focused run is not
+a full-suite verification.
+
+### Full verification
+
+Run full verification on the completed change:
+
+```bash
+./mvnw clean verify
 git diff --check
 ```
+
+CI continues to run the complete offline `clean verify` gate for code changes
+in pull requests and for pushes to `master`/`main`. Existing documentation-only
+PR classification remains unchanged.
+
+### Timing diagnostics
+
+To generate a local timing summary, preserve Maven's failure status through
+the logging pipeline:
+
+```bash
+set -o pipefail
+./mvnw -B -Dorg.slf4j.simpleLogger.showDateTime=true clean verify \
+  2>&1 | tee /tmp/quizmaker-verify.log
+```
+
+Then render the summary:
+
+```bash
+python3 -B .github/scripts/summarize_tests.py /tmp/quizmaker-verify.log
+```
+
+The summary describes one Maven invocation and is diagnostic only. Missing
+or partial timing data is not a passing test result.
+
+SQL and bind-value logging are quiet by default. Enable SQL logging only for
+a focused diagnostic run:
+
+```bash
+./mvnw test -Dtest=UserRepositoryTest \
+  -Dlogging.level.org.hibernate.SQL=DEBUG
+```
+
+In CI, a new run for the same PR cancels its outdated run. Push-triggered
+verification runs have independent concurrency keys and are not cancelled
+by this PR optimization.
+
+### Manual provider smoke tests
 
 Run the Maven command from the repository root. Use the live-provider profile only for a deliberate, owner-run smoke test after securely configuring test-mode provider credentials:
 

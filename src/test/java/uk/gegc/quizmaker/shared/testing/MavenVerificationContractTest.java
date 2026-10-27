@@ -120,6 +120,40 @@ class MavenVerificationContractTest {
         assertThat(mysqlTestProperties).contains("billing.pack-sync.enabled=false");
     }
 
+    @Test
+    @DisplayName("CI diagnostics preserve full verification and post-merge runs")
+    void ciDiagnostics_preserveVerificationAndPostMergeRuns() throws Exception {
+        String workflow = Files.readString(projectDirectory().resolve(".github/workflows/ci.yml"));
+        assertThat(workflow).contains("""
+                on:
+                  push:
+                    branches: [ master, main ]
+                  pull_request:
+                    branches: [ master, main ]
+                """.strip());
+        assertThat(workflow)
+                .contains("group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}")
+                .contains("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
+
+        int verify = workflow.indexOf("- name: Verify backend offline release gate");
+        int summary = workflow.indexOf("- name: Publish test timing summary");
+        int artifact = workflow.indexOf("- name: Upload tested backend artifact");
+        assertThat(verify).isGreaterThanOrEqualTo(0);
+        assertThat(summary).isGreaterThan(verify);
+        assertThat(artifact).isGreaterThan(summary);
+        assertThat(workflow.substring(verify, summary))
+                .contains("./mvnw -o -B -T 1C -DskipTests=false clean verify")
+                .contains("-Dorg.slf4j.simpleLogger.showDateTime=true")
+                .contains("TEST_EXIT_CODE=${PIPESTATUS[0]}")
+                .contains("exit $TEST_EXIT_CODE")
+                .contains("continue-on-error: false");
+        assertThat(workflow.substring(summary, artifact))
+                .contains("if: ${{ always() && !cancelled() }}")
+                .contains("continue-on-error: true")
+                .contains("python3 -B .github/scripts/summarize_tests.py")
+                .contains("$GITHUB_STEP_SUMMARY");
+    }
+
     private Document readPom() throws Exception {
         Path pomPath = projectDirectory().resolve("pom.xml");
         assertThat(Files.isRegularFile(pomPath)).as("Maven project descriptor").isTrue();
