@@ -2126,6 +2126,68 @@ These constraints support:
 
 The exact option order is persisted in the form and never regenerated during resume or review.
 
+### Dark option-order storage and calculation (#521)
+
+`FormOptionOrderService` adds exact option order alongside #519 without changing its identity-only
+contract. Its already-authorized internal caller supplies trusted owner scope, a fixed form and
+the resolved `AnswerOrderingPolicy`. The service loads the owner-scoped immutable revision and
+resolves its exact saved response/scoring bindings through #598. External transactions must first
+declare their complete revision scope using `QuestionRevisionContractService.declareScope`.
+The operation joins that transaction; returning successfully does not commit an outer transaction.
+
+The exact response adapter explicitly supplies `OptionLayout/v1`. Its default implementation
+rejects unsupported contracts, so an existing adapter never silently acquires option support.
+The descriptor partitions the complete authored option list into contiguous ordered blocks.
+Members preserve their relative order; unpinned blocks may move as units; FIRST/LAST blocks stay
+anchored. A semantic-order or shuffle-disabled question declares `shuffleAllowed=false`.
+These are trusted adapter facts, not new authoring fields or an interpretation of arbitrary JSON.
+Unsupported constraints must not be weakened into a permissive descriptor by a future adapter.
+
+`AUTHORED/v1` preserves immutable authored positions. `SHUFFLED_PER_ATTEMPT/v1` uses Fisher-Yates
+over movable blocks, seeded by the first eight SHA-256 bytes of the fixed big-endian format:
+32-bit version 1, form UUID (two 64-bit words), then form-item UUID (two 64-bit words). Java Random's
+specified algorithm and a frozen vector define this calculation version. Only 36 bytes of bounded
+identity metadata are hashed; no document/question text is hashed. This is option display order,
+not an unpredictable formal question-selection strategy or proof of persisted form evidence.
+The exact stored order remains authoritative; reads never run the algorithm or reshape it from
+mutable authoring data. A changed strategy, form or descriptor that produces different evidence
+cannot overwrite an existing order.
+
+The initial boundary accepts the five baseline family types. Concrete response/scoring adapters
+remain #701's work; registry availability and adapter-supplied complete metadata are required
+before a type can actually be written. No binding/version is inferred from a question-type enum
+or the legacy handler. Tests use explicit registry component adapters and do not prove #701's
+grading semantics. An adapter for an option-free question supplies an explicitly empty layout;
+options are never fabricated. Repeated occurrences of a question have separate form-item order.
+
+V89 adds `attempt_form_option_order`, `attempt_form_item_option_order` and `attempt_form_option`,
+plus supporting unique indexes. Composite foreign keys bind each stored option to the correct
+immutable question, source occurrence, fixed-form item and exact contract pair. Unique item-option
+and display-position keys reject duplicate membership. Root/item counts distinguish a complete
+empty order from absent or incomplete evidence. Existing forms are not backfilled and remain
+without option-order evidence until explicitly processed through this boundary. There are no
+cascades, retention jobs, destructive downgrade or legacy-attempt rebinding; recovery after writes
+uses forward-fix.
+
+Form and order writes commit atomically. Per-form serialization/current reads preserve identical
+replay under READ_COMMITTED and REPEATABLE_READ, including an older snapshot; changed input conflicts.
+The order root retains its exclusive lock through commit. Final comparison uses current FOR SHARE
+reads without upgrading shared revision/binding locks. Different empty forms of the same revision
+can therefore commit independently; MySQL tests synchronize both writers after real inserts and
+before comparison under both isolation levels.
+Unknown commit outcome is reconciled by replaying the same identities, never by allocating a new
+form. Missing/foreign IDs are omitted by owner-scoped metadata reads; persistence failure is not an
+empty result. Invalid stored versions, counts, binding metadata or positions fail closed.
+Reads use three metadata SELECTs per batch of at most 500 requested IDs, without question content
+or JPA relationship traversal. Multi-parent/increasing-option fixtures measure this bound.
+
+The bounded `quizmaker.attempt.option.order.operations` timer carries operation/outcome only;
+unavailable/unknown commit acknowledgement is `persistence_unavailable`, not a proven rejection.
+Timer startup/recording failure cannot change command results. No new operational threshold is selected.
+This increment adds no endpoint, permission, participant response, attempt start or activation.
+#522/#600/#526 own materialization/start/delivery composition; #609 owns public activation.
+Stored component fixtures are not proof of those future runtime integrations.
+
 ---
 
 ## Attempt Forms

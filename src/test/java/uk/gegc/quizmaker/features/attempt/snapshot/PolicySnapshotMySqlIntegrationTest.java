@@ -119,7 +119,8 @@ class PolicySnapshotMySqlIntegrationTest {
     static void dropSchema() {
         if (source == null) return;
         source.reset();
-        for (String table : List.of("attempt_policy_snapshot", "attempt_form_item", "attempt_form", "question_revision_contract_bindings", "quiz_revision_items", "question_option_revisions",
+        for (String table : List.of("attempt_form_option", "attempt_form_item_option_order", "attempt_form_option_order",
+                "attempt_policy_snapshot", "attempt_form_item", "attempt_form", "question_revision_contract_bindings", "quiz_revision_items", "question_option_revisions",
                 "quiz_revisions", "question_revisions", IDENTITY_HISTORY, SNAPSHOT_HISTORY, "snapshot_legacy_fixture")) {
             sql.execute("DROP TABLE IF EXISTS " + table);
         }
