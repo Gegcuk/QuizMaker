@@ -109,7 +109,7 @@ class AttemptSubjectMySqlIntegrationTest {
 
     private static void dropOwnedTables() {
         source.reset();
-        for (String table : List.of("attempt_participant_subject", HISTORY, "subject_legacy_fixture")) {
+        for (String table : List.of("attempt_trace_identity", "attempt_trace_event", "attempt_trace_stream", "attempt_participant_subject", HISTORY, "subject_legacy_fixture")) {
             sql.execute("DROP TABLE IF EXISTS " + table);
         }
     }

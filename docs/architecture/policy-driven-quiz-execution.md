@@ -4016,6 +4016,64 @@ If a persisted hash does not match:
 
 ## Execution Trace
 
+### Dark transactional trace storage (#538)
+
+`ExecutionTraceService.append` stores internal evidence only and requires an existing caller
+transaction. It neither executes nor authorizes a business command. The initial typed v1
+vocabulary is `ATTEMPT_STARTED`, `FORM_CREATED`, `QUESTION_DELIVERED`, `ANSWER_SUBMITTED`,
+`ANSWER_LOCKED`, `ATTEMPT_SUBMITTED`, `AUTOMATIC_GRADE_PRODUCED` and `RESULT_RELEASED`.
+Defining an evidence type does not implement or activate its producer. Other event types and
+versions fail closed; future capabilities extend their own explicit contracts.
+
+V90 adds `attempt_trace_stream`, `attempt_trace_identity` and `attempt_trace_event`. A stream
+references an existing target lifecycle and authenticated-subject binding plus an immutable
+policy snapshot and form from the same quiz revision. Its scope cannot change on replay.
+There is no legacy backfill, inference from mutable quizzes or cascade deletion. The subject
+reference is the existing attempt binding, without copying user IDs or contacts into events.
+The policy snapshot retains its original hash. No form fingerprint is fabricated before the
+separately owned fingerprint contract is available; document content is never read or hashed.
+
+Appending locks the stream root and reserves a globally unique server event UUID. Reserving
+an existing identity row before replay lookup avoids shared absent-key gap locks between
+unrelated first appends under `REPEATABLE_READ`. The reservation, event and sequence counter
+commit or roll back with the caller's business writes. Identical scope/type/actor/metadata
+returns the original sequence and server timestamp, including after restart or a lost commit
+acknowledgement. Changed semantic data or cross-attempt reuse conflicts. Sequence order is
+the serialized append order, not timestamp order or a promise about which racing caller wins.
+Rolled-back allocations consume no sequence. No automatic deadlock or database retry occurs;
+an uncertain commit must be reconciled in a fresh transaction with the same identity/data.
+
+There is no arbitrary JSON, text, map or extension payload. Metadata is limited to an internal
+command reference, optional form-item reference, optional paired typed lifecycle states and a
+closed reason code. The actor is participant or system. Constructors, exact enum parsing,
+database checks and form-item foreign keys reject unsupported or incompatible values.
+Diagnostics omit identities and rejected values. Counter/tail inconsistencies, unknown stored
+versions and corrupt metadata fail closed. The writer exposes no event update/delete method;
+this boundary does not change database-administrator privileges or implement retention jobs.
+
+The repository's sequence cursor reads at most 100 rows per call through the attempt/sequence
+primary key. This is an internal I/O bound, not a public pagination or learning allowance.
+It is not the protected purpose/authorization query service (#540) or operator HTTP API (#627).
+Metrics use only fixed version/type/outcome labels; `append_returned` and `replay_returned`
+describe the method return, not successful commit of an outer transaction. Telemetry failure
+cannot replace a business result or commit partial evidence.
+
+`ExecutionTraceTest` and `ExecutionTraceMySqlIntegrationTest` cover the structural allow-list,
+real prerequisite persistence, immutable replay, reached-write rollback, concurrent append and
+identity conflicts, stale snapshots, restart/commit ambiguity, real MySQL deadlocks and JDBC/JPA
+transaction composition. Multi-parent fixtures measure one bounded SQL query per repository
+page and inspect the primary-key plan; no JPA relationships or document content are loaded.
+These are component persistence proofs, not completed start/answer/grading/release integrations.
+Their real producers remain owned by #600/#543/#529/#603/#556 and activation by #609.
+Existing legacy routes, grading, immediate practice feedback and public schemas remain unchanged.
+
+Approved A29's 90-day-after-terminal retention and documented hold exceptions remain separate
+from this writer. Cleanup/hold execution and protected query behavior require their owning
+implementations. Disable unused code before first target writes; after writes, preserve evidence
+and use additive forward fixes rather than destructive schema downgrade.
+
+### Candidate extensions and access evidence
+
 Full event sourcing is not required.
 
 However, the system needs append-only evidence sufficient to explain important outcomes.
