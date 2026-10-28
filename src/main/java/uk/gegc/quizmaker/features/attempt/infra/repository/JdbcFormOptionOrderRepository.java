@@ -87,7 +87,9 @@ public class JdbcFormOptionOrderRepository implements FormOptionOrderRepository 
         require(formIds != null && formIds.stream().noneMatch(Objects::isNull), INVALID_ORDER);
         var ids = formIds.stream().distinct().toList();
         Map<UUID, FormOptionOrder> result = new HashMap<>();
-        String suffix = lock ? " FOR UPDATE" : "";
+        // The order root is already exclusively locked. Verification needs current reads,
+        // without upgrading a shared immutable revision/binding lock used by other forms.
+        String suffix = lock ? " FOR SHARE" : "";
         try {
             for (int start = 0; start < ids.size(); start += SQL_BATCH) {
                 var p = new MapSqlParameterSource("owner", bytes(ownerId)).addValue("ids",

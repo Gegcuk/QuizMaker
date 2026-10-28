@@ -2171,6 +2171,10 @@ uses forward-fix.
 
 Form and order writes commit atomically. Per-form serialization/current reads preserve identical
 replay under READ_COMMITTED and REPEATABLE_READ, including an older snapshot; changed input conflicts.
+The order root retains its exclusive lock through commit. Final comparison uses current FOR SHARE
+reads without upgrading shared revision/binding locks. Different empty forms of the same revision
+can therefore commit independently; MySQL tests synchronize both writers after real inserts and
+before comparison under both isolation levels.
 Unknown commit outcome is reconciled by replaying the same identities, never by allocating a new
 form. Missing/foreign IDs are omitted by owner-scoped metadata reads; persistence failure is not an
 empty result. Invalid stored versions, counts, binding metadata or positions fail closed.

@@ -5,6 +5,7 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -234,7 +235,10 @@ class FormOptionOrderMySqlIntegrationTest {
         source.beforeSql=(statement,connection)->{
             if(statement.contains("SELECT locked.id")&&statement.contains("FOR UPDATE")&&contenders.incrementAndGet()==2)
                 secondLock.countDown();
-            if(statement.startsWith("SELECT o.*")&&pauseFirst.getAndSet(false)) {
+            if(isOrderComparison(statement)&&pauseFirst.getAndSet(false)) {
+                assertThat(count("attempt_form")).isEqualTo(1);
+                assertThat(count("attempt_form_option_order")).isEqualTo(1);
+                assertThat(count("attempt_form_option")).isEqualTo(6);
                 firstWrites.countDown();
                 try {if(!releaseFirst.await(10,TimeUnit.SECONDS)) throw new SQLException("First writer release timeout");}
                 catch(InterruptedException failure){Thread.currentThread().interrupt();throw new SQLException("Writer interrupted");}
@@ -257,6 +261,53 @@ class FormOptionOrderMySqlIntegrationTest {
             assertThat(service.findByIds(OWNER,List.of(form.id()))).containsExactly(winner);
             assertThat(count("attempt_form_option_order")).isEqualTo(1);assertThat(count("attempt_form_option")).isEqualTo(6);
         } finally {releaseFirst.countDown();workers.shutdownNow();assertThat(workers.awaitTermination(10,TimeUnit.SECONDS)).isTrue();source.reset();}
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings={"READ_COMMITTED","REPEATABLE_READ"})
+    void differentEmptyFormsOfSameRevisionCommitWithoutLockUpgrade(String isolation) throws Exception {
+        var revision=saved("empty-independent");
+        var firstForm=OptionOrderFixtures.form("empty-first",revision);
+        var secondForm=OptionOrderFixtures.form("empty-second",revision);
+        var comparisons=new CyclicBarrier(2);
+        var connections=ConcurrentHashMap.<Integer>newKeySet();
+        source.beforeSql=(statement,connection)->{
+            if(isOrderComparison(statement)) {
+                // Each real transaction has written its own complete empty form/order, and
+                // neither may compare/commit until the other holds the same revision's shared lock.
+                assertThat(count("attempt_form")).isEqualTo(1);
+                assertThat(count("attempt_form_option_order")).isEqualTo(1);
+                assertThat(sql.queryForObject("SELECT @@transaction_isolation",String.class))
+                        .isEqualTo(isolation.replace('_','-'));
+                assertThat(connections.add(connection)).isTrue();
+                try {comparisons.await(10,TimeUnit.SECONDS);}
+                catch(InterruptedException failure){Thread.currentThread().interrupt();throw new SQLException("Writer interrupted");}
+                catch(BrokenBarrierException | TimeoutException failure){throw new SQLException("Empty-form comparison barrier failed");}
+            }
+        };
+        var workers=Executors.newFixedThreadPool(2);
+        try {
+            var first=workers.submit(()->race(firstForm,isolation,AUTHORED));
+            var second=workers.submit(()->race(secondForm,isolation,AUTHORED));
+            var results=List.of(first.get(20,TimeUnit.SECONDS),second.get(20,TimeUnit.SECONDS));
+            assertThat(connections).hasSize(2);
+            assertThat(source.sqlErrorCodes).doesNotContain(1213,1205);
+            assertThat(results).allSatisfy(outcome->{
+                assertThat(outcome.failure()).isNull();
+                assertThat(outcome.result()).isNotNull();
+                assertThat(outcome.result().items()).isEmpty();
+            });
+            source.beforeSql=null;
+            var restarted=service(OptionOrderFixtures::layout);
+            new TransactionTemplate(new DataSourceTransactionManager(source)).executeWithoutResult(status->{
+                assertThat(restarted.findByIds(OWNER,List.of(firstForm.id(),secondForm.id())))
+                        .containsExactlyElementsOf(results.stream().map(Outcome::result).toList());
+                assertThat(count("attempt_form")).isEqualTo(2);
+                assertThat(count("attempt_form_option_order")).isEqualTo(2);
+                assertThat(count("attempt_form_item_option_order")).isZero();
+                assertThat(count("attempt_form_option")).isZero();
+            });
+        } finally {workers.shutdownNow();assertThat(workers.awaitTermination(10,TimeUnit.SECONDS)).isTrue();source.reset();}
     }
 
     @Test
@@ -311,13 +362,11 @@ class FormOptionOrderMySqlIntegrationTest {
         var revision=saved("caught",question("caught-q",QuestionType.MCQ_SINGLE,4));
         var form=OptionOrderFixtures.form("caught-form",revision);var reached=new AtomicInteger();
         source.beforeSql=(statement,connection)->{
-            if(statement.startsWith("SELECT o.*")) {
+            if(isOrderComparison(statement)) {
                 int inserted=count("attempt_form_option");
-                if(inserted>0) {
-                    assertThat(inserted).isEqualTo(4);
-                    reached.set(inserted);
-                    throw new SQLException("Synthetic reached option checkpoint","08006");
-                }
+                assertThat(inserted).isEqualTo(4);
+                reached.set(inserted);
+                throw new SQLException("Synthetic reached option checkpoint","08006");
             }
         };
         assertThatThrownBy(()->new TransactionTemplate(manager).executeWithoutResult(status->{
@@ -407,6 +456,9 @@ class FormOptionOrderMySqlIntegrationTest {
     private static FixedFormRepository fixedForms(){return proxy(new JdbcFixedFormRepository(named()));}
     private static FormOptionOrderRepository orders(){return proxy(new JdbcFormOptionOrderRepository(named()));}
     private static NamedParameterJdbcTemplate named(){return new NamedParameterJdbcTemplate(source);}
+    private static boolean isOrderComparison(String statement){
+        return statement.startsWith("SELECT o.* FROM attempt_form_option_order o ");
+    }
     private static int count(String table){return sql.queryForObject("SELECT COUNT(*) FROM "+table,Integer.class);}
     private static <T>T proxy(T target){var factory=new ProxyFactory(target);factory.addAdvice(new TransactionInterceptor(manager,new AnnotationTransactionAttributeSource()));
         @SuppressWarnings("unchecked") T result=(T)factory.getProxy();return result;}
