@@ -97,6 +97,7 @@ class FormOptionOrderMySqlIntegrationTest {
     @AfterAll
     static void dropSchema() {
         if(source==null) return; source.reset();
+        for(String table:List.of("attempt_trace_identity","attempt_trace_event","attempt_trace_stream")) sql.execute("DROP TABLE IF EXISTS "+table);
         for(String table:TABLES) sql.execute("DROP TABLE IF EXISTS "+table);
         for(String table:List.of("option_identity_history","option_form_history","option_order_history","option_legacy_fixture"))
             sql.execute("DROP TABLE IF EXISTS "+table);
@@ -269,14 +270,25 @@ class FormOptionOrderMySqlIntegrationTest {
         var revision=saved("empty-independent");
         var firstForm=OptionOrderFixtures.form("empty-first",revision);
         var secondForm=OptionOrderFixtures.form("empty-second",revision);
+        // Split otherwise empty index gaps between the two form IDs. The barrier must exercise
+        // the shared revision-lock upgrade, rather than wait for unrelated insertion gap locks.
+        var anchorRevision=saved("empty-anchor",question("empty-anchor-q",QuestionType.MCQ_SINGLE,3));
+        var midpoint=new java.math.BigInteger(1,bytes(firstForm.id()))
+                .add(new java.math.BigInteger(1,bytes(secondForm.id()))).shiftRight(1);
+        var anchorId=new UUID(midpoint.shiftRight(64).longValue(),midpoint.longValue());
+        var anchor=new FixedForm(anchorId,1,anchorRevision.id(),List.of(new FixedForm.Item(
+                id("empty-anchor-item"),anchorRevision.items().get(0).id(),0)));
+        service.createOrReplay(OWNER,anchor,AUTHORED);
         var comparisons=new CyclicBarrier(2);
         var connections=ConcurrentHashMap.<Integer>newKeySet();
         source.beforeSql=(statement,connection)->{
             if(isOrderComparison(statement)) {
                 // Each real transaction has written its own complete empty form/order, and
                 // neither may compare/commit until the other holds the same revision's shared lock.
-                assertThat(count("attempt_form")).isEqualTo(1);
-                assertThat(count("attempt_form_option_order")).isEqualTo(1);
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form WHERE id IN (?,?)",Integer.class,
+                        bytes(firstForm.id()),bytes(secondForm.id()))).isEqualTo(1);
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form_option_order WHERE form_id IN (?,?)",Integer.class,
+                        bytes(firstForm.id()),bytes(secondForm.id()))).isEqualTo(1);
                 assertThat(sql.queryForObject("SELECT @@transaction_isolation",String.class))
                         .isEqualTo(isolation.replace('_','-'));
                 assertThat(connections.add(connection)).isTrue();
@@ -302,10 +314,12 @@ class FormOptionOrderMySqlIntegrationTest {
             new TransactionTemplate(new DataSourceTransactionManager(source)).executeWithoutResult(status->{
                 assertThat(restarted.findByIds(OWNER,List.of(firstForm.id(),secondForm.id())))
                         .containsExactlyElementsOf(results.stream().map(Outcome::result).toList());
-                assertThat(count("attempt_form")).isEqualTo(2);
-                assertThat(count("attempt_form_option_order")).isEqualTo(2);
-                assertThat(count("attempt_form_item_option_order")).isZero();
-                assertThat(count("attempt_form_option")).isZero();
+                assertThat(count("attempt_form")).isEqualTo(3);
+                assertThat(count("attempt_form_option_order")).isEqualTo(3);
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form_item_option_order WHERE form_id IN (?,?)",Integer.class,
+                        bytes(firstForm.id()),bytes(secondForm.id()))).isZero();
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form_option WHERE form_id IN (?,?)",Integer.class,
+                        bytes(firstForm.id()),bytes(secondForm.id()))).isZero();
             });
         } finally {workers.shutdownNow();assertThat(workers.awaitTermination(10,TimeUnit.SECONDS)).isTrue();source.reset();}
     }
