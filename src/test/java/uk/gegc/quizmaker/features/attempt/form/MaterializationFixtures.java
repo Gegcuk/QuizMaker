@@ -82,12 +82,17 @@ final class MaterializationFixtures {
     }
 
     static QuestionContractRegistry registry(Function<QuestionRevision, ParticipantContent> projection) {
+        return registry(OptionOrderFixtures::layout, projection);
+    }
+
+    static QuestionContractRegistry registry(Function<QuestionRevision, OptionLayout> layout,
+                                            Function<QuestionRevision, ParticipantContent> projection) {
         var responses = FAMILIES.stream().map(type -> (VersionedResponseContract) new VersionedResponseContract() {
             public ContractVersion version() { return MaterializationFixtures.version(type); }
             public void validate(QuestionRevision question, JsonNode response) {
                 QuestionContracts.validate(type, QuestionContracts.View.RESPONSE, response);
             }
-            public OptionLayout optionLayout(QuestionRevision question) { return OptionOrderFixtures.layout(question); }
+            public OptionLayout optionLayout(QuestionRevision question) { return layout.apply(question); }
             public ParticipantContent participantContent(QuestionRevision question) { return projection.apply(question); }
         }).toList();
         var scoring = new VersionedScoringContract() {

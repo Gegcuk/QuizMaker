@@ -1,6 +1,11 @@
 package uk.gegc.quizmaker.features.attempt.form;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
@@ -15,6 +20,7 @@ import org.springframework.transaction.*;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.slf4j.LoggerFactory;
 import uk.gegc.quizmaker.features.attempt.application.*;
 import uk.gegc.quizmaker.features.attempt.application.FixedFormMaterializer.Command;
 import uk.gegc.quizmaker.features.attempt.application.impl.*;
@@ -239,6 +245,81 @@ class FixedFormMaterializerMySqlIntegrationTest {
             rejected(() -> failing.materialize(OWNER, cmd), "INVALID_MATERIAL");
         })).isInstanceOf(UnexpectedRollbackException.class);
         assertThat(reached).isTrue(); fresh(() -> { assertNoForms(); assertLegacyUntouched(); });
+        assertThat(materializer.materialize(OWNER, cmd).items()).hasSize(1);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,UNEXPECTED", "true,UNEXPECTED", "false,CONTRACT", "true,CONTRACT",
+            "false,ORDER", "true,ORDER", "false,REVISION", "true,REVISION"})
+    void layoutDiagnosticsAreRemovedBeforeTransactionLoggingForBothCallers(boolean directOrderCaller, String kind) {
+        var revision = saved(quiz("layout-failure", question("layout-failure-q", QuestionType.MCQ_SINGLE)));
+        var cmd = command("layout-failure-form", revision, AUTHORED);
+        String marker = "protected-source-marker";
+        var reached = new AtomicBoolean();
+        var failingRegistry = registry(question -> {
+            assertThat(question.content()).contains(marker);
+            reached.set(true);
+            RuntimeException failure = switch (kind) {
+                case "CONTRACT" -> new ContractResolutionException(ContractResolutionException.Reason.UNSUPPORTED_CONTRACT);
+                case "ORDER" -> new OptionOrderException(OptionOrderException.Reason.UNSUPPORTED_VERSION);
+                case "REVISION" -> new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_CONTENT);
+                default -> new IllegalArgumentException("Synthetic layout parser failure: " + question.content());
+            };
+            failure.initCause(new IllegalStateException("Nested source: " + question.content()));
+            failure.addSuppressed(new IllegalStateException("Suppressed source: " + question.content()));
+            throw failure;
+        }, MaterializationFixtures::presentation);
+        var failingContracts = new QuestionRevisionContractServiceImpl(
+                proxy(new JdbcQuestionContractBindingRepository(named())), failingRegistry, manager);
+        var logger = (Logger) LoggerFactory.getLogger(TransactionTemplate.class);
+        Level previousLevel = logger.getLevel();
+        Thread requestThread = Thread.currentThread();
+        var captured = new ListAppender<ILoggingEvent>() {
+            @Override protected void append(ILoggingEvent event) {
+                // Shared-suite background workers are unrelated to this synchronous request.
+                if (Thread.currentThread() == requestThread) {
+                    event.prepareForDeferredProcessing();
+                    super.append(event);
+                }
+            }
+        };
+        captured.setContext(logger.getLoggerContext());
+        captured.start(); logger.addAppender(captured); logger.setLevel(Level.DEBUG);
+        try {
+            Throwable failure = catchThrowable(() -> {
+                if (directOrderCaller) orders(failingContracts).createOrReplay(OWNER, cmd.form(), AUTHORED);
+                else service(failingContracts).materialize(OWNER, cmd);
+            });
+            String expectedMessage = switch (kind) {
+                case "CONTRACT" -> "Question contract rejected: UNSUPPORTED_CONTRACT";
+                case "ORDER" -> "Option order rejected: UNSUPPORTED_VERSION";
+                case "REVISION" -> "Immutable revision rejected: INVALID_CONTENT";
+                default -> "Option order rejected: INVALID_ORDER";
+            };
+            Class<? extends RuntimeException> expectedClass = switch (kind) {
+                case "CONTRACT" -> ContractResolutionException.class;
+                case "REVISION" -> RevisionIntegrityException.class;
+                default -> OptionOrderException.class;
+            };
+            org.assertj.core.api.SoftAssertions.assertSoftly(softly -> {
+                softly.assertThat(failure).isExactlyInstanceOf(expectedClass).hasMessage(expectedMessage).hasNoCause();
+                if (failure != null) softly.assertThat(failure.getSuppressed()).isEmpty();
+                // Nonempty throwable-bearing DEBUG events prove that the vulnerable logger actually ran.
+                softly.assertThat(captured.list).anySatisfy(event -> {
+                    assertThat(event.getLevel()).isEqualTo(Level.DEBUG);
+                    assertThat(event.getThrowableProxy()).isNotNull();
+                });
+                softly.assertThat(captured.list).allSatisfy(event -> {
+                    assertThat(event.getFormattedMessage()).doesNotContain(marker);
+                    if (event.getThrowableProxy() != null) assertThat(ThrowableProxyUtil.asString(event.getThrowableProxy()))
+                            .contains(expectedMessage).doesNotContain(marker);
+                });
+            });
+        } finally {
+            logger.setLevel(previousLevel); logger.detachAppender(captured); captured.stop();
+        }
+        assertThat(reached).isTrue();
+        fresh(FixedFormMaterializerMySqlIntegrationTest::assertNoForms);
         assertThat(materializer.materialize(OWNER, cmd).items()).hasSize(1);
     }
 

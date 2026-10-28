@@ -2286,6 +2286,14 @@ not retained as exception causes. #612 D05 is implemented with existing immutabl
 references and persisted order, without copying complete question payloads or a new migration.
 Fingerprint verification remains separately owned by #613.
 
+The shared option-order service sanitizes unexpected `optionLayout` adapter exceptions at the
+invocation itself, before any `TransactionTemplate` can log rollback diagnostics. Known contract,
+option-order and revision failures retain their bounded type/reason but are rebuilt without causes
+or suppressed exceptions. The same protection applies to direct option-order callers and callers
+through the materializer. Regression fixtures enable the actual transaction DEBUG logger, assert
+that throwable-bearing events occurred without protected markers, and verify rollback and a
+successful retry through both paths.
+
 Presentation support is explicit on the exact `VersionedResponseContract` through
 `participantContent`; its default rejects unsupported contracts. The first presentation vocabulary
 covers text-only MCQ_SINGLE, MCQ_MULTI, TRUE_FALSE, FILL_GAP (with or without options) and ORDERING.
