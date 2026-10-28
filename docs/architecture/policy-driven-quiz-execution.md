@@ -2255,6 +2255,65 @@ writes, application rollback leaves empty additive tables. After writes, retain 
 use a forward fix. Existing quiz, training, authentication, scoring and public API contracts stay
 on their current paths until their separately owned activation gates pass.
 
+### Dark redacted fixed-form materialization (#522)
+
+`FixedFormMaterializer` composes the existing immutable revision, selection, authored question
+order and exact option-order boundaries. Its internal command supplies a fixed form with stable
+form-item IDs, #544's selection result, #520's ordering result and the option-order policy. The
+trusted server caller establishes eligibility and authorization; the owner ID only scopes the
+retained revision. No client-supplied owner, include flag or raw question JSON is accepted as
+disclosure authority. Selection IDs denote revision occurrences, including separate occurrences
+of the same question. The materializer validates revision evidence, membership and the exact
+authored source sequence before writing. Gapped positions and structurally empty forms retain
+the existing #519 semantics; this does not decide whether a start may accept an empty form.
+
+The service resolves the exact saved response/scoring bindings and calls the real #521 writer.
+Form identity, items, contract bindings and complete option order join one transaction. A caller
+already in a transaction must declare its complete #598 revision scope first; successful return
+does not commit that transaction. A projection failure after actual inserts rolls back the new
+form/order together. A caller cannot catch that failure and commit partial rows. Identical retries
+reuse all identities; changed form/order conflicts without overwriting retained evidence. An
+unknown commit acknowledgement is reconciled with the same command, not a new form identity.
+Current write comparisons support replay even inside an older REPEATABLE_READ snapshot.
+
+The returned `ParticipantForm` is separate from `FixedForm`, `QuestionRevision` and contract
+evidence. It exposes only form/item identity, display position, question family, question text and
+closed `ParticipantContent` records. It has no raw JSON, source key, question/revision/owner ID,
+correctness, answer, hint, explanation, scoring or private provenance field. Options carry immutable
+option UUIDs and text, and the projector applies the exact order verified by #521. Missing, extra,
+duplicate or wrong-family presentation data fails; source payloads and adapter diagnostics are
+not retained as exception causes. #612 D05 is implemented with existing immutable content
+references and persisted order, without copying complete question payloads or a new migration.
+Fingerprint verification remains separately owned by #613.
+
+Presentation support is explicit on the exact `VersionedResponseContract` through
+`participantContent`; its default rejects unsupported contracts. The first presentation vocabulary
+covers text-only MCQ_SINGLE, MCQ_MULTI, TRUE_FALSE, FILL_GAP (with or without options) and ORDERING.
+The adapter owns source-key interpretation and must describe the complete presentation rather
+than silently dropping unsupported material. This boundary rejects attachments without a supported
+retained representation; embedded media must be rejected by the exact adapter when it cannot
+retain and represent it. Media-aware presentation needs the actual publication/binding/retention
+integrations, including #830 where applicable. No binary-lifetime or media delivery guarantee is
+inferred from an asset ID. The other four families keep their separately owned adapter gates.
+
+`ParticipantFormProjectorTest` verifies the closed representation, stable option identity,
+reordering, defensive copies, hidden-item omission, optional Fill Gap options and protected-field
+absence. `FixedFormMaterializerMySqlIntegrationTest` composes real Flyway/JDBC repositories,
+registry, contract service, form/order services and transactions. It proves reached-write rollback,
+outer rollback-only behavior, restart/lost-ack replay, both isolation levels, concurrent successful
+controls and typed conflicts, owner denial, changed immutable revisions and bounded SQL for
+multiple forms/increasing child counts. Its family adapters are explicit component fixtures with
+valid source shapes: they do not prove #701's actual validation/scoring, #700's publication writer,
+#600's start or #526's participant-read integration. No JPA relationship loading is introduced.
+
+The `quizmaker.attempt.form.materialization` timer has fixed format and bounded outcome labels.
+Success covers a completed materialization boundary, including identical replay; it does not claim
+an outer transaction committed or distinguish insert/replay with driver-dependent affected counts.
+Telemetry failures cannot change the business outcome, and unavailable persistence is never an
+empty form. The increment introduces no endpoint, policy change, permission, provider call,
+attempt/lifecycle/subject/trace write, offline package or public routing change. #600 owns start
+composition, #524/#526 delivery, and #609 public activation and compatibility conformance.
+
 ### Precomputed form
 
 All selected questions and option orders are resolved at start.
