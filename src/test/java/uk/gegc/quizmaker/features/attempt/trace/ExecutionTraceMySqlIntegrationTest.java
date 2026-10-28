@@ -316,6 +316,136 @@ class ExecutionTraceMySqlIntegrationTest {
         } finally { source.reset(); workers.shutdownNow(); assertThat(workers.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"READ_COMMITTED", "REPEATABLE_READ"})
+    void differentPopulatedStreamsContinueConcurrentlyWithoutChangingEarlierEvidence(String isolation) throws Exception {
+        var a = fixture(); var b = fixture();
+        var firstA = append(a, event("continuation-first-a")).event();
+        var firstB = append(b, event("continuation-first-b")).event();
+        var roots = new CyclicBarrier(2); var connections = ConcurrentHashMap.<Integer>newKeySet();
+        source.afterSql = (statement, connection) -> {
+            if (statement.startsWith("SELECT * FROM attempt_trace_stream")) {
+                assertThat(connections.add(connection)).isTrue();
+                barrier(roots);
+            }
+        };
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var first = workers.submit(() -> result(a, event("continuation-next-a"), isolation));
+            var second = workers.submit(() -> result(b, event("continuation-next-b"), isolation));
+            var outcomes = List.of(first.get(25, TimeUnit.SECONDS), second.get(25, TimeUnit.SECONDS));
+            source.reset();
+            assertThat(connections).hasSize(2);
+            assertThat(outcomes).allSatisfy(value -> assertThat(value).isInstanceOf(Appended.class));
+            var nextA = (Appended) outcomes.get(0); var nextB = (Appended) outcomes.get(1);
+            assertThat(nextA.replayed()).isFalse(); assertThat(nextB.replayed()).isFalse();
+            assertThat(nextA.event().sequence()).isEqualTo(2); assertThat(nextB.event().sequence()).isEqualTo(2);
+            assertThat(page(a)).containsExactly(firstA, nextA.event());
+            assertThat(page(b)).containsExactly(firstB, nextB.event());
+            assertThat(tail(a)).isEqualTo(2); assertThat(tail(b)).isEqualTo(2);
+            assertThat(count("attempt_trace_event")).isEqualTo(4);
+            assertThat(count("attempt_trace_identity")).isEqualTo(4);
+        } finally { source.reset(); workers.shutdownNow(); assertThat(workers.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"READ_COMMITTED", "REPEATABLE_READ"})
+    void concurrentReuseOfEventIdentityAcrossAttemptsCommitsOneWinnerAndRollsBackTheLoser(String isolation) throws Exception {
+        var a = fixture(); var b = fixture(); var event = event("cross-attempt-race");
+        var roots = new CyclicBarrier(2); var connections = ConcurrentHashMap.<Integer>newKeySet();
+        source.afterSql = (statement, connection) -> {
+            if (statement.startsWith("SELECT * FROM attempt_trace_stream")) {
+                assertThat(connections.add(connection)).isTrue();
+                barrier(roots);
+            }
+        };
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var first = workers.submit(() -> resultWithBusinessWrite(a, event, isolation, 1));
+            var second = workers.submit(() -> resultWithBusinessWrite(b, event, isolation, 2));
+            var outcomes = List.of(first.get(25, TimeUnit.SECONDS), second.get(25, TimeUnit.SECONDS));
+            source.reset();
+            assertThat(connections).hasSize(2);
+            var successes = outcomes.stream().filter(Appended.class::isInstance).map(Appended.class::cast).toList();
+            assertThat(successes).hasSize(1);
+            assertThat(outcomes).contains(EVENT_CONFLICT);
+            var winner = successes.get(0);
+            assertThat(winner.replayed()).isFalse(); assertThat(winner.event().sequence()).isEqualTo(1);
+            assertThat(winner.event().event()).isEqualTo(event);
+            assertThat(count("attempt_trace_event")).isEqualTo(1);
+            assertThat(count("attempt_trace_identity")).isEqualTo(1);
+            assertThat(count("attempt_trace_stream")).isEqualTo(1);
+            var scopes = List.of(a, b);
+            for (int i = 0; i < scopes.size(); i++) {
+                boolean won = outcomes.get(i) instanceof Appended;
+                assertThat(marker(i + 1)).isEqualTo(won ? "race" : "original");
+                assertThat(page(scopes.get(i))).containsExactlyElementsOf(won ? List.of(winner.event()) : List.of());
+            }
+            var loser = winner.event().scope().equals(a) ? b : a;
+            assertThat(append(loser, event("cross-attempt-recovery")).event().sequence()).isEqualTo(1);
+            assertThat(page(winner.event().scope())).containsExactly(winner.event());
+        } finally { source.reset(); workers.shutdownNow(); assertThat(workers.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"READ_COMMITTED", "REPEATABLE_READ"})
+    void waitingIdenticalAppendAfterRollbackCommitsTheOnlyEventAtSequenceOne(String isolation) throws Exception {
+        var scope = fixture(); var event = event("waiting-after-rollback");
+        var firstWritten = new CountDownLatch(1); var releaseFirst = new CountDownLatch(1);
+        var secondAtRoot = new CountDownLatch(1);
+        var firstConnection = new AtomicLong(); var secondConnection = new AtomicLong();
+        var laterTime = NOW.plusSeconds(5);
+        var retryWriter = service(repository, manager, metrics, Clock.fixed(laterTime, ZoneOffset.UTC));
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var first = workers.submit(() -> tx(isolation).execute(status -> {
+                firstConnection.set(sql.queryForObject("SELECT CONNECTION_ID()", Long.class));
+                sql.update("UPDATE trace_business_fixture SET marker='rolled-back' WHERE id=1");
+                var value = service.append(scope, event);
+                assertThat(value.replayed()).isFalse(); assertThat(value.event().sequence()).isEqualTo(1);
+                assertThat(count("attempt_trace_event")).isEqualTo(1);
+                assertThat(tail(scope)).isEqualTo(1);
+                firstWritten.countDown();
+                try { assertThat(releaseFirst.await(30, TimeUnit.SECONDS)).isTrue(); }
+                catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new AssertionError(failure); }
+                status.setRollbackOnly();
+                return value;
+            }));
+            await(firstWritten);
+            source.beforeSql = (statement, connection) -> {
+                if (statement.startsWith("INSERT INTO attempt_trace_stream")) {
+                    secondConnection.set(sql.queryForObject("SELECT CONNECTION_ID()", Long.class));
+                    secondAtRoot.countDown();
+                }
+            };
+            var second = workers.submit(() -> tx(isolation).execute(status -> {
+                sql.update("UPDATE trace_business_fixture SET marker='committed' WHERE id=2");
+                return retryWriter.append(scope, event);
+            }));
+            await(secondAtRoot);
+            assertThat(firstConnection.get()).isPositive().isNotEqualTo(secondConnection.get());
+            awaitDatabaseLockWait(secondConnection.get(), firstConnection.get());
+            assertThat(second.isDone()).isFalse();
+            releaseFirst.countDown();
+            var rolledBack = first.get(25, TimeUnit.SECONDS);
+            var committed = second.get(25, TimeUnit.SECONDS);
+            source.reset();
+            assertThat(rolledBack.event().recordedAt()).isEqualTo(NOW);
+            assertThat(committed.replayed()).isFalse();
+            assertThat(committed.event().sequence()).isEqualTo(1);
+            assertThat(committed.event().recordedAt()).isEqualTo(laterTime);
+            assertThat(committed.event().event()).isEqualTo(event);
+            assertThat(page(scope)).containsExactly(committed.event());
+            assertThat(tail(scope)).isEqualTo(1);
+            assertThat(count("attempt_trace_event")).isEqualTo(1);
+            assertThat(count("attempt_trace_identity")).isEqualTo(1);
+            assertThat(marker(1)).isEqualTo("original"); assertThat(marker(2)).isEqualTo("committed");
+        } finally {
+            releaseFirst.countDown(); workers.shutdownNow();
+            assertThat(workers.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); source.reset();
+        }
+    }
+
     @Test
     void traceAndRealLifecycleChangeJoinJpaCommitAndRollback() {
         var scope = fixture();
@@ -477,6 +607,35 @@ class ExecutionTraceMySqlIntegrationTest {
     private Object result(Scope scope, Event event, String isolation) {
         try { return tx(isolation).execute(status -> service.append(scope, event)); }
         catch (TraceException failure) { return failure.reason(); }
+    }
+
+    private Object resultWithBusinessWrite(Scope scope, Event event, String isolation, int marker) {
+        try {
+            return tx(isolation).execute(status -> {
+                sql.update("UPDATE trace_business_fixture SET marker='race' WHERE id=?", marker);
+                return service.append(scope, event);
+            });
+        } catch (TraceException failure) { return failure.reason(); }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try { assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue(); }
+        catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new AssertionError(failure); }
+    }
+
+    private static void awaitDatabaseLockWait(long requester, long blocker) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (System.nanoTime() < deadline) {
+            int waits = admin.queryForObject("""
+                    SELECT COUNT(*) FROM performance_schema.data_lock_waits w
+                    JOIN performance_schema.threads r ON r.THREAD_ID=w.REQUESTING_THREAD_ID
+                    JOIN performance_schema.threads b ON b.THREAD_ID=w.BLOCKING_THREAD_ID
+                    WHERE r.PROCESSLIST_ID=? AND b.PROCESSLIST_ID=?
+                    """, Integer.class, requester, blocker);
+            if (waits > 0) return;
+            TimeUnit.MILLISECONDS.sleep(20);
+        }
+        fail("Expected a real MySQL row-lock wait between the two trace transactions");
     }
 
     private Scope fixture() {
