@@ -65,7 +65,8 @@ class QuestionRevisionContractsMigrationMySqlIntegrationTest {
     @AfterAll
     static void dropSchema() {
         if (sql == null) return;
-        for (String table : List.of("attempt_policy_snapshot", "attempt_form_item", "attempt_form",
+        for (String table : List.of("attempt_form_option", "attempt_form_item_option_order", "attempt_form_option_order",
+                "attempt_policy_snapshot", "attempt_form_item", "attempt_form",
                 "contract_transaction_receipts", "question_revision_contract_bindings", "quiz_revision_items",
                 "question_option_revisions", "quiz_revisions", "question_revisions", IDENTITY_HISTORY, BINDING_HISTORY,
                 "contract_legacy_fixture")) sql.execute("DROP TABLE IF EXISTS " + table);
