@@ -508,8 +508,10 @@ Expose summaries via projections for tables; page aggressively.
 
 ## 18) Git And Delivery Safety
 
-- AI agents work locally only.
-- Never run `git push`, create or merge pull requests, publish releases, or trigger deployments.
+- AI agents may perform ordinary, non-force pushes of issue branches to `origin` after the required verification.
+- Never push `main`, `master`, or another protected branch; never force-push.
+- Never create or merge pull requests, publish releases, or trigger deployments.
+- Do not request separate push confirmation when publishing the issue branch is already authorized by the task or these instructions.
 - Create a local commit only when explicitly requested by the repository owner.
 - Never include unrelated working-tree changes in a commit.
 
