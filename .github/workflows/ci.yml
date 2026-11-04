@@ -352,26 +352,23 @@ jobs:
             docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS quizmaker_test_mysql;" 2>&1 || true
             docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "GRANT ALL PRIVILEGES ON quizmaker_test.* TO 'bestuser'@'%';" 2>&1 || true
             docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "GRANT ALL PRIVILEGES ON quizmaker_test_mysql.* TO 'bestuser'@'%';" 2>&1 || true
+            # Keep the migration smoke check separate from Hibernate's create-drop schemas.
+            # JDBC-only tables (including receipts) have FKs that Hibernate cannot drop itself.
+            docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS quizmaker_migration_check; GRANT ALL PRIVILEGES ON quizmaker_migration_check.* TO 'bestuser'@'%';"
             docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "FLUSH PRIVILEGES;" 2>&1 || true
-            echo "✅ Databases quizmaker_test and quizmaker_test_mysql are ready!"
+            echo "✅ Integration-test databases and isolated migration-check database are ready!"
           fi
 
       - name: Flyway migrate (fail fast on schema issues)
         run: |
-          # Migrate quizmaker_test (for tests using 'test' profile)
+          # Validate all migrations without populating the Hibernate-managed test databases.
           ./mvnw -B -V -q -DskipTests=true \
-            -Dflyway.url="jdbc:mysql://localhost:3306/quizmaker_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" \
+            -Dflyway.url="jdbc:mysql://localhost:3306/quizmaker_migration_check?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" \
+            -Dflyway.locations=filesystem:src/main/resources/db/migration \
             -Dflyway.user="$SPRING_DATASOURCE_USERNAME" \
             -Dflyway.password="$SPRING_DATASOURCE_PASSWORD" \
             flyway:migrate
-          # Migrate quizmaker_test_mysql (for tests using 'test-mysql' profile)
-          ./mvnw -B -V -q -DskipTests=true \
-            -Dflyway.url="jdbc:mysql://localhost:3306/quizmaker_test_mysql?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" \
-            -Dflyway.user="$SPRING_DATASOURCE_USERNAME" \
-            -Dflyway.password="$SPRING_DATASOURCE_PASSWORD" \
-            flyway:migrate
-          # Verify migrations completed successfully
-          echo "✅ Flyway migrations completed for both databases"
+          echo "✅ Flyway migrations completed in the isolated migration-check database"
 
       - name: Verify test configuration
         run: |
