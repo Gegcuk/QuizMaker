@@ -457,11 +457,14 @@ jobs:
           # This is the canonical release gate: no external route, Maven offline,
           # clean compilation, both Surefire lanes, JaCoCo check, and package.
           set +e
-          sudo -E ip netns exec "$NETNS" \
-            runuser --user "$USER" --preserve-environment -- \
-            env HOME="$HOME" ./mvnw -o -B -T 1C -DskipTests=false clean verify \
+          # sudo may discard -E. Capture the job environment before that boundary, then
+          # restore it as the runner without placing secret values in command arguments.
+          sudo ip netns exec "$NETNS" \
+            runuser --user "$USER" -- \
+            python3 .github/scripts/run_with_ci_environment.py \
+            ./mvnw -o -B -T 1C -DskipTests=false clean verify \
             -Dorg.slf4j.simpleLogger.showDateTime=true \
-            2>&1 | tee "$VERIFICATION_LOG"
+            < <(env -0) 2>&1 | tee "$VERIFICATION_LOG"
           TEST_EXIT_CODE=${PIPESTATUS[0]}
           set -e
 

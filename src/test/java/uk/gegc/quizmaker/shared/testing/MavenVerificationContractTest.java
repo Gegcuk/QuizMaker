@@ -108,12 +108,15 @@ class MavenVerificationContractTest {
                 .contains("ip netns add \"$NETNS\"")
                 .contains("ip route | grep -q '^default'")
                 .contains("socat TCP4-LISTEN:3306")
+                .contains("python3 .github/scripts/run_with_ci_environment.py")
+                .contains("< <(env -0)")
                 .contains(isolatedVerification)
                 .contains("'^[[:space:]]*@RealProviderTest[[:space:]]*$'")
                 .contains("PROVIDER_CLASS=$(basename \"$PROVIDER_SOURCE\" .java)")
                 .contains("Live-provider suite reports were produced during default verification")
                 .contains("Maven/build failures before Surefire")
-                .doesNotContain("secrets.OPENAI_API_KEY", "-Plive-provider-tests", "-DskipTests=true test");
+                .doesNotContain("secrets.OPENAI_API_KEY", "-Plive-provider-tests", "-DskipTests=true test",
+                        "sudo -E ip netns exec");
         assertThat(workflow.indexOf(mavenRuntimeWarmup))
                 .isLessThan(workflow.indexOf(isolatedVerification));
         assertThat(testProperties).contains("billing.pack-sync.enabled=false");

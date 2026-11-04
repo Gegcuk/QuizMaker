@@ -19,6 +19,8 @@ import uk.gegc.quizmaker.features.attempt.domain.repository.FormOptionOrderRepos
 import uk.gegc.quizmaker.features.question.application.QuestionRevisionContractService;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
+import uk.gegc.quizmaker.features.question.domain.model.contract.OptionLayout;
+import uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
 
 import java.util.*;
@@ -64,7 +66,21 @@ public class FormOptionOrderServiceImpl implements FormOptionOrderService {
                 require(FAMILIES.contains(question.type()), UNSUPPORTED_FAMILY);
                 var pair = resolved.get(question.id());
                 if (pair == null) throw new ContractResolutionException(ContractResolutionException.Reason.UNBOUND_REVISION);
-                var ids = AnswerOptionOrder.order(form.id(), item.id(), policy, question, pair.response().optionLayout(question));
+                OptionLayout layout;
+                try {
+                    layout = pair.response().optionLayout(question);
+                } catch (ContractResolutionException failure) {
+                    throw new ContractResolutionException(failure.reason());
+                } catch (OptionOrderException failure) {
+                    throw new OptionOrderException(failure.reason());
+                } catch (RevisionIntegrityException failure) {
+                    throw new RevisionIntegrityException(failure.reason());
+                } catch (RuntimeException failure) {
+                    // Sanitize before TransactionTemplate can log the exception. Even known domain
+                    // failures above are rebuilt so causes/suppressed exceptions cannot retain content.
+                    throw new OptionOrderException(INVALID_ORDER);
+                }
+                var ids = AnswerOptionOrder.order(form.id(), item.id(), policy, question, layout);
                 items.add(new FormOptionOrder.Item(item.id(), item.sourceItemId(), pair.binding(), ids));
             }
             var result = new FormOptionOrder(form.id(), 1, policy, items);
