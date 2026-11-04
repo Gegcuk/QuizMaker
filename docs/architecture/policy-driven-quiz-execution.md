@@ -2729,6 +2729,100 @@ Submission must support:
 
 A batch must not apply looser policy than individual commands.
 
+### Implemented canonical command receipts (#599)
+
+`CommandReceiptService` is an internal, dark authenticated-command boundary. Its Spring
+implementation joins or creates a transaction and the V91 JDBC repository stores bounded
+receipts in `attempt_command_receipt`. Existing controllers, legacy attempts, permissions and
+response envelopes remain unchanged. #600 owns real start composition; #543/#529 own accepted
+responses and terminal commands; #609/#617 own public adapters. These foundations do not prove
+those consumers, guest/system commands, offline replay or public activation.
+
+**Identity and consumer contract:** resolve the authenticated user and trusted context on the
+server. The future `Idempotency-Key` transport carries an exact, case-sensitive opaque value of
+1–200 printable ASCII characters without whitespace. Only its SHA-256 digest is persisted.
+The key namespace is the authenticated user: changing operation, context, target, expected
+state version or canonical input under that user's same key conflicts. Different users have
+independent namespaces and cannot discover one another's receipts. Supported operations are
+`START`, `NAVIGATE_TO_ITEM`, `SUBMIT_ANSWER` and `SUBMIT_ATTEMPT`; `VIEW_ATTEMPT` needs no receipt.
+START can reserve its command before an attempt exists; it targets the immutable input revision,
+not a newly generated attempt ID. Retries must reuse the original expected version and inputs.
+
+`CanonicalCommandInput` v1 hashes already validated semantic command input. It sorts object
+properties, normalizes finite numeric spelling, preserves exact strings and array order, and
+distinguishes absent properties from explicit null. Consumers must reject duplicate JSON keys
+when parsing and normalize any domain-specific unordered input before hashing. Encoding is
+bounded to 5 MiB, depth 64 and 100,000 nodes; these are internal work bounds, not new public
+endpoint limits. The fingerprint is computed once at the command boundary, never by rereading
+stored document bytes/text. Unknown versions and unsupported nodes fail closed.
+
+The authorization callback runs before every receipt lookup, including replay, conflict and
+expiry. The caller must check current permission, ownership, organization, visibility and any
+release rules; neither a key nor stored identity is authorization. Work runs only for the new
+reservation and receives its stable internal command UUID. It returns a versioned acknowledgement
+containing only attempt/result references and state version. Receipt storage checks the real
+authenticated subject binding and authoritative lifecycle version. Command-specific validation,
+target membership, natural uniqueness and actual business writes remain the consumer's duty.
+Never serialize internal requests/receipts as participant DTOs or cache answer/feedback bodies.
+Replay retrieves the original acknowledgement; any subsequent view still applies current access
+and disclosure rules and cannot increase disclosure merely because the command was retried.
+
+**Transaction and failure semantics:**
+
+| Situation | Receipt-boundary outcome |
+|---|---|
+| New authorized command | Reserve `IN_PROGRESS`, execute work, set `COMMITTED` and persist its acknowledgement in the same transaction as the domain effect. |
+| Identical committed retry, including after restart or later state changes | Return the original command UUID, references, version and timestamp with `replayed=true`; do not call work. |
+| Conflicting reuse | Bounded `CONFLICT`; the future HTTP consumer maps it to 409 without exposing stored input or foreign scope. |
+| Concurrent first requests | MySQL uniqueness serializes that user's key. The waiter reads the committed winner or executes after the winner rolls back. Current reads also work inside an older `REPEATABLE_READ` snapshot. |
+| Lock wait timeout / deadlock | `IN_PROGRESS` / `RETRYABLE`, with no hidden retry or losing partial writes. Future adapters distinguish pending-key conflict (409) from transient database failure (503). |
+| Validation/work failure before commit | Roll back receipt and domain writes together; no independently committed failed reservation or execution lease. A caught inner failure marks the enclosing transaction rollback-only. |
+| Failed connection acquisition | `PERSISTENCE_UNAVAILABLE`; no success acknowledgement. |
+| Commit acknowledgement lost / transaction completion uncertain | `UNKNOWN_OUTCOME`; reconcile in a fresh transaction with the exact same request. Never infer rollback or switch to a new key. |
+| `beforeCommit` / `afterCommit` synchronization throws | Clean `UNKNOWN_OUTCOME`, even for a `ReceiptException` carrying a business-denial reason. A failing `beforeCommit` rolls back; a failing observer in `afterCommit` leaves the receipt and effect committed, so an identical retry replays. |
+| Unexpected persisted `IN_PROGRESS` or reentrant same-key execution | `IN_PROGRESS`, no takeover; an orphan requires separately owned investigation/repair. |
+
+Callbacks must share the same database and transaction manager. `REQUIRES_NEW`, remote effects,
+independent commits and after-commit business writes violate this contract. A returned result
+inside an outer transaction is provisional until that transaction commits. Consumer business
+denials use fixed `ReceiptException` reasons. Work failures are distinguished from transaction
+completion failures. Runtime diagnostics and causes/suppressed exceptions from work and registered
+transaction synchronizations are discarded before Spring can log them. Synchronization ordering,
+resource callbacks and Spring's log-only semantics for `beforeCompletion` / `afterCompletion` are
+preserved. Protection covers synchronizations registered when the receipt call exits, including
+later completion by an outer transaction and callbacks registered by protected callbacks during
+completion. Synchronizations added by the outer owner after return, global transaction-manager
+listeners and diagnostics emitted directly by collaborators are outside this local boundary.
+Optional telemetry uses
+only bounded version/operation/outcome labels and cannot replace the command outcome; `returned`
+does not assert that an outer transaction committed.
+
+**D08 retention:** a receipt remains replayable while its attempt is nonterminal, then until
+exactly its authoritative terminal timestamp plus 30 days. At that boundary a retained receipt
+returns `EXPIRED`, with no work execution. `purgeExpired` is a caller-transaction primitive,
+bounded to 100 rows, with authoritative terminal/version checks and indexed attempt scope.
+It deletes receipts only; natural answer/result/certificate constraints and lifecycle facts
+survive independently. After physical receipt removal there is no perpetual key-replay promise:
+consumers must still enforce their natural uniqueness and current eligibility.
+
+#699 owns purpose classification, cleanup authorization, hold coordination and scheduling. It
+must lock/verify the relevant facts in the same transaction before invoking the primitive; missing
+or ambiguous classification/hold evidence must not invoke deletion. No scheduler, hold decision,
+organization retention override, automatic orphan takeover or historical backfill is added here.
+Before any target writes, the dark application can be disabled while leaving the additive table;
+after writes, preserve receipts and domain evidence and use a compatible forward fix.
+
+`CommandReceiptTest` verifies canonical identity, opaque keys, bounded encoding and exact D08
+boundaries. `CommandReceiptMySqlIntegrationTest` uses real subject/lifecycle/receipt writes,
+fresh reads, controlled database lock waits, both `READ_COMMITTED` and `REPEATABLE_READ`, stale
+snapshots, actual SQL/commit faults, rollback-only composition, restart, JPA transactions and
+sanitized work/completion diagnostics, observer failure after commit, outer completion, and
+synchronization ordering/resource lifecycle. Guard doubles prove callback ordering, not implementation of
+#537 authorization. Lifecycle fixtures prove local atomicity, not #600/#543 business integration.
+Replay uses two indexed SELECTs with 3 and 30 real parent attempts; EXPLAIN also confirms the
+cleanup index. No JPA relationship-loading path is added. Full hold/deletion orchestration remains
+#699 evidence, separate from local D08 eligibility and bounded transactional deletion tests.
+
 [#629 D09](https://github.com/Gegcuk/QuizMaker/issues/629) approves `ATOMIC_ALL_OR_NOTHING`: at most 500 items, a 5 MiB request body, and 32 KiB per textual response unless its contract is stricter. An invalid item rejects the entire batch with no accepted answers, locks, grading trigger, or feedback. Errors retain stable form-item order; malformed JSON uses `400`, limits `413`, deterministic validation `422`, and lifecycle/version/idempotency conflicts `409`.
 
 Possible future batch policies include:

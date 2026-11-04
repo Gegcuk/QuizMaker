@@ -42,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
     "spring.flyway.enabled=false",
-    "spring.jpa.hibernate.ddl-auto=none"
+    "spring.jpa.hibernate.ddl-auto=update"
 })
 @Tag("db-serial") // Uses ExecutorService for concurrent DB writes
 @DisplayName("QuizGenerationJobRepository Atomic Task Progress Tests")

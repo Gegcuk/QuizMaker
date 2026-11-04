@@ -6,13 +6,16 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
+import org.yaml.snakeyaml.Yaml;
 
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -155,6 +158,29 @@ class MavenVerificationContractTest {
                 .contains("continue-on-error: true")
                 .contains("python3 -B .github/scripts/summarize_tests.py")
                 .contains("$GITHUB_STEP_SUMMARY");
+    }
+
+    @Test
+    @DisplayName("CI migration smoke check cannot populate Hibernate create-drop databases")
+    @SuppressWarnings("unchecked")
+    void ciMigrations_areIsolatedFromHibernateTestSchemas() throws Exception {
+        var workflow = (Map<String, Object>) new Yaml().load(
+                Files.readString(projectDirectory().resolve(".github/workflows/ci.yml")));
+        var jobs = (Map<String, Object>) workflow.get("jobs");
+        var build = (Map<String, Object>) jobs.get("build-and-test");
+        var steps = (List<Map<String, Object>>) build.get("steps");
+        String migrations = String.join("\n", steps.stream().map(step -> String.valueOf(step.get("run")))
+                .filter(script -> script.contains("flyway:migrate")).toList());
+        var jdbcCatalog = Pattern.compile("jdbc:mysql://[^/\\s]+/([A-Za-z0-9_]+)");
+        var migrationCatalogs = jdbcCatalog.matcher(migrations).results().map(match -> match.group(1)).toList();
+        assertThat(migrationCatalogs).as("Flyway must verify migrations in a dedicated catalog").isNotEmpty();
+        for (String profile : List.of("test", "test-mysql")) {
+            String properties = Files.readString(projectDirectory().resolve("src/test/resources/application-" + profile + ".properties"));
+            var testCatalogs = jdbcCatalog.matcher(properties).results().map(match -> match.group(1)).toList();
+            assertThat(testCatalogs).as("Datasource for profile %s", profile).isNotEmpty();
+            assertThat(migrationCatalogs).as("Unmanaged Flyway FKs must not prevent Hibernate schema recreation")
+                    .doesNotContainAnyElementsOf(testCatalogs);
+        }
     }
 
     private Document readPom() throws Exception {

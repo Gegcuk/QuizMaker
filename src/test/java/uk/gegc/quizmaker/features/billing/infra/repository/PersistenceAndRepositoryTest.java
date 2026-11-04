@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = {
         "spring.flyway.enabled=false",
-        "spring.jpa.hibernate.ddl-auto=none"
+        "spring.jpa.hibernate.ddl-auto=update"
 })
 @Tag("db-serial") // Uses ExecutorService/CompletableFuture for concurrent DB writes
 @DisplayName("Persistence & Repository Tests")
