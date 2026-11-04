@@ -18,6 +18,10 @@ public interface CommandReceiptService {
      * No automatic retry/takeover. Concurrent duplicates wait on MySQL; timeout is IN_PROGRESS,
      * deadlock is RETRYABLE, connection/commit uncertainty is UNKNOWN_OUTCOME.
      * Business denials use bounded ReceiptException reasons; unexpected callback errors are sanitized.
+     * Runtime failures in transaction completion (including after-commit observers) are UNKNOWN_OUTCOME.
+     * Synchronizations registered by the time this call exits are protected before Spring logs them,
+     * including on later outer completion. Synchronizations the outer owner registers after return
+     * and global transaction-manager listeners remain outside this local diagnostic boundary.
      */
     Result execute(Request request, Authorization authorization, Work work);
 

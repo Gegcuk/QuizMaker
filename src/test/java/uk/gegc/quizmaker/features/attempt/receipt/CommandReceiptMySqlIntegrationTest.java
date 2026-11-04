@@ -20,6 +20,9 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.*;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionSynchronizationUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.attempt.application.*;
 import uk.gegc.quizmaker.features.attempt.application.impl.*;
@@ -241,6 +244,161 @@ class CommandReceiptMySqlIntegrationTest {
             }
             assertThat(count("attempt_command_receipt")).isZero(); assertThat(count("attempt_lifecycle_state")).isZero();
         } finally { logger.detachAppender(captured); captured.stop(); logger.setLevel(previous); }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"beforeCommit,unexpected,false", "beforeCommit,known,false", "afterCommit,unexpected,false",
+            "afterCommit,known,false", "afterCommit,connection,false", "beforeCommit,unexpected,true",
+            "beforeCommit,known,true", "afterCommit,unexpected,true", "afterCommit,known,true"})
+    void completionFailuresAreRedactedBeforeSpringLoggingAndReconcileWithTheSameKey(String phase, String kind, boolean joined) throws Exception {
+        String marker = "SYNTHETIC_PRIVATE_COMPLETION_599";
+        var logger = (Logger) LoggerFactory.getLogger(DataSourceTransactionManager.class);
+        Level previous = logger.getLevel(); var captured = new ListAppender<ILoggingEvent>(); captured.start();
+        logger.addAppender(captured); logger.setLevel(Level.DEBUG);
+        try {
+            RuntimeException failure = switch (kind) {
+                case "known" -> new ReceiptException(COMMAND_DENIED);
+                case "connection" -> new CannotCreateTransactionException(marker);
+                default -> new IllegalStateException(marker);
+            };
+            failure.initCause(new IllegalArgumentException(marker));
+            failure.addSuppressed(new IllegalArgumentException(marker));
+            var request = request("completion"); var calls = new AtomicInteger();
+            var acknowledgement = new AtomicReference<Acknowledgement>();
+            java.util.function.Supplier<Result> command = () -> service.execute(request, () -> {}, id -> {
+                calls.incrementAndGet(); acknowledgement.set(start(user));
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override public void beforeCommit(boolean readOnly) { if (phase.equals("beforeCommit")) throw failure; }
+                    // Observer failure only: no writes or external effects after commit.
+                    @Override public void afterCommit() { if (phase.equals("afterCommit")) throw failure; }
+                });
+                return acknowledgement.get();
+            });
+            Throwable observed = catchThrowable(() -> {
+                if (joined) tx("READ_COMMITTED").execute(status -> command.get());
+                else command.get();
+            });
+            boolean committed = phase.equals("afterCommit");
+            assertThat(count("attempt_command_receipt")).isEqualTo(committed ? 1 : 0);
+            assertThat(count("attempt_lifecycle_state")).isEqualTo(committed ? 1 : 0);
+            assertThat(count("attempt_participant_subject")).isEqualTo(committed ? 1 : 0);
+            // A participating service returns before the outer owner completes its transaction.
+            assertThat(metrics.get("attempt.command.receipt").tag("outcome", joined ? "returned" : "unknown_outcome").timer().count()).isEqualTo(1);
+            var replay = service.execute(request, () -> {}, id -> { calls.incrementAndGet(); return start(user); });
+            assertThat(replay.replayed()).isEqualTo(committed);
+            assertThat(calls).hasValue(committed ? 1 : 2);
+            if (committed) assertThat(replay.receipt().acknowledgement()).isEqualTo(acknowledgement.get());
+            assertThat(observed).isInstanceOfSatisfying(ReceiptException.class, clean -> {
+                assertThat(clean.reason()).isEqualTo(UNKNOWN_OUTCOME);
+                assertThat(clean.getMessage()).doesNotContain(marker);
+                assertThat(clean.getCause()).isNull(); assertThat(clean.getSuppressed()).isEmpty();
+            });
+            assertThat(captured.list).isNotEmpty();
+            if (!committed) assertThat(captured.list).anyMatch(event -> event.getThrowableProxy() != null);
+            for (var event : captured.list) {
+                assertThat(event.getFormattedMessage()).doesNotContain(marker);
+                if (event.getThrowableProxy() != null) assertThat(ThrowableProxyUtil.asString(event.getThrowableProxy())).doesNotContain(marker);
+            }
+        } finally { logger.detachAppender(captured); captured.stop(); logger.setLevel(previous); }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"beforeCompletion,false", "afterCompletion,false", "beforeCompletion,true", "afterCompletion,true"})
+    void cleanupFailuresAreRedactedEvenWhenSpringOnlyLogsThem(String phase, boolean rollback) throws Exception {
+        String marker = "SYNTHETIC_PRIVATE_CLEANUP_599";
+        var logger = (Logger) LoggerFactory.getLogger(TransactionSynchronizationUtils.class);
+        Level previous = logger.getLevel(); var captured = new ListAppender<ILoggingEvent>(); captured.start();
+        logger.addAppender(captured); logger.setLevel(Level.ERROR);
+        try {
+            var failure = new IllegalStateException(marker, new IllegalArgumentException(marker));
+            failure.addSuppressed(new IllegalArgumentException(marker));
+            var completion = new AtomicInteger(-1); var request = request("cleanup");
+            Throwable observed = catchThrowable(() -> service.execute(request, () -> {}, id -> {
+                var ack = start(user);
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override public void beforeCompletion() { if (phase.equals("beforeCompletion")) throw failure; }
+                    @Override public void afterCompletion(int status) {
+                        completion.set(status); if (phase.equals("afterCompletion")) throw failure;
+                    }
+                });
+                if (rollback) throw new ReceiptException(STALE_VERSION);
+                return ack;
+            }));
+            if (rollback) assertThat(observed).isInstanceOfSatisfying(ReceiptException.class,
+                    clean -> assertThat(clean.reason()).isEqualTo(STALE_VERSION));
+            else assertThat(observed).isNull();
+            assertThat(completion).hasValue(rollback ? TransactionSynchronization.STATUS_ROLLED_BACK : TransactionSynchronization.STATUS_COMMITTED);
+            assertThat(count("attempt_command_receipt")).isEqualTo(rollback ? 0 : 1);
+            assertThat(count("attempt_lifecycle_state")).isEqualTo(rollback ? 0 : 1);
+            assertThat(captured.list).hasSize(1);
+            var event = captured.list.get(0);
+            assertThat(event.getFormattedMessage()).doesNotContain(marker);
+            assertThat(event.getThrowableProxy()).isNotNull();
+            assertThat(ThrowableProxyUtil.asString(event.getThrowableProxy())).contains("UNKNOWN_OUTCOME").doesNotContain(marker);
+        } finally { logger.detachAppender(captured); captured.stop(); logger.setLevel(previous); }
+    }
+
+    @Test
+    void callbacksRegisteredDuringCompletionAreProtectedBeforeTheNextPhase() throws Exception {
+        var request = request("late-observer"); var calls = new AtomicInteger();
+        rejected(() -> service.execute(request, () -> {}, id -> {
+            calls.incrementAndGet(); var ack = start(user);
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void beforeCommit(boolean readOnly) {
+                    TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                        @Override public void afterCommit() { throw new IllegalStateException("SYNTHETIC_PRIVATE_LATE_599"); }
+                    });
+                }
+            });
+            return ack;
+        }), UNKNOWN_OUTCOME);
+        assertThat(service.execute(request, () -> {}, id -> { calls.incrementAndGet(); return start(user); }).replayed()).isTrue();
+        assertThat(calls).hasValue(1);
+        assertThat(count("attempt_command_receipt")).isEqualTo(1); assertThat(count("attempt_lifecycle_state")).isEqualTo(1);
+    }
+
+    @Test
+    void joinedTransactionsPreserveCallbackOrderUniquenessAndResourceLifecycle() throws Exception {
+        var events = new ArrayList<String>(); var first = request("ordered-first"); var second = request("ordered-second");
+        var savepoint = new AtomicReference<Object>();
+        var resource = new TransactionSynchronization() {
+            @Override public int getOrder() { return -10; }
+            @Override public void suspend() { events.add("suspend"); }
+            @Override public void resume() { events.add("resume"); }
+            @Override public void flush() { events.add("flush"); }
+            @Override public void savepoint(Object point) { savepoint.set(point); events.add("savepoint"); }
+            @Override public void savepointRollback(Object point) { assertThat(point).isSameAs(savepoint.get()); events.add("savepointRollback"); }
+            @Override public void beforeCommit(boolean readOnly) { assertThat(readOnly).isFalse(); events.add("resource.beforeCommit"); }
+            @Override public void beforeCompletion() { events.add("resource.beforeCompletion"); }
+            @Override public void afterCommit() { events.add("resource.afterCommit"); }
+            @Override public void afterCompletion(int status) { assertThat(status).isEqualTo(STATUS_COMMITTED); events.add("resource.afterCompletion"); }
+        };
+        tx("READ_COMMITTED").executeWithoutResult(status -> {
+            TransactionSynchronizationManager.registerSynchronization(resource);
+            service.execute(first, () -> {}, id -> {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override public void beforeCommit(boolean readOnly) { events.add("observer.beforeCommit"); }
+                    @Override public void beforeCompletion() { events.add("observer.beforeCompletion"); }
+                    @Override public void afterCommit() { events.add("observer.afterCommit"); }
+                    @Override public void afterCompletion(int completion) { events.add("observer.afterCompletion"); }
+                });
+                return start(user);
+            });
+            // Repeated commands/re-registration must not double-wrap or invoke the resource twice.
+            TransactionSynchronizationManager.registerSynchronization(resource);
+            execute(second);
+            status.flush();
+            var point = status.createSavepoint(); status.rollbackToSavepoint(point); status.releaseSavepoint(point);
+            var suspended = new TransactionTemplate(manager);
+            suspended.setPropagationBehavior(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
+            suspended.executeWithoutResult(ignored -> assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse());
+        });
+        assertThat(events).containsExactly("flush", "savepoint", "savepointRollback", "suspend", "resume",
+                "resource.beforeCommit", "observer.beforeCommit", "resource.beforeCompletion", "observer.beforeCompletion",
+                "resource.afterCommit", "observer.afterCommit", "resource.afterCompletion", "observer.afterCompletion");
+        assertThat(count("attempt_command_receipt")).isEqualTo(2); assertThat(count("attempt_lifecycle_state")).isEqualTo(2);
+        assertThat(TransactionSynchronizationManager.isSynchronizationActive()).isFalse();
+        assertThat(TransactionSynchronizationManager.getResourceMap()).isEmpty();
     }
 
     @Test

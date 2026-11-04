@@ -86,25 +86,35 @@ public class CommandReceiptServiceImpl implements CommandReceiptService {
     private <T> T run(String operation, TransactionTemplate transaction, Supplier<T> action) {
         var sample = Timer.start();
         String outcome = "unknown_outcome";
+        class Execution { boolean entered; ReceiptException failure; }
+        var execution = new Execution();
         try {
             T result = transaction.execute(status -> {
+                execution.entered = true;
+                ReceiptTransactionSynchronization.protectRegistered();
                 try { return action.get(); }
                 // Sanitize BEFORE TransactionTemplate can log rollback diagnostics. Preserve only
                 // fixed reasons; never retain callback/driver cause, suppressed errors or messages.
-                catch (ReceiptException failure) { throw new ReceiptException(failure.reason()); }
-                catch (DataAccessException failure) { throw databaseFailure(failure); }
-                catch (RuntimeException failure) { throw new ReceiptException(COMMAND_DENIED); }
+                catch (RuntimeException failure) {
+                    execution.failure = failure instanceof ReceiptException receipt ? new ReceiptException(receipt.reason())
+                            : failure instanceof DataAccessException database ? databaseFailure(database)
+                            : new ReceiptException(COMMAND_DENIED);
+                    throw execution.failure;
+                } finally {
+                    // Spring runs these callbacks later, including when we join an outer transaction.
+                    ReceiptTransactionSynchronization.protectRegistered();
+                }
             });
             outcome = result instanceof Result r && r.replayed() ? "replay_returned" : "returned";
             return result;
-        } catch (ReceiptException failure) {
-            outcome = failure.reason().name().toLowerCase(Locale.ROOT);
-            throw new ReceiptException(failure.reason());
-        } catch (CannotCreateTransactionException failure) {
-            outcome = "persistence_unavailable";
-            throw new ReceiptException(PERSISTENCE_UNAVAILABLE);
-        } catch (DataAccessException | TransactionException failure) {
-            throw new ReceiptException(UNKNOWN_OUTCOME);
+        } catch (RuntimeException failure) {
+            // Only the exact failure emitted by the action has a known execution outcome.
+            // Completion can fail even after commit, regardless of the exception's type/reason.
+            var reason = failure == execution.failure ? execution.failure.reason()
+                    : !execution.entered && failure instanceof CannotCreateTransactionException ? PERSISTENCE_UNAVAILABLE
+                    : UNKNOWN_OUTCOME;
+            outcome = reason.name().toLowerCase(Locale.ROOT);
+            throw new ReceiptException(reason);
         } finally {
             try {
                 sample.stop(Timer.builder("attempt.command.receipt").tags("version", "1", "operation", operation,

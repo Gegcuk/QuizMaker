@@ -2779,13 +2779,21 @@ and disclosure rules and cannot increase disclosure merely because the command w
 | Validation/work failure before commit | Roll back receipt and domain writes together; no independently committed failed reservation or execution lease. A caught inner failure marks the enclosing transaction rollback-only. |
 | Failed connection acquisition | `PERSISTENCE_UNAVAILABLE`; no success acknowledgement. |
 | Commit acknowledgement lost / transaction completion uncertain | `UNKNOWN_OUTCOME`; reconcile in a fresh transaction with the exact same request. Never infer rollback or switch to a new key. |
+| `beforeCommit` / `afterCommit` synchronization throws | Clean `UNKNOWN_OUTCOME`, even for a `ReceiptException` carrying a business-denial reason. A failing `beforeCommit` rolls back; a failing observer in `afterCommit` leaves the receipt and effect committed, so an identical retry replays. |
 | Unexpected persisted `IN_PROGRESS` or reentrant same-key execution | `IN_PROGRESS`, no takeover; an orphan requires separately owned investigation/repair. |
 
 Callbacks must share the same database and transaction manager. `REQUIRES_NEW`, remote effects,
 independent commits and after-commit business writes violate this contract. A returned result
 inside an outer transaction is provisional until that transaction commits. Consumer business
-denials use fixed `ReceiptException` reasons. Unexpected runtime diagnostics and causes/suppressed
-exceptions are discarded before `TransactionTemplate` can log rollback. Optional telemetry uses
+denials use fixed `ReceiptException` reasons. Work failures are distinguished from transaction
+completion failures. Runtime diagnostics and causes/suppressed exceptions from work and registered
+transaction synchronizations are discarded before Spring can log them. Synchronization ordering,
+resource callbacks and Spring's log-only semantics for `beforeCompletion` / `afterCompletion` are
+preserved. Protection covers synchronizations registered when the receipt call exits, including
+later completion by an outer transaction and callbacks registered by protected callbacks during
+completion. Synchronizations added by the outer owner after return, global transaction-manager
+listeners and diagnostics emitted directly by collaborators are outside this local boundary.
+Optional telemetry uses
 only bounded version/operation/outcome labels and cannot replace the command outcome; `returned`
 does not assert that an outer transaction committed.
 
@@ -2808,7 +2816,8 @@ after writes, preserve receipts and domain evidence and use a compatible forward
 boundaries. `CommandReceiptMySqlIntegrationTest` uses real subject/lifecycle/receipt writes,
 fresh reads, controlled database lock waits, both `READ_COMMITTED` and `REPEATABLE_READ`, stale
 snapshots, actual SQL/commit faults, rollback-only composition, restart, JPA transactions and
-sanitized rollback diagnostics. Guard doubles prove callback ordering, not implementation of
+sanitized work/completion diagnostics, observer failure after commit, outer completion, and
+synchronization ordering/resource lifecycle. Guard doubles prove callback ordering, not implementation of
 #537 authorization. Lifecycle fixtures prove local atomicity, not #600/#543 business integration.
 Replay uses two indexed SELECTs with 3 and 30 real parent attempts; EXPLAIN also confirms the
 cleanup index. No JPA relationship-loading path is added. Full hold/deletion orchestration remains
