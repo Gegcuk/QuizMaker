@@ -2294,6 +2294,11 @@ through the materializer. Regression fixtures enable the actual transaction DEBU
 that throwable-bearing events occurred without protected markers, and verify rollback and a
 successful retry through both paths.
 
+The projector also rebuilds known `participantContent` contract/materialization failures with the
+same reason, removing causes and suppressed diagnostics before rollback logging. Two reached-write
+MySQL regression cases verify the returned exception, actual DEBUG events, complete rollback and
+a successful retry; a safe top-level message alone is not sufficient evidence of redaction.
+
 Presentation support is explicit on the exact `VersionedResponseContract` through
 `participantContent`; its default rejects unsupported contracts. The first presentation vocabulary
 covers text-only MCQ_SINGLE, MCQ_MULTI, TRUE_FALSE, FILL_GAP (with or without options) and ORDERING.

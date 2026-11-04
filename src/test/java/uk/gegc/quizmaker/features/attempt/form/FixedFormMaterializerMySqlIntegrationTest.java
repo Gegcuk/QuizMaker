@@ -249,6 +249,66 @@ class FixedFormMaterializerMySqlIntegrationTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"CONTRACT", "MATERIAL"})
+    void participantContentKnownFailuresRemoveNestedDiagnosticsBeforeRollbackLogging(String kind) {
+        var revision = saved(quiz("known-projection-failure", question("known-projection-q", QuestionType.MCQ_SINGLE)));
+        var cmd = command("known-projection-form", revision, AUTHORED);
+        String marker = "protected-source-marker";
+        var reached = new AtomicBoolean();
+        var failingContracts = contracts(question -> {
+            assertThat(question.content()).contains(marker);
+            assertThat(count("attempt_form_item")).isEqualTo(1);
+            assertThat(count("attempt_form_option")).isEqualTo(question.options().size()).isPositive();
+            reached.set(true);
+            RuntimeException failure = kind.equals("CONTRACT")
+                    ? new ContractResolutionException(ContractResolutionException.Reason.UNSUPPORTED_CONTRACT)
+                    : new FormMaterializationException(FormMaterializationException.Reason.INVALID_MATERIAL);
+            failure.initCause(new IllegalStateException("Nested source: " + question.content()));
+            failure.addSuppressed(new IllegalStateException("Suppressed source: " + question.content()));
+            throw failure;
+        });
+        var logger = (Logger) LoggerFactory.getLogger(TransactionTemplate.class);
+        Level previousLevel = logger.getLevel();
+        Thread requestThread = Thread.currentThread();
+        var captured = new ListAppender<ILoggingEvent>() {
+            @Override protected void append(ILoggingEvent event) {
+                if (Thread.currentThread() == requestThread) {
+                    event.prepareForDeferredProcessing();
+                    super.append(event);
+                }
+            }
+        };
+        captured.setContext(logger.getLoggerContext());
+        captured.start(); logger.addAppender(captured); logger.setLevel(Level.DEBUG);
+        try {
+            Throwable failure = catchThrowable(() -> service(failingContracts).materialize(OWNER, cmd));
+            String expectedMessage = kind.equals("CONTRACT") ? "Question contract rejected: UNSUPPORTED_CONTRACT"
+                    : "Form materialization rejected: INVALID_MATERIAL";
+            Class<? extends RuntimeException> expectedClass = kind.equals("CONTRACT")
+                    ? ContractResolutionException.class : FormMaterializationException.class;
+            org.assertj.core.api.SoftAssertions.assertSoftly(softly -> {
+                softly.assertThat(failure).isExactlyInstanceOf(expectedClass).hasMessage(expectedMessage).hasNoCause();
+                if (failure != null) softly.assertThat(failure.getSuppressed()).isEmpty();
+                softly.assertThat(captured.list).anySatisfy(event -> {
+                    assertThat(event.getLevel()).isEqualTo(Level.DEBUG);
+                    assertThat(event.getThrowableProxy()).isNotNull();
+                });
+                softly.assertThat(captured.list).allSatisfy(event -> {
+                    assertThat(event.getFormattedMessage()).doesNotContain(marker);
+                    if (event.getThrowableProxy() != null) assertThat(ThrowableProxyUtil.asString(event.getThrowableProxy()))
+                            .contains(expectedMessage).doesNotContain(marker);
+                });
+            });
+        } finally {
+            logger.setLevel(previousLevel); logger.detachAppender(captured); captured.stop();
+        }
+        assertThat(reached).isTrue();
+        fresh(FixedFormMaterializerMySqlIntegrationTest::assertNoForms);
+        assertThat(materializer.materialize(OWNER, cmd).items()).hasSize(1);
+        fresh(() -> assertThat(count("attempt_form")).isEqualTo(1));
+    }
+
+    @ParameterizedTest
     @CsvSource({"false,UNEXPECTED", "true,UNEXPECTED", "false,CONTRACT", "true,CONTRACT",
             "false,ORDER", "true,ORDER", "false,REVISION", "true,REVISION"})
     void layoutDiagnosticsAreRemovedBeforeTransactionLoggingForBothCallers(boolean directOrderCaller, String kind) {

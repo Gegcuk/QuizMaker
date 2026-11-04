@@ -47,8 +47,11 @@ public final class ParticipantFormProjector {
                 content = pair.response().participantContent(question);
                 require(content != null, INVALID_MATERIAL);
                 content = orderedContent(question.type(), content, options.optionIds());
-            } catch (ContractResolutionException | FormMaterializationException failure) {
-                throw failure;
+            } catch (ContractResolutionException failure) {
+                // A bounded message does not make adapter-supplied causes/suppressed data safe.
+                throw new ContractResolutionException(failure.reason());
+            } catch (FormMaterializationException failure) {
+                throw new FormMaterializationException(failure.reason());
             } catch (RuntimeException failure) {
                 // Adapter diagnostics can contain raw source/answers. Do not preserve them as causes.
                 throw new FormMaterializationException(INVALID_MATERIAL);
