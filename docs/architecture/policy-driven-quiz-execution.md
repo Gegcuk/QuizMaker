@@ -4416,6 +4416,101 @@ Structured operational logs and protected audit records serve different purposes
 
 Compatibility rules below protect existing clients, quizzes, retained history and behavior throughout migration. The [22 October owner decision](./decision-register.md#legacy-compatibility-and-retained-fallback) retains the required legacy execution path and limits any older preproduction cleanup language accordingly.
 
+### Read-only compatibility inventory (#608)
+
+`LegacyCompatibilityService` exposes an internal inventory and the existing #516 request mapping.
+It has no HTTP endpoint, scheduler, migration writer or engine-routing hook. Existing successful
+attempt, shared-attempt, result and repetition routes retain their current authority. Inventory
+classification is diagnostic: it neither grants resource access nor disables a retained legacy
+writer. An operator integration must supply an authorized database scope; this service is not a
+tenant-facing arbitrary-database reader.
+
+Two different questions must remain separate:
+
+- **Can this new request be mapped?** `classifyLaunch` delegates to the actual versioned
+  `AttemptPresetService`. An eligible authenticated `ALL_AT_ONCE`, or `TIMED` with disabled quiz
+  timing and an unambiguous authorized untimed policy, has a supported **request adapter**.
+  This is not evidence that #600's target start, #701's family adapters or #609 activation exists.
+  `ONE_BY_ONE`, enabled timing and assignments retain their separately owned capability boundary;
+  no-authority, unknown-version and choice-required outcomes retain their typed reasons in #516.
+- **What can be known about existing rows?** Legacy `attempts`/`answers` have mutable quiz/question
+  references, not immutable revision/policy/form provenance. All otherwise recognized rows remain
+  `LEGACY_ONLY`. Today's quiz flags, question text, answer key or aggregate score never become
+  fabricated historical target evidence. The existing completed-review reader still resolves
+  current question context; the nine-family HTTP fixture explicitly demonstrates that limitation.
+
+Inventory vocabulary v1 has four classifications. `SUPPORTED_ADAPTER` applies to a proven request
+mapping only. `LEGACY_ONLY` means retain the existing representation and its established operations,
+not impose a new read-only restriction on an active legacy attempt. `UNSUPPORTED` describes a
+known unavailable mapping/selection/access outcome, without changing existing HTTP statuses.
+`UNKNOWN` requires reconciliation before a proposed target transformation; it is a report bucket,
+not a physical quarantine, deletion or regrading operation.
+
+Each row contributes to exactly one fixed finding with an exact downstream issue owner. Overlapping
+anomalies use explicit precedence: missing references, unknown vocabulary, ambiguous sentinel
+identity, duplicate answer, inconsistent state, unexpected repetition, then the known legacy
+family. The report therefore counts rows, not the sum of all anomalies on those rows. Absent a
+higher-precedence discrepancy, every duplicate answer is reported under #848, including identical
+and conflicting payloads; no response content is read to select a winner. Missing current
+quiz/question membership is a discrepancy, not proof that the original historical answer was unauthorized.
+This is a metadata inventory, not validation of stored question/response payloads. Recognizing a
+family name does not prove that its historical payload is valid or gradeable by a target adapter.
+
+| Source / current contract | Classification and boundary | Owner / executable evidence |
+|---|---|---|
+| `attempts`: `ALL_AT_ONCE`, `ONE_BY_ONE`, `TIMED`; `IN_PROGRESS`, `PAUSED`, `COMPLETED`, `ABANDONED` | Recognized history is legacy-only; malformed state or unknown vocabulary is explicit. No target policy/state is inferred. Legacy abandoned rows need not have the newer timeout timestamp. | #704 historical reads, #619 state mapping; `LegacyInventoryMySqlIntegrationTest`, `LegacyLifecycleIsolationIntegrationTest` |
+| `POST /attempts/quizzes/{quizId}`, current-question, pause/resume | Optional start body defaults to `ALL_AT_ONCE`. Disabled timing does not become enabled because an inactive duration is stored. These existing contracts do not prove target launch authorization. | #600/#609 integration; `LegacyCompatibilityHttpIntegrationTest`, `LegacyPracticeMappingTest` |
+| `answers`, single/batch answer, completion | All nine current family names remain known. Duplicate attempt/question rows are unknown, with no deletion or score rewrite. Accepted practice feedback remains immediate when requested; sequential duplicate remains the existing `422`. | #848 retained-writer integrity, #543/#529 target writers; HTTP nine-family fixtures, `QuestionContractGradingCompatibilityTest`, `LegacyAttemptTimeoutMySqlIntegrationTest` |
+| Active detail, completed review, answer-key, lists/summary/stats and quiz result/leaderboard reads | Existing authorization/disclosure and response shapes remain. Completed review is legacy context, not proof of the original rendered question. Quiz analytics is a derived legacy aggregate, not an immutable grade fact. | #704/#606, #555/#556 disclosure; `AttemptControllerReviewTest`, `AttemptControllerSummaryTest`, `AttemptServiceImplSummaryTest`, `QuizAnalyticsSnapshotIntegrationTest` |
+| `share_links`, `share_link_usage`, `share_link_analytics`; shared start/answer/current-question/complete | Known scopes/events, consumed one-time links and expired/revoked links remain legacy evidence. A sentinel without its link, a foreign-quiz link, or a non-sentinel linked attempt is not converted into a target subject. IP hashes, user-agent, referrer and token hashes are not selected. | #623/#624/#625/#626; `AnonymousAttemptIntegrationTest`, `AnonymousAttemptAnswerIntegrationTest`, `ShareLinkControllerIntegrationTest`, inventory fixtures |
+| `quizzes` launch configuration, including archived/private/draft rows | Mutable configuration only. Enabled timing without a positive duration is inconsistent; a disabled timer's stored duration is inactive. A repetition-enabled quiz is reported as an unexpected enrollment signal. | #700/#608, #667 repetition discrepancy; inventory and HTTP fixtures |
+| `spaced_repetition_entry`, `repetition_review_log`, current repetition routes | Any existing schedule/review row contradicts the clean-empty assumption in the inspected scope and is retained for classification. No SM-2 import, reset or new Learning adapter is implied. | #667, #577/#649 clean Learning; inventory fixtures, existing `RepetitionControllerQueryIntegrationTest` and `RepetitionControllerActionIntegrationTest` |
+| Missing references, unknown future enum values, unavailable schema/query failure | Fixed non-sensitive findings or `LegacyInventoryException`; no default mapping and no successful partial report after query failure. | #608 reconciliation; inventory negative/fault fixtures |
+
+`LegacyCompatibility.routingInput` distinguishes proven-absent, committed-target and
+unknown/in-flight start evidence. Committed identity stays target-owned even when the requested
+mapping is unsupported. Unknown never becomes absent. A compatible candidate still requires
+#703's real operator authorization, synchronized no-target check, competing-engine/allowance race
+and audit transaction; this pure classification supplies none of those effects.
+
+The inventory uses one independent read-only `REPEATABLE_READ` transaction across all nine families
+and all pages. Its bounded scalar SQL windows use an exclusive binary-UUID keyset, explicit column
+lists and one look-ahead row. No answer JSON, question content, document bytes, names, email or
+capability material enters the projections/report. Existing foreign-key indexes support relationship
+lookups; answer-duplicate detection checks the same attempt/question using the retained answer index,
+without assuming a uniqueness constraint exists. Work still depends on the inspected rows and
+answer fan-out, so query count alone is not a latency guarantee.
+The multi-parent fixture observes nine queries for both 3 attempts/24 answers and 67 attempts/536
+answers when each family fits one page, and fourteen for the smaller fixture with four-row pages.
+After refreshing statistics in the newly populated fixture, `EXPLAIN` verifies indexed relationship
+lookups and primary-key range access for continuation pages. The inventory never changes table
+statistics; actual plans depend on database statistics and MySQL's cost estimates.
+
+The caller supplies `Limits(batchSize, maxRowsPerFamily, timeoutSeconds)` explicitly. Technical
+input bounds are 1–1000 rows per batch, 1–1,000,000 examined rows per family, and 1–300 seconds per
+transaction; there is no automatic production scan/default or new execution/retry/retention policy.
+Reaching the row budget with a look-ahead row returns `complete=false` for that family and report.
+Its reconciled counts are only the examined prefix, never advertised as whole-database totals.
+Transaction/query failure returns no report. `emptyRepetitionConfirmed()` requires complete clean
+quiz-configuration coverage plus both empty repetition tables in that same snapshot. A synthetic
+empty fixture cannot establish that production is empty.
+
+The only metric is `attempt.legacy.inventory`, with bounded `complete`, `truncated`, `unavailable`
+outcomes. Reports contain per-family row counts, fixed findings and completeness, without row IDs.
+Query failures are sanitized before transaction rollback logging. The MySQL fixture migrates a fresh
+isolated catalog through V91 and tests counts, missing links, duplicate preservation, unknown values,
+query plans, SQL counts, transaction read-only enforcement, cross-page concurrent commits and failure
+redaction. JDBC scalar projections introduce no JPA relationship traversal. Current OpenAPI group
+and discovery coverage is retained through `QuizOpenApiContractTest`; no new operation is published.
+
+Known compatibility gates remain explicit: #690 requires a demonstrated saved-disclosure bypass
+and must preserve immediate practice feedback; #849 already serializes answer/completion and
+persists timeout. The new HTTP integration class also races identical and different same-question
+answers in independent MySQL transactions for all three modes: one immutable answer and one score
+contribution survive, and subsequent retries keep the existing rejection. #848 remains the owner
+of any additional retained-writer uniqueness/rollout repair and historical duplicate reconciliation.
+Inventory does not activate those routes or replace real writer evidence with a target fake.
+
 ### Compatible cutover with a retained legacy path
 
 Retain the old public API and the legacy implementation needed by supported flows and fallback. Existing quizzes and retained user data must remain usable under their supported contracts; users need not recreate them for the new architecture. Backend readiness does not imply frontend readiness. Compatible adapters can translate old requests into target commands once behavior and response compatibility are proven, while flows without a safe translation retain the legacy path.
