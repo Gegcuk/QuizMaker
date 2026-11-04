@@ -6,11 +6,14 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.ThrowableProxyUtil;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.config.MeterFilter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -336,6 +339,51 @@ class LegacyInventoryMySqlIntegrationTest {
             finally { sql.execute("RENAME TABLE inventory_unavailable_fixture TO repetition_review_log"); }
             assertThat(service.inventory(LIMITS).complete()).isTrue(); assertNoTargetRows();
         } finally { source.reset(); logger.detachAppender(appender); logger.setLevel(previous); appender.stop(); }
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void metricFailureDoesNotReplaceSuccessfulReport(boolean truncated) {
+        attempt("ALL_AT_ONCE", "IN_PROGRESS");
+        if (truncated) attempt("ALL_AT_ONCE", "IN_PROGRESS");
+        var outcomes = failInventoryMetric();
+
+        var report = service.inventory(new Limits(1, 1, 30));
+
+        assertThat(report.complete()).isEqualTo(!truncated);
+        assertThat(family(report, Family.ATTEMPT).complete()).isEqualTo(!truncated);
+        assertCount(report, Family.ATTEMPT, Finding.LEGACY_HISTORY, 1);
+        assertThat(outcomes).containsExactly(truncated ? "truncated" : "complete");
+        assertThat(count("attempts")).isEqualTo(truncated ? 2 : 1);
+        assertNoTargetRows();
+    }
+
+    @Test void metricFailureDoesNotReplaceSanitizedInventoryFailure() {
+        var outcomes = failInventoryMetric();
+        sql.execute("RENAME TABLE repetition_review_log TO inventory_unavailable_fixture");
+        try {
+            var failure = catchThrowable(() -> service.inventory(LIMITS));
+            assertThat(failure).isExactlyInstanceOf(LegacyInventoryException.class)
+                    .hasMessage("Legacy inventory unavailable").hasNoCause();
+            assertThat(failure.getSuppressed()).isEmpty();
+            assertThat(outcomes).containsExactly("unavailable");
+        } finally {
+            sql.execute("RENAME TABLE inventory_unavailable_fixture TO repetition_review_log");
+        }
+        assertNoTargetRows();
+    }
+
+    private List<String> failInventoryMetric() {
+        var outcomes = new ArrayList<String>();
+        metrics.config().meterFilter(new MeterFilter() {
+            @Override public Meter.Id map(Meter.Id id) {
+                if (id.getName().equals("attempt.legacy.inventory")) {
+                    outcomes.add(id.getTag("outcome"));
+                    throw new IllegalStateException(MARKER, new RuntimeException(MARKER));
+                }
+                return id;
+            }
+        });
+        return outcomes;
     }
 
     @Test void independentReadOnlyTransactionCannotWriteOrSeeAnOuterUncommittedWrite() {

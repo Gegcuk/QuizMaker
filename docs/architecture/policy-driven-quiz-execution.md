@@ -4497,6 +4497,8 @@ empty fixture cannot establish that production is empty.
 
 The only metric is `attempt.legacy.inventory`, with bounded `complete`, `truncated`, `unavailable`
 outcomes. Reports contain per-family row counts, fixed findings and completeness, without row IDs.
+Metric registration/update is best-effort: a telemetry failure neither discards a complete/truncated
+report nor replaces the sanitized inventory exception with telemetry diagnostics.
 Query failures are sanitized before transaction rollback logging. The MySQL fixture migrates a fresh
 isolated catalog through V91 and tests counts, missing links, duplicate preservation, unknown values,
 query plans, SQL counts, transaction read-only enforcement, cross-page concurrent commits and failure

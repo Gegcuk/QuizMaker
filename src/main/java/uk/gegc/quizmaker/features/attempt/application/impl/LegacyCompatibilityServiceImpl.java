@@ -57,11 +57,19 @@ public final class LegacyCompatibilityServiceImpl implements LegacyCompatibility
                 }
             });
         } catch (RuntimeException failure) {
-            metrics.counter("attempt.legacy.inventory", "outcome", "unavailable").increment();
+            count("unavailable");
             throw new LegacyInventoryException();
         }
-        metrics.counter("attempt.legacy.inventory", "outcome", report.complete() ? "complete" : "truncated").increment();
+        count(report.complete() ? "complete" : "truncated");
         return report;
+    }
+
+    private void count(String outcome) {
+        try {
+            metrics.counter("attempt.legacy.inventory", "outcome", outcome).increment();
+        } catch (RuntimeException ignored) {
+            // Telemetry must not replace a report or expose diagnostics through a sanitized failure.
+        }
     }
 
     private FamilyCount scan(Family family, Limits limits) {
