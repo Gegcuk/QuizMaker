@@ -1,0 +1,1183 @@
+[
+  {
+    "name": "MCQ_SINGLE-correct",
+    "family": "MCQ_SINGLE",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Paris",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "London",
+          "correct": false
+        }
+      ]
+    },
+    "response": {
+      "selectedOptionId": "a"
+    },
+    "score": 1
+  },
+  {
+    "name": "MCQ_SINGLE-missing",
+    "family": "MCQ_SINGLE",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Paris",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "London",
+          "correct": false
+        }
+      ]
+    },
+    "response": {},
+    "score": null
+  },
+  {
+    "name": "MCQ_SINGLE-null",
+    "family": "MCQ_SINGLE",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Paris",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "London",
+          "correct": false
+        }
+      ]
+    },
+    "response": null,
+    "score": null
+  },
+  {
+    "name": "MCQ_SINGLE-wrong",
+    "family": "MCQ_SINGLE",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Paris",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "London",
+          "correct": false
+        }
+      ]
+    },
+    "response": {
+      "selectedOptionId": "b"
+    },
+    "score": 0
+  },
+  {
+    "name": "MCQ_SINGLE-unknown",
+    "family": "MCQ_SINGLE",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Paris",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "London",
+          "correct": false
+        }
+      ]
+    },
+    "response": {
+      "selectedOptionId": "missing"
+    },
+    "score": 0
+  },
+  {
+    "name": "MCQ_SINGLE-empty",
+    "family": "MCQ_SINGLE",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Paris",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "London",
+          "correct": false
+        }
+      ]
+    },
+    "response": {
+      "selectedOptionId": ""
+    },
+    "score": 0
+  },
+  {
+    "name": "MCQ_SINGLE-number",
+    "family": "MCQ_SINGLE",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Paris",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "London",
+          "correct": false
+        }
+      ]
+    },
+    "response": {
+      "selectedOptionId": 1
+    },
+    "score": null
+  },
+  {
+    "name": "MCQ_MULTI-correct",
+    "family": "MCQ_MULTI",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Java",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "Python",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "text": "HTML",
+          "correct": false
+        }
+      ]
+    },
+    "response": {
+      "selectedOptionIds": [
+        "a",
+        "b"
+      ]
+    },
+    "score": 1
+  },
+  {
+    "name": "MCQ_MULTI-missing",
+    "family": "MCQ_MULTI",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Java",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "Python",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "text": "HTML",
+          "correct": false
+        }
+      ]
+    },
+    "response": {},
+    "score": null
+  },
+  {
+    "name": "MCQ_MULTI-null",
+    "family": "MCQ_MULTI",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Java",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "Python",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "text": "HTML",
+          "correct": false
+        }
+      ]
+    },
+    "response": null,
+    "score": null
+  },
+  {
+    "name": "MCQ_MULTI-wrong",
+    "family": "MCQ_MULTI",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Java",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "Python",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "text": "HTML",
+          "correct": false
+        }
+      ]
+    },
+    "response": {
+      "selectedOptionIds": [
+        "c"
+      ]
+    },
+    "score": 0
+  },
+  {
+    "name": "MCQ_MULTI-partial",
+    "family": "MCQ_MULTI",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Java",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "Python",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "text": "HTML",
+          "correct": false
+        }
+      ]
+    },
+    "response": {
+      "selectedOptionIds": [
+        "a"
+      ]
+    },
+    "score": 0
+  },
+  {
+    "name": "MCQ_MULTI-duplicates",
+    "family": "MCQ_MULTI",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Java",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "Python",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "text": "HTML",
+          "correct": false
+        }
+      ]
+    },
+    "response": {
+      "selectedOptionIds": [
+        "b",
+        "a",
+        "a"
+      ]
+    },
+    "score": 1
+  },
+  {
+    "name": "MCQ_MULTI-empty",
+    "family": "MCQ_MULTI",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Java",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "Python",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "text": "HTML",
+          "correct": false
+        }
+      ]
+    },
+    "response": {
+      "selectedOptionIds": []
+    },
+    "score": 0
+  },
+  {
+    "name": "MCQ_MULTI-unknown",
+    "family": "MCQ_MULTI",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Java",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "Python",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "text": "HTML",
+          "correct": false
+        }
+      ]
+    },
+    "response": {
+      "selectedOptionIds": [
+        "a",
+        "b",
+        "missing"
+      ]
+    },
+    "score": 0
+  },
+  {
+    "name": "MCQ_MULTI-number",
+    "family": "MCQ_MULTI",
+    "content": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Java",
+          "correct": true
+        },
+        {
+          "id": "b",
+          "text": "Python",
+          "correct": true
+        },
+        {
+          "id": "c",
+          "text": "HTML",
+          "correct": false
+        }
+      ]
+    },
+    "response": {
+      "selectedOptionIds": [
+        1
+      ]
+    },
+    "score": null
+  },
+  {
+    "name": "TRUE_FALSE-correct",
+    "family": "TRUE_FALSE",
+    "content": {
+      "answer": true
+    },
+    "response": {
+      "answer": true
+    },
+    "score": 1
+  },
+  {
+    "name": "TRUE_FALSE-missing",
+    "family": "TRUE_FALSE",
+    "content": {
+      "answer": true
+    },
+    "response": {},
+    "score": null
+  },
+  {
+    "name": "TRUE_FALSE-null",
+    "family": "TRUE_FALSE",
+    "content": {
+      "answer": true
+    },
+    "response": null,
+    "score": null
+  },
+  {
+    "name": "TRUE_FALSE-wrong",
+    "family": "TRUE_FALSE",
+    "content": {
+      "answer": true
+    },
+    "response": {
+      "answer": false
+    },
+    "score": 0
+  },
+  {
+    "name": "TRUE_FALSE-string",
+    "family": "TRUE_FALSE",
+    "content": {
+      "answer": true
+    },
+    "response": {
+      "answer": "true"
+    },
+    "score": null
+  },
+  {
+    "name": "TRUE_FALSE-number",
+    "family": "TRUE_FALSE",
+    "content": {
+      "answer": true
+    },
+    "response": {
+      "answer": 1
+    },
+    "score": null
+  },
+  {
+    "name": "TRUE_FALSE-extra-ignored",
+    "family": "TRUE_FALSE",
+    "content": {
+      "answer": true
+    },
+    "response": {
+      "answer": true,
+      "correct": false
+    },
+    "score": 1
+  },
+  {
+    "name": "FILL_GAP-correct",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ],
+      "options": [
+        "Paris",
+        "Rome",
+        "London",
+        "Berlin",
+        "Madrid",
+        "Lisbon",
+        "Vienna"
+      ]
+    },
+    "response": {
+      "answers": [
+        {
+          "gapId": 1,
+          "answer": "Paris"
+        }
+      ]
+    },
+    "score": 1
+  },
+  {
+    "name": "FILL_GAP-missing",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ],
+      "options": [
+        "Paris",
+        "Rome",
+        "London",
+        "Berlin",
+        "Madrid",
+        "Lisbon",
+        "Vienna"
+      ]
+    },
+    "response": {},
+    "score": null
+  },
+  {
+    "name": "FILL_GAP-null",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ],
+      "options": [
+        "Paris",
+        "Rome",
+        "London",
+        "Berlin",
+        "Madrid",
+        "Lisbon",
+        "Vienna"
+      ]
+    },
+    "response": null,
+    "score": null
+  },
+  {
+    "name": "FILL_GAP-trim-case",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ],
+      "options": [
+        "Paris",
+        "Rome",
+        "London",
+        "Berlin",
+        "Madrid",
+        "Lisbon",
+        "Vienna"
+      ]
+    },
+    "response": {
+      "answers": [
+        {
+          "gapId": 1,
+          "answer": "  PARIS  "
+        }
+      ]
+    },
+    "score": 1
+  },
+  {
+    "name": "FILL_GAP-wrong",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ],
+      "options": [
+        "Paris",
+        "Rome",
+        "London",
+        "Berlin",
+        "Madrid",
+        "Lisbon",
+        "Vienna"
+      ]
+    },
+    "response": {
+      "answers": [
+        {
+          "gapId": 1,
+          "answer": "London"
+        }
+      ]
+    },
+    "score": 0
+  },
+  {
+    "name": "FILL_GAP-missing-gap",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ],
+      "options": [
+        "Paris",
+        "Rome",
+        "London",
+        "Berlin",
+        "Madrid",
+        "Lisbon",
+        "Vienna"
+      ]
+    },
+    "response": {
+      "answers": []
+    },
+    "score": 0
+  },
+  {
+    "name": "FILL_GAP-extra-gap",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ],
+      "options": [
+        "Paris",
+        "Rome",
+        "London",
+        "Berlin",
+        "Madrid",
+        "Lisbon",
+        "Vienna"
+      ]
+    },
+    "response": {
+      "answers": [
+        {
+          "gapId": 1,
+          "answer": "Paris"
+        },
+        {
+          "gapId": 2,
+          "answer": "ignored"
+        }
+      ]
+    },
+    "score": 1
+  },
+  {
+    "name": "FILL_GAP-duplicate-gap",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ],
+      "options": [
+        "Paris",
+        "Rome",
+        "London",
+        "Berlin",
+        "Madrid",
+        "Lisbon",
+        "Vienna"
+      ]
+    },
+    "response": {
+      "answers": [
+        {
+          "gapId": 1,
+          "answer": "Paris"
+        },
+        {
+          "gapId": 1,
+          "answer": "Paris"
+        }
+      ]
+    },
+    "score": null
+  },
+  {
+    "name": "FILL_GAP-string-id",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ],
+      "options": [
+        "Paris",
+        "Rome",
+        "London",
+        "Berlin",
+        "Madrid",
+        "Lisbon",
+        "Vienna"
+      ]
+    },
+    "response": {
+      "answers": [
+        {
+          "gapId": "1",
+          "answer": "Paris"
+        }
+      ]
+    },
+    "score": null
+  },
+  {
+    "name": "FILL_GAP-no-options-correct",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ]
+    },
+    "response": {
+      "answers": [
+        {
+          "gapId": 1,
+          "answer": "Paris"
+        }
+      ]
+    },
+    "score": 1
+  },
+  {
+    "name": "FILL_GAP-no-options-missing",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ]
+    },
+    "response": {},
+    "score": null
+  },
+  {
+    "name": "FILL_GAP-no-options-null",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ]
+    },
+    "response": null,
+    "score": null
+  },
+  {
+    "name": "FILL_GAP-no-options-trim-case",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ]
+    },
+    "response": {
+      "answers": [
+        {
+          "gapId": 1,
+          "answer": "  PARIS  "
+        }
+      ]
+    },
+    "score": 1
+  },
+  {
+    "name": "FILL_GAP-no-options-wrong",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ]
+    },
+    "response": {
+      "answers": [
+        {
+          "gapId": 1,
+          "answer": "London"
+        }
+      ]
+    },
+    "score": 0
+  },
+  {
+    "name": "FILL_GAP-no-options-missing-gap",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ]
+    },
+    "response": {
+      "answers": []
+    },
+    "score": 0
+  },
+  {
+    "name": "FILL_GAP-no-options-extra-gap",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ]
+    },
+    "response": {
+      "answers": [
+        {
+          "gapId": 1,
+          "answer": "Paris"
+        },
+        {
+          "gapId": 2,
+          "answer": "ignored"
+        }
+      ]
+    },
+    "score": 1
+  },
+  {
+    "name": "FILL_GAP-no-options-duplicate-gap",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ]
+    },
+    "response": {
+      "answers": [
+        {
+          "gapId": 1,
+          "answer": "Paris"
+        },
+        {
+          "gapId": 1,
+          "answer": "Paris"
+        }
+      ]
+    },
+    "score": null
+  },
+  {
+    "name": "FILL_GAP-no-options-string-id",
+    "family": "FILL_GAP",
+    "content": {
+      "text": "The capital of France is {1}.",
+      "gaps": [
+        {
+          "id": 1,
+          "answer": "Paris"
+        }
+      ]
+    },
+    "response": {
+      "answers": [
+        {
+          "gapId": "1",
+          "answer": "Paris"
+        }
+      ]
+    },
+    "score": null
+  },
+  {
+    "name": "ORDERING-correct",
+    "family": "ORDERING",
+    "content": {
+      "items": [
+        {
+          "id": 1,
+          "text": "First step"
+        },
+        {
+          "id": 2,
+          "text": "Second step"
+        }
+      ]
+    },
+    "response": {
+      "orderedItemIds": [
+        1,
+        2
+      ]
+    },
+    "score": 1
+  },
+  {
+    "name": "ORDERING-missing",
+    "family": "ORDERING",
+    "content": {
+      "items": [
+        {
+          "id": 1,
+          "text": "First step"
+        },
+        {
+          "id": 2,
+          "text": "Second step"
+        }
+      ]
+    },
+    "response": {},
+    "score": null
+  },
+  {
+    "name": "ORDERING-null",
+    "family": "ORDERING",
+    "content": {
+      "items": [
+        {
+          "id": 1,
+          "text": "First step"
+        },
+        {
+          "id": 2,
+          "text": "Second step"
+        }
+      ]
+    },
+    "response": null,
+    "score": null
+  },
+  {
+    "name": "ORDERING-wrong",
+    "family": "ORDERING",
+    "content": {
+      "items": [
+        {
+          "id": 1,
+          "text": "First step"
+        },
+        {
+          "id": 2,
+          "text": "Second step"
+        }
+      ]
+    },
+    "response": {
+      "orderedItemIds": [
+        2,
+        1
+      ]
+    },
+    "score": 0
+  },
+  {
+    "name": "ORDERING-duplicate",
+    "family": "ORDERING",
+    "content": {
+      "items": [
+        {
+          "id": 1,
+          "text": "First step"
+        },
+        {
+          "id": 2,
+          "text": "Second step"
+        }
+      ]
+    },
+    "response": {
+      "orderedItemIds": [
+        1,
+        1
+      ]
+    },
+    "score": 0
+  },
+  {
+    "name": "ORDERING-empty",
+    "family": "ORDERING",
+    "content": {
+      "items": [
+        {
+          "id": 1,
+          "text": "First step"
+        },
+        {
+          "id": 2,
+          "text": "Second step"
+        }
+      ]
+    },
+    "response": {
+      "orderedItemIds": []
+    },
+    "score": 0
+  },
+  {
+    "name": "ORDERING-unknown",
+    "family": "ORDERING",
+    "content": {
+      "items": [
+        {
+          "id": 1,
+          "text": "First step"
+        },
+        {
+          "id": 2,
+          "text": "Second step"
+        }
+      ]
+    },
+    "response": {
+      "orderedItemIds": [
+        1,
+        3
+      ]
+    },
+    "score": 0
+  },
+  {
+    "name": "ORDERING-string-id",
+    "family": "ORDERING",
+    "content": {
+      "items": [
+        {
+          "id": 1,
+          "text": "First step"
+        },
+        {
+          "id": 2,
+          "text": "Second step"
+        }
+      ]
+    },
+    "response": {
+      "orderedItemIds": [
+        "1",
+        "2"
+      ]
+    },
+    "score": null
+  },
+  {
+    "name": "ORDERING-explicit",
+    "family": "ORDERING",
+    "content": {
+      "items": [
+        {
+          "id": 1,
+          "text": "First step"
+        },
+        {
+          "id": 2,
+          "text": "Second step"
+        }
+      ],
+      "correctOrder": [
+        2,
+        1
+      ]
+    },
+    "response": {
+      "orderedItemIds": [
+        2,
+        1
+      ]
+    },
+    "score": 1
+  },
+  {
+    "name": "ORDERING-explicit-reject-authored",
+    "family": "ORDERING",
+    "content": {
+      "items": [
+        {
+          "id": 1,
+          "text": "First step"
+        },
+        {
+          "id": 2,
+          "text": "Second step"
+        }
+      ],
+      "correctOrder": [
+        2,
+        1
+      ]
+    },
+    "response": {
+      "orderedItemIds": [
+        1,
+        2
+      ]
+    },
+    "score": 0
+  },
+  {
+    "name": "ORDERING-empty-explicit",
+    "family": "ORDERING",
+    "content": {
+      "items": [
+        {
+          "id": 1,
+          "text": "First step"
+        },
+        {
+          "id": 2,
+          "text": "Second step"
+        }
+      ],
+      "correctOrder": []
+    },
+    "response": {
+      "orderedItemIds": []
+    },
+    "score": 1
+  }
+]

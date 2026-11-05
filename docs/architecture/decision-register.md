@@ -160,6 +160,13 @@ Full cutover must support MCQ_SINGLE, MCQ_MULTI, TRUE_FALSE, FILL_GAP, ORDERING,
 
 **Consumers:** family-adapter follow-ups, [#608](https://github.com/Gegcuk/QuizMaker/issues/608) compatibility matrix and [#609](https://github.com/Gegcuk/QuizMaker/issues/609) activation evidence. This local record captures the owner decision; existing GitHub issue text must be reconciled before implementation/activation is declared ready.
 
+<a id="fill-gap-v1-locale"></a>
+## FILL_GAP v1 locale independence — DECIDED
+
+**Decision date/source:** 5 November 2026, repository owner explicitly selected `Locale.ROOT` during implementation of [#701](https://github.com/Gegcuk/QuizMaker/issues/701).
+
+The new immutable FILL_GAP response/scoring v1 contract trims answers and lowercases with `Locale.ROOT`. Choice-pool validation uses the same normalization. It does not inherit the server's default locale and does not add a database locale setting. For example, answer `I` against key `i` receives one point on both English and Turkish hosts. The existing legacy handler remains unchanged; its Turkish-locale behavior is not transferred to the new contract. This is an explicit exception to exact legacy grading equivalence, covered by a dedicated compatibility test. Other payload, validation and binary-scoring semantics remain unchanged.
+
 <a id="access-aware-start"></a>
 ## Access-aware default launch — DECIDED, details scoped separately
 
