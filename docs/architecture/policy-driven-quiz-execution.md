@@ -1516,7 +1516,7 @@ must recheck current resource/publication authority and the current referenced a
 the supplied transactional authorization callback. An asset ID or historical evidence row
 alone grants no copy/publication authority. Acquisition returns existing binding/version
 identities and exact object metadata, including after ordinary removal; it creates no
-revision and performs no provider I/O. #700 still owns the real revision/current-pointer
+revision and performs no provider I/O. The #700 service below owns the real revision/current-pointer
 transaction, complete publication validation and combined publication/removal conformance.
 This boundary does not activate target execution or change grading/feedback policy.
 
@@ -1564,6 +1564,69 @@ unknown outcomes and transaction guards without calling a real provider.
 Metrics `quizmaker.media.retained` distinguish pending preparation, committed and failed
 operations; `quizmaker.media.retained.duration` records bounded operation/outcome latency.
 Resource identifiers, URLs, source content and provider diagnostics are not metric labels.
+
+### Internal immutable publication boundary (#700)
+
+`QuizRevisionPublicationService` is an internal authoring boundary. It is not wired to HTTP,
+legacy save/status routes or participant start. Ordinary edits continue to change drafts;
+an explicit `publish` command snapshots the current locked draft, ordered questions, options
+and exact retained image bindings. The command supplies its version (`1`), quiz ID, stable
+command ID, expected publication counter (`0` for unpublished) and the complete unique
+question order. The legacy question `Set` is not an order authority. No existing quiz is
+backfilled or activated, and existing attempts/forms retain their previous identities.
+
+Publication resolves the authenticated, active account and current database permissions,
+then checks ownership or existing quiz moderation/administration authority. Ordinary owners
+need `QUIZ_UPDATE`; PUBLIC content additionally requires moderation/administration authority.
+Caller-supplied owner IDs and cached OSIV roles are not authority. Current/history/content reads
+use the same author ownership/permission boundary; they are not participant read projections.
+Unauthorized, deleted or foreign resources produce the same bounded `UNAVAILABLE` reason.
+
+One service-owned transaction locks the quiz, membership and question rows, validates content
+through the existing authoring handlers, acquires saved-image metadata in batches, and writes
+the immutable aggregate, publication metadata, pointer and receipt atomically. Storage calls
+remain in the earlier #830 preparation boundary. A retained draft binding remains publishable
+after ordinary library removal; an unbound/foreign asset or external-only image fails closed.
+Saved-image IDs, exact generations and object metadata are persisted; mutable source/CDN values
+cannot replace the retained generation. Publication does not hash document bytes or fetch URLs.
+
+Canonical format `1` preserves array order and numeric precision, sorts object keys, and omits
+generated revision IDs/timestamps from the content hash. Identical content reuses its immutable
+revision. A changed publication requires the expected counter to match; two different commands
+from the same current version have one winner and one `STALE_PUBLICATION`. Identical concurrent
+content converges successfully, while a future expected counter is rejected. Returning to an
+older identical revision still advances the counter, preventing an ABA overwrite. Reusing a
+command ID with different command fields produces `COMMAND_CONFLICT`. Replaying the original
+command returns its durable acknowledgement without rereading edited content or moving the
+current pointer backwards. After `UNKNOWN_OUTCOME`, retry the exact command/ID to reconcile;
+do not assume rollback or construct a new command. No automatic retry schedule is introduced.
+Unsupported command versions and malformed inputs fail before writes. SQL failures inside the
+transaction return `PERSISTENCE_UNAVAILABLE`; commit/acknowledgement uncertainty returns
+`UNKNOWN_OUTCOME`. Offline mutations are unsupported: reconnect to read authoritative state
+and reconcile the same command. A legacy quiz without a head remains unpublished at this
+boundary even if its old mutable status says `PUBLISHED`; that status is not revision evidence.
+
+History returns a typed page (size 1–100) of unique immutable revisions ordered by publication
+time and revision ID; `current` returns its separate monotonic counter. Full content reads use
+the owner-scoped #597 aggregate and exact images. Authored option source keys are copied from
+the family schema; matching sides use `left/` and `right/`, and legacy fill-gap strings use
+`options/<index>`. Each immutable option receives an independent UUID. These keys do not select
+a target response/scoring adapter: #701 owns those bindings and #600 owns dark start. Participant
+delivery, exam/review and HOTSPOT activation still require their real downstream integrations.
+
+Apply additive V93 after V92. It creates publication metadata, heads, receipts and image links,
+with unique content identities and same-quiz/composite image foreign keys. Keep these tables,
+receipts and retained objects on application rollback; do not delete historical evidence.
+There is no new cleanup/retention policy. `quiz.publication` records operation/version/outcome
+duration without resource IDs or content in labels; telemetry failure cannot undo a commit.
+
+`QuizPublicationMySqlIntegrationTest` composes real authoring, retention, publication, permission
+and fixed-form boundaries against full Flyway MySQL. It covers concurrent publication/removal,
+generation A survival after source B, current permission revocation, changed-draft replay,
+faults after real aggregate/pointer/receipt writes, acknowledgement loss and service restart.
+Query counts compare five and ten questions with distinct images through serialized reads and
+publication, plus history page sizes. This proves the internal foundation; it does not claim
+participant HTTP, exam or review integration from a prepared form fixture.
 
 ### Immutable identity storage boundary (#597)
 

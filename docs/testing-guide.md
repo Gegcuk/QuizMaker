@@ -113,6 +113,20 @@ The focused contract, fixed-form, and policy-snapshot MySQL suites migrate their
 
 Before task handoff, repeat this N+1 check for every touched JPA-backed list, aggregate, mapper, and serialization path. Record the command/test and result, or state that N+1 is not applicable because no relationship-loading read path changed.
 
+Immutable publication has a pure canonical-content suite and a real MySQL composition suite:
+
+```bash
+./mvnw test -Dtest=PublicationContentTest,QuizPublicationMySqlIntegrationTest
+```
+
+The MySQL suite uses `TEST_MYSQL_PORT` and optional `TEST_MYSQL_ADMIN_USERNAME` /
+`TEST_MYSQL_ADMIN_PASSWORD` to create an exclusive `publication_<id>` catalog, applies the full
+Flyway history and drops only that catalog after the class. It stays in the serial DB lane.
+Internal authoring, retained-image, publication and fixed-form services are real; only object
+storage is fake. Publication SQL faults occur after verified writes and assertions inspect
+committed state before cleanup. Query counters include JDBC and JPA calls through full content
+serialization and compare multiple questions/images, not just a single-parent fixture.
+
 ## Integration Tests
 
 Reserve integration tests for behavior that crosses real boundaries: service transactions, `AFTER_COMMIT` listeners, migration wiring, security configuration, serialization, or asynchronous job orchestration.

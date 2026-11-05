@@ -14,6 +14,8 @@ public interface RetainedImageService {
     void bind(UUID questionId, Set<UUID> desired, Set<UUID> previous, String username);
     /** Existing bindings only, after the consumer rechecks current question/publication authority. */
     Map<UUID, ImageReference> acquireForPublication(UUID questionId, Set<UUID> assetIds, Runnable authorize);
+    /** Batched existing bindings; the callback authorizes the complete locked source aggregate. */
+    Map<UUID, Map<UUID, ImageReference>> acquireForPublication(Map<UUID, Set<UUID>> references, Runnable authorize);
     /** Internal read projection; calling feature must already have authorized its resource. */
     Map<UUID, MediaRefDto> resolve(Collection<UUID> assetIds);
     Map<UUID, ImageVersion> describe(Collection<UUID> assetIds);
