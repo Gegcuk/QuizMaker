@@ -236,6 +236,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
         UUID importedId = importQuiz(user, exported);
 
         // Verify attachment - use method that eagerly loads questions
+        assertThat(importedId).isNotEqualTo(original.getId());
         Quiz imported = quizRepository.findByIdWithTagsAndQuestions(importedId).orElseThrow();
         Question importedQuestion = imported.getQuestions().iterator().next();
         assertThat(importedQuestion.getAttachmentAssetId())
@@ -568,16 +569,21 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     void roundTrip_multipleQuizzes_preservesAll() throws Exception {
         User user = createUserWithPermissions(uniqueUsername("roundtrip_multi_user_"));
         
-        Quiz quiz1 = createQuizWithMetadata(user, "Multi Quiz 1");
-        Quiz quiz2 = createQuizWithMetadata(user, "Multi Quiz 2");
-        Quiz quiz3 = createQuizWithMetadata(user, "Multi Quiz 3");
+        Quiz quiz1 = createQuizWithMetadata(user, "Shared quiz title");
+        Quiz quiz2 = createQuizWithMetadata(user, "Shared quiz title");
+        Quiz quiz3 = createQuizWithMetadata(user, "Shared quiz title");
+        quiz1.setDescription("First quiz");
+        quiz2.setDescription("Second quiz");
+        quiz3.setDescription("Third quiz");
+        quizRepository.saveAll(List.of(quiz1, quiz2, quiz3));
 
         // Export all quizzes to JSON
         byte[] exported = exportQuiz(user, quiz1.getId(), quiz2.getId(), quiz3.getId());
 
         // Import back
         List<UUID> importedIds = importQuizMultiple(user, exported);
-        assertThat(importedIds).hasSize(3);
+        assertThat(importedIds).hasSize(3).doesNotHaveDuplicates()
+                .doesNotContain(quiz1.getId(), quiz2.getId(), quiz3.getId());
 
         // Verify all quizzes are preserved
         List<Quiz> imported = quizRepository.findByIdIn(importedIds).stream()
@@ -585,9 +591,9 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
                 .toList();
         
         assertThat(imported).hasSize(3);
-        assertThat(imported.get(0).getTitle()).isEqualTo("Multi Quiz 1");
-        assertThat(imported.get(1).getTitle()).isEqualTo("Multi Quiz 2");
-        assertThat(imported.get(2).getTitle()).isEqualTo("Multi Quiz 3");
+        assertThat(imported).extracting(Quiz::getTitle).containsOnly("Shared quiz title");
+        assertThat(imported).extracting(Quiz::getDescription)
+                .containsExactlyInAnyOrder("First quiz", "Second quiz", "Third quiz");
     }
 
     @Test
@@ -913,6 +919,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     }
     
     private List<UUID> importQuizMultiple(User user, byte[] exportedJson) throws Exception {
+        Set<UUID> existingIds = quizIds(user);
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "quizzes.json",
@@ -937,25 +944,11 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
         
         assertThat(created).isEqualTo(total); // All should be created
         
-        // Parse exported JSON to get titles
-        JsonNode exportedJsonNode = objectMapper.readTree(exportedJson);
-        List<String> titles = new ArrayList<>();
-        for (JsonNode quiz : exportedJsonNode) {
-            titles.add(quiz.get("title").asText());
-        }
-        
-        // Find imported quizzes by titles
-        List<Quiz> quizzes = quizRepository.findByCreatorId(user.getId());
-        return titles.stream()
-                .map(title -> quizzes.stream()
-                        .filter(q -> q.getTitle().equals(title))
-                        .findFirst()
-                        .map(Quiz::getId)
-                        .orElseThrow(() -> new AssertionError("Imported quiz not found: " + title)))
-                .collect(java.util.stream.Collectors.toList());
+        return newlyCreatedQuizzes(user, existingIds, created).stream().map(Quiz::getId).toList();
     }
 
     private UUID importQuiz(User user, byte[] exportedJson) throws Exception {
+        Set<UUID> existingIds = quizIds(user);
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "quizzes.json",
@@ -974,16 +967,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.created").value(1));
 
-        // Find the imported quiz by title from exported JSON
-        JsonNode exportedQuiz = objectMapper.readTree(exportedJson).get(0);
-        String title = exportedQuiz.get("title").asText();
-        
-        List<Quiz> quizzes = quizRepository.findByCreatorId(user.getId());
-        return quizzes.stream()
-                .filter(q -> q.getTitle().equals(title))
-                .findFirst()
-                .map(Quiz::getId)
-                .orElseThrow(() -> new AssertionError("Imported quiz not found"));
+        return newlyCreatedQuizzes(user, existingIds, 1).get(0).getId();
     }
 
     private byte[] exportQuizXlsx(User user, UUID... quizIds) throws Exception {
@@ -1004,6 +988,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     }
 
     private List<UUID> importQuizXlsx(User user, byte[] exportedXlsx) throws Exception {
+        Set<UUID> existingIds = quizIds(user);
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "quizzes.xlsx",
@@ -1028,13 +1013,20 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
         
         assertThat(created).isEqualTo(total); // All should be created
         
-        // Find imported quizzes by getting the most recently created quizzes
-        List<Quiz> quizzes = quizRepository.findByCreatorId(user.getId());
-        return quizzes.stream()
-                .sorted(Comparator.comparing(Quiz::getCreatedAt).reversed())
-                .limit(total)
-                .map(Quiz::getId)
-                .collect(java.util.stream.Collectors.toList());
+        return newlyCreatedQuizzes(user, existingIds, created).stream().map(Quiz::getId).toList();
+    }
+
+    private Set<UUID> quizIds(User user) {
+        return quizRepository.findByCreatorId(user.getId()).stream().map(Quiz::getId)
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
+    private List<Quiz> newlyCreatedQuizzes(User user, Set<UUID> existingIds, int expectedCount) {
+        // Titles can repeat, timestamps can tie, and query order does not identify an imported copy.
+        List<Quiz> created = quizRepository.findByCreatorId(user.getId()).stream()
+                .filter(quiz -> !existingIds.contains(quiz.getId())).toList();
+        assertThat(created).as("Quizzes persisted by this import").hasSize(expectedCount);
+        return created;
     }
 
     private User createUserWithPermissions(String username) {
@@ -1250,9 +1242,11 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
         Quiz original = createQuizWithQuestions(user, "Multiple Cycles Quiz", 3);
 
         UUID currentId = original.getId();
+        Set<UUID> previousIds = new HashSet<>(Set.of(currentId));
         for (int i = 0; i < 3; i++) {
             byte[] exported = exportQuiz(user, currentId);
             currentId = importQuiz(user, exported);
+            assertThat(previousIds.add(currentId)).as("Each CREATE_ONLY import creates a distinct quiz").isTrue();
         }
 
         Quiz finalQuiz = quizRepository.findByIdWithTagsAndQuestions(currentId).orElseThrow();
