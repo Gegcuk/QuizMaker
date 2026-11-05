@@ -139,7 +139,9 @@ administration while an OSIV role graph remains cached; the subsequent associati
 Legacy-confirmation tests exercise actual current permissions, atomic evidence writes, injected
 post-write failure, idempotent confirmation, immutable ownership and reuse after library removal.
 `QuestionSourceMigrationMySqlIntegrationTest` upgrades a pre-V94 row without inventing its owner
-and verifies the database immutability constraint. Import and generation tests cover trusted
+under a schema-scoped migration user without `SUPER`, and verifies the composite foreign-key
+immutability constraint. A lone owner value without its authority row must not grant publication.
+Import and generation tests cover trusted
 new-source attribution and preservation of unknown legacy authority on import updates.
 
 ## Integration Tests

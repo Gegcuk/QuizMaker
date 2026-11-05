@@ -674,6 +674,18 @@ class QuizPublicationMySqlIntegrationTest {
         assertThat(count("question_source_confirmations")).isZero();
     }
 
+    @Test void anOwnerValueWithoutItsAuthorityRowCannotGrantReuse() {
+        UUID q = legacyQuestion(null);
+        sql.update("UPDATE questions SET source_owner_id=UUID_TO_BIN(?) WHERE id=UUID_TO_BIN(?)", ownerId.toString(), q.toString());
+        assertReason(() -> service.publish(command(0, q)), UNAVAILABLE);
+        UUID destination = anotherQuiz(ownerId);
+        assertThatThrownBy(() -> relations.addQuestionToQuiz(username, destination, q))
+                .isInstanceOf(uk.gegc.quizmaker.shared.exception.ForbiddenException.class);
+        assertThat(memberCount(destination)).isZero();
+        assertThat(count("quiz_publications")).isZero();
+        assertThat(count("question_source_authorities")).isZero();
+    }
+
     @Test void confirmationFailureRollsBackBothAuthorityAndEvidence() {
         UUID q = legacyQuestion(null);
         grant(ownerId, "QUIZ_MODERATE");
@@ -683,6 +695,7 @@ class QuizPublicationMySqlIntegrationTest {
         assertThat(faults.reached).isTrue();
         assertThat(count("question_source_confirmations")).isZero();
         assertThat(tx.execute(s -> questionSources.lockSources(List.of(q))).get(0).ownerId()).isNull();
+        assertThat(count("question_source_authorities")).isZero();
         faults.failConfirmation = false;
         confirmations.confirm(Set.of(q), ownerId, "Reviewed provenance");
         assertThat(service.publish(command(0, q)).publication().version()).isEqualTo(1);

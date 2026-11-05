@@ -1586,7 +1586,14 @@ A target quiz association is not sufficient source authority. `questions.source_
 records the resolved author when the real question, import or generation writer creates a new
 question. It is not supplied by public DTOs, inferred from memberships, or replaced on edits,
 import upserts, association changes or account deletion. V94 makes a known source owner immutable
-at the database boundary. Association and publication require this recorded owner or the existing
+at the database boundary using `question_source_authorities` and a composite foreign key with
+`ON UPDATE RESTRICT`. A new question and its authority row commit together; confirmation writes
+the owner, authority row and audit evidence atomically. Source checks require the matching
+authority row, so an unsealed owner value alone grants nothing. This works with schema-scoped
+migration privileges and binary logging enabled; no trigger, `SUPER`, or trusted-routine setting
+is required. Physical authoring-question deletion cascades to its authority row, preserving prior
+deletion behavior; confirmation audit evidence and immutable published content remain independent.
+Association and publication require this recorded owner or the existing
 `QUIZ_MODERATE`/`QUIZ_ADMIN`/`QUESTION_ADMIN` authority, independently of destination permission.
 `QUESTION_ADMIN` alone never grants destination access. Public readability is not a reuse grant.
 Current source-administration permissions are read with locked scalar SQL, without trusting

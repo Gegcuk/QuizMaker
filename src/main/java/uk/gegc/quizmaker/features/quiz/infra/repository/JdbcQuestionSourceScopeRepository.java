@@ -42,11 +42,12 @@ public class JdbcQuestionSourceScopeRepository implements QuestionSourceScopeRep
         for (int start = 0; start < ids.size(); start += 500) {
             var batch = ids.subList(start, Math.min(start + 500, ids.size())).stream().map(id ->
                     ByteBuffer.allocate(16).putLong(id.getMostSignificantBits()).putLong(id.getLeastSignificantBits()).array()).toList();
-            // Only question rows: never acquire another quiz's lock after locking shared questions.
+            // Only questions and their authority rows: never acquire another quiz's lock.
             // Current SQL also bypasses RR snapshots and stale managed JPA entities.
             result.addAll(sql.query("""
-                    SELECT BIN_TO_UUID(q.id) question_id, BIN_TO_UUID(q.source_owner_id) owner_id
+                    SELECT BIN_TO_UUID(q.id) question_id, BIN_TO_UUID(a.owner_id) owner_id
                     FROM questions q
+                    LEFT JOIN question_source_authorities a ON a.question_id=q.id AND a.owner_id=q.source_owner_id
                     WHERE q.id IN (:ids) AND q.is_deleted=FALSE
                     ORDER BY q.id
                     """ + lock, Map.of("ids", batch), (rs, row) -> new SourceScope(UUID.fromString(rs.getString("question_id")),
@@ -83,6 +84,10 @@ public class JdbcQuestionSourceScopeRepository implements QuestionSourceScopeRep
                 UPDATE questions SET source_owner_id=UUID_TO_BIN(:owner)
                 WHERE id=UUID_TO_BIN(:question) AND source_owner_id IS NULL AND is_deleted=FALSE
                 """, parameters) != 1) throw new IllegalStateException("Question source confirmation conflicted");
+        sql.update("""
+                INSERT INTO question_source_authorities(question_id, owner_id)
+                VALUES(UUID_TO_BIN(:question), UUID_TO_BIN(:owner))
+                """, parameters);
         sql.update("""
                 INSERT INTO question_source_confirmations(question_id, owner_id, confirmed_by, confirmed_at, evidence)
                 VALUES(UUID_TO_BIN(:question), UUID_TO_BIN(:owner), UUID_TO_BIN(:moderator), :at, :evidence)

@@ -22,10 +22,16 @@ class QuestionSourceMigrationMySqlIntegrationTest {
         String user = System.getenv().getOrDefault("TEST_MYSQL_ADMIN_USERNAME", "root");
         String password = System.getenv().getOrDefault("TEST_MYSQL_ADMIN_PASSWORD", "root");
         var admin = new JdbcTemplate(new DriverManagerDataSource(base + options, user, password));
+        String migrationUser = "source_" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
         admin.execute("CREATE DATABASE " + name + " CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci");
         try {
-            var source = new DriverManagerDataSource(base + name + options, user, password);
+            admin.execute("CREATE USER '" + migrationUser + "'@'%' IDENTIFIED BY 'source-migration-test-only'");
+            admin.execute("GRANT ALL PRIVILEGES ON " + name + ".* TO '" + migrationUser + "'@'%'");
+            // Match CI's schema-scoped migrator rather than accidentally relying on root/SUPER.
+            var source = new DriverManagerDataSource(base + name + options, migrationUser, "source-migration-test-only");
             var sql = new JdbcTemplate(source);
+            assertThat(sql.queryForList("SHOW GRANTS", String.class))
+                    .noneMatch(grant -> grant.contains("SUPER") || grant.startsWith("GRANT ALL PRIVILEGES ON *.*"));
             Flyway.configure().dataSource(source).locations("classpath:db/migration").target("93").load().migrate();
             sql.update("""
                     INSERT INTO questions(id,type,difficulty,question,content)
@@ -36,13 +42,21 @@ class QuestionSourceMigrationMySqlIntegrationTest {
             assertThat(migration.migrate().migrationsExecuted).isZero();
             assertThat(sql.queryForObject("SELECT source_owner_id FROM questions", byte[].class)).isNull();
             assertThat(sql.queryForObject("SELECT COUNT(*) FROM question_source_confirmations", Integer.class)).isZero();
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM question_source_authorities", Integer.class)).isZero();
             assertThat(sql.queryForObject("SELECT question FROM questions", String.class)).isEqualTo("Existing author content");
             sql.update("UPDATE questions SET source_owner_id=UNHEX(LPAD('2',32,'0'))");
+            assertThatThrownBy(() -> sql.update("""
+                    INSERT INTO question_source_authorities VALUES(UNHEX(LPAD('1',32,'0')),UNHEX(LPAD('3',32,'0')))
+                    """)).isInstanceOf(DataAccessException.class);
+            sql.update("INSERT INTO question_source_authorities VALUES(UNHEX(LPAD('1',32,'0')),UNHEX(LPAD('2',32,'0')))");
             assertThatThrownBy(() -> sql.update("UPDATE questions SET source_owner_id=NULL")).isInstanceOf(DataAccessException.class);
             assertThatThrownBy(() -> sql.update("UPDATE questions SET source_owner_id=UNHEX(LPAD('3',32,'0'))"))
                     .isInstanceOf(DataAccessException.class);
             sql.update("UPDATE questions SET question='Ordinary edits still work', is_deleted=TRUE");
             assertThat(sql.queryForObject("SELECT HEX(source_owner_id) FROM questions", String.class)).isEqualTo("0".repeat(31) + "2");
-        } finally { admin.execute("DROP DATABASE " + name); }
+        } finally {
+            admin.execute("DROP DATABASE " + name);
+            admin.execute("DROP USER IF EXISTS '" + migrationUser + "'@'%'");
+        }
     }
 }
