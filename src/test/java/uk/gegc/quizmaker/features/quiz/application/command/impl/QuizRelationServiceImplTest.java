@@ -14,6 +14,7 @@ import uk.gegc.quizmaker.features.question.domain.model.Question;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuestionSourceScopeRepository;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
@@ -26,6 +27,8 @@ import uk.gegc.quizmaker.shared.security.AccessPolicy;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -63,6 +66,8 @@ class QuizRelationServiceImplTest {
     
     @Mock
     private AccessPolicy accessPolicy;
+    @Mock
+    private QuestionSourceScopeRepository questionSources;
     
     @InjectMocks
     private QuizRelationServiceImpl relationService;
@@ -99,6 +104,10 @@ class QuizRelationServiceImplTest {
         category = new Category();
         category.setId(UUID.randomUUID());
         category.setName("Test Category");
+        lenient().when(questionSources.lockSources(any())).thenAnswer(call ->
+                ((List<UUID>) call.getArgument(0)).stream().map(id ->
+                        new QuestionSourceScopeRepository.SourceScope(id, ownerUser.getId())).toList());
+        lenient().when(questionSources.lockPermissionNames(moderatorUser.getId())).thenReturn(Set.of("QUIZ_MODERATE"));
     }
     
     // =============== addQuestionToQuiz Tests ===============
@@ -106,6 +115,19 @@ class QuizRelationServiceImplTest {
     @Nested
     @DisplayName("addQuestionToQuiz() Tests")
     class AddQuestionToQuizTests {
+
+        @Test
+        void destinationOwnershipDoesNotGrantForeignSourceReuse() {
+            when(quizRepository.findById(quiz.getId())).thenReturn(Optional.of(quiz));
+            when(questionRepository.findById(question.getId())).thenReturn(Optional.of(question));
+            when(userRepository.findByUsername("owner")).thenReturn(Optional.of(ownerUser));
+            when(questionSources.lockSources(List.of(question.getId()))).thenReturn(List.of(
+                    new QuestionSourceScopeRepository.SourceScope(question.getId(), otherUser.getId())));
+            assertThatThrownBy(() -> relationService.addQuestionToQuiz("owner", quiz.getId(), question.getId()))
+                    .isInstanceOf(ForbiddenException.class).hasMessage("Question is unavailable for reuse");
+            assertThat(quiz.getQuestions()).isEmpty();
+            verify(quizRepository, never()).save(any());
+        }
         
         @Test
         @DisplayName("Owner adds question to their quiz - succeeds")

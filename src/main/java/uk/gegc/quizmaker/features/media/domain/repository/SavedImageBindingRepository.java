@@ -7,4 +7,5 @@ import java.util.*;
 
 public interface SavedImageBindingRepository extends JpaRepository<SavedImageBinding, UUID> {
     List<SavedImageBinding> findAllByQuestionId(UUID questionId);
+    List<SavedImageBinding> findAllByQuestionIdIn(Collection<UUID> questionIds);
 }

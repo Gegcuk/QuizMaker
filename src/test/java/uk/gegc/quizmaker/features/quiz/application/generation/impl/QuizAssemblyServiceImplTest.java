@@ -291,6 +291,8 @@ class QuizAssemblyServiceImplTest {
             // Then
             assertThat(result).isNotNull();
             assertThat(result.getCreator()).isEqualTo(testUser);
+            assertThat(result.getQuestions()).allSatisfy(question ->
+                    assertThat(question.getSourceOwnerId()).isEqualTo(testUser.getId()));
             assertThat(result.getCategory()).isEqualTo(aiCategory);
             assertThat(result.getTags()).isEqualTo(tags);
             assertThat(result.getStatus()).isEqualTo(QuizStatus.PUBLISHED);

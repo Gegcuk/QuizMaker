@@ -507,8 +507,17 @@ public class QuizController {
 
     @Operation(
             summary = "Associate a question with a quiz",
-            description = "Adds an existing question to the quiz. Requires QUIZ_UPDATE permission and ownership or moderation permissions."
+            description = "Adds an existing question to the quiz. Requires QUIZ_UPDATE and destination ownership or QUIZ_MODERATE/QUIZ_ADMIN. Reuse requires recorded source ownership or QUIZ_MODERATE/QUIZ_ADMIN/QUESTION_ADMIN; QUESTION_ADMIN alone does not grant destination access. Legacy questions without recorded source ownership require explicit moderation confirmation first. Public visibility alone does not grant reuse; unavailable source authority returns 403 without adding a link."
     )
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Question associated with the quiz", content = @Content),
+            @ApiResponse(responseCode = "403", description = "Missing permission or destination/source ownership",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class),
+                            examples = @ExampleObject(name = "Source unavailable", value = """
+                                    {"type":"https://quizzence.com/docs/errors/access-denied","title":"Access Denied","status":403,
+                                     "detail":"Question is unavailable for reuse"}
+                                    """)))
+    })
     @PostMapping("/{quizId}/questions/{questionId}")
     @RequirePermission(PermissionName.QUIZ_UPDATE)
     @ResponseStatus(HttpStatus.NO_CONTENT)

@@ -59,6 +59,24 @@ public class Question {
     @Column(name = "attachment_asset_id")
     private UUID attachmentAssetId;
 
+    /** Server-established source authority; membership changes never transfer this right. */
+    @Setter(lombok.AccessLevel.NONE)
+    @Column(name = "source_owner_id", updatable = false)
+    private UUID sourceOwnerId;
+
+    // A lazy collection avoids an extra existence lookup per question on ordinary JPA reads.
+    @Getter(lombok.AccessLevel.NONE)
+    @Setter(lombok.AccessLevel.NONE)
+    @OneToMany(mappedBy = "question", fetch = FetchType.LAZY, cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    private List<QuestionSourceAuthority> sourceAuthorities = new ArrayList<>();
+
+    public void establishSourceOwner(UUID ownerId) {
+        if (sourceOwnerId != null || createdAt != null)
+            throw new IllegalStateException("Existing question source authority cannot be reassigned");
+        sourceOwnerId = java.util.Objects.requireNonNull(ownerId);
+        sourceAuthorities.add(new QuestionSourceAuthority(this, ownerId));
+    }
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false, nullable = false)
     private Instant createdAt;

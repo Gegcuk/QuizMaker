@@ -152,20 +152,39 @@ public class RetainedImageServiceImpl implements RetainedImageService {
     @Override
     public Map<UUID, ImageReference> acquireForPublication(UUID questionId, Set<UUID> ids, Runnable authorize) {
         if (questionId == null || ids == null || authorize == null) throw new ValidationException("Invalid image binding request");
+        return acquireForPublication(Map.of(questionId, ids), authorize).get(questionId);
+    }
+
+    @Override
+    public Map<UUID, Map<UUID, ImageReference>> acquireForPublication(Map<UUID, Set<UUID>> references, Runnable authorize) {
+        if (references == null || authorize == null || references.entrySet().stream().anyMatch(e ->
+                e.getKey() == null || e.getValue() == null || e.getValue().stream().anyMatch(Objects::isNull)))
+            throw new ValidationException("Invalid image binding request");
         if (!TransactionSynchronizationManager.isActualTransactionActive()) discardReadCache();
         return transaction.execute(s -> {
             authorize.run();
-            var owned = bindings.findAllByQuestionId(questionId).stream().filter(b -> ids.contains(b.getAssetId())).toList();
-            if (owned.size() != ids.size()) throw unavailableBinding();
-            var loaded = versions.findAllById(owned.stream().map(SavedImageBinding::getImageVersionId).toList()).stream()
-                    .collect(Collectors.toMap(SavedImageVersion::getId, Function.identity()));
-            Map<UUID, ImageReference> result = new HashMap<>();
-            for (var binding : owned) {
-                var v = loaded.get(binding.getImageVersionId());
-                if (v == null || !v.isReady()) throw unavailableBinding();
-                result.put(binding.getAssetId(), new ImageReference(binding.getId(), v.getId(), v.getAssetId(),
-                        v.getObjectKey(), v.getMimeType(), v.getSizeBytes(), v.getWidth(), v.getHeight()));
+            Map<UUID, Map<UUID, ImageReference>> result = new HashMap<>();
+            references.keySet().forEach(id -> result.put(id, new HashMap<>()));
+            var questions = references.entrySet().stream().filter(e -> !e.getValue().isEmpty()).map(Map.Entry::getKey).sorted().toList();
+            for (int start = 0; start < questions.size(); start += 100) {
+                var owned = bindings.findAllByQuestionIdIn(questions.subList(start, Math.min(start + 100, questions.size())))
+                        .stream().filter(b -> references.get(b.getQuestionId()).contains(b.getAssetId())).toList();
+                Map<UUID, SavedImageVersion> loaded = new HashMap<>();
+                var ids = owned.stream().map(SavedImageBinding::getImageVersionId).distinct().toList();
+                for (int offset = 0; offset < ids.size(); offset += 100)
+                    versions.findAllById(ids.subList(offset, Math.min(offset + 100, ids.size())))
+                            .forEach(v -> loaded.put(v.getId(), v));
+                for (var binding : owned) {
+                    var v = loaded.get(binding.getImageVersionId());
+                    if (v == null || !v.isReady() || !v.getAssetId().equals(binding.getAssetId())) throw unavailableBinding();
+                    result.get(binding.getQuestionId()).put(binding.getAssetId(), new ImageReference(binding.getId(), v.getId(), v.getAssetId(),
+                            v.getObjectKey(), v.getMimeType(), v.getSizeBytes(), v.getWidth(), v.getHeight()));
+                }
             }
+            references.forEach((question, ids) -> {
+                if (!result.get(question).keySet().equals(ids)) throw unavailableBinding();
+                result.put(question, Map.copyOf(result.get(question)));
+            });
             return Map.copyOf(result);
         });
     }

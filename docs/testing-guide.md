@@ -113,6 +113,37 @@ The focused contract, fixed-form, and policy-snapshot MySQL suites migrate their
 
 Before task handoff, repeat this N+1 check for every touched JPA-backed list, aggregate, mapper, and serialization path. Record the command/test and result, or state that N+1 is not applicable because no relationship-loading read path changed.
 
+Immutable publication has a pure canonical-content suite and a real MySQL composition suite:
+
+```bash
+./mvnw test -Dtest=PublicationContentTest,QuizPublicationMySqlIntegrationTest
+```
+
+The MySQL suite uses `TEST_MYSQL_PORT` and optional `TEST_MYSQL_ADMIN_USERNAME` /
+`TEST_MYSQL_ADMIN_PASSWORD` to create an exclusive `publication_<id>` catalog, applies the full
+Flyway history and drops only that catalog after the class. It stays in the serial DB lane.
+Internal authoring, retained-image, publication and fixed-form services are real; only object
+storage is fake. Publication SQL faults occur after verified writes and assertions inspect
+committed state before cleanup. Query counters include JDBC and JPA calls through full content
+serialization and compare multiple questions/images, not just a single-parent fixture.
+Its connection default is `REPEATABLE_READ`; a barrier after the receipt read lets the real
+question writer commit a new image before publication locks the question. Assertions require
+the new content and its exact retained binding to publish together. Source-authority regressions
+exercise the real association/removal commands and pre-fix foreign memberships, before/after
+library removal, alongside successful own-source and moderation controls. Detaching or
+soft-deleting the original quiz must not grant the remaining foreign association publication.
+A barrier after locking two different target quizzes reproduces the former shared-question
+deadlock; both publications must commit and replay, with intact retained media.
+The association regression also measures five versus ten actor roles and revokes source-question
+administration while an OSIV role graph remains cached; the subsequent association must fail.
+Legacy-confirmation tests exercise actual current permissions, atomic evidence writes, injected
+post-write failure, idempotent confirmation, immutable ownership and reuse after library removal.
+`QuestionSourceMigrationMySqlIntegrationTest` upgrades a pre-V94 row without inventing its owner
+under a schema-scoped migration user without `SUPER`, and verifies the composite foreign-key
+immutability constraint. A lone owner value without its authority row must not grant publication.
+Import and generation tests cover trusted
+new-source attribution and preservation of unknown legacy authority on import updates.
+
 ## Integration Tests
 
 Reserve integration tests for behavior that crosses real boundaries: service transactions, `AFTER_COMMIT` listeners, migration wiring, security configuration, serialization, or asynchronous job orchestration.
