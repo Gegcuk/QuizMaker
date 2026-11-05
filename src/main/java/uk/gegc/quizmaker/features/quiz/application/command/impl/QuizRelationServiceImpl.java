@@ -11,15 +11,20 @@ import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuestionSourceScopeRepository;
 import uk.gegc.quizmaker.features.tag.domain.model.Tag;
 import uk.gegc.quizmaker.features.tag.domain.repository.TagRepository;
 import uk.gegc.quizmaker.features.user.domain.model.PermissionName;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
+import uk.gegc.quizmaker.shared.exception.ForbiddenException;
 import uk.gegc.quizmaker.shared.security.AccessPolicy;
 
 import java.util.UUID;
+import java.util.List;
+import java.util.Collections;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -32,6 +37,7 @@ public class QuizRelationServiceImpl implements QuizRelationService {
     private final CategoryRepository categoryRepository;
     private final UserRepository userRepository;
     private final AccessPolicy accessPolicy;
+    private final QuestionSourceScopeRepository questionSources;
 
     @Override
     @Transactional
@@ -46,6 +52,12 @@ public class QuizRelationServiceImpl implements QuizRelationService {
                 quiz.getCreator() != null ? quiz.getCreator().getId() : null,
                 PermissionName.QUIZ_MODERATE,
                 PermissionName.QUIZ_ADMIN);
+
+        var sources = questionSources.lockSources(List.of(questionId));
+        if (sources.isEmpty() || (sources.stream().anyMatch(source -> !source.ownedBy(user.getId()))
+                && Collections.disjoint(questionSources.lockPermissionNames(user.getId()),
+                Set.of("QUIZ_MODERATE", "QUIZ_ADMIN", "QUESTION_ADMIN"))))
+            throw new ForbiddenException("Question is unavailable for reuse");
 
         quiz.getQuestions().add(question);
         quizRepository.save(quiz);

@@ -126,6 +126,14 @@ Internal authoring, retained-image, publication and fixed-form services are real
 storage is fake. Publication SQL faults occur after verified writes and assertions inspect
 committed state before cleanup. Query counters include JDBC and JPA calls through full content
 serialization and compare multiple questions/images, not just a single-parent fixture.
+Its connection default is `REPEATABLE_READ`; a barrier after the receipt read lets the real
+question writer commit a new image before publication locks the question. Assertions require
+the new content and its exact retained binding to publish together. Source-authority regressions
+exercise the real association command and pre-fix foreign memberships, before/after library
+removal, alongside successful own-source and moderation controls. They also retain foreign
+source ownership when that original quiz is soft-deleted.
+The association regression also measures five versus ten actor roles and revokes source-question
+administration while an OSIV role graph remains cached; the subsequent association must fail.
 
 ## Integration Tests
 

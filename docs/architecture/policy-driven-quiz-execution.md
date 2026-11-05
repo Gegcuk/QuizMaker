@@ -1582,6 +1582,23 @@ Caller-supplied owner IDs and cached OSIV roles are not authority. Current/histo
 use the same author ownership/permission boundary; they are not participant read projections.
 Unauthorized, deleted or foreign resources produce the same bounded `UNAVAILABLE` reason.
 
+A target quiz association is not sufficient source authority. The existing question-association
+command checks ownership of all current source quizzes before adding a link (or the existing
+quiz moderation/administration or question-administration permission). `QUESTION_ADMIN` authorizes
+source-question reuse but does not replace destination quiz ownership/publication permission.
+Public readability is not a copy/reuse grant.
+Source-administration permissions are read as a current locked SQL projection, without trusting
+cached roles or lazily fetching one permissions collection per role.
+Publication independently rechecks these source scopes with a batched current locking read,
+including retired source quizzes and bypassing managed JPA collections. Thus a pre-fix foreign
+association cannot launder a retained image binding into publication authority. Missing or mixed
+ownership fails closed for an ordinary author; the existing elevated authority remains available.
+An author's own retained question can still be reused after ordinary image-library removal, and
+the retained binding is not rewritten or deleted by these checks. This follows the existing
+all-source ownership requirement for editing/reassigning shared questions rather than treating
+the newest destination as the question's owner. The legacy association endpoint retains its
+204 success and RFC 7807 403 denial contract.
+
 One service-owned transaction locks the quiz, membership and question rows, validates content
 through the existing authoring handlers, acquires saved-image metadata in batches, and writes
 the immutable aggregate, publication metadata, pointer and receipt atomically. Storage calls
@@ -1589,6 +1606,11 @@ remain in the earlier #830 preparation boundary. A retained draft binding remain
 after ordinary library removal; an unbound/foreign asset or external-only image fails closed.
 Saved-image IDs, exact generations and object metadata are persisted; mutable source/CDN values
 cannot replace the retained generation. Publication does not hash document bytes or fetch URLs.
+The publication transaction explicitly uses `READ_COMMITTED`. Under MySQL's default
+`REPEATABLE_READ`, a receipt lookup before a concurrent question save could otherwise pin an
+older binding snapshot while the subsequent locking question read sees the newly committed
+image. The explicit isolation keeps those reads consistent; connection defaults and caller-owned
+transactions remain unchanged. The service still rejects publication inside a caller transaction.
 
 Canonical format `1` preserves array order and numeric precision, sorts object keys, and omits
 generated revision IDs/timestamps from the content hash. Identical content reuses its immutable

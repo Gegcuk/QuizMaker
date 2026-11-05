@@ -89,6 +89,40 @@ class QuizOpenApiContractTest {
     private List<GroupedOpenApi> groups;
 
     @Test
+    @WithMockUser(username = "author")
+    void sourceReuseDenialHasAProblemContractAndOneDiscoverableGroup() throws Exception {
+        UUID quiz = UUID.randomUUID(), question = UUID.randomUUID();
+        org.mockito.Mockito.doThrow(new uk.gegc.quizmaker.shared.exception.ForbiddenException("Question is unavailable for reuse"))
+                .when(quizService).addQuestionToQuiz("author", quiz, question);
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/quizzes/{quizId}/questions/{questionId}", quiz, question)
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf()))
+                .andExpect(status().isForbidden())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentTypeCompatibleWith("application/problem+json"))
+                .andExpect(jsonPath("$.detail").value("Question is unavailable for reuse"));
+        String path = "/api/v1/quizzes/{quizId}/questions/{questionId}";
+        for (String url : List.of("/v3/api-docs", "/v3/api-docs/quizzes")) {
+            var spec = objectMapper.readTree(mockMvc.perform(get(url)).andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString());
+            var operation = spec.path("paths").path(path).path("post");
+            assertThat(operation.path("description").asText()).contains("all source quizzes", "Public visibility alone");
+            assertThat(operation.path("responses").has("204")).isTrue();
+            assertThat(operation.at("/responses/403/content/application~1problem+json/schema/$ref").asText())
+                    .isEqualTo("#/components/schemas/ProblemDetail");
+            var example = operation.at("/responses/403/content/application~1problem+json/examples/Source unavailable/value");
+            assertThat(objectMapper.treeToValue(example, org.springframework.http.ProblemDetail.class).getStatus()).isEqualTo(403);
+            assertThat(example.path("type").asText()).isEqualTo("https://quizzence.com/docs/errors/access-denied");
+        }
+        var matcher = new AntPathMatcher();
+        assertThat(groups.stream().filter(g -> g.getPathsToMatch().stream().anyMatch(p -> matcher.match(p, path)))
+                .map(GroupedOpenApi::getGroup).toList()).containsExactly("quizzes");
+        var summary = objectMapper.readTree(mockMvc.perform(get("/api/v1/api-summary")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+        assertThat(summary.path("groups").findValuesAsText("specUrl")).contains("/v3/api-docs/quizzes");
+    }
+
+    @Test
     @WithMockUser
     void legacyTimeoutResponsesHaveNamedContractsAndRemainDiscoverable() throws Exception {
         JsonNode full = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs"))

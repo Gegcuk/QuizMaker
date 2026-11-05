@@ -8,6 +8,7 @@ import org.springframework.security.authentication.AuthenticationTrustResolverIm
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.media.application.RetainedImageService;
@@ -16,6 +17,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.PublicationExceptio
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizPublication.*;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizPublicationRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuestionSourceScopeRepository;
 import uk.gegc.quizmaker.features.quiz.infra.publication.PublicationContent;
 
 import java.time.Clock;
@@ -31,18 +33,25 @@ import static uk.gegc.quizmaker.features.quiz.domain.model.revision.PublicationE
 public class QuizRevisionPublicationServiceImpl implements QuizRevisionPublicationService {
     private final QuizPublicationRepository repository;
     private final QuizRevisionRepository revisions;
+    private final QuestionSourceScopeRepository questionSources;
     private final RetainedImageService images;
     private final PublicationContent content;
     private final Clock clock;
     private final MeterRegistry metrics;
     private final TransactionTemplate transaction;
+    private final TransactionTemplate publicationTransaction;
 
     public QuizRevisionPublicationServiceImpl(QuizPublicationRepository repository, QuizRevisionRepository revisions,
                                              RetainedImageService images, PublicationContent content, Clock clock,
-                                             MeterRegistry metrics, PlatformTransactionManager manager) {
+                                             MeterRegistry metrics, PlatformTransactionManager manager,
+                                             QuestionSourceScopeRepository questionSources) {
         this.repository = repository; this.revisions = revisions; this.images = images;
         this.content = content; this.clock = clock; this.metrics = metrics;
+        this.questionSources = questionSources;
         transaction = new TransactionTemplate(manager);
+        publicationTransaction = new TransactionTemplate(manager);
+        // Receipt reads must not pin an old snapshot before the current question rows are locked.
+        publicationTransaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
 
     @Override public Result publish(Command command) {
@@ -62,6 +71,10 @@ public class QuizRevisionPublicationServiceImpl implements QuizRevisionPublicati
             var questions = repository.lockQuestions(draft.id());
             var byId = questions.stream().collect(Collectors.toMap(Question::id, q -> q));
             require(byId.size() == questions.size() && byId.keySet().equals(new HashSet<>(command.questionOrder())), INVALID_CONTENT);
+            var sources = questionSources.lockSources(command.questionOrder());
+            require(sources.stream().map(QuestionSourceScopeRepository.SourceScope::questionId).collect(Collectors.toSet()).equals(byId.keySet())
+                    && (actor.elevated() || actor.permissions().contains("QUESTION_ADMIN")
+                    || sources.stream().allMatch(source -> source.ownedBy(actor.id()))), UNAVAILABLE);
             var ordered = command.questionOrder().stream().map(byId::get).toList();
             var requested = content.references(ordered);
             Map<UUID, Map<UUID, RetainedImageService.ImageReference>> retained;
@@ -133,7 +146,7 @@ public class QuizRevisionPublicationServiceImpl implements QuizRevisionPublicati
         class Failure { PublicationException known; }
         var failure = new Failure();
         try {
-            T result = transaction.execute(status -> {
+            T result = (operation.equals("publish") ? publicationTransaction : transaction).execute(status -> {
                 try { return action.get(); }
                 catch (RuntimeException exception) {
                     failure.known = exception instanceof PublicationException p ? p

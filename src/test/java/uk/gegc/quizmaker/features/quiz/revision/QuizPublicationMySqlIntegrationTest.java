@@ -47,6 +47,9 @@ import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.handler.*;
 import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMediaResolver;
 import uk.gegc.quizmaker.features.quiz.application.QuizRevisionPublicationService;
+import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
+import uk.gegc.quizmaker.features.quiz.application.command.impl.QuizRelationServiceImpl;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuestionSourceScopeRepository;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizRevisionPublicationServiceImpl;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.PublicationException;
@@ -57,6 +60,8 @@ import uk.gegc.quizmaker.features.quiz.infra.repository.*;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
+import uk.gegc.quizmaker.shared.security.AccessPolicy;
+import uk.gegc.quizmaker.shared.security.NoOpMembershipResolver;
 
 import javax.sql.DataSource;
 import java.lang.reflect.*;
@@ -74,10 +79,12 @@ import static uk.gegc.quizmaker.features.quiz.domain.model.revision.PublicationE
 @DataJpaTest(showSql = false)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test-mysql")
-@TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=none", "spring.flyway.enabled=true"})
+@TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=none", "spring.flyway.enabled=true",
+        "spring.jpa.properties.hibernate.connection.isolation=4", "spring.datasource.hikari.transaction-isolation=TRANSACTION_REPEATABLE_READ"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Import({QuizRevisionPublicationServiceImpl.class, JdbcQuizPublicationRepository.class, JdbcQuizRevisionRepository.class,
+        JdbcQuestionSourceScopeRepository.class, QuizRelationServiceImpl.class, AccessPolicy.class, NoOpMembershipResolver.class,
         PublicationContent.class, RetainedImageServiceImpl.class, MediaAssetServiceImpl.class, MediaAssetMapper.class,
         QuestionServiceImpl.class, QuestionMediaResolver.class, QuestionHandlerFactory.class, AppPermissionEvaluator.class,
         McqSingleHandler.class, McqMultiHandler.class, TrueFalseHandler.class, FillGapHandler.class, OrderingHandler.class,
@@ -122,6 +129,8 @@ class QuizPublicationMySqlIntegrationTest {
     @MockitoBean S3Client unusedStorage;
     @MockitoBean S3Presigner unusedPresigner;
     @Autowired QuizRevisionPublicationService service;
+    @Autowired QuizRelationService relations;
+    @Autowired QuestionSourceScopeRepository questionSources;
     @Autowired QuestionService authoring;
     @Autowired RetainedImageService images;
     @Autowired MediaAssetService library;
@@ -436,6 +445,143 @@ class QuizPublicationMySqlIntegrationTest {
                 fiveWrites, tenWrites, fiveReads, tenReads, oneHistory, fullHistory);
     }
 
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void foreignSavedQuestionCannotBeLinkedOrPublishedEvenAfterLibraryRemoval(boolean removed) {
+        UUID image = image(username), q = question(QuestionType.TRUE_FALSE, image);
+        var original = service.publish(command(0, q));
+        var originalContent = service.read(quizId, original.publication().revision().id());
+        if (removed) library.delete(image, username);
+        String borrower = "pub-borrower";
+        UUID destination = anotherQuiz(user(borrower, true));
+        authenticate(borrower);
+        assertThatThrownBy(() -> authoring.getQuestion(q, SecurityContextHolder.getContext().getAuthentication()))
+                .isInstanceOf(uk.gegc.quizmaker.shared.exception.ForbiddenException.class);
+        assertThatThrownBy(() -> library.getByIdForValidation(image, borrower)).isInstanceOf(RuntimeException.class);
+        int providerCalls = storage.calls.get();
+        assertThatThrownBy(() -> relations.addQuestionToQuiz(borrower, destination, q))
+                .isInstanceOf(uk.gegc.quizmaker.shared.exception.ForbiddenException.class)
+                .hasMessage("Question is unavailable for reuse");
+        assertThat(memberCount(destination)).isZero();
+
+        // Exercise the same borrower's legitimate publication before the forbidden replacement.
+        UUID own = questionFor(borrower, destination, QuestionType.TRUE_FALSE, null);
+        var valid = service.publish(new Command(1, destination, UUID.randomUUID(), 0, List.of(own)));
+        // A pre-fix database can already contain this unauthorized association. It must not grant publication.
+        sql.update("INSERT INTO quiz_questions(quiz_id,question_id) VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?))", destination.toString(), q.toString());
+        assertReason(() -> service.publish(new Command(1, destination, UUID.randomUUID(), 1, List.of(own, q))), UNAVAILABLE);
+        assertThat(service.current(destination)).contains(valid.publication());
+        assertThat(count("quiz_publications")).isEqualTo(2);
+        assertThat(count("quiz_publication_receipts")).isEqualTo(2);
+        assertThat(count("saved_image_bindings")).isEqualTo(1);
+        assertThat(storage.calls.get()).isEqualTo(providerCalls);
+        // Hiding the original quiz cannot turn ambiguous foreign source authority into ownership.
+        sql.update("UPDATE quizzes SET is_deleted=TRUE WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString());
+        assertReason(() -> service.publish(new Command(1, destination, UUID.randomUUID(), 1, List.of(own, q))), UNAVAILABLE);
+        sql.update("UPDATE quizzes SET is_deleted=FALSE WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString());
+        authenticate(username);
+        assertThat(service.read(quizId, original.publication().revision().id())).isEqualTo(originalContent);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"QUIZ_MODERATE", "QUESTION_ADMIN"})
+    void ownRetainedQuestionCanBeReusedAfterRemovalAndAuthorizedAdministratorCanReuseItsSource(String permission) {
+        UUID image = image(username), q = question(QuestionType.TRUE_FALSE, image);
+        library.delete(image, username);
+        UUID destination = anotherQuiz(ownerId);
+        relations.addQuestionToQuiz(username, destination, q);
+        var own = service.publish(new Command(1, destination, UUID.randomUUID(), 0, List.of(q)));
+        var saved = service.read(destination, own.publication().revision().id());
+        assertThat(saved.images()).singleElement().satisfies(i -> assertThat(storage.objects.get(i.objectKey())).isEqualTo("A"));
+        UUID moderator = user("pub-moderator", true); grant(moderator, permission);
+        UUID moderated = anotherQuiz(moderator); authenticate("pub-moderator");
+        if (permission.equals("QUESTION_ADMIN")) {
+            assertThatThrownBy(() -> relations.addQuestionToQuiz("pub-moderator", quizId, q))
+                    .isInstanceOf(uk.gegc.quizmaker.shared.exception.ForbiddenException.class);
+            assertReason(() -> service.publish(command(0, q)), UNAVAILABLE);
+        }
+        relations.addQuestionToQuiz("pub-moderator", moderated, q);
+        var result = service.publish(new Command(1, moderated, UUID.randomUUID(), 0, List.of(q)));
+        assertThat(service.read(moderated, result.publication().revision().id()).images()).singleElement()
+                .satisfies(i -> assertThat(i.versionId()).isEqualTo(saved.images().get(0).versionId()));
+        assertThat(count("saved_image_bindings")).isEqualTo(1);
+        assertThat(storage.copies.get()).isEqualTo(1);
+    }
+
+    @Test void concurrentImageEditPublishesConsistentContentWithRepeatableReadConnectionDefault() throws Exception {
+        try (var connection = dataSource.getConnection()) {
+            assertThat(connection.getTransactionIsolation()).isEqualTo(Connection.TRANSACTION_REPEATABLE_READ);
+        }
+        UUID image = image(username); images.prepare(Set.of(image), username);
+        UUID q = question(QuestionType.TRUE_FALSE, null);
+        Gate gate = new Gate(); faults.beforeQuestions = gate;
+        var pool = Executors.newSingleThreadExecutor();
+        try {
+            var pending = pool.submit(() -> asOwner(() -> service.publish(command(0, q))));
+            await(gate.entered); // The publication has read its receipt, but has not locked questions yet.
+            var update = new UpdateQuestionRequest(); update.setQuestionText("Question with a newly saved image");
+            update.setType(QuestionType.TRUE_FALSE); update.setDifficulty(Difficulty.EASY);
+            update.setContent(QuestionContracts.example(QuestionType.TRUE_FALSE, QuestionContracts.View.AUTHOR));
+            update.setAttachmentAssetId(image);
+            authoring.updateQuestion(username, q, update);
+            assertThat(count("saved_image_bindings")).isEqualTo(1);
+            gate.release.countDown();
+            var result = pending.get(15, TimeUnit.SECONDS);
+            var published = service.read(quizId, result.publication().revision().id());
+            assertThat(published.images()).singleElement().satisfies(i -> assertThat(i.assetId()).isEqualTo(image));
+            assertThat(published.content().items().get(0).question().questionText()).isEqualTo("Question with a newly saved image");
+            assertThat(service.current(quizId)).contains(result.publication());
+            try (var connection = dataSource.getConnection()) {
+                assertThat(connection.getTransactionIsolation()).isEqualTo(Connection.TRANSACTION_REPEATABLE_READ);
+            }
+        } finally {
+            gate.release.countDown(); faults.beforeQuestions = null;
+            pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test void sourcePermissionCheckIsCurrentAndDoesNotLoadOnePermissionCollectionPerRole() {
+        UUID first = question(QuestionType.TRUE_FALSE, null), second = question(QuestionType.TRUE_FALSE, null);
+        String administrator = "pub-question-admin"; UUID actor = user(administrator, true);
+        grant(actor, "QUESTION_ADMIN");
+        for (int i = 0; i < 3; i++) grant(actor, "QUIZ_READ");
+        UUID destination = anotherQuiz(actor); authenticate(administrator);
+        int fiveRoles = measure(() -> relations.addQuestionToQuiz(administrator, destination, first));
+        for (int i = 0; i < 5; i++) grant(actor, "QUIZ_READ");
+        int tenRoles = measure(() -> relations.addQuestionToQuiz(administrator, destination, second));
+        assertThat(tenRoles).as("Permission loading with five versus ten roles").isEqualTo(fiveRoles);
+        assertThat(memberCount(destination)).isEqualTo(2);
+        System.out.printf("Question reuse SQL: roles 5=%d 10=%d%n", fiveRoles, tenRoles);
+
+        UUID forbidden = anotherQuiz(actor);
+        var em = entityManagers.createEntityManager();
+        TransactionSynchronizationManager.bindResource(entityManagers, new org.springframework.orm.jpa.EntityManagerHolder(em));
+        try {
+            tx.executeWithoutResult(s -> users.findByIdWithRolesAndPermissions(actor).orElseThrow().getRoles().forEach(r -> r.getPermissions().size()));
+            sql.update("""
+                    DELETE rp FROM role_permissions rp JOIN user_roles ur ON ur.role_id=rp.role_id
+                    JOIN permissions p ON p.permission_id=rp.permission_id
+                    WHERE ur.user_id=UUID_TO_BIN(?) AND p.permission_name='QUESTION_ADMIN'
+                    """, actor.toString());
+            assertThatThrownBy(() -> relations.addQuestionToQuiz(administrator, forbidden, first))
+                    .isInstanceOf(uk.gegc.quizmaker.shared.exception.ForbiddenException.class)
+                    .hasMessage("Question is unavailable for reuse");
+            assertThat(memberCount(forbidden)).isZero();
+        } finally { TransactionSynchronizationManager.unbindResource(entityManagers); em.close(); }
+    }
+
+    private UUID anotherQuiz(UUID creator) {
+        return tx.execute(status -> {
+            var quiz = new Quiz(); quiz.setCreator(users.findById(creator).orElseThrow());
+            quiz.setCategory(categories.findAll().get(0)); quiz.setTitle("Another private quiz " + UUID.randomUUID());
+            quiz.setDescription("Synthetic destination"); quiz.setDifficulty(Difficulty.EASY);
+            quiz.setStatus(QuizStatus.DRAFT); quiz.setVisibility(Visibility.PRIVATE); quiz.setEstimatedTime(5);
+            quiz.setIsTimerEnabled(false); quiz.setIsRepetitionEnabled(false);
+            return quizzes.saveAndFlush(quiz).getId();
+        });
+    }
+    private int memberCount(UUID quiz) {
+        return sql.queryForObject("SELECT COUNT(*) FROM quiz_questions WHERE quiz_id=UUID_TO_BIN(?)", Integer.class, quiz.toString());
+    }
+
     private void serialize(Object value) { try { new ObjectMapper().findAndRegisterModules().writeValueAsBytes(value); } catch (Exception e) { throw new AssertionError(e); } }
     private int measure(Runnable work) {
         CountingSource.calls.set(0); CountingSource.enabled = true;
@@ -453,10 +599,13 @@ class QuizPublicationMySqlIntegrationTest {
         authoring.updateQuestion(username, question, request);
     }
     private UUID question(QuestionType type, UUID image) {
+        return questionFor(username, quizId, type, image);
+    }
+    private UUID questionFor(String actor, UUID quiz, QuestionType type, UUID image) {
         var request = new CreateQuestionRequest(); request.setType(type); request.setDifficulty(Difficulty.EASY);
         request.setQuestionText("Synthetic question"); request.setContent(QuestionContracts.example(type, QuestionContracts.View.AUTHOR));
-        request.setAttachmentAssetId(image); request.setQuizIds(List.of(quizId));
-        return authoring.createQuestion(username, request);
+        request.setAttachmentAssetId(image); request.setQuizIds(List.of(quiz));
+        return authoring.createQuestion(actor, request);
     }
     private UUID image(String owner) {
         return tx.execute(s -> {
@@ -488,7 +637,7 @@ class QuizPublicationMySqlIntegrationTest {
     private QuizRevisionPublicationService restarted() {
         var named = new NamedParameterJdbcTemplate(dataSource);
         return new QuizRevisionPublicationServiceImpl(new JdbcQuizPublicationRepository(named), new JdbcQuizRevisionRepository(named),
-                images, content, clock, metrics, transactions);
+                images, content, clock, metrics, transactions, new JdbcQuestionSourceScopeRepository(named));
     }
     private List<Object> race(Command a, Command b) throws Exception {
         faults.contenders = new CyclicBarrier(2); var pool = Executors.newFixedThreadPool(2);
@@ -514,14 +663,18 @@ class QuizPublicationMySqlIntegrationTest {
         final JdbcTemplate sql;
         volatile String fail; volatile boolean loseAcknowledgement; final AtomicBoolean reached = new AtomicBoolean();
         volatile CyclicBarrier contenders; volatile Gate holdPublication;
+        volatile Gate beforeQuestions;
         final Set<Long> gated = ConcurrentHashMap.newKeySet();
         Faults(JdbcTemplate sql) { this.sql = sql; }
-        void reset() { fail = null; loseAcknowledgement = false; reached.set(false); contenders = null; holdPublication = null; gated.clear(); }
+        void reset() { fail = null; loseAcknowledgement = false; reached.set(false); contenders = null; holdPublication = null; beforeQuestions = null; gated.clear(); }
         @org.aspectj.lang.annotation.Around("execution(* uk.gegc.quizmaker.features.quiz.domain.repository.QuizPublicationRepository.*(..))")
         Object around(org.aspectj.lang.ProceedingJoinPoint call) throws Throwable {
             String method = call.getSignature().getName();
             if (method.equals("draft") && Boolean.TRUE.equals(call.getArgs()[1]) && contenders != null && gated.add(Thread.currentThread().getId()))
                 contenders.await(15, TimeUnit.SECONDS);
+            if (method.equals("lockQuestions") && beforeQuestions != null) {
+                beforeQuestions.entered.countDown(); await(beforeQuestions.release);
+            }
             Object result = call.proceed();
             if (method.equals("lockQuestions") && holdPublication != null) { holdPublication.entered.countDown(); await(holdPublication.release); }
             if (method.equals(fail)) {
