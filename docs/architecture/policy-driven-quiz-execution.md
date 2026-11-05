@@ -1526,9 +1526,16 @@ prefix must not be subject to an automatic object-expiration rule. Adapter tests
 provider and do not certify deployment bucket permissions/lifecycle configuration. V92 defaults existing
 assets to available and creates no invented historical generations or bindings. Legacy
 unbound question/article reads retain their existing projection until a prospective version
-is prepared. A new save can establish a binding while the image remains selectable; removal
-can preserve current legacy bytes prospectively but does not prove past publication identity.
-Publication acquisition rejects an unbound historical reference. Preserve the new tables
+is prepared. A new save can establish a binding while the image remains selectable. An unchanged legacy
+reference can also adopt an already retained version after ordinary removal, using the current
+reference read from the freshly locked question. This creates a prospective binding, not a
+reconstruction of past image generations. A detached or newly selected reference still requires
+an available library asset. Removal can preserve current legacy bytes but does not prove past
+publication identity; acquisition rejects an unbound reference until that authorized save.
+Question writes refresh the locked question even in a caller-owned transaction, without clearing
+unrelated pending changes. Removal likewise refreshes asset state under its lock and routes an
+image finalized since the initial read through retained removal rather than marking it deleted.
+Preserve the new tables
 and retained objects on rollback; an older application must not resume its image-deletion
 path against this evidence. Exceptional restrictions/erasure remain separately owned.
 

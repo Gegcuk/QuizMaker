@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.media.application.impl;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FilenameUtils;
@@ -70,6 +72,7 @@ public class MediaAssetServiceImpl implements MediaAssetService {
     private final AppPermissionEvaluator permissionEvaluator;
     private final RetainedImageService retainedImages;
     private final PlatformTransactionManager transactions;
+    private final EntityManager entityManager;
 
     @Override
     public MediaUploadResponse createUploadIntent(MediaUploadRequest request, String username) {
@@ -264,13 +267,25 @@ public class MediaAssetServiceImpl implements MediaAssetService {
             retainedImages.remove(assetId, username);
             return;
         }
-        new TransactionTemplate(transactions).executeWithoutResult(s -> {
-            var current = mediaAssetRepository.findByIdForUpdate(assetId)
+        boolean retainImage = Boolean.TRUE.equals(new TransactionTemplate(transactions).execute(s -> {
+            var current = mediaAssetRepository.findById(assetId)
                     .orElseThrow(() -> new ResourceNotFoundException("Media asset not found"));
+            // A lock alone can return an OSIV-cached UPLOADING entity. Refresh with the lock
+            // so a concurrently finalized/bound image takes the retained removal path.
+            try { entityManager.refresh(current, LockModeType.PESSIMISTIC_WRITE); }
+            catch (jakarta.persistence.EntityNotFoundException missing) {
+                throw new ResourceNotFoundException("Media asset not found");
+            }
             assertOwnership(current, username);
+            if (current.isImage() && current.getStatus() == MediaAssetStatus.READY) return true;
             current.setStatus(MediaAssetStatus.DELETED);
             mediaAssetRepository.saveAndFlush(current);
-        });
+            return false;
+        }));
+        if (retainImage) {
+            retainedImages.remove(assetId, username); // Storage preparation remains outside the transaction.
+            return;
+        }
 
         if (!asset.isImage() && properties.isDeleteRemote() && StringUtils.hasText(asset.getKey())) {
             try {

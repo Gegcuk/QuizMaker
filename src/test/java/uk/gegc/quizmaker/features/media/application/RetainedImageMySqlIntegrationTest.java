@@ -493,6 +493,183 @@ class RetainedImageMySqlIntegrationTest {
         }
     }
 
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void deletionRechecksFinalizedImageUnderLock(boolean osiv) throws Exception {
+        tx.executeWithoutResult(s -> assets.findById(assetId).orElseThrow().setStatus(MediaAssetStatus.UPLOADING));
+        org.mockito.Mockito.when(unusedLegacyStorage.headObject(org.mockito.ArgumentMatchers.any(
+                software.amazon.awssdk.services.s3.model.HeadObjectRequest.class))).thenReturn(
+                software.amazon.awssdk.services.s3.model.HeadObjectResponse.builder()
+                        .contentLength(1L).contentType("image/png").eTag("A").build());
+        Gate gate = new Gate(); failure.deletionGate = gate;
+        var worker = Executors.newSingleThreadExecutor(r -> new Thread(r, "image-removal-race"));
+        try {
+            var removal = worker.submit(() -> {
+                if (osiv) withRequestPersistenceContext(() -> { library.delete(assetId, username); return null; });
+                else library.delete(assetId, username);
+                return null;
+            });
+            assertThat(gate.entered.await(10, TimeUnit.SECONDS)).isTrue();
+            library.finalizeUpload(assetId,
+                    new uk.gegc.quizmaker.features.media.api.dto.MediaUploadCompleteRequest(640, 480, null), username);
+            UUID question = questionService.createQuestion(username, request(assetId));
+            var saved = acquire(question);
+            gate.release.countDown(); removal.get(10, TimeUnit.SECONDS);
+            var asset = assets.findById(assetId).orElseThrow();
+            assertThat(asset.getStatus()).isEqualTo(MediaAssetStatus.READY);
+            assertThat(asset.isLibraryRemoved()).isTrue();
+            assertThat(library.getByIdForResolution(assetId)).isPresent();
+            assertThat(acquire(question)).isEqualTo(saved);
+            assertThat(questionService.getQuestion(question, SecurityContextHolder.getContext().getAuthentication())
+                    .getAttachment().cdnUrl()).endsWith(saved.objectKey());
+            assertThat(storage.content(saved.objectKey())).isEqualTo("A");
+            org.mockito.Mockito.verify(unusedLegacyStorage, org.mockito.Mockito.never()).deleteObject(
+                    org.mockito.ArgumentMatchers.any(software.amazon.awssdk.services.s3.model.DeleteObjectRequest.class));
+        } finally {
+            gate.release.countDown(); failure.deletionGate = null;
+            worker.shutdownNow(); assertThat(worker.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test void deletionBeforeFinalizationCannotBecomeASavedImage() {
+        tx.executeWithoutResult(s -> assets.findById(assetId).orElseThrow().setStatus(MediaAssetStatus.UPLOADING));
+        library.delete(assetId, username);
+        assertThat(assets.findById(assetId).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.DELETED);
+        assertThatThrownBy(() -> library.finalizeUpload(assetId,
+                new uk.gegc.quizmaker.features.media.api.dto.MediaUploadCompleteRequest(640, 480, null), username))
+                .isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> questionService.createQuestion(username, request(assetId))).isInstanceOf(ValidationException.class);
+        assertThat(questions.count()).isZero(); assertThat(bindings.count()).isZero();
+        verifyNoInteractions(unusedLegacyStorage);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void unchangedLegacyReferenceAdoptsRetainedVersionWithoutGrantingNewSelection(boolean inline) {
+        UUID question = legacyQuestion(inline);
+        assertThat(bindings.findAllByQuestionId(question)).isEmpty();
+        assertThat(versions.findByAssetId(assetId)).isEmpty();
+        library.delete(assetId, username);
+        var version = versions.findByAssetId(assetId).orElseThrow();
+        int providerCalls = storage.calls.get();
+        storage.sources.put("source/" + assetId, "B"); storage.unavailable = true;
+        var edit = update(inline ? null : assetId);
+        if (inline) edit.setContent(legacyContent(true));
+        edit.setQuestionText("Legacy draft edited after removal");
+        var edited = questionService.updateQuestion(username, question, edit);
+        assertThat(edited.getQuestionText()).isEqualTo(edit.getQuestionText());
+        var binding = bindings.findAllByQuestionId(question);
+        assertThat(binding).hasSize(1);
+        assertThat(binding.get(0).getImageVersionId()).isEqualTo(version.getId());
+        assertThat(storage.content(version.getObjectKey())).isEqualTo("A");
+        assertThat(storage.calls.get()).isEqualTo(providerCalls);
+        questionService.updateQuestion(username, question, edit);
+        assertThat(bindings.findAllByQuestionId(question).get(0).getId()).isEqualTo(binding.get(0).getId());
+        assertThatThrownBy(() -> questionService.createQuestion(username, request(assetId))).isInstanceOf(ValidationException.class);
+        var clear = update(null); clear.setClearAttachment(true);
+        questionService.updateQuestion(username, question, clear);
+        assertThatThrownBy(() -> questionService.updateQuestion(username, question, edit)).isInstanceOf(ValidationException.class);
+        assertThat(questions.findById(question).orElseThrow().getAttachmentAssetId()).isNull();
+        assertThat(questions.findById(question).orElseThrow().getContent()).doesNotContain(assetId.toString());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void cachedQuestionCannotReattachAnImageDetachedByAnotherTransaction(boolean legacy) throws Exception {
+        UUID question = legacy ? legacyQuestion(false) : questionService.createQuestion(username, request(assetId));
+        library.delete(assetId, username);
+        var worker = Executors.newSingleThreadExecutor();
+        try {
+            assertThatThrownBy(() -> tx.executeWithoutResult(s -> {
+                assertThat(questions.findById(question).orElseThrow().getAttachmentAssetId()).isEqualTo(assetId);
+                try {
+                    worker.submit(() -> {
+                        var clear = update(null); clear.setClearAttachment(true);
+                        questionService.updateQuestion(username, question, clear);
+                        assertThat(questions.findById(question).orElseThrow().getAttachmentAssetId()).isNull();
+                    }).get(10, TimeUnit.SECONDS);
+                } catch (Exception e) { throw new AssertionError(e); }
+                var edit = update(assetId); edit.setQuestionText("Stale tab tries to restore A");
+                questionService.updateQuestion(username, question, edit);
+            })).isInstanceOf(ValidationException.class);
+            var stored = questions.findById(question).orElseThrow();
+            assertThat(stored.getAttachmentAssetId()).isNull();
+            assertThat(stored.getQuestionText()).isNotEqualTo("Stale tab tries to restore A");
+            assertThat(bindings.findAllByQuestionId(question)).hasSize(legacy ? 0 : 1);
+            library.restore(assetId, username);
+            questionService.updateQuestion(username, question, update(assetId));
+            assertThat(acquire(question).assetId()).isEqualTo(assetId);
+        } finally { worker.shutdownNow(); assertThat(worker.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @Test void refreshingQuestionPreservesUnrelatedWritesInCallerTransaction() {
+        UUID question = questionService.createQuestion(username, request(assetId));
+        library.delete(assetId, username);
+        UUID categoryId = tx.execute(s -> {
+            questions.findById(question).orElseThrow();
+            var category = categories.findAll().get(0);
+            category.setDescription("Unrelated caller update");
+            var edit = update(assetId); edit.setQuestionText("Question updated in caller transaction");
+            questionService.updateQuestion(username, question, edit);
+            return category.getId();
+        });
+        assertThat(categories.findById(categoryId).orElseThrow().getDescription()).isEqualTo("Unrelated caller update");
+        assertThat(questions.findById(question).orElseThrow().getQuestionText()).isEqualTo("Question updated in caller transaction");
+        assertThat(acquire(question).assetId()).isEqualTo(assetId);
+    }
+
+    @Test void legacyBindingAdoptionRollsBackWithTheQuestionAndCanBeRetried() {
+        UUID question = legacyQuestion(false);
+        library.delete(assetId, username);
+        UUID version = versions.findByAssetId(assetId).orElseThrow().getId();
+        var edit = update(assetId); edit.setQuestionText("Legacy edit with new binding");
+        failure.armed = true;
+        assertThatThrownBy(() -> questionService.updateQuestion(username, question, edit))
+                .isInstanceOf(IllegalStateException.class).hasMessage("injected after binding flush");
+        assertThat(failure.reached).isTrue();
+        assertThat(bindings.findAllByQuestionId(question)).isEmpty();
+        assertThat(questions.findById(question).orElseThrow().getQuestionText()).isEqualTo("Legacy draft");
+        assertThat(versions.findByAssetId(assetId).orElseThrow().getId()).isEqualTo(version);
+        failure.armed = false;
+        questionService.updateQuestion(username, question, edit);
+        assertThat(acquire(question).versionId()).isEqualTo(version);
+        assertThat(questions.findById(question).orElseThrow().getQuestionText()).isEqualTo(edit.getQuestionText());
+    }
+
+    @Test void cachedQuestionDeletedByAnotherTransactionCannotBeEdited() throws Exception {
+        UUID question = questionService.createQuestion(username, request(assetId));
+        library.delete(assetId, username);
+        var worker = Executors.newSingleThreadExecutor();
+        try {
+            assertThatThrownBy(() -> tx.executeWithoutResult(s -> {
+                questions.findById(question).orElseThrow();
+                try {
+                    worker.submit(() -> questionService.deleteQuestion(username, question)).get(10, TimeUnit.SECONDS);
+                } catch (Exception e) { throw new AssertionError(e); }
+                questionService.updateQuestion(username, question, update(assetId));
+            })).isInstanceOf(ResourceNotFoundException.class);
+            assertThat(questions.findById(question)).isEmpty();
+            assertThat(bindings.findAllByQuestionId(question)).hasSize(1);
+        } finally { worker.shutdownNow(); assertThat(worker.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    private UUID legacyQuestion(boolean inline) {
+        return tx.execute(s -> {
+            var question = new Question(); question.setType(QuestionType.TRUE_FALSE); question.setDifficulty(Difficulty.EASY);
+            question.setQuestionText("Legacy draft"); question.setContent(legacyContent(inline).toString());
+            if (!inline) question.setAttachmentAssetId(assetId);
+            question.setQuizId(List.of(quizzes.findById(quizId).orElseThrow()));
+            return questions.saveAndFlush(question).getId();
+        });
+    }
+
+    private com.fasterxml.jackson.databind.node.ObjectNode legacyContent(boolean inline) {
+        var content = new ObjectMapper().createObjectNode().put("answer", true);
+        if (inline) content.putObject("media").put("assetId", assetId.toString());
+        return content;
+    }
+
     private <T> T withRequestPersistenceContext(Callable<T> action) throws Exception {
         // Spring's default OSIV holds this same persistence context across service transactions.
         var entityManager = emf.createEntityManager();
@@ -541,6 +718,17 @@ class RetainedImageMySqlIntegrationTest {
     static class BindingFailure {
         final JdbcTemplate sql;
         volatile boolean armed;
+        volatile Gate deletionGate;
+        @org.aspectj.lang.annotation.Around("execution(* uk.gegc.quizmaker.features.media.domain.repository.MediaAssetRepository.findByIdAndStatusNot(..))")
+        public Object afterDeleteRead(org.aspectj.lang.ProceedingJoinPoint call) throws Throwable {
+            Object result = call.proceed();
+            Gate gate = deletionGate;
+            if (gate != null && Thread.currentThread().getName().equals("image-removal-race")) {
+                assertThat(((java.util.Optional<MediaAsset>) result).orElseThrow().getStatus()).isEqualTo(MediaAssetStatus.UPLOADING);
+                gate.entered.countDown(); await(gate.release);
+            }
+            return result;
+        }
         int expectedBindings = 1;
         final AtomicBoolean reached = new AtomicBoolean();
         BindingFailure(JdbcTemplate sql) { this.sql = sql; }

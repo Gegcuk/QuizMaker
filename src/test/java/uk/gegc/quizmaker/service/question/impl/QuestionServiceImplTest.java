@@ -82,6 +82,7 @@ class QuestionServiceImplTest {
     @Mock private org.springframework.transaction.PlatformTransactionManager transactions;
     @Mock private uk.gegc.quizmaker.features.media.application.RetainedImageService retainedImages;
     @Mock private jakarta.persistence.EntityManagerFactory entityManagers;
+    @Mock private jakarta.persistence.EntityManager entityManager;
 
     @InjectMocks
     private QuestionServiceImpl questionService;
@@ -92,7 +93,6 @@ class QuestionServiceImplTest {
     @BeforeEach
     void setUp() {
         lenient().when(factory.getHandler(any())).thenReturn(handler);
-        lenient().when(questionRepository.findByIdForUpdate(any())).thenAnswer(i -> questionRepository.findById(i.getArgument(0)));
         objectMapper = new ObjectMapper();
         testUser = createTestUser();
         setupUserRepositoryMock();
@@ -194,7 +194,7 @@ class QuestionServiceImplTest {
         req.setQuestionText("Q?");
         req.setContent(objectMapper.createObjectNode().put("answer", true));
 
-        when(questionRepository.save(any(Question.class)))
+        when(questionRepository.saveAndFlush(any(Question.class)))
                 .thenAnswer(inv -> {
                     Question q = inv.getArgument(0);
                     q.setId(UUID.randomUUID());
@@ -205,7 +205,7 @@ class QuestionServiceImplTest {
 
         assertThat(id).isNotNull();
         verify(factory).validateStoredContent(req.getType(), req.getContent());
-        verify(questionRepository).save(any(Question.class));
+        verify(questionRepository).saveAndFlush(any(Question.class));
     }
 
     @Test
@@ -326,7 +326,7 @@ class QuestionServiceImplTest {
         Tag tag = new Tag();
         tag.setId(tagId);
         when(tagRepository.findAllById(List.of(tagId))).thenReturn(List.of(tag));
-        when(questionRepository.save(any(Question.class)))
+        when(questionRepository.saveAndFlush(any(Question.class)))
                 .thenAnswer(inv -> {
                     Question q = inv.getArgument(0);
                     q.setId(UUID.randomUUID());
@@ -337,7 +337,7 @@ class QuestionServiceImplTest {
 
         assertThat(result).isNotNull();
         verify(tagRepository).findAllById(List.of(tagId));
-        verify(questionRepository).save(any(Question.class));
+        verify(questionRepository).saveAndFlush(any(Question.class));
     }
 
     @Test

@@ -4,6 +4,8 @@ import uk.gegc.quizmaker.features.question.application.QuestionContracts;
 
 import lombok.RequiredArgsConstructor;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import org.springframework.orm.jpa.EntityManagerHolder;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -65,6 +67,7 @@ public class QuestionServiceImpl implements QuestionService {
     private final RetainedImageService retainedImages;
     private final PlatformTransactionManager transactions;
     private final EntityManagerFactory entityManagers;
+    private final EntityManager entityManager;
 
     private TransactionTemplate writeTransaction() {
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
@@ -118,7 +121,8 @@ public class QuestionServiceImpl implements QuestionService {
         if (sanitizedContent != null) {
             question.setContent(sanitizedContent.toString());
         }
-        questionRepository.save(question);
+        // Materialize the row before returning its ID, including create-then-update in a caller transaction.
+        questionRepository.saveAndFlush(question);
         bindImages(question.getId(), imageIds(question.getAttachmentAssetId(), sanitizedContent), Set.of(), username);
 
         return question.getId();
@@ -273,8 +277,16 @@ public class QuestionServiceImpl implements QuestionService {
 
         handlerFactory.validateStoredContent(request.getType(), request.getContent());
 
-        Question question = questionRepository.findByIdForUpdate(questionId)
+        Question question = questionRepository.findById(questionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Question " + questionId + " not found"));
+        // A caller's transaction may already hold a stale question. Refresh only this entity
+        // under the write lock; neither cached references nor an old read snapshot grant reuse.
+        try { entityManager.refresh(question, LockModeType.PESSIMISTIC_WRITE); }
+        catch (jakarta.persistence.EntityNotFoundException missing) {
+            throw new ResourceNotFoundException("Question " + questionId + " not found");
+        }
+        if (Boolean.TRUE.equals(question.getIsDeleted()))
+            throw new ResourceNotFoundException("Question " + questionId + " not found");
 
         // Ownership check: ensure all associated quizzes are owned by the user or user has moderation permissions
         for (Quiz quiz : question.getQuizId()) {

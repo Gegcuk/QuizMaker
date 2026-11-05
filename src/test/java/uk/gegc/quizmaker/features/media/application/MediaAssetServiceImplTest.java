@@ -84,7 +84,8 @@ class MediaAssetServiceImplTest {
         service = new uk.gegc.quizmaker.features.media.application.impl.MediaAssetServiceImpl(
                 mediaAssetRepository, properties, presigner, s3Client, mapper, permissionEvaluator,
                 org.mockito.Mockito.mock(uk.gegc.quizmaker.features.media.application.RetainedImageService.class),
-                org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class)
+                org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class),
+                org.mockito.Mockito.mock(jakarta.persistence.EntityManager.class)
         );
     }
 

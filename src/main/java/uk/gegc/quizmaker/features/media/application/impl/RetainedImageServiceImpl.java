@@ -98,12 +98,13 @@ public class RetainedImageServiceImpl implements RetainedImageService {
     public void prepareForQuestion(UUID questionId, Set<UUID> desired, Set<UUID> previous, String username) {
         Set<UUID> needed = new HashSet<>(desired);
         if (questionId != null) {
-            var existing = TransactionSynchronizationManager.isActualTransactionActive()
-                    ? bindings.findAllByQuestionId(questionId)
-                    : freshTransaction(s -> bindings.findAllByQuestionId(questionId));
-            existing.stream().map(SavedImageBinding::getAssetId).filter(previous::contains).forEach(needed::remove);
+            var retained = TransactionSynchronizationManager.isActualTransactionActive()
+                    ? versions.findAllByAssetIdInAndReadyTrue(previous)
+                    : freshTransaction(s -> versions.findAllByAssetIdInAndReadyTrue(previous));
+            retained.stream().map(SavedImageVersion::getAssetId).forEach(needed::remove);
         }
-        // An unchanged, already bound image needs no provider work and may join the caller's transaction.
+        // An unchanged legacy reference can adopt an already retained version without provider work.
+        // bind() rechecks previous references from the freshly locked question before granting reuse.
         if (!needed.isEmpty()) prepare(needed, username);
     }
 
@@ -117,7 +118,7 @@ public class RetainedImageServiceImpl implements RetainedImageService {
         for (UUID id : ordered(desired)) {
             var asset = asset(id, true);
             // An old evidence row alone does not grant reuse after the author removed the reference.
-            if (!previous.contains(id) || !existing.containsKey(id)) selectable(asset, username);
+            if (!previous.contains(id)) selectable(asset, username);
             var version = ready(id);
             var binding = existing.get(id);
             if (binding == null) bindings.saveAndFlush(new SavedImageBinding(questionId, version, clock.instant()));
