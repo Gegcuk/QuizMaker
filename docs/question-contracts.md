@@ -117,3 +117,98 @@ discarding the surrounding result. Backend golden examples live in
 `src/main/resources/question-contracts/v1-examples.json`; controller, serialization,
 and grading-compatibility tests use the same examples. No client build or deployment
 is required to verify the backend contract.
+
+## Immutable baseline family contracts (#701)
+
+The internal revision path has five production adapters. The active question and
+attempt APIs above retain their existing routes, payloads, permissions and legacy
+handlers; registering these adapters does not activate target execution.
+
+| Family | Exact response contract ID | Exact scoring contract ID | Version |
+| --- | --- | --- | --- |
+| MCQ_SINGLE | `question.mcq-single.response` | `question.mcq-single.binary` | 1 |
+| MCQ_MULTI | `question.mcq-multi.response` | `question.mcq-multi.binary` | 1 |
+| TRUE_FALSE | `question.true-false.response` | `question.true-false.binary` | 1 |
+| FILL_GAP | `question.fill-gap.response` | `question.fill-gap.binary` | 1 |
+| ORDERING | `question.ordering.response` | `question.ordering.binary` | 1 |
+
+Each score is an exact decimal pair: earned `0` or `1`, possible `1` (A22/D38).
+Malformed responses and unavailable content raise bounded typed errors; they do
+not produce a zero grade. Valid but incorrect/unknown selections keep the legacy
+zero-score behavior. MCQ_MULTI compares sets, including its existing duplicate
+selection behavior. ORDERING uses captured `correctOrder` when present, otherwise
+the captured authored item IDs. FILL_GAP accepts content with and without a choice
+pool, grades gap answers rather than distractors, and preserves its response
+fields (`answers[].gapId`, `answers[].answer`). Missing required gap answers score
+zero; duplicate gap IDs are malformed; extra well-formed gap answers retain the
+legacy accepted classification.
+
+FILL_GAP v1 trims and lowercases with `Locale.ROOT`, as explicitly
+[approved on 5 November 2026](architecture/decision-register.md#fill-gap-v1-locale).
+Pool validation uses the same normalization. Thus `I` and `i` compare equally on
+English and Turkish hosts. The legacy path keeps its default-locale behavior.
+This is the documented exception to golden equivalence, not a change to existing
+attempt grading.
+
+`FamilyShapeV1` and `baseline-v1-shapes.json` freeze the five author/response
+schemas and validator semantics from base `16abc7e`. They do not dispatch to the
+evolving active API schema builder or mutable handlers. The byte/string/array
+bounds and ignored unknown input fields remain as above. Schema, validation,
+normalization or grading changes require a new exact contract version; retain v1
+implementations and fixtures while stored bindings refer to v1. New families
+implement both ports, register unique IDs and add their own conformance fixtures.
+There is no latest-version, family-name or legacy-handler fallback.
+
+`PublishedQuestionContractService.bind(quizId, revisionId)` is an internal author
+application boundary. It reads an actual publication through the existing
+publication service, rechecks authentication, `QUIZ_UPDATE`/existing elevated
+access and quiz ownership, validates the complete immutable family set, then
+binds all question revisions in one transaction. Owner identity comes from the
+authorized publication, not a caller-supplied owner. It uses the existing #598
+binding table, uniqueness guards and canonical revision locks; no schema change,
+backfill or legacy-result rewrite is introduced. Later draft edits or a new
+publication cannot replace the old bindings or the captured content. For example,
+changing the correct MCQ option from A to B affects the new revision while A still
+earns one point when evaluated against the old revision after a component restart.
+
+Identical concurrent calls and retries return the same durable binding set.
+Conflicting exact bindings fail with `BINDING_CONFLICT`. Unknown families or
+versions fail with `UNSUPPORTED_CONTRACT`; unbound revisions remain unavailable.
+An interrupted write rolls back the complete new set. Persistence failures return
+`PERSISTENCE_UNAVAILABLE`; after a lost acknowledgement or uncertain commit,
+reconnect and read/retry the same revision identity to reconcile durable state.
+Offline writes are not enabled. Authentication/ownership failures reuse the
+publication boundary's non-enumerating errors, including on replay. No new public
+HTTP status mapping is introduced by this internal service.
+
+The adapters provide closed, text-only participant content and option layouts for
+the existing flat form materializer. Captured option UUIDs survive display
+reordering; the v1 source schema describes independent options, with no authored
+pin/group constraints. Media-bearing content can be validated/scored, but text-only
+projection rejects media instead of dropping it. Media presentation remains a
+separate integration. Legacy-shaped scoring fields refer to **captured source
+keys**, never display positions. A future canonical response boundary must resolve
+form option UUIDs against the captured revision before invoking this payload
+contract; direct UUID-as-legacy-key submission is not an activated API.
+
+Automated evidence is in `FamilyContractV1Test` (fixed golden fixtures, limits,
+locale and safe projection) and `PublishedFamilyContractsMySqlIntegrationTest`
+(real publication, binding, forms, MySQL rollback/concurrency, authorization,
+restart and measured bulk snapshot queries). Existing OpenAPI/compatibility tests
+continue to cover current web/iOS payloads and questions/attempts/API-summary
+contracts. Only external storage is replaced at the integration boundary. The
+pure adapters perform no database or provider calls; bulk snapshot loading is
+measured with multiple revisions, questions and options. Per-identity write locks
+and inserts are intentional persistence operations, not lazy relationship fetches.
+
+The bounded `question.contract.publication.binding` timer reports version `1` and
+outcome `bound`, `rejected` or `persistence_unavailable`, alongside existing
+`question.contract.resolutions` and publication signals. It contains no user,
+question, answer or raw provider/database details. Alerting/activation ownership
+remains with the later operational rollout; this increment adds no alert policy.
+
+The verified internal composition creates neither an attempt nor an accepted
+answer. Real start/acceptance/charging, disclosure and formal D38 flows still need
+their owning integrations (#600, #543, #609, #668). OPEN, MATCHING, HOTSPOT and
+COMPLIANCE remain explicitly unsupported here, owned by #826–#829. Full cutover
+still requires all nine families and their immutable compatibility evidence.

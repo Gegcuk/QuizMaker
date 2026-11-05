@@ -1,0 +1,498 @@
+{
+  "MCQ_SINGLE" : {
+    "AUTHOR" : {
+      "type" : "object",
+      "additionalProperties" : true,
+      "properties" : {
+        "options" : {
+          "type" : "array",
+          "minItems" : 2,
+          "maxItems" : 100,
+          "items" : {
+            "type" : "object",
+            "additionalProperties" : true,
+            "properties" : {
+              "id" : {
+                "type" : "string",
+                "maxLength" : 10000,
+                "minLength" : 1
+              },
+              "text" : {
+                "type" : "string",
+                "maxLength" : 10000,
+                "nullable" : true
+              },
+              "media" : {
+                "type" : "object",
+                "additionalProperties" : true,
+                "properties" : {
+                  "assetId" : {
+                    "type" : "string",
+                    "maxLength" : 10000,
+                    "format" : "uuid"
+                  },
+                  "cdnUrl" : {
+                    "type" : "string",
+                    "maxLength" : 10000
+                  },
+                  "mimeType" : {
+                    "type" : "string",
+                    "maxLength" : 10000
+                  },
+                  "width" : {
+                    "type" : "integer",
+                    "minimum" : -2147483648,
+                    "maximum" : 2147483647
+                  },
+                  "height" : {
+                    "type" : "integer",
+                    "minimum" : -2147483648,
+                    "maximum" : 2147483647
+                  }
+                },
+                "required" : [ "assetId" ],
+                "nullable" : true
+              },
+              "correct" : {
+                "type" : "boolean"
+              }
+            },
+            "required" : [ "id" ],
+            "anyOf" : [ {
+              "type" : "object",
+              "additionalProperties" : true,
+              "properties" : {
+                "text" : {
+                  "type" : "string",
+                  "maxLength" : 10000,
+                  "minLength" : 1
+                }
+              },
+              "required" : [ "text" ]
+            }, {
+              "type" : "object",
+              "additionalProperties" : true,
+              "properties" : {
+                "media" : {
+                  "type" : "object",
+                  "additionalProperties" : true,
+                  "properties" : {
+                    "assetId" : {
+                      "type" : "string",
+                      "maxLength" : 10000,
+                      "format" : "uuid"
+                    },
+                    "cdnUrl" : {
+                      "type" : "string",
+                      "maxLength" : 10000
+                    },
+                    "mimeType" : {
+                      "type" : "string",
+                      "maxLength" : 10000
+                    },
+                    "width" : {
+                      "type" : "integer",
+                      "minimum" : -2147483648,
+                      "maximum" : 2147483647
+                    },
+                    "height" : {
+                      "type" : "integer",
+                      "minimum" : -2147483648,
+                      "maximum" : 2147483647
+                    }
+                  },
+                  "required" : [ "assetId" ]
+                }
+              },
+              "required" : [ "media" ]
+            } ]
+          }
+        }
+      },
+      "required" : [ "options" ],
+      "description" : "Contract v1 for MCQ_SINGLE AUTHOR. Maximum 65536 UTF-8 JSON bytes; strings 10000 characters; arrays 100 items unless a smaller bound is declared. Unknown input fields are ignored; existing scoring and access rules are unchanged."
+    },
+    "RESPONSE" : {
+      "type" : "object",
+      "additionalProperties" : true,
+      "properties" : {
+        "selectedOptionId" : {
+          "type" : "string",
+          "maxLength" : 10000
+        }
+      },
+      "required" : [ "selectedOptionId" ],
+      "description" : "Contract v1 for MCQ_SINGLE RESPONSE. Maximum 65536 UTF-8 JSON bytes; strings 10000 characters; arrays 100 items unless a smaller bound is declared. Unknown input fields are ignored; existing scoring and access rules are unchanged."
+    }
+  },
+  "MCQ_MULTI" : {
+    "AUTHOR" : {
+      "type" : "object",
+      "additionalProperties" : true,
+      "properties" : {
+        "options" : {
+          "type" : "array",
+          "minItems" : 2,
+          "maxItems" : 100,
+          "items" : {
+            "type" : "object",
+            "additionalProperties" : true,
+            "properties" : {
+              "id" : {
+                "type" : "string",
+                "maxLength" : 10000,
+                "minLength" : 1
+              },
+              "text" : {
+                "type" : "string",
+                "maxLength" : 10000,
+                "nullable" : true
+              },
+              "media" : {
+                "type" : "object",
+                "additionalProperties" : true,
+                "properties" : {
+                  "assetId" : {
+                    "type" : "string",
+                    "maxLength" : 10000,
+                    "format" : "uuid"
+                  },
+                  "cdnUrl" : {
+                    "type" : "string",
+                    "maxLength" : 10000
+                  },
+                  "mimeType" : {
+                    "type" : "string",
+                    "maxLength" : 10000
+                  },
+                  "width" : {
+                    "type" : "integer",
+                    "minimum" : -2147483648,
+                    "maximum" : 2147483647
+                  },
+                  "height" : {
+                    "type" : "integer",
+                    "minimum" : -2147483648,
+                    "maximum" : 2147483647
+                  }
+                },
+                "required" : [ "assetId" ],
+                "nullable" : true
+              },
+              "correct" : {
+                "type" : "boolean"
+              }
+            },
+            "required" : [ "id" ],
+            "anyOf" : [ {
+              "type" : "object",
+              "additionalProperties" : true,
+              "properties" : {
+                "text" : {
+                  "type" : "string",
+                  "maxLength" : 10000,
+                  "minLength" : 1
+                }
+              },
+              "required" : [ "text" ]
+            }, {
+              "type" : "object",
+              "additionalProperties" : true,
+              "properties" : {
+                "media" : {
+                  "type" : "object",
+                  "additionalProperties" : true,
+                  "properties" : {
+                    "assetId" : {
+                      "type" : "string",
+                      "maxLength" : 10000,
+                      "format" : "uuid"
+                    },
+                    "cdnUrl" : {
+                      "type" : "string",
+                      "maxLength" : 10000
+                    },
+                    "mimeType" : {
+                      "type" : "string",
+                      "maxLength" : 10000
+                    },
+                    "width" : {
+                      "type" : "integer",
+                      "minimum" : -2147483648,
+                      "maximum" : 2147483647
+                    },
+                    "height" : {
+                      "type" : "integer",
+                      "minimum" : -2147483648,
+                      "maximum" : 2147483647
+                    }
+                  },
+                  "required" : [ "assetId" ]
+                }
+              },
+              "required" : [ "media" ]
+            } ]
+          }
+        }
+      },
+      "required" : [ "options" ],
+      "description" : "Contract v1 for MCQ_MULTI AUTHOR. Maximum 65536 UTF-8 JSON bytes; strings 10000 characters; arrays 100 items unless a smaller bound is declared. Unknown input fields are ignored; existing scoring and access rules are unchanged."
+    },
+    "RESPONSE" : {
+      "type" : "object",
+      "additionalProperties" : true,
+      "properties" : {
+        "selectedOptionIds" : {
+          "type" : "array",
+          "minItems" : 0,
+          "maxItems" : 100,
+          "items" : {
+            "type" : "string",
+            "maxLength" : 10000
+          }
+        }
+      },
+      "required" : [ "selectedOptionIds" ],
+      "description" : "Contract v1 for MCQ_MULTI RESPONSE. Maximum 65536 UTF-8 JSON bytes; strings 10000 characters; arrays 100 items unless a smaller bound is declared. Unknown input fields are ignored; existing scoring and access rules are unchanged."
+    }
+  },
+  "TRUE_FALSE" : {
+    "AUTHOR" : {
+      "type" : "object",
+      "additionalProperties" : true,
+      "properties" : {
+        "answer" : {
+          "type" : "boolean"
+        }
+      },
+      "required" : [ "answer" ],
+      "description" : "Contract v1 for TRUE_FALSE AUTHOR. Maximum 65536 UTF-8 JSON bytes; strings 10000 characters; arrays 100 items unless a smaller bound is declared. Unknown input fields are ignored; existing scoring and access rules are unchanged."
+    },
+    "RESPONSE" : {
+      "type" : "object",
+      "additionalProperties" : true,
+      "properties" : {
+        "answer" : {
+          "type" : "boolean"
+        }
+      },
+      "required" : [ "answer" ],
+      "description" : "Contract v1 for TRUE_FALSE RESPONSE. Maximum 65536 UTF-8 JSON bytes; strings 10000 characters; arrays 100 items unless a smaller bound is declared. Unknown input fields are ignored; existing scoring and access rules are unchanged."
+    }
+  },
+  "FILL_GAP" : {
+    "AUTHOR" : {
+      "type" : "object",
+      "additionalProperties" : true,
+      "properties" : {
+        "text" : {
+          "type" : "string",
+          "maxLength" : 10000,
+          "minLength" : 1
+        },
+        "gaps" : {
+          "type" : "array",
+          "minItems" : 1,
+          "maxItems" : 100,
+          "items" : {
+            "type" : "object",
+            "additionalProperties" : true,
+            "properties" : {
+              "id" : {
+                "type" : "integer",
+                "minimum" : -2147483648,
+                "maximum" : 2147483647
+              },
+              "answer" : {
+                "type" : "string",
+                "maxLength" : 10000,
+                "minLength" : 1
+              }
+            },
+            "required" : [ "id", "answer" ]
+          }
+        },
+        "options" : {
+          "type" : "array",
+          "minItems" : 1,
+          "maxItems" : 10,
+          "items" : {
+            "type" : "string",
+            "maxLength" : 10000,
+            "minLength" : 1
+          }
+        }
+      },
+      "required" : [ "text", "gaps" ],
+      "description" : "Contract v1 for FILL_GAP AUTHOR. Maximum 65536 UTF-8 JSON bytes; strings 10000 characters; arrays 100 items unless a smaller bound is declared. Unknown input fields are ignored; existing scoring and access rules are unchanged."
+    },
+    "RESPONSE" : {
+      "type" : "object",
+      "additionalProperties" : true,
+      "properties" : {
+        "answers" : {
+          "type" : "array",
+          "minItems" : 0,
+          "maxItems" : 100,
+          "items" : {
+            "type" : "object",
+            "additionalProperties" : true,
+            "properties" : {
+              "gapId" : {
+                "type" : "integer",
+                "minimum" : -2147483648,
+                "maximum" : 2147483647
+              },
+              "answer" : {
+                "type" : "string",
+                "maxLength" : 10000
+              }
+            },
+            "required" : [ "gapId", "answer" ]
+          }
+        }
+      },
+      "required" : [ "answers" ],
+      "description" : "Contract v1 for FILL_GAP RESPONSE. Maximum 65536 UTF-8 JSON bytes; strings 10000 characters; arrays 100 items unless a smaller bound is declared. Unknown input fields are ignored; existing scoring and access rules are unchanged."
+    }
+  },
+  "ORDERING" : {
+    "AUTHOR" : {
+      "type" : "object",
+      "additionalProperties" : true,
+      "properties" : {
+        "items" : {
+          "type" : "array",
+          "minItems" : 2,
+          "maxItems" : 10,
+          "items" : {
+            "type" : "object",
+            "additionalProperties" : true,
+            "properties" : {
+              "id" : {
+                "type" : "integer",
+                "minimum" : -2147483648,
+                "maximum" : 2147483647
+              },
+              "text" : {
+                "type" : "string",
+                "maxLength" : 10000,
+                "nullable" : true
+              },
+              "media" : {
+                "type" : "object",
+                "additionalProperties" : true,
+                "properties" : {
+                  "assetId" : {
+                    "type" : "string",
+                    "maxLength" : 10000,
+                    "format" : "uuid"
+                  },
+                  "cdnUrl" : {
+                    "type" : "string",
+                    "maxLength" : 10000
+                  },
+                  "mimeType" : {
+                    "type" : "string",
+                    "maxLength" : 10000
+                  },
+                  "width" : {
+                    "type" : "integer",
+                    "minimum" : -2147483648,
+                    "maximum" : 2147483647
+                  },
+                  "height" : {
+                    "type" : "integer",
+                    "minimum" : -2147483648,
+                    "maximum" : 2147483647
+                  }
+                },
+                "required" : [ "assetId" ],
+                "nullable" : true
+              }
+            },
+            "required" : [ "id" ],
+            "anyOf" : [ {
+              "type" : "object",
+              "additionalProperties" : true,
+              "properties" : {
+                "text" : {
+                  "type" : "string",
+                  "maxLength" : 10000,
+                  "minLength" : 1
+                }
+              },
+              "required" : [ "text" ]
+            }, {
+              "type" : "object",
+              "additionalProperties" : true,
+              "properties" : {
+                "media" : {
+                  "type" : "object",
+                  "additionalProperties" : true,
+                  "properties" : {
+                    "assetId" : {
+                      "type" : "string",
+                      "maxLength" : 10000,
+                      "format" : "uuid"
+                    },
+                    "cdnUrl" : {
+                      "type" : "string",
+                      "maxLength" : 10000
+                    },
+                    "mimeType" : {
+                      "type" : "string",
+                      "maxLength" : 10000
+                    },
+                    "width" : {
+                      "type" : "integer",
+                      "minimum" : -2147483648,
+                      "maximum" : 2147483647
+                    },
+                    "height" : {
+                      "type" : "integer",
+                      "minimum" : -2147483648,
+                      "maximum" : 2147483647
+                    }
+                  },
+                  "required" : [ "assetId" ]
+                }
+              },
+              "required" : [ "media" ]
+            } ]
+          }
+        },
+        "correctOrder" : {
+          "type" : "array",
+          "minItems" : 0,
+          "maxItems" : 10,
+          "items" : {
+            "type" : "integer",
+            "minimum" : -2147483648,
+            "maximum" : 2147483647
+          }
+        }
+      },
+      "required" : [ "items" ],
+      "description" : "Contract v1 for ORDERING AUTHOR. Maximum 65536 UTF-8 JSON bytes; strings 10000 characters; arrays 100 items unless a smaller bound is declared. Unknown input fields are ignored; existing scoring and access rules are unchanged."
+    },
+    "RESPONSE" : {
+      "type" : "object",
+      "additionalProperties" : true,
+      "properties" : {
+        "orderedItemIds" : {
+          "type" : "array",
+          "minItems" : 0,
+          "maxItems" : 100,
+          "items" : {
+            "type" : "integer",
+            "minimum" : -2147483648,
+            "maximum" : 2147483647
+          }
+        }
+      },
+      "required" : [ "orderedItemIds" ],
+      "description" : "Contract v1 for ORDERING RESPONSE. Maximum 65536 UTF-8 JSON bytes; strings 10000 characters; arrays 100 items unless a smaller bound is declared. Unknown input fields are ignored; existing scoring and access rules are unchanged."
+    }
+  }
+}
