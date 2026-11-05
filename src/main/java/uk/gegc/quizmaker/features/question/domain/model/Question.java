@@ -59,6 +59,17 @@ public class Question {
     @Column(name = "attachment_asset_id")
     private UUID attachmentAssetId;
 
+    /** Server-established source authority; membership changes never transfer this right. */
+    @Setter(lombok.AccessLevel.NONE)
+    @Column(name = "source_owner_id", updatable = false)
+    private UUID sourceOwnerId;
+
+    public void establishSourceOwner(UUID ownerId) {
+        if (sourceOwnerId != null || createdAt != null)
+            throw new IllegalStateException("Existing question source authority cannot be reassigned");
+        sourceOwnerId = java.util.Objects.requireNonNull(ownerId);
+    }
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false, nullable = false)
     private Instant createdAt;

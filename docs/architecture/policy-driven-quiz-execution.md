@@ -1582,22 +1582,36 @@ Caller-supplied owner IDs and cached OSIV roles are not authority. Current/histo
 use the same author ownership/permission boundary; they are not participant read projections.
 Unauthorized, deleted or foreign resources produce the same bounded `UNAVAILABLE` reason.
 
-A target quiz association is not sufficient source authority. The existing question-association
-command checks ownership of all current source quizzes before adding a link (or the existing
-quiz moderation/administration or question-administration permission). `QUESTION_ADMIN` authorizes
-source-question reuse but does not replace destination quiz ownership/publication permission.
-Public readability is not a copy/reuse grant.
-Source-administration permissions are read as a current locked SQL projection, without trusting
-cached roles or lazily fetching one permissions collection per role.
-Publication independently rechecks these source scopes with a batched current locking read,
-including retired source quizzes and bypassing managed JPA collections. Thus a pre-fix foreign
-association cannot launder a retained image binding into publication authority. Missing or mixed
-ownership fails closed for an ordinary author; the existing elevated authority remains available.
-An author's own retained question can still be reused after ordinary image-library removal, and
-the retained binding is not rewritten or deleted by these checks. This follows the existing
-all-source ownership requirement for editing/reassigning shared questions rather than treating
-the newest destination as the question's owner. The legacy association endpoint retains its
-204 success and RFC 7807 403 denial contract.
+A target quiz association is not sufficient source authority. `questions.source_owner_id`
+records the resolved author when the real question, import or generation writer creates a new
+question. It is not supplied by public DTOs, inferred from memberships, or replaced on edits,
+import upserts, association changes or account deletion. V94 makes a known source owner immutable
+at the database boundary. Association and publication require this recorded owner or the existing
+`QUIZ_MODERATE`/`QUIZ_ADMIN`/`QUESTION_ADMIN` authority, independently of destination permission.
+`QUESTION_ADMIN` alone never grants destination access. Public readability is not a reuse grant.
+Current source-administration permissions are read with locked scalar SQL, without trusting
+cached roles or loading one permissions collection per role.
+
+V94 deliberately leaves legacy source owners unknown. An unknown source cannot be newly linked
+or published, including by an administrator, until its provenance is explicitly confirmed.
+`QuestionSourceConfirmationService.confirm(questionIds, verifiedOwnerId, evidence)` is an internal
+moderation operation with no HTTP route. After verifying original ownership, a currently active
+`QUIZ_MODERATE`, `QUIZ_ADMIN` or `QUESTION_ADMIN` actor can confirm up to 100 explicit question IDs
+for an active owner. The transaction records owner, moderator, injected-clock time and bounded
+evidence in `question_source_confirmations`. It does not infer ownership from the sole remaining
+quiz or an image ID. A repeated confirmation for the same owner is a no-op preserving the first
+evidence; a different established owner, missing/deleted question or inactive owner denies the
+whole batch. Failure rolls back both ownership and evidence. Legacy authoring/reads and existing
+published revisions remain available; confirm known legacy ownership before enabling new
+publication or reusing those questions. Existing authorized retained images, including removed
+library images, remain reusable after confirmation without selecting or copying them again.
+
+Publication reads source authority from the already locked question rows in bounded batches.
+The lock sequence is target quiz, target memberships, ordered questions, then retained/revision
+metadata; source checking never locks a different quiz or its memberships. Two quizzes sharing
+questions can therefore publish without the former target-quiz/shared-question/source-quiz cycle.
+Removing or soft-deleting the original quiz cannot grant a stale foreign association authority.
+The association endpoint retains its 204 success and RFC 7807 403 denial contract.
 
 One service-owned transaction locks the quiz, membership and question rows, validates content
 through the existing authoring handlers, acquires saved-image metadata in batches, and writes

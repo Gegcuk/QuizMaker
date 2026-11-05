@@ -41,6 +41,7 @@ import uk.gegc.quizmaker.features.media.infra.mapping.MediaAssetMapper;
 import uk.gegc.quizmaker.features.question.api.dto.*;
 import uk.gegc.quizmaker.features.question.application.*;
 import uk.gegc.quizmaker.features.question.application.impl.QuestionServiceImpl;
+import uk.gegc.quizmaker.features.question.application.impl.QuestionSourceConfirmationServiceImpl;
 import uk.gegc.quizmaker.features.question.domain.model.*;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
@@ -85,8 +86,9 @@ import static uk.gegc.quizmaker.features.quiz.domain.model.revision.PublicationE
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Import({QuizRevisionPublicationServiceImpl.class, JdbcQuizPublicationRepository.class, JdbcQuizRevisionRepository.class,
         JdbcQuestionSourceScopeRepository.class, QuizRelationServiceImpl.class, AccessPolicy.class, NoOpMembershipResolver.class,
+        uk.gegc.quizmaker.features.quiz.application.generation.impl.QuizAssemblyServiceImpl.class,
         PublicationContent.class, RetainedImageServiceImpl.class, MediaAssetServiceImpl.class, MediaAssetMapper.class,
-        QuestionServiceImpl.class, QuestionMediaResolver.class, QuestionHandlerFactory.class, AppPermissionEvaluator.class,
+        QuestionServiceImpl.class, QuestionSourceConfirmationServiceImpl.class, QuestionMediaResolver.class, QuestionHandlerFactory.class, AppPermissionEvaluator.class,
         McqSingleHandler.class, McqMultiHandler.class, TrueFalseHandler.class, FillGapHandler.class, OrderingHandler.class,
         HotspotHandler.class, OpenQuestionHandler.class, MatchingHandler.class, ComplianceHandler.class,
         FixedFormServiceImpl.class, JdbcFixedFormRepository.class, QuizPublicationMySqlIntegrationTest.Config.class})
@@ -128,10 +130,13 @@ class QuizPublicationMySqlIntegrationTest {
     }
     @MockitoBean S3Client unusedStorage;
     @MockitoBean S3Presigner unusedPresigner;
+    @MockitoBean uk.gegc.quizmaker.features.quiz.application.QuizFreshnessService freshness;
+    @Autowired uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService assembly;
     @Autowired QuizRevisionPublicationService service;
     @Autowired QuizRelationService relations;
     @Autowired QuestionSourceScopeRepository questionSources;
     @Autowired QuestionService authoring;
+    @Autowired QuestionSourceConfirmationService confirmations;
     @Autowired RetainedImageService images;
     @Autowired MediaAssetService library;
     @Autowired FixedFormService forms;
@@ -175,7 +180,7 @@ class QuizPublicationMySqlIntegrationTest {
             for (String table : List.of("attempt_form_item", "attempt_form", "quiz_publication_receipts", "quiz_publication_heads",
                     "quiz_revision_images", "quiz_publications", "quiz_revision_items", "question_option_revisions",
                     "question_revisions", "quiz_revisions", "saved_image_bindings", "saved_image_versions", "quiz_questions",
-                    "question_tags", "questions", "quizzes", "categories", "media_assets", "user_roles", "users"))
+                    "question_tags", "question_source_confirmations", "questions", "quizzes", "categories", "media_assets", "user_roles", "users"))
                 sql.update("DELETE FROM " + table);
             sql.update("DELETE rp FROM role_permissions rp JOIN roles r ON r.role_id=rp.role_id WHERE r.role_name LIKE 'pub-%'");
             sql.update("DELETE FROM roles WHERE role_name LIKE 'pub-%'");
@@ -582,6 +587,151 @@ class QuizPublicationMySqlIntegrationTest {
         return sql.queryForObject("SELECT COUNT(*) FROM quiz_questions WHERE quiz_id=UUID_TO_BIN(?)", Integer.class, quiz.toString());
     }
 
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void detachingOriginalSourceCannotAuthorizeAnOldForeignMembership(boolean removed) {
+        UUID image = image(username), q = question(QuestionType.TRUE_FALSE, image);
+        if (removed) library.delete(image, username);
+        String borrower = "pub-detached-borrower";
+        UUID destination = anotherQuiz(user(borrower, true));
+        // Reproduce an unauthorized association left by the old writer, not a new reuse grant.
+        sql.update("INSERT INTO quiz_questions(quiz_id,question_id) VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?))",
+                destination.toString(), q.toString());
+        relations.removeQuestionFromQuiz(username, quizId, q);
+        assertThat(memberCount(quizId)).isZero();
+        assertThat(memberCount(destination)).isEqualTo(1);
+        authenticate(borrower);
+        assertThatThrownBy(() -> library.getByIdForValidation(image, borrower)).isInstanceOf(RuntimeException.class);
+        var request = new Command(1, destination, UUID.randomUUID(), 0, List.of(q));
+        assertReason(() -> service.publish(request), UNAVAILABLE);
+        assertThat(service.current(destination)).isEmpty();
+        for (String table : List.of("quiz_revisions", "quiz_publications", "quiz_publication_heads",
+                "quiz_publication_receipts", "quiz_revision_images")) assertThat(count(table)).isZero();
+        assertThat(count("saved_image_bindings")).isEqualTo(1);
+        assertThat(storage.objects.values()).containsExactly("A");
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void legacyAuthorityNeedsExplicitConfirmationAndSurvivesDetachment(boolean removed) {
+        UUID image = image(username), q = legacyQuestion(image);
+        if (removed) library.delete(image, username);
+        String borrower = "pub-legacy-borrower";
+        UUID borrowerId = user(borrower, true), destination = anotherQuiz(borrowerId);
+        sql.update("INSERT INTO quiz_questions(quiz_id,question_id) VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?))",
+                destination.toString(), q.toString());
+        // A plausible current membership is not proof, even for the real owner.
+        assertReason(() -> service.publish(command(0, q)), UNAVAILABLE);
+        assertThatThrownBy(() -> confirmations.confirm(Set.of(q), ownerId, "Verified original author's record"))
+                .isInstanceOf(uk.gegc.quizmaker.shared.exception.ForbiddenException.class);
+        relations.removeQuestionFromQuiz(username, quizId, q);
+        authenticate(borrower);
+        assertReason(() -> service.publish(new Command(1, destination, UUID.randomUUID(), 0, List.of(q))), UNAVAILABLE);
+        assertThatThrownBy(() -> relations.addQuestionToQuiz(borrower, destination, q))
+                .isInstanceOf(uk.gegc.quizmaker.shared.exception.ForbiddenException.class);
+
+        UUID moderator = user("pub-legacy-moderator", true); grant(moderator, "QUIZ_MODERATE");
+        authenticate("pub-legacy-moderator");
+        assertReason(() -> service.publish(new Command(1, destination, UUID.randomUUID(), 0, List.of(q))), UNAVAILABLE);
+        confirmations.confirm(Set.of(q), ownerId, "Verified original author's record");
+        confirmations.confirm(Set.of(q), ownerId, "Repeated confirmation must not replace first evidence");
+        assertThat(count("question_source_confirmations")).isEqualTo(1);
+        assertThat(sql.queryForObject("SELECT BIN_TO_UUID(confirmed_by) FROM question_source_confirmations", String.class))
+                .isEqualTo(moderator.toString());
+        assertThat(sql.queryForObject("SELECT evidence FROM question_source_confirmations", String.class))
+                .isEqualTo("Verified original author's record");
+        assertThatThrownBy(() -> confirmations.confirm(Set.of(q), borrowerId, "Cannot transfer existing authority"))
+                .isInstanceOf(uk.gegc.quizmaker.shared.exception.ForbiddenException.class);
+        assertThatThrownBy(() -> sql.update("UPDATE questions SET source_owner_id=UUID_TO_BIN(?) WHERE id=UUID_TO_BIN(?)",
+                borrowerId.toString(), q.toString())).isInstanceOf(org.springframework.dao.DataAccessException.class);
+        authenticate(borrower);
+        assertReason(() -> service.publish(new Command(1, destination, UUID.randomUUID(), 0, List.of(q))), UNAVAILABLE);
+        authenticate(username);
+        relations.addQuestionToQuiz(username, quizId, q);
+        var result = restarted().publish(command(0, q));
+        assertThat(service.read(quizId, result.publication().revision().id()).images()).singleElement()
+                .satisfies(i -> assertThat(storage.objects.get(i.objectKey())).isEqualTo("A"));
+        assertThat(count("saved_image_bindings")).isEqualTo(1);
+    }
+
+    @Test void generatedQuestionsKeepSourceAuthorityAcrossChunkAndConsolidatedQuizzes() {
+        var question = new uk.gegc.quizmaker.features.question.domain.model.Question();
+        // Durable generation checkpoints restore new entities without authoring IDs.
+        question.setQuestionText("Generated shared question"); question.setType(QuestionType.TRUE_FALSE);
+        question.setDifficulty(Difficulty.EASY); question.setContent("{\"answer\":true}");
+        var request = new uk.gegc.quizmaker.features.quiz.api.dto.GenerateQuizFromDocumentRequest(
+                UUID.randomUUID(), null, null, null, null, "Consolidated generated quiz", null,
+                Map.of(QuestionType.TRUE_FALSE, 1), Difficulty.EASY, 2, null, null, "en");
+        var quizzesAndQuestion = tx.execute(s -> {
+            var actor = users.findById(ownerId).orElseThrow();
+            var category = categories.findAll().get(0);
+            var chunk = assembly.createChunkQuiz(actor, List.of(question), 0, request, category, Set.of(), request.documentId());
+            var consolidated = assembly.createConsolidatedQuiz(actor, List.of(question), request, category, Set.of(), request.documentId(), 1);
+            return List.of(chunk.getId(), consolidated.getId(), chunk.getQuestions().iterator().next().getId());
+        });
+        UUID generated = quizzesAndQuestion.get(2);
+        assertThat(questions.findById(generated).orElseThrow().getSourceOwnerId()).isEqualTo(ownerId);
+        for (UUID quiz : quizzesAndQuestion.subList(0, 2))
+            assertThat(service.publish(new Command(1, quiz, UUID.randomUUID(), 0, List.of(generated))).publication().version()).isEqualTo(1);
+        assertThat(count("question_source_confirmations")).isZero();
+    }
+
+    @Test void confirmationFailureRollsBackBothAuthorityAndEvidence() {
+        UUID q = legacyQuestion(null);
+        grant(ownerId, "QUIZ_MODERATE");
+        faults.failConfirmation = true;
+        assertThatThrownBy(() -> confirmations.confirm(Set.of(q), ownerId, "Reviewed provenance"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(faults.reached).isTrue();
+        assertThat(count("question_source_confirmations")).isZero();
+        assertThat(tx.execute(s -> questionSources.lockSources(List.of(q))).get(0).ownerId()).isNull();
+        faults.failConfirmation = false;
+        confirmations.confirm(Set.of(q), ownerId, "Reviewed provenance");
+        assertThat(service.publish(command(0, q)).publication().version()).isEqualTo(1);
+    }
+
+    private UUID legacyQuestion(UUID image) {
+        if (image != null) images.prepare(Set.of(image), username);
+        return tx.execute(s -> {
+            // Exact pre-V94 state: authoring row and authorized retained media, but no source-owner metadata.
+            var question = new uk.gegc.quizmaker.features.question.domain.model.Question();
+            question.setQuestionText("Legacy question"); question.setType(QuestionType.TRUE_FALSE);
+            question.setDifficulty(Difficulty.EASY); question.setContent("{\"answer\":true}");
+            question.setAttachmentAssetId(image); question.setQuizId(new ArrayList<>(List.of(quizzes.findById(quizId).orElseThrow())));
+            questions.saveAndFlush(question);
+            if (image != null) images.bind(question.getId(), Set.of(image), Set.of(), username);
+            return question.getId();
+        });
+    }
+
+    @Test void concurrentPublicationsOfDifferentQuizzesSharingAQuestionBothCommit() throws Exception {
+        UUID image = image(username), q = question(QuestionType.TRUE_FALSE, image);
+        UUID destination = anotherQuiz(ownerId);
+        relations.addQuestionToQuiz(username, destination, q);
+        library.delete(image, username);
+        Command firstCommand = command(0, q);
+        Command secondCommand = new Command(1, destination, UUID.randomUUID(), 0, List.of(q));
+        faults.afterOwnedQuiz = new CyclicBarrier(2);
+        var pool = Executors.newFixedThreadPool(2);
+        List<Object> outcomes;
+        try {
+            var first = pool.submit(() -> outcome(firstCommand));
+            var second = pool.submit(() -> outcome(secondCommand));
+            outcomes = List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS));
+        } finally {
+            faults.afterOwnedQuiz = null;
+            pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(outcomes).allSatisfy(result -> assertThat(result).isInstanceOf(Result.class));
+        for (String table : List.of("quiz_revisions", "quiz_publications", "quiz_publication_heads",
+                "quiz_publication_receipts", "quiz_revision_images")) assertThat(count(table)).isEqualTo(2);
+        assertThat(service.current(quizId)).contains(((Result) outcomes.get(0)).publication());
+        assertThat(service.current(destination)).contains(((Result) outcomes.get(1)).publication());
+        assertThat(service.publish(firstCommand).replayed()).isTrue();
+        assertThat(service.publish(secondCommand).replayed()).isTrue();
+        assertThat(count("saved_image_bindings")).isEqualTo(1);
+        assertThat(storage.copies.get()).isEqualTo(1);
+        assertThat(storage.objects.values()).containsExactly("A");
+    }
+
     private void serialize(Object value) { try { new ObjectMapper().findAndRegisterModules().writeValueAsBytes(value); } catch (Exception e) { throw new AssertionError(e); } }
     private int measure(Runnable work) {
         CountingSource.calls.set(0); CountingSource.enabled = true;
@@ -662,11 +812,22 @@ class QuizPublicationMySqlIntegrationTest {
     static class Faults {
         final JdbcTemplate sql;
         volatile String fail; volatile boolean loseAcknowledgement; final AtomicBoolean reached = new AtomicBoolean();
-        volatile CyclicBarrier contenders; volatile Gate holdPublication;
+        volatile CyclicBarrier contenders; volatile CyclicBarrier afterOwnedQuiz; volatile Gate holdPublication;
         volatile Gate beforeQuestions;
+        volatile boolean failConfirmation;
         final Set<Long> gated = ConcurrentHashMap.newKeySet();
         Faults(JdbcTemplate sql) { this.sql = sql; }
-        void reset() { fail = null; loseAcknowledgement = false; reached.set(false); contenders = null; holdPublication = null; beforeQuestions = null; gated.clear(); }
+        void reset() { fail = null; loseAcknowledgement = false; failConfirmation = false; reached.set(false); contenders = null; afterOwnedQuiz = null; holdPublication = null; beforeQuestions = null; gated.clear(); }
+        @org.aspectj.lang.annotation.Around("execution(* uk.gegc.quizmaker.features.quiz.domain.repository.QuestionSourceScopeRepository.confirmLegacy(..))")
+        Object confirmation(org.aspectj.lang.ProceedingJoinPoint call) throws Throwable {
+            Object result = call.proceed();
+            if (failConfirmation) {
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM question_source_confirmations", Integer.class)).isEqualTo(1);
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM questions WHERE source_owner_id IS NOT NULL", Integer.class)).isEqualTo(1);
+                reached.set(true); throw new IllegalStateException("Reached source confirmation write checkpoint");
+            }
+            return result;
+        }
         @org.aspectj.lang.annotation.Around("execution(* uk.gegc.quizmaker.features.quiz.domain.repository.QuizPublicationRepository.*(..))")
         Object around(org.aspectj.lang.ProceedingJoinPoint call) throws Throwable {
             String method = call.getSignature().getName();
@@ -676,6 +837,8 @@ class QuizPublicationMySqlIntegrationTest {
                 beforeQuestions.entered.countDown(); await(beforeQuestions.release);
             }
             Object result = call.proceed();
+            if (method.equals("draft") && Boolean.TRUE.equals(call.getArgs()[1]) && afterOwnedQuiz != null
+                    && gated.add(Thread.currentThread().getId())) afterOwnedQuiz.await(15, TimeUnit.SECONDS);
             if (method.equals("lockQuestions") && holdPublication != null) { holdPublication.entered.countDown(); await(holdPublication.release); }
             if (method.equals(fail)) {
                 assertThat(sql.queryForObject("SELECT COUNT(*) FROM quiz_revisions", Integer.class)).isPositive();

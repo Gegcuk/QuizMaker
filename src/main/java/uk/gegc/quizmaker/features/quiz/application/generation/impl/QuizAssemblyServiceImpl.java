@@ -75,6 +75,7 @@ public class QuizAssemblyServiceImpl implements QuizAssemblyService {
                 (int) Math.ceil(questions.size() * 1.5));
 
         Quiz quiz = new Quiz();
+        establishGeneratedSources(questions, user);
         quiz.setTitle(quizTitle);
         quiz.setDescription(quizDescription);
         quiz.setCreator(user);
@@ -111,6 +112,7 @@ public class QuizAssemblyServiceImpl implements QuizAssemblyService {
                 (int) Math.ceil(allQuestions.size() * 1.5));
 
         Quiz quiz = new Quiz();
+        establishGeneratedSources(allQuestions, user);
         quiz.setTitle(quizTitle);
         quiz.setDescription(quizDescription);
         quiz.setCreator(user);
@@ -143,6 +145,14 @@ public class QuizAssemblyServiceImpl implements QuizAssemblyService {
             }
         }
         return String.format("Section %d (%s)", chunkIndex, uniqueId);
+    }
+
+    private void establishGeneratedSources(List<Question> questions, User user) {
+        for (Question question : questions) {
+            // The same generated question can be included in both a chunk and the consolidated quiz.
+            if (question.getCreatedAt() == null && question.getSourceOwnerId() == null)
+                question.establishSourceOwner(user.getId());
+        }
     }
 
     @Override

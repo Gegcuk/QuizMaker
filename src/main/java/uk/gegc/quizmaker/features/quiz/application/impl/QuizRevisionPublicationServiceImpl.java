@@ -73,6 +73,7 @@ public class QuizRevisionPublicationServiceImpl implements QuizRevisionPublicati
             require(byId.size() == questions.size() && byId.keySet().equals(new HashSet<>(command.questionOrder())), INVALID_CONTENT);
             var sources = questionSources.lockSources(command.questionOrder());
             require(sources.stream().map(QuestionSourceScopeRepository.SourceScope::questionId).collect(Collectors.toSet()).equals(byId.keySet())
+                    && sources.stream().allMatch(source -> source.ownerId() != null)
                     && (actor.elevated() || actor.permissions().contains("QUESTION_ADMIN")
                     || sources.stream().allMatch(source -> source.ownedBy(actor.id()))), UNAVAILABLE);
             var ordered = command.questionOrder().stream().map(byId::get).toList();

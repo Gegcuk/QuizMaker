@@ -507,7 +507,7 @@ public class QuizController {
 
     @Operation(
             summary = "Associate a question with a quiz",
-            description = "Adds an existing question to the quiz. Requires QUIZ_UPDATE and destination ownership or QUIZ_MODERATE/QUIZ_ADMIN. Reuse requires ownership of all source quizzes or QUIZ_MODERATE/QUIZ_ADMIN/QUESTION_ADMIN; QUESTION_ADMIN alone does not grant destination access. Public visibility alone does not grant reuse; unavailable source authority returns 403 without adding a link."
+            description = "Adds an existing question to the quiz. Requires QUIZ_UPDATE and destination ownership or QUIZ_MODERATE/QUIZ_ADMIN. Reuse requires recorded source ownership or QUIZ_MODERATE/QUIZ_ADMIN/QUESTION_ADMIN; QUESTION_ADMIN alone does not grant destination access. Legacy questions without recorded source ownership require explicit moderation confirmation first. Public visibility alone does not grant reuse; unavailable source authority returns 403 without adding a link."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Question associated with the quiz", content = @Content),

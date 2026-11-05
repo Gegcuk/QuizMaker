@@ -106,7 +106,7 @@ class QuizOpenApiContractTest {
             var spec = objectMapper.readTree(mockMvc.perform(get(url)).andExpect(status().isOk())
                     .andReturn().getResponse().getContentAsString());
             var operation = spec.path("paths").path(path).path("post");
-            assertThat(operation.path("description").asText()).contains("all source quizzes", "Public visibility alone");
+            assertThat(operation.path("description").asText()).contains("recorded source ownership", "explicit moderation confirmation", "Public visibility alone");
             assertThat(operation.path("responses").has("204")).isTrue();
             assertThat(operation.at("/responses/403/content/application~1problem+json/schema/$ref").asText())
                     .isEqualTo("#/components/schemas/ProblemDetail");

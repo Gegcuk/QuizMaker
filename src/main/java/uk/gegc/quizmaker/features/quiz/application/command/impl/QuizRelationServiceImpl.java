@@ -54,7 +54,8 @@ public class QuizRelationServiceImpl implements QuizRelationService {
                 PermissionName.QUIZ_ADMIN);
 
         var sources = questionSources.lockSources(List.of(questionId));
-        if (sources.isEmpty() || (sources.stream().anyMatch(source -> !source.ownedBy(user.getId()))
+        if (sources.isEmpty() || sources.stream().anyMatch(source -> source.ownerId() == null)
+                || (sources.stream().anyMatch(source -> !source.ownedBy(user.getId()))
                 && Collections.disjoint(questionSources.lockPermissionNames(user.getId()),
                 Set.of("QUIZ_MODERATE", "QUIZ_ADMIN", "QUESTION_ADMIN"))))
             throw new ForbiddenException("Question is unavailable for reuse");

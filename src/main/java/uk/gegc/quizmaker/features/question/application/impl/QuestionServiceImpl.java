@@ -118,6 +118,7 @@ public class QuestionServiceImpl implements QuestionService {
         List<Tag> tags = loadTagsByIds(questionDto.getTagIds());
 
         Question question = QuestionMapper.toEntity(questionDto, quizzes, tags);
+        question.establishSourceOwner(user.getId());
         if (sanitizedContent != null) {
             question.setContent(sanitizedContent.toString());
         }

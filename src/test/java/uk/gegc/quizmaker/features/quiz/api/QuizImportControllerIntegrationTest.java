@@ -13,6 +13,7 @@ import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
+import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.api.dto.imports.QuestionImportDto;
 import uk.gegc.quizmaker.features.quiz.api.dto.imports.QuizImportDto;
 import uk.gegc.quizmaker.features.quiz.application.imports.ContentHashUtil;
@@ -960,6 +961,40 @@ class QuizImportControllerIntegrationTest extends BaseIntegrationTest {
                 .param("strategy", strategy)
                 .param("dryRun", String.valueOf(dryRun))
                 .with(user(user.getUsername())));
+    }
+
+    @Test
+    void importedQuestionRecordsResolvedAuthorAndUpsertDoesNotReattributeLegacySource() throws Exception {
+        User author = createUserWithPermission("source_import_" + UUID.randomUUID());
+        var question = new QuestionImportDto(null, QuestionType.TRUE_FALSE, Difficulty.EASY, "Imported source question",
+                objectMapper.readTree("{\"answer\":true}"), null, null, null);
+        performImport(author, buildQuiz(null, "Source import", List.of(question)), "CREATE_ONLY", false)
+                .andExpect(status().isOk()).andExpect(jsonPath("$.created").value(1)).andExpect(jsonPath("$.failed").value(0));
+        Quiz created = quizRepository.findByCreatorId(author.getId()).get(0);
+        var source = quizRepository.findByIdWithTagsAndQuestions(created.getId()).orElseThrow().getQuestions().iterator().next();
+        assertThat(source.getSourceOwnerId()).isEqualTo(author.getId());
+        var update = new QuestionImportDto(source.getId(), QuestionType.TRUE_FALSE, Difficulty.EASY, "Updated source question",
+                objectMapper.readTree("{\"answer\":false}"), null, null, null);
+        performImport(author, buildQuiz(created.getId(), "Source import", List.of(update)), "UPSERT_BY_ID", false)
+                .andExpect(status().isOk()).andExpect(jsonPath("$.updated").value(1)).andExpect(jsonPath("$.failed").value(0));
+        var updated = quizRepository.findByIdWithTagsAndQuestions(created.getId()).orElseThrow().getQuestions().iterator().next();
+        assertThat(updated.getSourceOwnerId()).isEqualTo(author.getId());
+        assertThat(updated.getQuestionText()).isEqualTo("Updated source question");
+        Quiz legacyQuiz = createQuiz(author, "Legacy import source");
+        var legacy = new uk.gegc.quizmaker.features.question.domain.model.Question();
+        legacy.setType(QuestionType.TRUE_FALSE); legacy.setDifficulty(Difficulty.EASY);
+        legacy.setQuestionText("Legacy source"); legacy.setContent("{\"answer\":true}");
+        legacyQuiz.getQuestions().add(legacy);
+        var legacyId = quizRepository.saveAndFlush(legacyQuiz).getQuestions().iterator().next().getId();
+        var legacyUpdate = new QuestionImportDto(legacyId, QuestionType.TRUE_FALSE, Difficulty.EASY, "Edited legacy source",
+                objectMapper.readTree("{\"answer\":false}"), null, null, null);
+        performImport(author, buildQuiz(legacyQuiz.getId(), "Legacy import source", List.of(legacyUpdate)), "UPSERT_BY_ID", false)
+                .andExpect(status().isOk()).andExpect(jsonPath("$.updated").value(1)).andExpect(jsonPath("$.failed").value(0));
+        assertThat(quizRepository.findByIdWithTagsAndQuestions(legacyQuiz.getId()).orElseThrow().getQuestions())
+                .singleElement().satisfies(q -> {
+                    assertThat(q.getQuestionText()).isEqualTo("Edited legacy source");
+                    assertThat(q.getSourceOwnerId()).isNull();
+                });
     }
 
     private QuizImportDto buildQuiz(UUID id, String title, List<QuestionImportDto> questions) {

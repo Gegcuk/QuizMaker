@@ -218,7 +218,7 @@ public class QuizImportServiceImpl implements QuizImportService {
         if (importContentHash != null) {
             quiz.setImportContentHash(importContentHash);
         }
-        attachQuestions(quiz, dto, UpsertStrategy.CREATE_ONLY);
+        attachQuestions(quiz, dto, UpsertStrategy.CREATE_ONLY, actor);
         quizRepository.save(quiz);
         return ImportOutcome.CREATED;
     }
@@ -249,7 +249,7 @@ public class QuizImportServiceImpl implements QuizImportService {
             applyUpdateFields(quiz, dto, category, tags);
             applyUpdateRules(quiz, hasModerationPermissions);
             updateHashes(quiz);
-            attachQuestions(quiz, dto, UpsertStrategy.UPSERT_BY_ID);
+            attachQuestions(quiz, dto, UpsertStrategy.UPSERT_BY_ID, actor);
 
             quizRepository.save(quiz);
             return ImportOutcome.UPDATED;
@@ -263,7 +263,7 @@ public class QuizImportServiceImpl implements QuizImportService {
         User creator = userRepository.getReferenceById(actor.getId());
         Quiz quiz = quizImportAssembler.toEntity(dto, creator, category, tags, UpsertStrategy.UPSERT_BY_ID);
         applyCreateRules(quiz, hasModerationPermissions);
-        attachQuestions(quiz, dto, UpsertStrategy.UPSERT_BY_ID);
+        attachQuestions(quiz, dto, UpsertStrategy.UPSERT_BY_ID, actor);
         quizRepository.save(quiz);
         return ImportOutcome.CREATED;
     }
@@ -291,7 +291,7 @@ public class QuizImportServiceImpl implements QuizImportService {
             applyUpdateRules(quiz, hasModerationPermissions);
             quiz.setImportContentHash(importContentHash);
             updateHashes(quiz);
-            attachQuestions(quiz, dto, UpsertStrategy.UPSERT_BY_CONTENT_HASH);
+            attachQuestions(quiz, dto, UpsertStrategy.UPSERT_BY_CONTENT_HASH, actor);
 
             quizRepository.save(quiz);
             return ImportOutcome.UPDATED;
@@ -305,7 +305,7 @@ public class QuizImportServiceImpl implements QuizImportService {
         Quiz quiz = quizImportAssembler.toEntity(dto, creator, category, tags, UpsertStrategy.UPSERT_BY_CONTENT_HASH);
         applyCreateRules(quiz, hasModerationPermissions);
         quiz.setImportContentHash(importContentHash);
-        attachQuestions(quiz, dto, UpsertStrategy.UPSERT_BY_CONTENT_HASH);
+        attachQuestions(quiz, dto, UpsertStrategy.UPSERT_BY_CONTENT_HASH, actor);
         quizRepository.save(quiz);
         return ImportOutcome.CREATED;
     }
@@ -338,7 +338,7 @@ public class QuizImportServiceImpl implements QuizImportService {
         Quiz quiz = quizImportAssembler.toEntity(dto, creator, category, tags, UpsertStrategy.SKIP_ON_DUPLICATE);
         applyCreateRules(quiz, hasModerationPermissions);
         quiz.setImportContentHash(importContentHash);
-        attachQuestions(quiz, dto, UpsertStrategy.SKIP_ON_DUPLICATE);
+        attachQuestions(quiz, dto, UpsertStrategy.SKIP_ON_DUPLICATE, actor);
         quizRepository.save(quiz);
         return ImportOutcome.CREATED;
     }
@@ -366,7 +366,7 @@ public class QuizImportServiceImpl implements QuizImportService {
         if (node.isContainerNode()) node.elements().forEachRemaining(child -> collectImageIds(child, ids));
     }
 
-    private void attachQuestions(Quiz quiz, QuizImportDto dto, UpsertStrategy strategy) {
+    private void attachQuestions(Quiz quiz, QuizImportDto dto, UpsertStrategy strategy, User actor) {
         if (dto.questions() == null) {
             return;
         }
@@ -397,6 +397,7 @@ public class QuizImportServiceImpl implements QuizImportService {
                     continue;
                 }
             }
+            mappedQuestion.establishSourceOwner(actor.getId());
             mapped.add(mappedQuestion);
         }
 

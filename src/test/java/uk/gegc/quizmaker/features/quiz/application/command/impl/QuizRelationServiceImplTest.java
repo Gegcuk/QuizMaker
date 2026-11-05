@@ -106,7 +106,7 @@ class QuizRelationServiceImplTest {
         category.setName("Test Category");
         lenient().when(questionSources.lockSources(any())).thenAnswer(call ->
                 ((List<UUID>) call.getArgument(0)).stream().map(id ->
-                        new QuestionSourceScopeRepository.SourceScope(id, UUID.randomUUID(), ownerUser.getId())).toList());
+                        new QuestionSourceScopeRepository.SourceScope(id, ownerUser.getId())).toList());
         lenient().when(questionSources.lockPermissionNames(moderatorUser.getId())).thenReturn(Set.of("QUIZ_MODERATE"));
     }
     
@@ -122,7 +122,7 @@ class QuizRelationServiceImplTest {
             when(questionRepository.findById(question.getId())).thenReturn(Optional.of(question));
             when(userRepository.findByUsername("owner")).thenReturn(Optional.of(ownerUser));
             when(questionSources.lockSources(List.of(question.getId()))).thenReturn(List.of(
-                    new QuestionSourceScopeRepository.SourceScope(question.getId(), UUID.randomUUID(), otherUser.getId())));
+                    new QuestionSourceScopeRepository.SourceScope(question.getId(), otherUser.getId())));
             assertThatThrownBy(() -> relationService.addQuestionToQuiz("owner", quiz.getId(), question.getId()))
                     .isInstanceOf(ForbiddenException.class).hasMessage("Question is unavailable for reuse");
             assertThat(quiz.getQuestions()).isEmpty();

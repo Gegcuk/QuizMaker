@@ -71,6 +71,8 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
     @Autowired
     QuestionRepository questionRepository;
     @Autowired
+    uk.gegc.quizmaker.features.question.application.QuestionService questionService;
+    @Autowired
     QuizRepository quizRepository;
     @Autowired
     QuizDefaultsProperties quizDefaultsProperties;
@@ -92,7 +94,7 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
     private User regularUser;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
 
         // Find existing permissions (created by DataInitializer)
         Permission quizCreatePermission = permissionRepository.findByPermissionName(PermissionName.QUIZ_CREATE.name())
@@ -155,16 +157,15 @@ class QuizControllerIntegrationTest extends BaseIntegrationTest {
         tagRepository.save(t);
         tagId = t.getId();
 
-        // Create default question
-        Question q = new Question();
+        // Use the real writer so successful association tests have recorded source authority.
+        CreateQuestionRequest q = new CreateQuestionRequest();
         q.setType(QuestionType.MCQ_SINGLE);
         q.setDifficulty(Difficulty.EASY);
         q.setQuestionText("What?");
-        q.setContent("{\"options\":[{\"id\":\"1\",\"text\":\"Option A\",\"correct\":true},{\"id\":\"2\",\"text\":\"Option B\",\"correct\":false}]}");
+        q.setContent(objectMapper.readTree("{\"options\":[{\"id\":\"1\",\"text\":\"Option A\",\"correct\":true},{\"id\":\"2\",\"text\":\"Option B\",\"correct\":false}]}"));
         q.setHint("hint");
         q.setExplanation("explanation");
-        questionRepository.save(q);
-        questionId = q.getId();
+        questionId = questionService.createQuestion(adminUser.getUsername(), q);
 
         // Create UserDetails objects with proper authorities
         adminUserDetails = createUserDetails(adminUser);
