@@ -29,6 +29,9 @@ public class MediaAsset {
     @Column(name = "status", nullable = false, length = 32)
     private MediaAssetStatus status = MediaAssetStatus.UPLOADING;
 
+    @Column(name = "library_removed", nullable = false)
+    private boolean libraryRemoved;
+
     @Column(name = "object_key", nullable = false, unique = true, length = 1024)
     private String key;
 

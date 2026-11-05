@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.media.application.impl;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FilenameUtils;
@@ -26,6 +28,10 @@ import uk.gegc.quizmaker.features.media.api.dto.MediaUploadCompleteRequest;
 import uk.gegc.quizmaker.features.media.api.dto.MediaUploadRequest;
 import uk.gegc.quizmaker.features.media.api.dto.MediaUploadResponse;
 import uk.gegc.quizmaker.features.media.application.MediaAssetService;
+import uk.gegc.quizmaker.features.media.application.RetainedImageService;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.media.config.MediaStorageProperties;
 import uk.gegc.quizmaker.features.media.domain.model.MediaAsset;
 import uk.gegc.quizmaker.features.media.domain.model.MediaAssetStatus;
@@ -64,6 +70,9 @@ public class MediaAssetServiceImpl implements MediaAssetService {
     private final S3Client s3Client;
     private final MediaAssetMapper mediaAssetMapper;
     private final AppPermissionEvaluator permissionEvaluator;
+    private final RetainedImageService retainedImages;
+    private final PlatformTransactionManager transactions;
+    private final EntityManager entityManager;
 
     @Override
     public MediaUploadResponse createUploadIntent(MediaUploadRequest request, String username) {
@@ -92,11 +101,12 @@ public class MediaAssetServiceImpl implements MediaAssetService {
     @Transactional(noRollbackFor = ResourceNotFoundException.class)
     public MediaAssetResponse finalizeUpload(UUID assetId, MediaUploadCompleteRequest request, String username) {
         MediaAsset asset = mediaAssetRepository.findByIdAndStatusNot(assetId, MediaAssetStatus.DELETED)
+                .filter(found -> !found.isLibraryRemoved())
                 .orElseThrow(() -> new ResourceNotFoundException("Media asset %s not found".formatted(assetId)));
         assertOwnership(asset, username);
         if (asset.getStatus() == MediaAssetStatus.READY) {
             makePublicIfImage(asset);
-            return mediaAssetMapper.toResponse(asset);
+            return retainedResponse(asset, retainedImages.describe(List.of(assetId)));
         }
 
         HeadObjectResponse head = headObject(asset);
@@ -136,7 +146,7 @@ public class MediaAssetServiceImpl implements MediaAssetService {
     public MediaAssetResponse getById(UUID assetId, String username) {
         MediaAsset asset = findActiveAsset(assetId);
         assertReadAccess(asset, username);
-        return mediaAssetMapper.toResponse(asset);
+        return retainedResponse(asset, retainedImages.describe(List.of(assetId)));
     }
 
     @Override
@@ -173,7 +183,8 @@ public class MediaAssetServiceImpl implements MediaAssetService {
             log.warn("Media asset {} is not an image", assetId);
             return Optional.empty();
         }
-        return Optional.ofNullable(mediaAssetMapper.toMediaRef(found));
+        var retained = retainedImages.resolve(List.of(assetId));
+        return Optional.ofNullable(retained.getOrDefault(assetId, mediaAssetMapper.toMediaRef(found)));
     }
 
     @Override
@@ -194,6 +205,9 @@ public class MediaAssetServiceImpl implements MediaAssetService {
                             batch, MediaAssetStatus.READY, MediaAssetType.IMAGE)
                     .forEach(asset -> resolved.put(asset.getId(), mediaAssetMapper.toMediaRef(asset)));
         }
+        // Versioned objects are authoritative even after ordinary library removal or metadata edits.
+        var retained = retainedImages.resolve(resolved.keySet());
+        resolved.replaceAll((id, legacy) -> retained.getOrDefault(id, legacy));
         return Map.copyOf(resolved);
     }
 
@@ -218,19 +232,62 @@ public class MediaAssetServiceImpl implements MediaAssetService {
         );
         String normalizedQuery = StringUtils.hasText(query) ? query.trim() : null;
         String ownerFilter = hasMediaAdminPermission() ? null : normalizeUsername(username);
-        return mediaAssetRepository.search(type, MediaAssetStatus.READY, normalizedQuery, ownerFilter, pageable)
-                .map(mediaAssetMapper::toResponse);
+        var assets = mediaAssetRepository.search(type, MediaAssetStatus.READY, normalizedQuery, ownerFilter, pageable);
+        var versions = retainedImages.describe(assets.getContent().stream().map(MediaAsset::getId).toList());
+        return assets.map(asset -> retainedResponse(asset, versions));
+    }
+
+    private MediaAssetResponse retainedResponse(MediaAsset asset, Map<UUID, RetainedImageService.ImageVersion> versions) {
+        var response = mediaAssetMapper.toResponse(asset);
+        var version = versions.get(asset.getId());
+        if (version == null) return response;
+        return new MediaAssetResponse(response.assetId(), response.type(), response.status(), version.objectKey(),
+                version.cdnUrl(), version.mimeType(), version.sizeBytes(), version.width(), version.height(),
+                response.originalFilename(), null, response.articleId(), response.createdBy(), response.createdAt(), response.updatedAt());
     }
 
     @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void validateNewImageSelections(Collection<UUID> ids) {
+        for (UUID id : ids.stream().filter(Objects::nonNull).distinct().sorted(java.util.Comparator.comparing(UUID::toString)).toList()) {
+            var asset = mediaAssetRepository.findByIdForUpdate(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("Image is unavailable for selection"));
+            if (!asset.isImage() || asset.getStatus() != MediaAssetStatus.READY || asset.isLibraryRemoved())
+                throw new ResourceNotFoundException("Image is unavailable for selection");
+        }
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void delete(UUID assetId, String username) {
         MediaAsset asset = mediaAssetRepository.findByIdAndStatusNot(assetId, MediaAssetStatus.DELETED)
                 .orElseThrow(() -> new ResourceNotFoundException("Media asset %s not found".formatted(assetId)));
         assertOwnership(asset, username);
-        asset.setStatus(MediaAssetStatus.DELETED);
-        mediaAssetRepository.save(asset);
+        if (asset.isImage() && asset.getStatus() == MediaAssetStatus.READY) {
+            retainedImages.remove(assetId, username);
+            return;
+        }
+        boolean retainImage = Boolean.TRUE.equals(new TransactionTemplate(transactions).execute(s -> {
+            var current = mediaAssetRepository.findById(assetId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Media asset not found"));
+            // A lock alone can return an OSIV-cached UPLOADING entity. Refresh with the lock
+            // so a concurrently finalized/bound image takes the retained removal path.
+            try { entityManager.refresh(current, LockModeType.PESSIMISTIC_WRITE); }
+            catch (jakarta.persistence.EntityNotFoundException missing) {
+                throw new ResourceNotFoundException("Media asset not found");
+            }
+            assertOwnership(current, username);
+            if (current.isImage() && current.getStatus() == MediaAssetStatus.READY) return true;
+            current.setStatus(MediaAssetStatus.DELETED);
+            mediaAssetRepository.saveAndFlush(current);
+            return false;
+        }));
+        if (retainImage) {
+            retainedImages.remove(assetId, username); // Storage preparation remains outside the transaction.
+            return;
+        }
 
-        if (properties.isDeleteRemote() && StringUtils.hasText(asset.getKey())) {
+        if (!asset.isImage() && properties.isDeleteRemote() && StringUtils.hasText(asset.getKey())) {
             try {
                 s3Client.deleteObject(DeleteObjectRequest.builder()
                         .bucket(properties.getBucket())
@@ -240,6 +297,13 @@ public class MediaAssetServiceImpl implements MediaAssetService {
                 log.warn("Failed to delete remote object {}: {}", asset.getKey(), ex.getMessage());
             }
         }
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public MediaAssetResponse restore(UUID assetId, String username) {
+        retainedImages.restore(assetId, username);
+        return getById(assetId, username);
     }
 
     private void validateUploadRequest(MediaUploadRequest request) {
@@ -354,6 +418,7 @@ public class MediaAssetServiceImpl implements MediaAssetService {
             throw new ValidationException("Media asset id is required");
         }
         return mediaAssetRepository.findByIdAndStatusNot(assetId, MediaAssetStatus.DELETED)
+                .filter(asset -> !asset.isLibraryRemoved())
                 .orElseThrow(() -> new ResourceNotFoundException("Media asset %s not found".formatted(assetId)));
     }
 

@@ -47,11 +47,15 @@ public class QuestionController {
 
     @Operation(
             summary = "Create a question",
-            description = "Add a new question. Requires QUESTION_CREATE permission and ownership of referenced quizzes.",
+            description = "Add a new question. Requires QUESTION_CREATE permission and ownership of referenced quizzes. Saved images must be currently available and authorized; exact image bindings are committed with the question.",
             tags = {"Questions"}
     )
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Question created"),
+            @ApiResponse(responseCode = "409", description = "Image changed while preparing its exact version; question remains unchanged",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Saved image storage unavailable; question remains unchanged",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "400", description = "Validation error",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "401", description = "Unauthorized",
@@ -133,11 +137,15 @@ public class QuestionController {
 
     @Operation(
             summary = "Update a question",
-            description = "Modify an existing question. Requires QUESTION_UPDATE permission and ownership of associated quizzes.",
+            description = "Modify an existing question. Requires QUESTION_UPDATE permission and ownership of associated quizzes. Existing retained images survive ordinary library removal; newly selected images must be available and authorized.",
             tags = {"Questions"}
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Question updated"),
+            @ApiResponse(responseCode = "409", description = "Image changed while preparing its exact version; question remains unchanged",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Saved image storage unavailable; question remains unchanged",
+                    content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "400", description = "Validation error",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "401", description = "Unauthorized",

@@ -44,4 +44,9 @@ public interface MediaAssetService {
     );
 
     void delete(UUID assetId, String username);
+
+    MediaAssetResponse restore(UUID assetId, String username);
+
+    /** Validate new references inside the caller's transaction; existing resource permissions still apply. */
+    void validateNewImageSelections(Collection<UUID> assetIds);
 }

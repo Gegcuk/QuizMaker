@@ -105,6 +105,7 @@ public class ArticleServiceImpl implements ArticleService {
         String normalizedSlug = request.slug() != null ? request.slug().trim() : null;
         assertSlugAvailable(normalizedSlug, null);
         Set<Tag> tags = resolveTags(request.tags());
+        validateNewImages(request, null);
         Article article = articleMapper.toEntity(request, tags);
         Article saved = articleRepository.save(article);
         return articleMapper.toDto(saved);
@@ -122,6 +123,7 @@ public class ArticleServiceImpl implements ArticleService {
             validateUpsert(request);
             String normalizedSlug = request.slug() != null ? request.slug().trim() : null;
             assertSlugAvailable(normalizedSlug, null);
+            validateNewImages(request, null);
             Article article = articleMapper.toEntity(request, resolveTagsFromPool(request.tags(), tagPool));
             articles.add(article);
         }
@@ -136,6 +138,7 @@ public class ArticleServiceImpl implements ArticleService {
                 .orElseThrow(() -> new ResourceNotFoundException("Article " + articleId + " not found"));
         String normalizedSlug = request.slug() != null ? request.slug().trim() : null;
         assertSlugAvailable(normalizedSlug, articleId);
+        validateNewImages(request, article);
         articleMapper.applyUpsert(article, request, resolveTags(request.tags()));
         Article saved = articleRepository.save(article);
         return articleMapper.toDto(saved);
@@ -168,6 +171,7 @@ public class ArticleServiceImpl implements ArticleService {
                     .orElseThrow(() -> new ResourceNotFoundException("Article " + id + " not found"));
             String normalizedSlug = request.slug() != null ? request.slug().trim() : null;
             assertSlugAvailable(normalizedSlug, id);
+            validateNewImages(request, article);
             articleMapper.applyUpsert(article, request, resolveTagsFromPool(request.tags(), tagPool));
             results.add(articleMapper.toDto(articleRepository.save(article)));
         }
@@ -227,6 +231,20 @@ public class ArticleServiceImpl implements ArticleService {
                     var image = entry.getValue();
                     return new PublicImageRenditionDto(image.cdnUrl(), image.width(), image.height(), image.mimeType());
                 }));
+    }
+
+    private void validateNewImages(ArticleUpsertRequest request, Article existing) {
+        Set<UUID> selected = new HashSet<>();
+        if (request.heroImage() != null) selected.add(request.heroImage().assetId());
+        if (request.blocks() != null) request.blocks().stream().filter(Objects::nonNull)
+                .map(ArticleBlockDto::assetId).forEach(selected::add);
+        selected.remove(null);
+        if (existing != null) {
+            selected.remove(existing.getHeroImageAssetId());
+            if (existing.getContentBlocks() != null) existing.getContentBlocks().stream().filter(Objects::nonNull)
+                    .map(uk.gegc.quizmaker.features.article.domain.model.ArticleContentBlock::getAssetId).forEach(selected::remove);
+        }
+        if (!selected.isEmpty()) mediaAssetService.validateNewImageSelections(selected);
     }
 
     private void validateUpsert(ArticleUpsertRequest request) {

@@ -1469,6 +1469,102 @@ For a completed attempt with intact immutable form, image bindings, answers and 
 
 The [approved Q01/Q02/Q11 batch](./decision-register.md#quiz-certificate-batch-approved) extends ordinary-removal survival to existing authorized draft bindings, while new selection/copy still needs an available authorized asset. Initially no automatic physical cleanup of ordinarily removed unreferenced images is enabled. During an active attempt, temporary image unavailability is explicit and does not automatically alter clocks; an organizer with the relevant scoped authority may compensate a verified fault through an eligible extension or a separate new-attempt allowance. Absolute assignment close and immutable finalized evidence remain protected. Permanent loss/corruption, exceptional erasure and storage-lifecycle evidence retain their separate gates.
 
+### Retained saved-image boundary (#830)
+
+Question creation/update prepares platform-owned images outside the authoring transaction,
+then writes `saved_image_bindings` in the same transaction as the question. Each asset has
+one `saved_image_versions` identity; replacing an image requires a new asset, not a metadata
+edit. The identity includes an independently retained object key, trusted source ETag,
+MIME type, byte size and dimensions. A media row's optimistic-lock version and CDN URL
+are not image-generation identities. Client-provided delivery URLs are stripped from
+question content and cannot choose the retained object.
+
+Preparation first commits a durable pending identity. The storage port conditionally copies
+the captured source generation to its server-owned `retained-images/` key and verifies
+destination identity/metadata. That key is never offered as a client upload target.
+After response loss or restart, the same identity is reconciled before another copy is
+attempted. An unknown destination outcome or changed source fails closed; it never
+silently substitutes newer source bytes. Storage calls run outside SQL transactions;
+the subsequent transaction rechecks current ownership/library state under an asset lock.
+These separate transactions discard any OSIV read cache before loading authoritative state;
+a request-scoped persistence context must not reuse ownership from before the storage wait.
+Existing caller-owned transactions are preserved, and preparation rejects provider work inside them.
+Question and binding writes roll back together; a prepared but unbound object is internal
+evidence, not a saved draft or published revision. No automatic physical cleanup is enabled.
+
+`DELETE /api/v1/media/{assetId}` ordinarily removes a READY image from selection using
+`library_removed`, without deleting either source or retained bytes. Existing question
+bindings and question/article reads survive; repeated removal is idempotent. New question
+references and article hero/inline selections reject removed images, including an old
+reference that was detached and subsequently re-added. Existing question validation
+continues to use HTTP 400 for invalid media; preparation conflicts/unavailability use
+409/503 `ProblemDetail` and leave the question unchanged. Document deletion keeps its
+existing behavior.
+
+`POST /api/v1/media/{assetId}/restore` requires `MEDIA_DELETE` plus current ownership or
+the existing media/article/system administrator authority. It verifies the exact retained
+object outside SQL, rechecks authority in the write transaction, and returns the existing
+`MediaAssetResponse` shape. Identical retries are idempotent. Expected errors are 401/403,
+404 for an unavailable restorable identity, 409 for a conflicting identity, and 503 for
+storage unavailability; a failed restore leaves library state unchanged. Library reads
+and restored responses return the retained generation's key, URL and image metadata,
+even if mutable source metadata now describes something else. The endpoint belongs to
+the `media` OpenAPI group linked from `/api/v1/api-summary`.
+
+`RetainedImageService.acquireForPublication` is an internal consumer contract. Its caller
+must recheck current resource/publication authority and the current referenced assets in
+the supplied transactional authorization callback. An asset ID or historical evidence row
+alone grants no copy/publication authority. Acquisition returns existing binding/version
+identities and exact object metadata, including after ordinary removal; it creates no
+revision and performs no provider I/O. #700 still owns the real revision/current-pointer
+transaction, complete publication validation and combined publication/removal conformance.
+This boundary does not activate target execution or change grading/feedback policy.
+
+Apply additive migration V92 before running this application version. Storage credentials
+must support HEAD, conditional CopyObject and the existing public-image ACL; the retained
+prefix must not be subject to an automatic object-expiration rule. Adapter tests use a fake
+provider and do not certify deployment bucket permissions/lifecycle configuration. V92 defaults existing
+assets to available and creates no invented historical generations or bindings. Legacy
+unbound question/article reads retain their existing projection until a prospective version
+is prepared. A new save can establish a binding while the image remains selectable. An unchanged legacy
+reference can also adopt an already retained version after ordinary removal, using the current
+reference read from the freshly locked question. This creates a prospective binding, not a
+reconstruction of past image generations. A detached or newly selected reference still requires
+an available library asset. Removal can preserve current legacy bytes but does not prove past
+publication identity; acquisition rejects an unbound reference until that authorized save.
+Quiz import treats attachment and nested media asset IDs in the external payload as new selections,
+including upserts; exported IDs do not carry retained-use authority. Its per-quiz transaction checks
+current ownership/administrator rights, READY image metadata and library availability using ordered,
+batched locking projections. These scalar reads bypass stale managed media entities, and locks remain
+held through question persistence and commit. Dry runs perform the same checks without writes or
+storage calls; skipped duplicates keep their existing no-write behavior. A failed item rolls back its
+quiz/questions while other valid items may succeed through the existing import summary contract.
+An authorized import committed before removal remains editable through the legacy-reference transition;
+a new import after removal cannot manufacture that prior-reference evidence. Import does not claim
+that an unbound reference is an immutable published generation; publication acquisition still requires
+a binding established by the authorized question writer.
+
+Question writes refresh the locked question even in a caller-owned transaction, without clearing
+unrelated pending changes. Removal likewise refreshes asset state under its lock and routes an
+image finalized since the initial read through retained removal rather than marking it deleted.
+Preserve the new tables
+and retained objects on rollback; an older application must not resume its image-deletion
+path against this evidence. Exceptional restrictions/erasure remain separately owned.
+
+Automated evidence uses the real question/article writers, current permissions, complete
+Flyway schema and MySQL transactions with a generation-aware fake only at storage.
+It covers generation A versus replacement B, restore authority/outages, response loss and
+service restart, concurrent removal/acquisition, and failures after real binding writes
+followed by fresh rollback reads. An OSIV regression revokes a moderator permission while storage is
+blocked and proves the former moderator cannot commit a question using cached authority. MVC tests use the real security configuration and permission
+aspect, verify RFC 7807 errors, named restore schema/examples, grouping and discovery.
+Multi-parent question/library projections compare five and ten rows; article list/detail
+tests measure bounded SQL through serialization. Pure adapter tests cover conditional copy,
+unknown outcomes and transaction guards without calling a real provider.
+Metrics `quizmaker.media.retained` distinguish pending preparation, committed and failed
+operations; `quizmaker.media.retained.duration` records bounded operation/outcome latency.
+Resource identifiers, URLs, source content and provider diagnostics are not metric labels.
+
 ### Immutable identity storage boundary (#597)
 
 `QuizRevisionRepository` stores complete immutable content aggregates in `quiz_revisions`,

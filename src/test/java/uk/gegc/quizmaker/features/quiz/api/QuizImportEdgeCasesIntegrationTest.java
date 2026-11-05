@@ -53,6 +53,20 @@ class QuizImportEdgeCasesIntegrationTest extends BaseIntegrationTest {
     private ObjectMapper objectMapper;
 
     @Autowired
+    private uk.gegc.quizmaker.features.media.domain.repository.MediaAssetRepository mediaAssets;
+
+    private UUID availableImage(User owner) {
+        var image = new uk.gegc.quizmaker.features.media.domain.model.MediaAsset();
+        image.setId(UUID.randomUUID()); image.setCreatedBy(owner.getUsername());
+        image.setType(uk.gegc.quizmaker.features.media.domain.model.MediaAssetType.IMAGE);
+        image.setStatus(uk.gegc.quizmaker.features.media.domain.model.MediaAssetStatus.READY);
+        image.setKey("import-fixture/" + image.getId()); image.setMimeType("image/png");
+        image.setWidth(640); image.setHeight(480); image.setSizeBytes(1024L);
+        return mediaAssets.saveAndFlush(image).getId();
+    }
+
+
+    @Autowired
     private QuizRepository quizRepository;
 
     @Autowired
@@ -303,7 +317,7 @@ class QuizImportEdgeCasesIntegrationTest extends BaseIntegrationTest {
         User user = createUserWithPermission("import_user_" + UUID.randomUUID());
         
         // Create MCQ question with media containing only assetId
-        UUID assetId = UUID.randomUUID();
+        UUID assetId = availableImage(user);
         ObjectNode mcqContent = objectMapper.createObjectNode();
         ArrayNode options = objectMapper.createArrayNode();
         ObjectNode option = objectMapper.createObjectNode();
@@ -372,7 +386,7 @@ class QuizImportEdgeCasesIntegrationTest extends BaseIntegrationTest {
         User user = createUserWithPermission("import_user_" + UUID.randomUUID());
         
         // Create MCQ question with media containing enriched fields
-        UUID assetId = UUID.randomUUID();
+        UUID assetId = availableImage(user);
         ObjectNode mcqContent = objectMapper.createObjectNode();
         ArrayNode options = objectMapper.createArrayNode();
         ObjectNode option = objectMapper.createObjectNode();
@@ -721,6 +735,29 @@ class QuizImportEdgeCasesIntegrationTest extends BaseIntegrationTest {
         return option;
     }
 
+    @Test
+    void importForeignImageReportsPerItemFailureWithoutPersistingAQuiz() throws Exception {
+        User owner = createUserWithPermission("image_owner_" + UUID.randomUUID().toString().substring(0, 12));
+        User importer = createUserWithPermission("image_importer_" + UUID.randomUUID().toString().substring(0, 12));
+        UUID image = availableImage(owner);
+        var question = new QuestionImportDto(null,
+                uk.gegc.quizmaker.features.question.domain.model.QuestionType.TRUE_FALSE, Difficulty.EASY,
+                "Imported question", objectMapper.createObjectNode().put("answer", true), null, null, null,
+                new uk.gegc.quizmaker.shared.dto.MediaRefDto(image, null, null, null, null, null, null));
+        var quiz = new QuizImportDto(1, null, "Unauthorized image copy", "Imported copy", Visibility.PRIVATE,
+                Difficulty.EASY, 5, List.of(), null, null, List.of(question), null, null);
+        var file = new MockMultipartFile("file", "quizzes.json", MediaType.APPLICATION_JSON_VALUE,
+                objectMapper.writeValueAsBytes(List.of(quiz)));
+        mockMvc.perform(multipart("/api/v1/quizzes/import").file(file)
+                        .param("format", "JSON_EDITABLE").param("strategy", "CREATE_ONLY")
+                        .with(user(importer.getUsername())))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.created").value(0))
+                .andExpect(jsonPath("$.failed").value(1))
+                .andExpect(jsonPath("$.errors[0].index").value(0))
+                .andExpect(jsonPath("$.errors[0].code").value("ForbiddenException"));
+        assertThat(quizRepository.findByCreatorId(importer.getId())).isEmpty();
+    }
+
     private User createUserWithPermission(String username) {
         Permission permission = permissionRepository.findByPermissionName(PermissionName.QUIZ_CREATE.name())
                 .orElseThrow(() -> new IllegalStateException("QUIZ_CREATE permission not found"));
@@ -841,7 +878,7 @@ class QuizImportEdgeCasesIntegrationTest extends BaseIntegrationTest {
     @DisplayName("importQuizzes: attachment with both assetId and URL uses assetId")
     void importQuizzes_attachmentWithBothAssetIdAndUrl_usesAssetId() throws Exception {
         User user = createUserWithPermission("import_user_" + UUID.randomUUID());
-        UUID assetId = UUID.randomUUID();
+        UUID assetId = availableImage(user);
         uk.gegc.quizmaker.shared.dto.MediaRefDto attachment = new uk.gegc.quizmaker.shared.dto.MediaRefDto(
                 assetId, null, null, null, null, null, null
         );
@@ -932,7 +969,7 @@ class QuizImportEdgeCasesIntegrationTest extends BaseIntegrationTest {
     @DisplayName("importQuizzes: attachment with empty alt and caption handled")
     void importQuizzes_attachmentWithEmptyAltCaption_handled() throws Exception {
         User user = createUserWithPermission("import_user_" + UUID.randomUUID());
-        UUID assetId = UUID.randomUUID();
+        UUID assetId = availableImage(user);
         uk.gegc.quizmaker.shared.dto.MediaRefDto attachment = new uk.gegc.quizmaker.shared.dto.MediaRefDto(
                 assetId, null, "", "", null, null, null
         );
@@ -979,7 +1016,7 @@ class QuizImportEdgeCasesIntegrationTest extends BaseIntegrationTest {
         option.put("text", "Option 1");
         option.put("correct", true);
         ObjectNode media = option.putObject("media");
-        media.put("assetId", UUID.randomUUID().toString());
+        media.put("assetId", availableImage(user).toString());
         media.put("cdnUrl", "https://cdn.quizzence.com/media.png");
         media.put("width", 640);
         media.put("height", 480);
@@ -1040,7 +1077,7 @@ class QuizImportEdgeCasesIntegrationTest extends BaseIntegrationTest {
         item.put("id", "item1");
         item.put("text", "Item 1");
         ObjectNode media = item.putObject("media");
-        media.put("assetId", UUID.randomUUID().toString());
+        media.put("assetId", availableImage(user).toString());
         media.put("cdnUrl", "https://cdn.quizzence.com/media.png");
 
         QuestionImportDto question = new QuestionImportDto(

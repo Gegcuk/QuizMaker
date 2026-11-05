@@ -64,12 +64,14 @@ import static org.mockito.Mockito.verifyNoInteractions;
         "logging.level.org.hibernate.engine.internal.StatisticalLoggingSessionEventListener=OFF",
         "app.media.cdn-base-url=https://cdn.example.test"
 })
-@Import({ArticleServiceImpl.class, ArticleMapper.class, MediaAssetServiceImpl.class,
+@Import({uk.gegc.quizmaker.features.media.application.impl.RetainedImageServiceImpl.class, ArticleServiceImpl.class, ArticleMapper.class, MediaAssetServiceImpl.class,
         MediaAssetMapper.class, MediaStorageProperties.class, ArticlePublicImageQueryIntegrationTest.QueryConfiguration.class})
 class ArticlePublicImageQueryIntegrationTest {
 
     @TestConfiguration(proxyBeanMethods = false)
     static class QueryConfiguration {
+        @Bean java.time.Clock retainedClock() { return java.time.Clock.systemUTC(); }
+        @Bean io.micrometer.core.instrument.MeterRegistry retainedMetrics() { return new io.micrometer.core.instrument.simple.SimpleMeterRegistry(); }
         @Bean
         CapturingInspector capturingInspector() {
             return new CapturingInspector();
@@ -98,6 +100,7 @@ class ArticlePublicImageQueryIntegrationTest {
     @Autowired private CapturingInspector inspector;
     @MockitoBean private AppPermissionEvaluator permissionEvaluator;
     @MockitoBean private S3Client s3Client;
+    @MockitoBean private uk.gegc.quizmaker.features.media.application.SavedImageStorage retainedStorage;
     @MockitoBean private S3Presigner presigner;
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
@@ -132,10 +135,10 @@ class ArticlePublicImageQueryIntegrationTest {
         assertThat(large.json().path("totalElements").asInt()).isEqualTo(9);
         large.json().path("content").forEach(this::assertPublicHero);
         large.json().path("content").forEach(article -> assertThat(article.path("ogImage").isNull()).isTrue());
-        // Two full pages require the same article/count/media work, not one media query per row.
+        // Two full pages require the same article/count/media/version work, not one query per row.
         assertThat(large.statements()).as("Executed SQL: %s", large.sql())
-                .isEqualTo(small.statements()).isLessThanOrEqualTo(3L);
-        verifyNoInteractions(s3Client, presigner);
+                .isEqualTo(small.statements()).isLessThanOrEqualTo(4L);
+        verifyNoInteractions(s3Client, presigner, retainedStorage);
     }
 
     @Test
@@ -149,7 +152,7 @@ class ArticlePublicImageQueryIntegrationTest {
         // Six independent child collections are batch-loaded once each; tags and media
         // must likewise stay bounded as the number of parent articles increases.
         assertThat(large.statements()).isEqualTo(small.statements()).isLessThanOrEqualTo(9L);
-        verifyNoInteractions(s3Client, presigner);
+        verifyNoInteractions(s3Client, presigner, retainedStorage);
     }
 
     @Test
@@ -169,9 +172,9 @@ class ArticlePublicImageQueryIntegrationTest {
         bySlugWithoutTags.remove("tags");
         assertThat(bySlugWithoutTags).isEqualTo(byIdWithoutTags);
         assertThat(byId.json().path("ogImage").asText()).isEqualTo("https://example.test/social-cover.webp");
-        assertThat(byId.statements()).isBetween(1L, 9L);
-        assertThat(bySlug.statements()).isBetween(1L, 9L);
-        verifyNoInteractions(s3Client, presigner);
+        assertThat(byId.statements()).isBetween(1L, 10L);
+        assertThat(bySlug.statements()).isBetween(1L, 10L);
+        verifyNoInteractions(s3Client, presigner, retainedStorage);
     }
 
     @Test
@@ -194,7 +197,7 @@ class ArticlePublicImageQueryIntegrationTest {
             assertThat(article.path("ogImage").isNull()).isTrue();
             assertThat(article.path("blocks")).hasSize(3);
         }
-        verifyNoInteractions(s3Client, presigner);
+        verifyNoInteractions(s3Client, presigner, retainedStorage);
     }
 
     private Measurement measure(Supplier<?> read) throws Exception {
