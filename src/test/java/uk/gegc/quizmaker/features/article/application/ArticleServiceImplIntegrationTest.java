@@ -2,10 +2,15 @@ package uk.gegc.quizmaker.features.article.application;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.TestPropertySource;
 import uk.gegc.quizmaker.BaseIntegrationTest;
+import uk.gegc.quizmaker.features.media.domain.model.MediaAsset;
+import uk.gegc.quizmaker.features.media.domain.model.MediaAssetStatus;
+import uk.gegc.quizmaker.features.media.domain.model.MediaAssetType;
+import uk.gegc.quizmaker.features.media.domain.repository.MediaAssetRepository;
 import uk.gegc.quizmaker.features.article.api.dto.*;
 import uk.gegc.quizmaker.features.article.application.impl.ArticleServiceImpl;
 import uk.gegc.quizmaker.features.article.domain.model.Article;
@@ -42,6 +47,15 @@ class ArticleServiceImplIntegrationTest extends BaseIntegrationTest {
 
     @Autowired
     private TagRepository tagRepository;
+
+    @Autowired
+    private MediaAssetRepository mediaAssets;
+    private final List<UUID> fixtureImages = new java.util.ArrayList<>();
+
+    @AfterEach
+    void removeFixtureImages() {
+        mediaAssets.deleteAllById(fixtureImages);
+    }
 
     @Test
     @DisplayName("createArticle persists full graph")
@@ -332,7 +346,13 @@ class ArticleServiceImplIntegrationTest extends BaseIntegrationTest {
     }
 
     private ArticleRequestBuilder baseRequest(String slug) {
-        return new ArticleRequestBuilder(slug);
+        MediaAsset image = new MediaAsset();
+        image.setId(UUID.randomUUID()); image.setType(MediaAssetType.IMAGE);
+        image.setStatus(MediaAssetStatus.READY); image.setCreatedBy("user");
+        image.setKey("article-fixture/" + image.getId() + ".png"); image.setMimeType("image/png");
+        image.setSizeBytes(1024L); image.setWidth(100); image.setHeight(100);
+        mediaAssets.saveAndFlush(image); fixtureImages.add(image.getId());
+        return new ArticleRequestBuilder(slug, image.getId());
     }
 
     private static class ArticleRequestBuilder {
@@ -341,7 +361,7 @@ class ArticleServiceImplIntegrationTest extends BaseIntegrationTest {
         private String description = "Description";
         private String excerpt = "Excerpt";
         private String hero = "Hero";
-        private ArticleImageDto heroImage = new ArticleImageDto(UUID.randomUUID(), "Alt", "Caption");
+        private final ArticleImageDto heroImage;
         private List<String> tags = List.of("DefaultTag");
         private ArticleAuthorDto author = new ArticleAuthorDto("Author", "Author");
         private String readingTime = "5 minute read";
@@ -361,8 +381,9 @@ class ArticleServiceImplIntegrationTest extends BaseIntegrationTest {
         private List<ArticleFaqDto> faqs = List.of(new ArticleFaqDto("Q", "A"));
         private List<ArticleReferenceDto> references = List.of(new ArticleReferenceDto("Ref", "https://ref", "journal"));
 
-        ArticleRequestBuilder(String slug) {
+        ArticleRequestBuilder(String slug, UUID imageId) {
             this.slug = slug;
+            this.heroImage = new ArticleImageDto(imageId, "Alt", "Caption");
         }
 
         ArticleRequestBuilder withTags(List<String> tags) {

@@ -3,6 +3,9 @@ package uk.gegc.quizmaker.features.question.application.impl;
 import uk.gegc.quizmaker.features.question.application.QuestionContracts;
 
 import lombok.RequiredArgsConstructor;
+import jakarta.persistence.EntityManagerFactory;
+import org.springframework.orm.jpa.EntityManagerHolder;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -35,6 +38,10 @@ import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.dto.MediaRefDto;
 import uk.gegc.quizmaker.features.media.application.MediaAssetService;
+import uk.gegc.quizmaker.features.media.application.RetainedImageService;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Collections;
 import java.util.HashSet;
@@ -55,9 +62,35 @@ public class QuestionServiceImpl implements QuestionService {
     private final UserRepository userRepository;
     private final QuestionMediaResolver questionMediaResolver;
     private final MediaAssetService mediaAssetService;
+    private final RetainedImageService retainedImages;
+    private final PlatformTransactionManager transactions;
+    private final EntityManagerFactory entityManagers;
+
+    private TransactionTemplate writeTransaction() {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            // Discard read-only OSIV snapshots between preflight/storage and authoritative writes.
+            var context = TransactionSynchronizationManager.getResource(entityManagers);
+            if (context instanceof EntityManagerHolder holder) holder.getEntityManager().clear();
+        }
+        return new TransactionTemplate(transactions);
+    }
 
     @Override
-    public UUID createQuestion(String username, CreateQuestionRequest questionDto) {
+    @Transactional(propagation = Propagation.SUPPORTS)
+    public UUID createQuestion(String username, CreateQuestionRequest request) {
+        var desired = imageIds(request.getAttachmentAssetId(), sanitizeMediaForStorage(request.getContent()));
+        if (!desired.isEmpty()) {
+            writeTransaction().executeWithoutResult(s -> {
+                var actor = author(username);
+                authorizeQuizzes(actor, loadQuizzesByIds(request.getQuizIds()));
+                handlerFactory.validateStoredContent(request.getType(), request.getContent());
+            });
+            prepareImages(null, desired, Set.of(), username);
+        }
+        return writeTransaction().execute(s -> createQuestionInTransaction(username, request));
+    }
+
+    private UUID createQuestionInTransaction(String username, CreateQuestionRequest questionDto) {
         User user = userRepository.findByUsername(username)
                 .or(() -> userRepository.findByEmail(username))
                 .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
@@ -86,6 +119,7 @@ public class QuestionServiceImpl implements QuestionService {
             question.setContent(sanitizedContent.toString());
         }
         questionRepository.save(question);
+        bindImages(question.getId(), imageIds(question.getAttachmentAssetId(), sanitizedContent), Set.of(), username);
 
         return question.getId();
     }
@@ -212,14 +246,34 @@ public class QuestionServiceImpl implements QuestionService {
     }
 
     @Override
+    @Transactional(propagation = Propagation.SUPPORTS)
     public QuestionDto updateQuestion(String username, UUID questionId, UpdateQuestionRequest request) {
+        var preparation = writeTransaction().execute(s -> {
+            var question = questionRepository.findById(questionId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Question " + questionId + " not found"));
+            var actor = author(username);
+            authorizeQuizzes(actor, question.getQuizId());
+            if (request.getQuizIds() != null) authorizeQuizzes(actor, loadQuizzesByIds(request.getQuizIds()));
+            handlerFactory.validateStoredContent(request.getType(), request.getContent());
+            var previous = imageIds(question.getAttachmentAssetId(), storedContent(question));
+            UUID attachment = Boolean.TRUE.equals(request.getClearAttachment()) ? null
+                    : request.getAttachmentAssetId() == null ? question.getAttachmentAssetId() : request.getAttachmentAssetId();
+            var desired = imageIds(attachment, request.getContent() == null ? storedContent(question) : sanitizeMediaForStorage(request.getContent()));
+            return new ImageSelection(desired, previous);
+        });
+        if (!preparation.desired().isEmpty())
+            prepareImages(questionId, preparation.desired(), preparation.previous(), username);
+        return writeTransaction().execute(s -> updateQuestionInTransaction(username, questionId, request));
+    }
+
+    private QuestionDto updateQuestionInTransaction(String username, UUID questionId, UpdateQuestionRequest request) {
         User user = userRepository.findByUsername(username)
                 .or(() -> userRepository.findByEmail(username))
                 .orElseThrow(() -> new ResourceNotFoundException("User " + username + " not found"));
 
         handlerFactory.validateStoredContent(request.getType(), request.getContent());
 
-        Question question = questionRepository.findById(questionId)
+        Question question = questionRepository.findByIdForUpdate(questionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Question " + questionId + " not found"));
 
         // Ownership check: ensure all associated quizzes are owned by the user or user has moderation permissions
@@ -231,11 +285,8 @@ public class QuestionServiceImpl implements QuestionService {
             }
         }
 
+        Set<UUID> previousImages = imageIds(question.getAttachmentAssetId(), storedContent(question));
         JsonNode sanitizedContent = sanitizeMediaForStorage(request.getContent());
-        if (!Boolean.TRUE.equals(request.getClearAttachment())) {
-            validateAttachmentAsset(request.getAttachmentAssetId(), username);
-        }
-        validateMediaInContent(sanitizedContent, username);
 
         List<Quiz> quizzes = (request.getQuizIds() == null)
                 ? null
@@ -261,6 +312,7 @@ public class QuestionServiceImpl implements QuestionService {
             question.setContent(sanitizedContent.toString());
         }
 
+        bindImages(questionId, imageIds(question.getAttachmentAssetId(), storedContent(question)), previousImages, username);
         Question updatedQuestion = questionRepository.saveAndFlush(question);
 
         return enrichQuestionDtoWithMedia(QuestionMapper.toDto(updatedQuestion), updatedQuestion);
@@ -378,6 +430,56 @@ public class QuestionServiceImpl implements QuestionService {
             dto.setContentAvailability(uk.gegc.quizmaker.features.question.api.dto.QuestionContentAvailability.UNAVAILABLE);
             dto.setContentProblem(QuestionContracts.unavailableProblem());
         }
+    }
+
+    private record ImageSelection(Set<UUID> desired, Set<UUID> previous) { }
+
+    private void prepareImages(UUID question, Set<UUID> desired, Set<UUID> previous, String username) {
+        try { retainedImages.prepareForQuestion(question, desired, previous, username); }
+        catch (ResourceNotFoundException | ForbiddenException invalid) {
+            throw new ValidationException(invalid.getMessage()); // Preserve the existing invalid-media HTTP 400 contract.
+        }
+    }
+
+    private void bindImages(UUID question, Set<UUID> desired, Set<UUID> previous, String username) {
+        try { retainedImages.bind(question, desired, previous, username); }
+        catch (ResourceNotFoundException | ForbiddenException invalid) { throw new ValidationException(invalid.getMessage()); }
+    }
+
+    private User author(String username) {
+        return userRepository.findByUsername(username).or(() -> userRepository.findByEmail(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+    }
+
+    private void authorizeQuizzes(User actor, List<Quiz> quizzes) {
+        for (var quiz : quizzes) {
+            if (!(quiz.getCreator() != null && actor.getId().equals(quiz.getCreator().getId())
+                    || appPermissionEvaluator.hasPermission(actor, PermissionName.QUIZ_MODERATE)
+                    || appPermissionEvaluator.hasPermission(actor, PermissionName.QUESTION_ADMIN)))
+                throw new ForbiddenException("Not allowed to modify questions for this quiz");
+        }
+    }
+
+    private static JsonNode storedContent(Question question) {
+        if (question.getContent() == null) return null;
+        try { return new com.fasterxml.jackson.databind.ObjectMapper().readTree(question.getContent()); }
+        catch (java.io.IOException invalid) { throw new ValidationException("Stored question content is unavailable"); }
+    }
+
+    private static Set<UUID> imageIds(UUID attachment, JsonNode content) {
+        Set<UUID> ids = new HashSet<>();
+        if (attachment != null) ids.add(attachment);
+        collectImageIds(content, ids);
+        return Set.copyOf(ids);
+    }
+
+    private static void collectImageIds(JsonNode node, Set<UUID> ids) {
+        if (node == null) return;
+        if (node.isObject() && node.path("media").hasNonNull("assetId")) {
+            try { ids.add(UUID.fromString(node.path("media").path("assetId").asText())); }
+            catch (IllegalArgumentException invalid) { throw new ValidationException("Invalid media asset identifier"); }
+        }
+        if (node.isContainerNode()) node.elements().forEachRemaining(child -> collectImageIds(child, ids));
     }
 
     private void validateAttachmentAsset(UUID assetId, String username) {

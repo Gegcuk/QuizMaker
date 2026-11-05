@@ -79,6 +79,10 @@ class QuestionServiceImplTest {
     @Mock
     private MediaAssetService mediaAssetService;
 
+    @Mock private org.springframework.transaction.PlatformTransactionManager transactions;
+    @Mock private uk.gegc.quizmaker.features.media.application.RetainedImageService retainedImages;
+    @Mock private jakarta.persistence.EntityManagerFactory entityManagers;
+
     @InjectMocks
     private QuestionServiceImpl questionService;
 
@@ -88,6 +92,7 @@ class QuestionServiceImplTest {
     @BeforeEach
     void setUp() {
         lenient().when(factory.getHandler(any())).thenReturn(handler);
+        lenient().when(questionRepository.findByIdForUpdate(any())).thenAnswer(i -> questionRepository.findById(i.getArgument(0)));
         objectMapper = new ObjectMapper();
         testUser = createTestUser();
         setupUserRepositoryMock();

@@ -13,6 +13,10 @@ import java.util.UUID;
 
 @Repository
 public interface QuestionRepository extends JpaRepository<Question, UUID> {
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT q FROM Question q WHERE q.id = :id")
+    java.util.Optional<Question> findByIdForUpdate(@Param("id") UUID id);
+
     Page<Question> findAllByQuizId_Id(UUID quizId, Pageable page);
     
     Page<Question> findAllByQuizId_IdIn(List<UUID> quizIds, Pageable page);

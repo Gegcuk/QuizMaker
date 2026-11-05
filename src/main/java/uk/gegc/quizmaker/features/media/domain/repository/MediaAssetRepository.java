@@ -18,14 +18,21 @@ import java.util.UUID;
 @Repository
 public interface MediaAssetRepository extends JpaRepository<MediaAsset, UUID> {
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT m FROM MediaAsset m WHERE m.id = :id")
+    Optional<MediaAsset> findByIdForUpdate(@Param("id") UUID id);
+
     @Query("""
         SELECT m FROM MediaAsset m
         WHERE (:type IS NULL OR m.type = :type)
           AND (:status IS NULL OR m.status = :status)
           AND m.status <> uk.gegc.quizmaker.features.media.domain.model.MediaAssetStatus.DELETED
+          AND m.libraryRemoved = false
           AND (:createdBy IS NULL OR m.createdBy = :createdBy)
           AND (:query IS NULL OR LOWER(m.originalFilename) LIKE LOWER(CONCAT('%', :query, '%'))
-               OR LOWER(m.key) LIKE LOWER(CONCAT('%', :query, '%')))
+               OR LOWER(m.key) LIKE LOWER(CONCAT('%', :query, '%'))
+               OR EXISTS (SELECT v.id FROM SavedImageVersion v WHERE v.assetId = m.id AND v.ready = true
+                          AND LOWER(v.objectKey) LIKE LOWER(CONCAT('%', :query, '%'))))
     """)
     Page<MediaAsset> search(
             @Param("type") MediaAssetType type,

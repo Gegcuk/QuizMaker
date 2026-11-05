@@ -200,6 +200,13 @@ class QuestionContractsIntegrationTest extends BaseIntegrationTest {
     @org.junit.jupiter.params.provider.ValueSource(strings = {"changed", "omitted", "null", "blank"})
     void manualDescriptionEditsKeepRecordedAttemptDataAndCurrentContentReview(String edit) throws Exception {
         Fixture fixture = hotspotFixture(1);
+        // Model an image already captured by the draft writer; this regression edits descriptions only.
+        Question savedQuestion = fixture.questions().get(0);
+        MediaAsset image = entityManager.find(MediaAsset.class, savedQuestion.getAttachmentAssetId());
+        var version = new SavedImageVersion(image.getId(), image.getKey(), "fixture-etag", "image/png",
+                1024L, 100, 100, Instant.parse("2026-10-19T10:00:00Z"));
+        version.markReady(); entityManager.persist(version);
+        entityManager.persist(new SavedImageBinding(savedQuestion.getId(), version, version.getCreatedAt()));
         UUID questionId = fixture.questions().get(0).getId();
         UUID attemptId = fixture.attempt().getId();
         UUID answerId = fixture.attempt().getAnswers().get(0).getId();
@@ -276,10 +283,11 @@ class QuestionContractsIntegrationTest extends BaseIntegrationTest {
         assertThat(largeAuthor).isEqualTo(smallAuthor).isLessThanOrEqualTo(9);
         long smallForm = hotspotFormQueries(small);
         long largeForm = hotspotFormQueries(large);
-        assertThat(largeForm).isEqualTo(smallForm).isLessThanOrEqualTo(2);
+        // One additional batch query resolves immutable image versions, independent of parent count.
+        assertThat(largeForm).isEqualTo(smallForm).isLessThanOrEqualTo(3);
         long smallReview = hotspotReviewQueries(small);
         long largeReview = hotspotReviewQueries(large);
-        assertThat(largeReview).isEqualTo(smallReview).isLessThanOrEqualTo(5);
+        assertThat(largeReview).isEqualTo(smallReview).isLessThanOrEqualTo(6);
         reporter.publishEntry("hotspot_queries_for_2_and_10_parents", "author=" + smallAuthor + "/" + largeAuthor
                 + ", form=" + smallForm + "/" + largeForm
                 + ", review=" + smallReview + "/" + largeReview);
@@ -345,10 +353,11 @@ class QuestionContractsIntegrationTest extends BaseIntegrationTest {
         assertThat(largePage).isEqualTo(smallPage).isLessThanOrEqualTo(9);
         long smallForm = formQueries(small);
         long largeForm = formQueries(large);
-        assertThat(largeForm).isEqualTo(smallForm).isLessThanOrEqualTo(2);
+        // One additional batch query resolves immutable image versions, independent of parent count.
+        assertThat(largeForm).isEqualTo(smallForm).isLessThanOrEqualTo(3);
         long smallReview = reviewQueries(small);
         long largeReview = reviewQueries(large);
-        assertThat(largeReview).isEqualTo(smallReview).isLessThanOrEqualTo(5);
+        assertThat(largeReview).isEqualTo(smallReview).isLessThanOrEqualTo(6);
         reporter.publishEntry("queries_for_2_and_10_questions", "author=" + smallPage + "/" + largePage
                 + ", form=" + smallForm + "/" + largeForm + ", review=" + smallReview + "/" + largeReview);
     }
@@ -362,7 +371,8 @@ class QuestionContractsIntegrationTest extends BaseIntegrationTest {
         long smallQueries = singleQuestionQueries(small.getId(), 2);
         long largeQueries = singleQuestionQueries(large.getId(), 10);
 
-        assertThat(largeQueries).isEqualTo(smallQueries).isLessThanOrEqualTo(3);
+        // Attachment and inline projections each resolve versions in one batch.
+        assertThat(largeQueries).isEqualTo(smallQueries).isLessThanOrEqualTo(5);
         reporter.publishEntry("queries_for_2_and_10_image_options", smallQueries + "/" + largeQueries);
     }
 

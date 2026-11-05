@@ -224,9 +224,11 @@ public class MediaController {
 
     @Operation(
             summary = "Delete (or retire) a media asset",
-            description = "Marks an asset as DELETED and optionally removes its remote object. Deleted assets are excluded from search and cannot be retrieved. The caller must own the asset or have media, article, or system administrator permission."
+            description = "Removes an image from the library without deleting its saved bytes or existing bindings. New selection is denied; existing authorized question/article reads continue. Repeated image removal is idempotent. Other asset types retain their existing deletion behavior. Requires MEDIA_DELETE and current ownership or media, article, or system administrator permission."
     )
     @ApiResponses({
+            @ApiResponse(responseCode = "409", description = "Image changed while its exact version was being prepared", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Storage unavailable; image remains in the library", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "204", description = "Asset deleted"),
             @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "403", description = "Asset is not owned by the caller or MEDIA_DELETE permission is missing", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
@@ -248,6 +250,27 @@ public class MediaController {
         String username = authentication != null ? authentication.getName() : "system";
         mediaAssetService.delete(assetId, username);
         return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "Restore an ordinarily removed image to the library",
+            description = "Requires MEDIA_DELETE and current ownership or media, article, or system administrator permission. "
+                    + "Rechecks that the exact retained image is available, then permits new selection. "
+                    + "Identical retries are idempotent. Does not restore physically deleted assets or override exceptional restrictions. "
+                    + "An unavailable object leaves library state unchanged. No offline mutation is supported.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Image available in the library", content = @Content(mediaType = "application/json",
+                    schema = @Schema(implementation = MediaAssetResponse.class),
+                    examples = @ExampleObject(name = "Restored image", value = READY_IMAGE_EXAMPLE))),
+            @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = "Missing MEDIA_DELETE or current ownership/administrator authority", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "Retained image unavailable or asset is not a restorable image", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "Image state changed or retained identity does not match", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Storage unavailable; image remains removed", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    @RequirePermission(PermissionName.MEDIA_DELETE)
+    @PostMapping("/{assetId}/restore")
+    public MediaAssetResponse restore(Authentication authentication, @PathVariable UUID assetId) {
+        return mediaAssetService.restore(assetId, authentication.getName());
     }
 
     private static final String READY_IMAGE_EXAMPLE = """
