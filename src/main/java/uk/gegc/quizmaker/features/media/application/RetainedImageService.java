@@ -7,6 +7,8 @@ import java.util.*;
 public interface RetainedImageService {
     /** Must run outside a transaction, after the owning feature authorizes the proposed write. */
     void prepare(Collection<UUID> assetIds, String username);
+    /** Validate new imported references under asset locks held until the caller commits; no storage I/O. */
+    void validateNewSelections(Collection<UUID> assetIds, String username);
     void prepareForQuestion(UUID questionId, Set<UUID> desired, Set<UUID> previous, String username);
     /** Same transaction as the question write. Previous IDs come from the locked persisted question. */
     void bind(UUID questionId, Set<UUID> desired, Set<UUID> previous, String username);

@@ -249,7 +249,7 @@ public class MediaAssetServiceImpl implements MediaAssetService {
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void validateNewImageSelections(Collection<UUID> ids) {
-        for (UUID id : ids.stream().filter(Objects::nonNull).distinct().sorted().toList()) {
+        for (UUID id : ids.stream().filter(Objects::nonNull).distinct().sorted(java.util.Comparator.comparing(UUID::toString)).toList()) {
             var asset = mediaAssetRepository.findByIdForUpdate(id)
                     .orElseThrow(() -> new ResourceNotFoundException("Image is unavailable for selection"));
             if (!asset.isImage() || asset.getStatus() != MediaAssetStatus.READY || asset.isLibraryRemoved())

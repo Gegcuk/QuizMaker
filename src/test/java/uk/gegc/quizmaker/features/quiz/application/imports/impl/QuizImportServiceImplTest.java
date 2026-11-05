@@ -108,6 +108,8 @@ class QuizImportServiceImplTest extends BaseUnitTest {
     QuizHashCalculator quizHashCalculator;
     @Mock
     QuizMapper quizMapper;
+    @Mock
+    uk.gegc.quizmaker.features.media.application.RetainedImageService retainedImages;
 
     @InjectMocks
     QuizImportServiceImpl service;

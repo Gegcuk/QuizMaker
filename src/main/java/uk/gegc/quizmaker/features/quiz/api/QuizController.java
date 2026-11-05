@@ -1521,7 +1521,13 @@ public class QuizController {
 
     @Operation(
             summary = "Import quizzes",
-            description = "Import quizzes from JSON_EDITABLE or XLSX_EDITABLE exports. Requires QUIZ_CREATE permission.",
+            description = "Import quizzes from JSON_EDITABLE or XLSX_EDITABLE exports. Requires QUIZ_CREATE permission. "
+                    + "Imported attachment.assetId and nested media.assetId values are new selection requests: "
+                    + "images must be ready, available in the library, and owned by the caller unless the caller has "
+                    + "MEDIA_ADMIN, ARTICLE_ADMIN, or SYSTEM_ADMIN. These checks also apply to dry runs. "
+                    + "Each quiz commits atomically; invalid image selections appear in the HTTP 200 summary errors "
+                    + "without persisting that quiz or its questions. Other valid items may still succeed. "
+                    + "Skipped duplicates do not select images or create bindings.",
             security = @SecurityRequirement(name = "bearerAuth"),
             requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = true,

@@ -51,6 +51,20 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     private ObjectMapper objectMapper;
 
     @Autowired
+    private uk.gegc.quizmaker.features.media.domain.repository.MediaAssetRepository mediaAssets;
+
+    private UUID availableImage(User owner) {
+        var image = new uk.gegc.quizmaker.features.media.domain.model.MediaAsset();
+        image.setId(UUID.randomUUID()); image.setCreatedBy(owner.getUsername());
+        image.setType(uk.gegc.quizmaker.features.media.domain.model.MediaAssetType.IMAGE);
+        image.setStatus(uk.gegc.quizmaker.features.media.domain.model.MediaAssetStatus.READY);
+        image.setKey("import-fixture/" + image.getId()); image.setMimeType("image/png");
+        image.setWidth(640); image.setHeight(480); image.setSizeBytes(1024L);
+        return mediaAssets.saveAndFlush(image).getId();
+    }
+
+
+    @Autowired
     private QuizRepository quizRepository;
 
     @Autowired
@@ -224,7 +238,9 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
         // Verify attachment - use method that eagerly loads questions
         Quiz imported = quizRepository.findByIdWithTagsAndQuestions(importedId).orElseThrow();
         Question importedQuestion = imported.getQuestions().iterator().next();
-        assertThat(importedQuestion.getAttachmentUrl()).isEqualTo(attachmentUrl);
+        assertThat(importedQuestion.getAttachmentAssetId())
+                .isEqualTo(original.getQuestions().iterator().next().getAttachmentAssetId());
+        assertThat(importedQuestion.getAttachmentUrl()).isNull(); // The real asset ID takes precedence over a legacy URL.
     }
 
     @Test
@@ -237,7 +253,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
         ArrayNode options = objectMapper.createArrayNode();
         ObjectNode option = createMcqOption("a", "Option A", false);
         ObjectNode media = objectMapper.createObjectNode();
-        media.put("assetId", UUID.randomUUID().toString());
+        media.put("assetId", availableImage(user).toString());
         media.put("cdnUrl", "https://cdn.example.com/image.png"); // Should be stripped
         media.put("width", 100); // Should be stripped
         media.put("height", 200); // Should be stripped
@@ -313,7 +329,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
     @DisplayName("roundTrip JSON: preserves assetIds")
     void roundTrip_json_preservesAssetIds() throws Exception {
         User user = createUserWithPermissions(uniqueUsername("roundtrip_user_"));
-        UUID assetId = UUID.randomUUID();
+        UUID assetId = availableImage(user);
         
         // Create content with media assetId
         ObjectNode mcqContent = objectMapper.createObjectNode();
@@ -1152,7 +1168,7 @@ class QuizImportExportRoundTripTest extends BaseIntegrationTest {
         
         Question question = createMcqQuestion("Question with attachment");
         question.setAttachmentUrl(attachmentUrl);
-        question.setAttachmentAssetId(UUID.randomUUID()); // Simulate attachment with assetId
+        question.setAttachmentAssetId(availableImage(user));
         
         // Save question first without associating to quiz
         question = questionRepository.save(question);

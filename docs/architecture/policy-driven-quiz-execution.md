@@ -1532,6 +1532,18 @@ reference read from the freshly locked question. This creates a prospective bind
 reconstruction of past image generations. A detached or newly selected reference still requires
 an available library asset. Removal can preserve current legacy bytes but does not prove past
 publication identity; acquisition rejects an unbound reference until that authorized save.
+Quiz import treats attachment and nested media asset IDs in the external payload as new selections,
+including upserts; exported IDs do not carry retained-use authority. Its per-quiz transaction checks
+current ownership/administrator rights, READY image metadata and library availability using ordered,
+batched locking projections. These scalar reads bypass stale managed media entities, and locks remain
+held through question persistence and commit. Dry runs perform the same checks without writes or
+storage calls; skipped duplicates keep their existing no-write behavior. A failed item rolls back its
+quiz/questions while other valid items may succeed through the existing import summary contract.
+An authorized import committed before removal remains editable through the legacy-reference transition;
+a new import after removal cannot manufacture that prior-reference evidence. Import does not claim
+that an unbound reference is an immutable published generation; publication acquisition still requires
+a binding established by the authorized question writer.
+
 Question writes refresh the locked question even in a caller-owned transaction, without clearing
 unrelated pending changes. Removal likewise refreshes asset state under its lock and routes an
 image finalized since the initial read through retained removal rather than marking it deleted.

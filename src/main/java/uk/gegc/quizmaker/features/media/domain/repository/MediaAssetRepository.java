@@ -22,6 +22,24 @@ public interface MediaAssetRepository extends JpaRepository<MediaAsset, UUID> {
     @Query("SELECT m FROM MediaAsset m WHERE m.id = :id")
     Optional<MediaAsset> findByIdForUpdate(@Param("id") UUID id);
 
+    /** Scalar projection deliberately bypasses already managed, potentially stale media entities. */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+        SELECT m.type AS type, m.status AS status, m.libraryRemoved AS libraryRemoved,
+               m.createdBy AS createdBy, m.width AS width, m.height AS height
+        FROM MediaAsset m WHERE m.id IN :ids ORDER BY m.id
+        """)
+    List<SelectionState> findSelectionStatesForUpdate(@Param("ids") Collection<UUID> ids);
+
+    interface SelectionState {
+        MediaAssetType getType();
+        MediaAssetStatus getStatus();
+        boolean isLibraryRemoved();
+        String getCreatedBy();
+        Integer getWidth();
+        Integer getHeight();
+    }
+
     @Query("""
         SELECT m FROM MediaAsset m
         WHERE (:type IS NULL OR m.type = :type)

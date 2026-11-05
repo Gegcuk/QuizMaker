@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.quiz.application.imports.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import uk.gegc.quizmaker.features.media.application.RetainedImageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
@@ -79,6 +81,7 @@ public class QuizImportServiceImpl implements QuizImportService {
     private final PlatformTransactionManager transactionManager;
     private final QuizHashCalculator quizHashCalculator;
     private final QuizMapper quizMapper;
+    private final RetainedImageService retainedImages;
 
     @Override
     public ImportSummaryDto importQuizzes(InputStream input,
@@ -205,6 +208,7 @@ public class QuizImportServiceImpl implements QuizImportService {
                                            QuizImportOptions options,
                                            boolean hasModerationPermissions,
                                            String importContentHash) {
+        validateImportedImages(dto, actor.getUsername());
         if (options.dryRun()) {
             return ImportOutcome.CREATED;
         }
@@ -236,6 +240,7 @@ public class QuizImportServiceImpl implements QuizImportService {
                     quiz.getCreator() != null ? quiz.getCreator().getId() : null,
                     PermissionName.QUIZ_MODERATE,
                     PermissionName.QUIZ_ADMIN);
+            validateImportedImages(dto, actor.getUsername());
 
             if (options.dryRun()) {
                 return ImportOutcome.UPDATED;
@@ -250,6 +255,7 @@ public class QuizImportServiceImpl implements QuizImportService {
             return ImportOutcome.UPDATED;
         }
 
+        validateImportedImages(dto, actor.getUsername());
         if (options.dryRun()) {
             return ImportOutcome.CREATED;
         }
@@ -273,6 +279,7 @@ public class QuizImportServiceImpl implements QuizImportService {
             throw new ValidationException("UPSERT_BY_CONTENT_HASH requires import content hash");
         }
 
+        validateImportedImages(dto, actor.getUsername());
         Optional<Quiz> existing = quizRepository.findByCreatorIdAndImportContentHashWithTagsAndQuestions(
                 actor.getId(), importContentHash);
         if (existing.isPresent()) {
@@ -322,6 +329,7 @@ public class QuizImportServiceImpl implements QuizImportService {
             return ImportOutcome.SKIPPED;
         }
 
+        validateImportedImages(dto, actor.getUsername());
         if (options.dryRun()) {
             return ImportOutcome.CREATED;
         }
@@ -333,6 +341,29 @@ public class QuizImportServiceImpl implements QuizImportService {
         attachQuestions(quiz, dto, UpsertStrategy.SKIP_ON_DUPLICATE);
         quizRepository.save(quiz);
         return ImportOutcome.CREATED;
+    }
+
+    private void validateImportedImages(QuizImportDto dto, String username) {
+        Set<UUID> ids = new HashSet<>();
+        if (dto.questions() != null) {
+            for (var question : dto.questions()) {
+                if (question.attachment() != null && question.attachment().assetId() != null)
+                    ids.add(question.attachment().assetId());
+                collectImageIds(question.content(), ids);
+            }
+        }
+        // Exported IDs are selection requests, never evidence of a prior authorized binding.
+        // This SQL-only check holds asset locks through the entire per-quiz import transaction.
+        if (!ids.isEmpty()) retainedImages.validateNewSelections(ids, username);
+    }
+
+    private static void collectImageIds(JsonNode node, Set<UUID> ids) {
+        if (node == null) return;
+        if (node.isObject() && node.path("media").hasNonNull("assetId")) {
+            try { ids.add(UUID.fromString(node.path("media").path("assetId").asText())); }
+            catch (IllegalArgumentException invalid) { throw new ValidationException("Invalid media asset identifier"); }
+        }
+        if (node.isContainerNode()) node.elements().forEachRemaining(child -> collectImageIds(child, ids));
     }
 
     private void attachQuestions(Quiz quiz, QuizImportDto dto, UpsertStrategy strategy) {

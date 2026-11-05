@@ -61,6 +61,29 @@ public class RetainedImageServiceImpl implements RetainedImageService {
         observe("prepare", () -> prepareImages(ids, username));
     }
 
+    @Override
+    public void validateNewSelections(Collection<UUID> ids, String username) {
+        var sorted = ordered(ids);
+        if (sorted.isEmpty()) return;
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) throw new SavedImageException(CONFLICT);
+        if (username == null || username.isBlank()) throw new ForbiddenException("Authentication required");
+        boolean administrator = permissions.hasAnyPermission(PermissionName.MEDIA_ADMIN,
+                PermissionName.ARTICLE_ADMIN, PermissionName.SYSTEM_ADMIN);
+        for (int i = 0; i < sorted.size(); i += 100) {
+            var batch = sorted.subList(i, Math.min(i + 100, sorted.size()));
+            var current = assets.findSelectionStatesForUpdate(batch);
+            if (current.size() != batch.size()) throw new ValidationException("Image is unavailable for selection");
+            for (var state : current) {
+                if (!username.equals(state.getCreatedBy()) && !administrator)
+                    throw new ForbiddenException("You cannot use this media asset");
+                if (state.getType() != MediaAssetType.IMAGE || state.getStatus() != MediaAssetStatus.READY
+                        || state.isLibraryRemoved() || state.getWidth() == null || state.getHeight() == null
+                        || state.getWidth() <= 0 || state.getHeight() <= 0)
+                    throw new ValidationException("Image is unavailable for selection");
+            }
+        }
+    }
+
     private void prepareImages(Collection<UUID> ids, String username) {
         outsideTransaction();
         for (UUID id : ordered(ids)) {
@@ -240,7 +263,8 @@ public class RetainedImageServiceImpl implements RetainedImageService {
     private static ResourceNotFoundException unavailableBinding() { return new ResourceNotFoundException("Saved image binding is unavailable"); }
     private static List<UUID> ordered(Collection<UUID> ids) {
         if (ids == null) throw new ValidationException("Image identifiers are required");
-        return ids.stream().filter(Objects::nonNull).distinct().sorted().toList();
+        // Match MySQL BINARY(16) order for both individual and batch asset locks.
+        return ids.stream().filter(Objects::nonNull).distinct().sorted(Comparator.comparing(UUID::toString)).toList();
     }
     private static void outsideTransaction() {
         if (TransactionSynchronizationManager.isActualTransactionActive()) throw new SavedImageException(CONFLICT);

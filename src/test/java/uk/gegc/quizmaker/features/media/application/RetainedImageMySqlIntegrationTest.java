@@ -103,7 +103,7 @@ class RetainedImageMySqlIntegrationTest {
         @Bean SimpleMeterRegistry imageMetrics() { return new SimpleMeterRegistry(); }
         @Bean MediaStorageProperties imageProperties() { return new MediaStorageProperties(); }
         @Bean FakeStorage imageStorage() { return new FakeStorage(); }
-        @Bean BindingFailure bindingFailure(JdbcTemplate sql) { return new BindingFailure(sql); }
+        @Bean BindingFailure bindingFailure(JdbcTemplate sql, jakarta.persistence.EntityManager em) { return new BindingFailure(sql, em); }
     }
     @MockitoBean S3Client unusedLegacyStorage;
     @MockitoBean S3Presigner unusedPresigner;
@@ -654,6 +654,251 @@ class RetainedImageMySqlIntegrationTest {
         } finally { worker.shutdownNow(); assertThat(worker.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
     }
 
+
+    @Autowired uk.gegc.quizmaker.features.tag.domain.repository.TagRepository importTags;
+    @Autowired QuestionHandlerFactory importHandlers;
+    @Autowired uk.gegc.quizmaker.features.user.domain.repository.PermissionRepository importPermissions;
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void importingRemovedImageCannotCreateALegacyGrant(boolean foreignOwner) throws Exception {
+        library.delete(assetId, username);
+        if (foreignOwner) {
+            username = "import-" + UUID.randomUUID().toString().substring(0, 12);
+            tx.executeWithoutResult(s -> {
+                var importer = new User(); importer.setUsername(username); importer.setEmail(username + "@example.invalid");
+                importer.setHashedPassword("test-only"); importer.setActive(true); importer.setRoles(new HashSet<>());
+                importer.setCreatedAt(LocalDateTime.of(2026, 10, 23, 12, 0)); importer.setPasswordChangedAt(importer.getCreatedAt());
+                users.saveAndFlush(importer);
+            });
+            authenticate(username);
+        }
+        grantImportPermission();
+        var result = importImages(List.of(assetId), false, UpsertStrategy.CREATE_ONLY, null);
+        assertThat(result.created()).isZero();
+        assertThat(result.failed()).isEqualTo(1);
+        assertThat(questions.count()).isZero();
+        assertThat(quizzes.count()).isEqualTo(1);
+        assertThat(bindings.count()).isZero();
+        assertThat(result.errors().get(0).code()).isEqualTo(foreignOwner ? "ForbiddenException" : "ValidationException");
+    }
+
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(UpsertStrategy.class)
+    void authorizedImportSurvivesLaterRemovalAndCanAcquireItsBinding(UpsertStrategy strategy) throws Exception {
+        grantImportPermission();
+        var result = importImages(List.of(assetId), false, strategy,
+                strategy == UpsertStrategy.UPSERT_BY_ID ? quizId : null);
+        assertThat(result.errors()).isEmpty();
+        assertThat(result.created() + result.updated()).isEqualTo(1);
+        UUID question = questions.findAll().get(0).getId();
+        library.delete(assetId, username);
+        questionService.updateQuestion(username, question, update(assetId));
+        assertThat(storage.content(acquire(question).objectKey())).isEqualTo("A");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(UpsertStrategy.class)
+    void everyImportStrategyRejectsRemovedImageSelections(UpsertStrategy strategy) throws Exception {
+        grantImportPermission(); library.delete(assetId, username);
+        var result = importImages(List.of(assetId), false, strategy,
+                strategy == UpsertStrategy.UPSERT_BY_ID ? UUID.randomUUID() : null);
+        assertThat(result.failed()).isEqualTo(1); assertThat(result.created()).isZero();
+        assertThat(result.errors().get(0).code()).isEqualTo("ValidationException");
+        assertThat(questions.count()).isZero(); assertThat(bindings.count()).isZero();
+    }
+
+    @Test void dryRunChecksImageRightsWithoutCreatingRowsOrCallingStorage() throws Exception {
+        grantImportPermission();
+        assertThat(importImages(List.of(assetId), true, UpsertStrategy.CREATE_ONLY, null).failed()).isZero();
+        assertThat(questions.count()).isZero(); assertThat(versions.count()).isZero();
+        assertThat(storage.calls.get()).isZero();
+        library.delete(assetId, username);
+        int calls = storage.calls.get();
+        var denied = importImages(List.of(assetId), true, UpsertStrategy.CREATE_ONLY, null);
+        assertThat(denied.failed()).isEqualTo(1); assertThat(denied.created()).isZero();
+        assertThat(denied.errors().get(0).code()).isEqualTo("ValidationException");
+        assertThat(questions.count()).isZero(); assertThat(bindings.count()).isZero();
+        assertThat(storage.calls.get()).isEqualTo(calls);
+    }
+
+    @Test void unavailableImageInSkippedDuplicateDoesNotChangeSkipSemantics() throws Exception {
+        grantImportPermission(); library.delete(assetId, username);
+        var result = importImages(List.of(assetId), false, UpsertStrategy.SKIP_ON_DUPLICATE, quizId);
+        assertThat(result.skipped()).isEqualTo(1); assertThat(result.errors()).isEmpty();
+        assertThat(questions.count()).isZero(); assertThat(bindings.count()).isZero();
+    }
+
+    @Test void availableForeignImageRequiresTheExistingMediaAdministratorPermission() throws Exception {
+        grantImportPermission();
+        tx.executeWithoutResult(s -> assets.findById(assetId).orElseThrow().setCreatedBy("other-owner"));
+        var denied = importImages(List.of(assetId), false, UpsertStrategy.CREATE_ONLY, null);
+        assertThat(denied.failed()).isEqualTo(1);
+        assertThat(denied.errors().get(0).code()).isEqualTo("ForbiddenException");
+        assertThat(questions.count()).isZero();
+        tx.executeWithoutResult(s -> {
+            var permission = importPermissions.findByPermissionName("MEDIA_ADMIN").orElseGet(() -> {
+                var added = new uk.gegc.quizmaker.features.user.domain.model.Permission();
+                added.setPermissionName("MEDIA_ADMIN"); added.setResource("media"); added.setAction("admin");
+                return importPermissions.saveAndFlush(added);
+            });
+            var role = new uk.gegc.quizmaker.features.user.domain.model.Role();
+            role.setRoleName("import-admin-" + UUID.randomUUID().toString().substring(0, 12)); role.setPermissions(Set.of(permission));
+            users.findByUsername(username).orElseThrow().getRoles().add(roles.saveAndFlush(role));
+        });
+        assertThat(importImages(List.of(assetId), false, UpsertStrategy.CREATE_ONLY, null).created()).isEqualTo(1);
+        library.delete(assetId, username);
+        assertThat(importImages(List.of(assetId), false, UpsertStrategy.CREATE_ONLY, null).failed()).isEqualTo(1);
+    }
+
+    @Test void inlineImageSelectionsAreCheckedAndPartialImportKeepsOnlyTheValidQuiz() throws Exception {
+        grantImportPermission(); library.delete(assetId, username);
+        UUID available = tx.execute(s -> insertAsset(username));
+        var denied = importDto(List.of(assetId), null, "Invalid inline image", true);
+        var allowed = importDto(List.of(available), null, "Valid inline image", true);
+        var result = importBatch(List.of(denied, allowed), QuizImportOptions.defaults(10));
+        assertThat(result.failed()).isEqualTo(1); assertThat(result.created()).isEqualTo(1);
+        assertThat(result.errors().get(0).index()).isZero();
+        assertThat(questions.findAll()).hasSize(1).allSatisfy(question -> {
+            assertThat(question.getContent()).contains(available.toString()).doesNotContain(assetId.toString());
+        });
+        assertThat(quizzes.count()).isEqualTo(2); assertThat(bindings.count()).isZero();
+    }
+
+    @Test void importFailureAfterActualQuestionWritesRollsBackTheWholeQuiz() throws Exception {
+        grantImportPermission(); failure.failImport = true;
+        try {
+            var result = importImages(List.of(assetId), false, UpsertStrategy.CREATE_ONLY, null);
+            assertThat(result.failed()).isEqualTo(1); assertThat(result.created()).isZero();
+            assertThat(failure.importFailureReached).isTrue();
+            assertThat(questions.count()).isZero(); assertThat(quizzes.count()).isEqualTo(1);
+            assertThat(bindings.count()).isZero();
+        } finally { failure.failImport = false; }
+        assertThat(importImages(List.of(assetId), false, UpsertStrategy.CREATE_ONLY, null).created()).isEqualTo(1);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void importReadsCurrentMediaStateEvenWithAnOsivCachedEntity(boolean changeOwner) throws Exception {
+        grantImportPermission(); images.prepare(Set.of(assetId), username);
+        var worker = Executors.newSingleThreadExecutor();
+        try {
+            var result = withRequestPersistenceContext(() -> {
+                library.getByIdForValidation(assetId, username);
+                worker.submit(() -> {
+                    if (changeOwner) tx.executeWithoutResult(s -> assets.findById(assetId).orElseThrow().setCreatedBy("other-owner"));
+                    else library.delete(assetId, username);
+                }).get(10, TimeUnit.SECONDS);
+                return importImages(List.of(assetId), false, UpsertStrategy.CREATE_ONLY, null);
+            });
+            assertThat(result.failed()).isEqualTo(1); assertThat(questions.count()).isZero();
+            assertThat(result.errors().get(0).code()).isEqualTo(changeOwner ? "ForbiddenException" : "ValidationException");
+            assertThat(bindings.count()).isZero();
+        } finally { worker.shutdownNow(); assertThat(worker.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @Test void importHoldsAssetLocksUntilItsQuestionWriteCommits() throws Exception {
+        grantImportPermission(); images.prepare(Set.of(assetId), username);
+        Gate gate = new Gate(); failure.importGate = gate;
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var imported = workers.submit(() -> {
+                authenticate(username);
+                try { return importImages(List.of(assetId), false, UpsertStrategy.CREATE_ONLY, null); }
+                finally { SecurityContextHolder.clearContext(); }
+            });
+            assertThat(gate.entered.await(10, TimeUnit.SECONDS)).isTrue();
+            var removed = workers.submit(() -> library.delete(assetId, username));
+            long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            boolean blocked = false;
+            while (System.nanoTime() < until) {
+                blocked = admin.queryForObject("""
+                        SELECT COUNT(*) FROM performance_schema.data_lock_waits w
+                        JOIN performance_schema.data_locks l ON l.ENGINE_LOCK_ID = w.BLOCKING_ENGINE_LOCK_ID
+                        WHERE l.OBJECT_SCHEMA = ? AND l.OBJECT_NAME = 'media_assets'
+                        """, Integer.class, schema) > 0;
+                if (blocked) break;
+                Thread.sleep(10);
+            }
+            assertThat(blocked).as("Removal must actually wait on the importing transaction's image lock").isTrue();
+            gate.release.countDown();
+            assertThat(imported.get(10, TimeUnit.SECONDS).created()).isEqualTo(1);
+            removed.get(10, TimeUnit.SECONDS);
+            UUID question = questions.findAll().get(0).getId();
+            assertThat(assets.findById(assetId).orElseThrow().isLibraryRemoved()).isTrue();
+            questionService.updateQuestion(username, question, update(assetId));
+            assertThat(storage.content(acquire(question).objectKey())).isEqualTo("A");
+        } finally {
+            gate.release.countDown(); failure.importGate = null;
+            workers.shutdownNow(); assertThat(workers.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test void importImageSelectionQueriesAreBatchedForFiveAndTenDistinctAssets() {
+        grantImportPermission();
+        var ids = tx.execute(s -> java.util.stream.IntStream.range(0, 10).mapToObj(i -> insertAsset(username)).toList());
+        var stats = emf.unwrap(SessionFactory.class).getStatistics();
+        stats.clear();
+        tx.executeWithoutResult(s -> images.validateNewSelections(ids.subList(0, 5), username));
+        long five = stats.getPrepareStatementCount();
+        stats.clear();
+        tx.executeWithoutResult(s -> images.validateNewSelections(ids, username));
+        assertThat(stats.getPrepareStatementCount()).isEqualTo(five).isLessThanOrEqualTo(3);
+        assertThat(storage.calls.get()).isZero();
+    }
+
+    private void grantImportPermission() {
+        tx.executeWithoutResult(s -> users.findByUsername(username).orElseThrow().getRoles()
+                .add(roles.findByRoleNameWithPermissions("ROLE_QUIZ_CREATOR").orElseThrow()));
+        assertThat(permissions.hasPermission(uk.gegc.quizmaker.features.user.domain.model.PermissionName.QUIZ_CREATE)).isTrue();
+        assertThat(permissions.hasPermission(uk.gegc.quizmaker.features.user.domain.model.PermissionName.MEDIA_ADMIN)).isFalse();
+    }
+
+    private uk.gegc.quizmaker.features.quiz.application.imports.QuizImportService importer() {
+        var mapper = new ObjectMapper().findAndRegisterModules();
+        var policy = new uk.gegc.quizmaker.shared.security.AccessPolicy(permissions, null);
+        return new uk.gegc.quizmaker.features.quiz.application.imports.impl.QuizImportServiceImpl(
+                new uk.gegc.quizmaker.features.quiz.application.imports.ImportParserFactory(
+                        new uk.gegc.quizmaker.features.quiz.application.imports.impl.JsonImportParser(mapper), null),
+                new uk.gegc.quizmaker.features.quiz.application.validation.QuizImportValidationServiceImpl(importHandlers, users, policy),
+                new uk.gegc.quizmaker.features.quiz.application.imports.impl.ReferenceResolutionServiceImpl(categories, importTags),
+                new uk.gegc.quizmaker.features.quiz.infra.mapping.QuizImportAssembler(),
+                new uk.gegc.quizmaker.features.question.infra.mapping.QuestionImportMapper(mapper),
+                new uk.gegc.quizmaker.features.quiz.application.imports.ContentHashUtil(mapper),
+                quizzes, questions, categories, importTags,
+                new uk.gegc.quizmaker.features.quiz.config.QuizDefaultsProperties(), users, policy, manager,
+                new uk.gegc.quizmaker.features.quiz.application.QuizHashCalculator(),
+                new uk.gegc.quizmaker.features.quiz.infra.mapping.QuizMapper(), images);
+    }
+
+    private uk.gegc.quizmaker.features.quiz.api.dto.imports.ImportSummaryDto importImages(
+            List<UUID> ids, boolean dryRun, UpsertStrategy strategy, UUID id) throws Exception {
+        return importBatch(List.of(importDto(ids, id, "Imported image quiz", false)),
+                new QuizImportOptions(strategy, dryRun, false, false, 10));
+    }
+
+    private uk.gegc.quizmaker.features.quiz.api.dto.imports.QuizImportDto importDto(
+            List<UUID> ids, UUID id, String title, boolean inline) {
+        var imageQuestions = ids.stream().map(image -> {
+            var content = legacyContent(false);
+            if (inline) content.putArray("illustrations").addObject().putObject("media").put("assetId", image.toString());
+            return new uk.gegc.quizmaker.features.quiz.api.dto.imports.QuestionImportDto(
+                    null, QuestionType.TRUE_FALSE, Difficulty.EASY, "Imported question", content,
+                    null, null, null, inline ? null : new uk.gegc.quizmaker.shared.dto.MediaRefDto(image, null, null, null, null, null, null));
+        }).toList();
+        return new uk.gegc.quizmaker.features.quiz.api.dto.imports.QuizImportDto(
+                1, id, title, "New imported copy", Visibility.PRIVATE,
+                Difficulty.EASY, 5, List.of(), categories.findAll().get(0).getName(), null, imageQuestions, null, null);
+    }
+
+    private uk.gegc.quizmaker.features.quiz.api.dto.imports.ImportSummaryDto importBatch(
+            List<uk.gegc.quizmaker.features.quiz.api.dto.imports.QuizImportDto> input, QuizImportOptions options) throws Exception {
+        return importer().importQuizzes(new java.io.ByteArrayInputStream(new ObjectMapper().findAndRegisterModules()
+                        .writeValueAsBytes(input)), ExportFormat.JSON_EDITABLE, options,
+                SecurityContextHolder.getContext().getAuthentication());
+    }
+
     private UUID legacyQuestion(boolean inline) {
         return tx.execute(s -> {
             var question = new Question(); question.setType(QuestionType.TRUE_FALSE); question.setDifficulty(Difficulty.EASY);
@@ -731,7 +976,30 @@ class RetainedImageMySqlIntegrationTest {
         }
         int expectedBindings = 1;
         final AtomicBoolean reached = new AtomicBoolean();
-        BindingFailure(JdbcTemplate sql) { this.sql = sql; }
+        final jakarta.persistence.EntityManager em;
+        volatile Gate importGate;
+        volatile boolean failImport;
+        final AtomicBoolean importFailureReached = new AtomicBoolean();
+        BindingFailure(JdbcTemplate sql, jakarta.persistence.EntityManager em) { this.sql = sql; this.em = em; }
+        @org.aspectj.lang.annotation.Around("execution(* uk.gegc.quizmaker.features.media.application.RetainedImageService.validateNewSelections(..))")
+        public Object afterImportSelectionCheck(org.aspectj.lang.ProceedingJoinPoint call) throws Throwable {
+            Object result = call.proceed();
+            Gate gate = importGate;
+            if (gate != null) { gate.entered.countDown(); await(gate.release); }
+            return result;
+        }
+        @org.aspectj.lang.annotation.Around("execution(* org.springframework.data.repository.CrudRepository.save(..)) && target(uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository)")
+        public Object afterImportWrite(org.aspectj.lang.ProceedingJoinPoint call) throws Throwable {
+            Object result = call.proceed();
+            if (failImport) {
+                em.flush();
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM questions", Integer.class)).isEqualTo(1);
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM quizzes", Integer.class)).isEqualTo(2);
+                importFailureReached.set(true);
+                throw new IllegalStateException("injected after imported question flush");
+            }
+            return result;
+        }
         @org.aspectj.lang.annotation.Around("execution(* uk.gegc.quizmaker.features.media.application.RetainedImageService.bind(..))")
         public Object afterRealWrites(org.aspectj.lang.ProceedingJoinPoint call) throws Throwable {
             Object result = call.proceed();
