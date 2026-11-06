@@ -10,4 +10,7 @@ import java.util.UUID;
 public interface FixedFormRepository {
     void createOrReplay(UUID ownerId, FixedForm form);
     List<FixedForm> findByIds(UUID ownerId, Collection<UUID> formIds);
+
+    /** Current shared reads of both roots and items in the caller transaction. */
+    List<FixedForm> findByIdsForShare(UUID ownerId, Collection<UUID> formIds);
 }

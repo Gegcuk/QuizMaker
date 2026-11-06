@@ -10,4 +10,7 @@ import java.util.UUID;
 public interface FormOptionOrderRepository {
     void createOrReplay(UUID ownerId, FixedForm form, FormOptionOrder order);
     List<FormOptionOrder> findByIds(UUID ownerId, Collection<UUID> formIds);
+
+    /** Current shared reads of roots, item bindings and option rows in the caller transaction. */
+    List<FormOptionOrder> findByIdsForShare(UUID ownerId, Collection<UUID> formIds);
 }

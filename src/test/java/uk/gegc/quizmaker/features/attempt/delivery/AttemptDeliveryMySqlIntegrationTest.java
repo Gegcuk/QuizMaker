@@ -11,6 +11,7 @@ import java.util.stream.IntStream;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -315,6 +316,34 @@ class AttemptDeliveryMySqlIntegrationTest {
         });
     }
 
+    @ParameterizedTest(name = "isolation={0}, publishAfterSnapshot={1}")
+    @CsvSource({"2,false", "4,false", "2,true", "4,true"}) // JDBC READ_COMMITTED / REPEATABLE_READ
+    void olderSnapshotCanReadNewlyCommittedAttempt(int isolation, boolean publishAfterSnapshot) {
+        UUID revision = publishAfterSnapshot ? null : prepared();
+        var old = new TransactionTemplate(manager); old.setIsolationLevel(isolation);
+        var separate = new TransactionTemplate(manager);
+        // Publication requires no ambient transaction; real publication/start own their commits.
+        separate.setPropagationBehavior(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
+        var started = new AtomicReference<AttemptStartService.Result>();
+        var result = old.execute(status -> {
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_participant_subject", Integer.class)).isZero();
+            started.set(separate.execute(inner -> starts.start(command(
+                    publishAfterSnapshot ? prepared() : revision, AnswerOrder.SHUFFLED_PER_ATTEMPT, "new-after-snapshot"))));
+            // Prove that the caller still has its original snapshot, while access sees the committed start.
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_participant_subject", Integer.class))
+                    .isEqualTo(isolation == Connection.TRANSACTION_REPEATABLE_READ ? 0 : 1);
+            assertThat(access.requireAccess(started.get().attemptId(), AttemptAccessService.Operation.VIEW).formId())
+                    .isEqualTo(started.get().formId());
+            var view = delivery.read(started.get().attemptId());
+            assertThat(view.form().items()).hasSize(5);
+            assertThat(status.isRollbackOnly()).isFalse();
+            return view;
+        });
+        var before = targetSnapshot();
+        assertThat(recreated().read(started.get().attemptId())).isEqualTo(result);
+        assertThat(targetSnapshot()).isEqualTo(before);
+    }
+
     @Test void databaseFailureAfterContentReadIsSanitizedAndNoStateChanges() {
         var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "delivery"));
         var before = targetSnapshot(); AtomicBoolean reached = new AtomicBoolean();
@@ -353,6 +382,54 @@ class AttemptDeliveryMySqlIntegrationTest {
         assertThat(totals.get(1)).isEqualTo(totals.get(0));
         assertThat(totals.get(0)).isLessThanOrEqualTo(90);
         System.out.println("Delivery SQL counts for 3 parents with 1/20 questions: " + totals);
+    }
+
+    @Test void caughtDeliveryFailureStillRollsBackOuterWrite() {
+        var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "rollback"));
+        var before = targetSnapshot();
+        String originalTitle = sql.queryForObject("SELECT title FROM quizzes WHERE quiz_id=UUID_TO_BIN(?)", String.class, quizId.toString());
+        AtomicBoolean reached = new AtomicBoolean();
+        observer().beforeSql = (statement, connection) -> {
+            if (statement.contains("question_option_revisions")) {
+                reached.set(true); throw new SQLException("synthetic private diagnostic", "08006");
+            }
+        };
+        try {
+            assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
+                assertThat(sql.update("UPDATE quizzes SET title='rollback marker' WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString())).isEqualTo(1);
+                reject(started.attemptId(), "UNAVAILABLE");
+                assertThat(status.isRollbackOnly()).isTrue();
+            })).isInstanceOf(org.springframework.transaction.UnexpectedRollbackException.class);
+        } finally { observer().reset(); }
+        assertThat(reached).isTrue();
+        assertThat(sql.queryForObject("SELECT title FROM quizzes WHERE quiz_id=UUID_TO_BIN(?)", String.class, quizId.toString())).isEqualTo(originalTitle);
+        assertThat(targetSnapshot()).isEqualTo(before);
+        assertThat(delivery.read(started.attemptId()).form().items()).hasSize(5);
+    }
+
+    @Test void concurrentReadersBothReachProjectionWithoutConflicts() throws Exception {
+        var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "concurrent-reads"));
+        var expected = delivery.read(started.attemptId());
+        var before = targetSnapshot();
+        var arrived = new CountDownLatch(2); var release = new CountDownLatch(1);
+        observer().beforeSql = (statement, connection) -> {
+            if (statement.contains("question_option_revisions")) { arrived.countDown(); await(release); }
+        };
+        var pool = Executors.newFixedThreadPool(2);
+        Callable<AttemptDeliveryService.View> read = () -> {
+            authenticate(username);
+            try { return delivery.read(started.attemptId()); }
+            finally { SecurityContextHolder.clearContext(); }
+        };
+        var one = pool.submit(read); var two = pool.submit(read);
+        try {
+            assertThat(arrived.await(5, TimeUnit.SECONDS)).isTrue();
+            release.countDown();
+            assertThat(one.get(10, TimeUnit.SECONDS)).isEqualTo(expected);
+            assertThat(two.get(10, TimeUnit.SECONDS)).isEqualTo(expected);
+            assertThat(observer().sqlErrorCodes).isEmpty();
+        } finally { release.countDown(); pool.shutdownNow(); observer().reset(); }
+        assertThat(targetSnapshot()).isEqualTo(before);
     }
 
     private AttemptDeliveryService recreated() {

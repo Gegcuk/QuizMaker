@@ -82,13 +82,16 @@ public class JdbcFormOptionOrderRepository implements FormOptionOrderRepository 
     @Override
     public List<FormOptionOrder> findByIds(UUID ownerId, Collection<UUID> formIds) { return read(ownerId, formIds, false); }
 
+    @Override
+    public List<FormOptionOrder> findByIdsForShare(UUID ownerId, Collection<UUID> formIds) { return read(ownerId, formIds, true); }
+
     private List<FormOptionOrder> read(UUID ownerId, Collection<UUID> formIds, boolean lock) {
         if (ownerId == null) throw new FixedFormException(FixedFormException.Reason.FORM_UNAVAILABLE);
         require(formIds != null && formIds.stream().noneMatch(Objects::isNull), INVALID_ORDER);
         var ids = formIds.stream().distinct().toList();
         Map<UUID, FormOptionOrder> result = new HashMap<>();
-        // The order root is already exclusively locked. Verification needs current reads,
-        // without upgrading a shared immutable revision/binding lock used by other forms.
+        // Replay and delivery need current reads without upgrading shared immutable
+        // revision/binding locks used by other forms or simultaneous readers.
         String suffix = lock ? " FOR SHARE" : "";
         try {
             for (int start = 0; start < ids.size(); start += SQL_BATCH) {

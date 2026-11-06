@@ -76,19 +76,20 @@ public class AttemptDeliveryServiceImpl implements AttemptDeliveryService {
         var state = granted.lifecycle().state();
         if (state.execution() != AttemptLifecycle.Execution.IN_PROGRESS) throw new AttemptDeliveryException(INACTIVE);
         var owner = granted.contentOwnerId();
-        var saved = snapshots.read(owner, new PolicySnapshotReference.Stored(granted.policySnapshotId()));
-        if (!(saved instanceof PolicySnapshot snapshot)) throw new AttemptDeliveryException(CORRUPT);
+        var snapshot = snapshots.readCurrent(owner, granted.policySnapshotId());
         var policy = snapshot.resolution().policy();
         if (policy.schemaVersion() != 1 || policy.delivery().mode() != DeliveryMode.ALL_AT_ONCE
                 || policy.content().formMode() != FormMode.PRECOMPUTED
                 || policy.content().sections() != SectionMode.IMPLICIT_FLAT) throw new AttemptDeliveryException(UNSUPPORTED);
         if (!policy.content().quizRevisionId().equals(granted.quizRevisionId())) throw new AttemptDeliveryException(CORRUPT);
-        var form = forms.findByIds(owner, List.of(granted.formId()));
-        var order = orders.findByIds(owner, List.of(granted.formId()));
+        // Acquire question guards before reading/locking their persisted contract bindings.
+        // declareScope never creates or rebinds them.
+        contracts.declareScope(owner, Set.of(granted.quizRevisionId()));
+        // Every root and child must use current reads, matching the locked access evidence.
+        var form = forms.findByIdsForShare(owner, List.of(granted.formId()));
+        var order = orders.findByIdsForShare(owner, List.of(granted.formId()));
         if (form.size() != 1 || order.size() != 1 || !order.get(0).policy().equals(policy.answerOrdering()))
             throw new AttemptDeliveryException(CORRUPT);
-        // Reuse persisted bindings; declareScope locks but never creates or rebinds them.
-        contracts.declareScope(owner, Set.of(granted.quizRevisionId()));
         var revision = revisions.findByIdForShare(owner, granted.quizRevisionId())
                 .orElseThrow(() -> new AttemptDeliveryException(CORRUPT));
         var resolved = contracts.resolve(owner, revision.id());

@@ -60,6 +60,12 @@ public class PolicySnapshotServiceImpl implements PolicySnapshotService {
                 ((PolicySnapshotReference.Stored) reference).id()).orElseThrow(() -> new PolicySnapshotException(SNAPSHOT_UNAVAILABLE))));
     }
 
+    @Override
+    public PolicySnapshot readCurrent(UUID revisionOwnerId, UUID snapshotId) {
+        return execute("read", read, () -> verify(repository.findByIdForShare(revisionOwnerId, snapshotId)
+                .orElseThrow(() -> new PolicySnapshotException(SNAPSHOT_UNAVAILABLE))));
+    }
+
     private PolicySnapshot verify(StoredSnapshot row) {
         if (row.schemaVersion() != PolicySnapshot.SCHEMA_VERSION || row.resolverVersion() != 1 || row.canonicalVersion() != 1) {
             throw new PolicySnapshotException(UNSUPPORTED_VERSION);

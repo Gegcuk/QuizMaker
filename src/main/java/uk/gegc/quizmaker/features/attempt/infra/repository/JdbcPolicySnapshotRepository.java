@@ -53,8 +53,18 @@ public class JdbcPolicySnapshotRepository implements PolicySnapshotRepository {
 
     @Override
     public Optional<StoredSnapshot> findById(UUID revisionOwnerId, UUID snapshotId) {
+        return read(revisionOwnerId, snapshotId, false);
+    }
+
+    @Override
+    public Optional<StoredSnapshot> findByIdForShare(UUID revisionOwnerId, UUID snapshotId) {
+        return read(revisionOwnerId, snapshotId, true);
+    }
+
+    private Optional<StoredSnapshot> read(UUID revisionOwnerId, UUID snapshotId, boolean current) {
         if (revisionOwnerId == null || snapshotId == null) throw new PolicySnapshotException(SNAPSHOT_UNAVAILABLE);
-        return jdbc.query(SELECT, parameters(revisionOwnerId, snapshotId), (row, index) -> stored(row)).stream().findFirst();
+        return jdbc.query(SELECT + (current ? " FOR SHARE" : ""), parameters(revisionOwnerId, snapshotId),
+                (row, index) -> stored(row)).stream().findFirst();
     }
 
     private static StoredSnapshot stored(ResultSet row) throws SQLException {

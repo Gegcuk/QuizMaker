@@ -20,4 +20,10 @@ public interface PolicySnapshotService {
 
     /** Missing/foreign target references fail; only an explicit legacy reference returns legacy. */
     PolicySnapshotRead read(UUID revisionOwnerId, PolicySnapshotReference reference);
+
+    /**
+     * Verifies the current committed snapshot, including inserts newer than a caller's read view.
+     * Joins the caller transaction and retains shared locks until that transaction ends.
+     */
+    PolicySnapshot readCurrent(UUID revisionOwnerId, UUID snapshotId);
 }
