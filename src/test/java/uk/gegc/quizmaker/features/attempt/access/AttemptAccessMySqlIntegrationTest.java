@@ -466,7 +466,7 @@ class AttemptAccessMySqlIntegrationTest {
         var started = start(); var before = targetSnapshot();
         var reached = new AtomicBoolean();
         observer().beforeSql = (query, connection) -> {
-            if (query.contains("FROM attempt_participant_subject u")) {
+            if (query.contains("FROM attempt_lifecycle_state l")) {
                 reached.set(true); throw new SQLException("synthetic private SQL diagnostic", "08006");
             }
         };
@@ -501,6 +501,67 @@ class AttemptAccessMySqlIntegrationTest {
         assertThat(access.requireAccess(started.attemptId(), Operation.VIEW).attemptId()).isEqualTo(started.attemptId());
     }
 
+    @ParameterizedTest @CsvSource({"2,attempt_participant_subject", "4,attempt_participant_subject",
+            "2,attempt_lifecycle_state", "4,attempt_lifecycle_state", "2,attempt_trace_stream", "4,attempt_trace_stream"})
+    void lockedForeignAttemptDoesNotEnumerateAndOwnContentionRemainsInProgress(int isolation, String table) throws Exception {
+        var started = start();
+        String ownerName = username;
+        String otherName = "other-" + UUID.randomUUID().toString().substring(0, 8);
+        UUID otherId = user(otherName, false);
+        grant(otherId, "ATTEMPT_READ", "ATTEMPT_CREATE", "QUESTION_UPDATE", "QUESTION_ADMIN");
+        authenticate(otherName);
+        var own = starts.start(command(started.quizRevisionId(), AnswerOrder.AUTHORED, "other-access"));
+        var before = targetSnapshot();
+        var locked = new CountDownLatch(1); var release = new CountDownLatch(1);
+        var worker = Executors.newSingleThreadExecutor();
+        var holder = worker.submit(() -> tx.executeWithoutResult(status -> {
+            assertThat(sql.queryForObject("SELECT attempt_id FROM " + table + " WHERE attempt_id=UUID_TO_BIN(?) FOR UPDATE",
+                    byte[].class, started.attemptId().toString())).isNotNull();
+            locked.countDown(); await(release);
+        }));
+        try {
+            assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
+            for (var operation : Operation.values()) {
+                var missing = rejectionInTransaction(UUID.randomUUID(), operation, isolation);
+                assertThat(missing.reason()).isEqualTo(DENIED);
+                observer().reset();
+                var foreign = rejectionInTransaction(started.attemptId(), operation, isolation);
+                assertThat(foreign.reason()).as("Actual SQL errors: %s", observer().sqlErrorCodes).isEqualTo(DENIED);
+                assertThat(foreign.getMessage()).isEqualTo(missing.getMessage());
+                assertThat(foreign.getCause()).isNull(); assertThat(foreign.getSuppressed()).isEmpty();
+                assertThat(observer().sqlErrorCodes).isEmpty();
+                assertThat(observer().selects).noneMatch(query -> query.contains("attempt_lifecycle_state")
+                        || query.contains("attempt_trace_stream"));
+                assertThat(access.requireAccess(own.attemptId(), operation).attemptId()).isEqualTo(own.attemptId());
+            }
+            authenticate(ownerName); observer().reset();
+            assertThat(rejectionInTransaction(started.attemptId(), Operation.VIEW, isolation).reason()).isEqualTo(IN_PROGRESS);
+            assertThat(observer().sqlErrorCodes).contains(1205);
+        } finally {
+            release.countDown();
+            try { holder.get(10, TimeUnit.SECONDS); }
+            finally { worker.shutdownNow(); }
+        }
+        authenticate(otherName);
+        for (var operation : Operation.values()) denied(() -> guarded(started.attemptId(), operation), DENIED);
+        authenticate(ownerName);
+        for (var operation : Operation.values())
+            assertThat(access.requireAccess(started.attemptId(), operation).attemptId()).isEqualTo(started.attemptId());
+        assertThat(targetSnapshot()).isEqualTo(before);
+    }
+
+    private AttemptAccessException rejectionInTransaction(UUID attempt, Operation operation, int isolation) {
+        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(isolation);
+        var failure = catchThrowableOfType(() -> outer.executeWithoutResult(status -> {
+            int previous = sql.queryForObject("SELECT @@SESSION.innodb_lock_wait_timeout", Integer.class);
+            sql.execute("SET SESSION innodb_lock_wait_timeout=1");
+            try { guarded(attempt, operation); }
+            finally { sql.execute("SET SESSION innodb_lock_wait_timeout=" + previous); }
+        }), AttemptAccessException.class);
+        assertThat(failure).isNotNull();
+        return failure;
+    }
+
     @Test void metadataReadsStayBoundedAcrossSeveralOwnersQuizzesAndLargerForms() {
         List<Integer> totals = new ArrayList<>();
         for (int size : List.of(1, 20)) {
@@ -520,8 +581,13 @@ class AttemptAccessMySqlIntegrationTest {
             }
             totals.add(observer().selects.size());
             assertThat(observer().selects).noneMatch(query -> query.contains("question_revisions") || query.contains("canonical_json") || query.contains("hashed_password"));
+            String bindingRead = observer().selects.stream()
+                    .filter(query -> query.contains("FROM attempt_participant_subject")).findFirst().orElseThrow();
+            var plan = sql.queryForMap("EXPLAIN " + bindingRead, ownerId.toString(), attempts.get(2).attemptId().toString());
+            assertThat(plan.get("key")).isEqualTo("ix_attempt_subject_user");
+            assertThat(plan.get("key_len")).isEqualTo("32"); // Both BINARY(16) keys, not an attempt-only lookup.
         }
-        assertThat(totals.get(1)).isEqualTo(totals.get(0)).isLessThanOrEqualTo(15);
+        assertThat(totals.get(1)).isEqualTo(totals.get(0)).isLessThanOrEqualTo(18);
     }
 
     private AttemptStartService.Result start() { return starts.start(command(prepared(), AnswerOrder.AUTHORED, "access")); }

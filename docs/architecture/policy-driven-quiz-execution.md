@@ -2097,10 +2097,14 @@ deny access. Loss of editing rights also denies access to an already started pub
 
 The existing #536 principal validation is reused through `resolveCurrent`, whose user-owned scalar
 query takes a current shared lock rather than using the caller's earlier transaction snapshot.
-The ordinary `resolve` lookup remains unchanged. A bounded attempt metadata read joins the #535
-binding, lifecycle, trace scope, form, policy snapshot and immutable quiz revision. Missing roots,
+The ordinary `resolve` lookup remains unchanged. First, a separate current locking read checks the
+#535 binding using the exact `(user_id, attempt_id)` range and forces `ix_attempt_subject_user`.
+Only a matching participant binding permits the subsequent bounded metadata read of lifecycle, trace scope, form,
+policy snapshot and immutable quiz revision. This ordering and index selection prevent a locked
+foreign subject/lifecycle/trace row from turning `DENIED` into an observable lock-timeout outcome;
+a foreign or absent binding never reaches the metadata read. Missing roots,
 unsupported metadata versions, mismatched revision references or unstarted/inconsistent lifecycle
-evidence deny access. The query reads no questions, answers, policy JSON or source documents. The
+evidence deny access. These queries read no questions, answers, policy JSON or source documents. The
 quiz-owned access boundary locks current account, effective permissions and non-deleted quiz facts;
 the revision's content owner must match the resource owner. A newer publication does not invalidate
 the old attempt's saved revision or cause mutable-content reconstruction.
@@ -2126,9 +2130,13 @@ own uniform non-enumerating RFC 7807 mapping. Existing legacy routes remain auth
 `AttemptAccessMySqlIntegrationTest` creates real published, contract-bound content and invokes
 #600 before checking access. It covers independent operation permissions, full-editor revocation,
 wrong-owner and caller-identity probes, absent/legacy/partial/version-incompatible evidence,
-old transaction snapshots, republishing, storage failure and actual lock contention. It compares
-persisted state before/after reads, verifies outer rollback and measures SQL across multiple
-owners/quizzes with small and larger forms. External storage is replaced only at its port.
+old transaction snapshots, republishing, storage failure and actual lock contention. Under both
+`READ_COMMITTED` and `REPEATABLE_READ`, locked foreign subject/lifecycle/trace rows return the same
+`DENIED` as absent attempts for all three operations, while own contention retains `IN_PROGRESS`
+and succeeds after the lock is released. It compares persisted state before/after reads, verifies
+outer rollback, checks the binding lookup's actual index plan and measures SQL across multiple
+owners/quizzes with small and larger forms (at most six SELECTs per successful check). External
+storage is replaced only at its port.
 These checks prove the access boundary; they do not claim target answer/result delivery or public
 activation, which remain with their named consumers and #609.
 
