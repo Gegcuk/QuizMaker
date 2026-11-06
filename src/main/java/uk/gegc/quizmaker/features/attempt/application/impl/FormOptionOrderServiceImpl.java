@@ -22,6 +22,7 @@ import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolut
 import uk.gegc.quizmaker.features.question.domain.model.contract.OptionLayout;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.util.*;
 import java.util.function.Supplier;
@@ -52,9 +53,17 @@ public class FormOptionOrderServiceImpl implements FormOptionOrderService {
         return execute("create_or_replay", write, () -> {
             if (ownerId == null) throw new FixedFormException(FixedFormException.Reason.REVISION_UNAVAILABLE);
             require(form != null && policy != null, INVALID_ORDER);
-            var revision = revisions.findById(ownerId, form.quizRevisionId()).orElseThrow(() ->
+            if (standalone) {
+                try { contracts.declareScope(ownerId, Set.of(form.quizRevisionId())); }
+                catch (ContractResolutionException failure) {
+                    // Earlier scope discovery must not change the existing ownership/missing error.
+                    if (failure.reason() == ContractResolutionException.Reason.REVISION_UNAVAILABLE)
+                        throw new FixedFormException(FixedFormException.Reason.REVISION_UNAVAILABLE);
+                    throw failure;
+                }
+            }
+            var revision = revisions.findByIdForShare(ownerId, form.quizRevisionId()).orElseThrow(() ->
                     new FixedFormException(FixedFormException.Reason.REVISION_UNAVAILABLE));
-            if (standalone) contracts.declareScope(ownerId, Set.of(revision.id()));
             var resolved = contracts.resolve(ownerId, revision.id());
             var sources = new HashMap<UUID, uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision.Item>();
             revision.items().forEach(item -> sources.put(item.id(), item));
@@ -102,18 +111,27 @@ public class FormOptionOrderServiceImpl implements FormOptionOrderService {
         String outcome = "persistence_unavailable";
         try {
             T result = transaction.execute(status -> action.get()); outcome = "success"; return result;
+        } catch (DatabaseConflictException failure) {
+            outcome = failure.outcome();
+            throw failure;
         } catch (FixedFormException | OptionOrderException | ContractResolutionException
                  | uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException failure) {
             outcome = failure instanceof ContractResolutionException contractFailure
                     && contractFailure.reason() == ContractResolutionException.Reason.PERSISTENCE_UNAVAILABLE
                     ? "persistence_unavailable" : "rejected";
             throw failure;
-        } catch (DataIntegrityViolationException failure) {
-            outcome = "rejected";
-            throw new OptionOrderException(ORDER_CONFLICT);
-        }
-        catch (DataAccessException | TransactionException failure) { throw new OptionOrderException(PERSISTENCE_UNAVAILABLE); }
-        finally {
+        } catch (DataAccessException | TransactionException failure) {
+            var conflict = DatabaseConflictException.from(failure);
+            if (conflict.isPresent()) {
+                outcome = conflict.get().outcome();
+                throw conflict.get();
+            }
+            if (failure instanceof DataIntegrityViolationException) {
+                outcome = "rejected";
+                throw new OptionOrderException(ORDER_CONFLICT);
+            }
+            throw new OptionOrderException(PERSISTENCE_UNAVAILABLE);
+        } finally {
             // Observability cannot change commit/rollback or replace an existing failure.
             try { if (sample != null) sample.stop(Timer.builder("quizmaker.attempt.option.order.operations")
                     .tags("operation", operation, "outcome", outcome).register(metrics)); }

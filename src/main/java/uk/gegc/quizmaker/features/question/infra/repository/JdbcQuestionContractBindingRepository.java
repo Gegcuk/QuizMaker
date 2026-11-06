@@ -58,10 +58,13 @@ public class JdbcQuestionContractBindingRepository implements QuestionContractBi
             var batch = ordered.subList(start, Math.min(start + SQL_BATCH, ordered.size()));
             var parameters = new MapSqlParameterSource("owner", bytes(ownerId))
                     .addValue("quizzes", batch.stream().map(JdbcQuestionContractBindingRepository::bytes).toList());
+            // Current membership, even if publication committed after the caller's RR snapshot.
+            // Only immutable roots/items are shared here; question locks still follow the
+            // canonical order in lockQuestionRevisions, without a shared-to-exclusive upgrade.
             jdbc.query("""
                     SELECT r.id AS quiz_revision_id, i.question_revision_id AS item_question_id
                     FROM quiz_revisions r LEFT JOIN quiz_revision_items i ON i.quiz_revision_id=r.id
-                    WHERE r.owner_id=:owner AND r.id IN (:quizzes)
+                    WHERE r.owner_id=:owner AND r.id IN (:quizzes) FOR SHARE
                     """, parameters, (org.springframework.jdbc.core.RowCallbackHandler) row -> {
                 var ids = result.computeIfAbsent(uuid(row.getBytes("quiz_revision_id")), ignored -> new HashSet<>());
                 byte[] questionId = row.getBytes("item_question_id");

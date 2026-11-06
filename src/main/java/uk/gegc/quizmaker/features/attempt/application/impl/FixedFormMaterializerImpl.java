@@ -18,6 +18,7 @@ import uk.gegc.quizmaker.features.question.application.QuestionRevisionContractS
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.util.Set;
 import java.util.UUID;
@@ -54,16 +55,28 @@ public class FixedFormMaterializerImpl implements FixedFormMaterializer {
                 require(ownerId != null, REVISION_UNAVAILABLE);
                 require(command != null && command.form() != null && command.selection() != null
                         && command.questionOrder() != null && command.answerOrdering() != null, INVALID_INPUT);
-                var revision = revisions.findById(ownerId, command.form().quizRevisionId())
+                if (standalone) {
+                    try { contracts.declareScope(ownerId, Set.of(command.form().quizRevisionId())); }
+                    catch (ContractResolutionException failure) {
+                        // Scope discovery now precedes content loading; preserve this boundary's
+                        // existing unavailable-revision error without revealing contract metadata.
+                        if (failure.reason() == ContractResolutionException.Reason.REVISION_UNAVAILABLE)
+                            throw new FormMaterializationException(REVISION_UNAVAILABLE);
+                        throw failure;
+                    }
+                }
+                var revision = revisions.findByIdForShare(ownerId, command.form().quizRevisionId())
                         .orElseThrow(() -> new FormMaterializationException(REVISION_UNAVAILABLE));
                 validate(command, revision);
-                if (standalone) contracts.declareScope(ownerId, Set.of(revision.id()));
                 var resolved = contracts.resolve(ownerId, revision.id());
                 var order = orders.createOrReplay(ownerId, command.form(), command.answerOrdering());
                 return ParticipantFormProjector.project(command.form(), revision, order, resolved);
             });
             outcome = "success";
             return result;
+        } catch (DatabaseConflictException failure) {
+            outcome = failure.outcome();
+            throw failure;
         } catch (FormMaterializationException failure) {
             if (failure.reason() == INVALID_MATERIAL) outcome = "redaction_failure";
             if (failure.reason() == PERSISTENCE_UNAVAILABLE) outcome = "persistence_unavailable";
@@ -78,6 +91,11 @@ public class FixedFormMaterializerImpl implements FixedFormMaterializer {
             if (failure.reason() == ContractResolutionException.Reason.PERSISTENCE_UNAVAILABLE) outcome = "persistence_unavailable";
             throw failure;
         } catch (DataAccessException | TransactionException failure) {
+            var conflict = DatabaseConflictException.from(failure);
+            if (conflict.isPresent()) {
+                outcome = conflict.get().outcome();
+                throw conflict.get();
+            }
             outcome = "persistence_unavailable";
             throw new FormMaterializationException(PERSISTENCE_UNAVAILABLE);
         } finally {

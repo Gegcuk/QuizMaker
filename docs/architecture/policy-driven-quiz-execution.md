@@ -1413,6 +1413,84 @@ Attempt creation must support canonical idempotency.
 
 Concurrent start requests with the same semantic operation must not create duplicate attempts or consume multiple allowed attempts.
 
+### Dark atomic authenticated ALL start (#600)
+
+`AttemptStartService` composes the existing publication, contract, policy, form, subject,
+lifecycle, receipt and trace boundaries in one database transaction. It has no HTTP
+controller or route activation. Existing `AttemptService` routes remain authoritative.
+
+The command names a quiz, exact published revision/publication version, preset, launch
+context, legacy mode mapping, answer ordering and canonical command key. It accepts no
+user/owner/subject ID, supplied allowed actions, form items or answer keys. Authentication
+uses #536's supported server principal. `QuizPracticeSourceService` locks active-user,
+effective permissions, quiz and publication metadata through commit. The owner qualifies
+for the approved practice default. A non-owner qualifies only with the existing
+`QUESTION_UPDATE` gate plus `QUESTION_ADMIN` or `QUIZ_MODERATE`, which confer full
+question/answer editing in the current feature. Role names, `QUIZ_UPDATE`, `QUIZ_ADMIN`
+alone and take-only access do not confer that authority. There is no organization-bound
+launch in this slice; assignment/organization integration remains #534. Creator-authorized
+take-only policy selection requires its real policy source and #833 integration; no
+client-supplied grant or implicit public-quiz practice grant is introduced here.
+
+A fresh start requires the current publication reference and the real, already bound
+#701 contracts. It declares the complete #598 revision scope, resolves `FREE_PRACTICE/v1`,
+persists its snapshot, materializes ALL items in authored order, binds the subject,
+applies the #523/#527 start decision and persists `IN_PROGRESS/NOT_STARTED`. `FORM_CREATED`
+and `ATTEMPT_STARTED` trace events and the #599 receipt commit with these writes.
+The initial form uses authored option order or the approved participant-selected
+`SHUFFLED_PER_ATTEMPT` order under the existing question constraints. Only the flat,
+untimed mapping is supported. Legacy `TIMED` with an explicitly disabled timer retains
+the approved untimed mapping. Legacy `TIMED` with an enabled or unknown timer,
+assignments, unknown modes and unsupported presets cannot trigger a mutable-content
+or legacy fallback.
+
+The acknowledgement contains only attempt/form/revision references, the original state
+version and replay classification. Identical retries, including after restart or lost
+commit acknowledgement, use the persisted receipt. Reusing a key for changed input
+conflicts. A later publication makes an old reference stale for a **fresh** command,
+but an authorized replay still returns its original acknowledgement. Current account
+and resource authority is checked before every receipt lookup. The command fingerprint
+covers bounded request metadata, not the full document/question content. Different keys
+remain independent under the existing unlimited practice policy; no new quota or retry
+policy is introduced. Offline starts are unsupported: after reconnecting, the caller
+reconciles with the authoritative server using the same semantic command identity.
+
+All component writes join #599's REQUIRED transaction. A returned value is provisional
+when the caller owns an outer transaction. A reached write failure rolls back all new
+start evidence; existing publications/bindings remain intact. Unknown commit outcomes
+retain that classification and require the same request, without automatic re-execution
+or switching engines. Typed internal errors expose no rejected content or underlying
+database diagnostics. The `quizmaker.attempt.start` metric uses only fixed version and
+outcome labels; `start_returned` deliberately does not claim an outer transaction committed.
+
+Outer `READ_COMMITTED` and `REPEATABLE_READ` transactions remain supported even when
+their snapshot predates the requested publication. Current reads cover revision roots,
+items, question/option contents, contract membership and snapshot/form write checks.
+Contract scope takes canonical question locks before shared aggregate reads, so two
+independent starts do not need to upgrade shared question locks. The ordinary revision
+read API retains its snapshot semantics; write composition uses `findByIdForShare`.
+SQL conflicts are classified at the first diagnostic-sanitizing service boundary,
+including identity, question contracts, snapshots, forms, option order, subjects,
+lifecycle and trace. The internal `DatabaseConflictException` carries only a fixed
+kind, with no driver cause, suppressed exceptions or SQL message. Start/receipt maps
+MySQL `1213` to `RETRYABLE` and `1205` to `IN_PROGRESS`; ordinary storage failures keep
+their existing unavailable reason. Neither classification introduces an automatic retry
+or overrides commit uncertainty.
+
+`AttemptStartMySqlIntegrationTest` composes real publication, five-family bindings and
+start services, with external storage replaced at its port. It covers successful
+AUTHORED/shuffled starts, fresh-transaction rollback, concurrent identical/conflicting
+requests, receipt recovery, current-access denial and bounded relationship reads.
+Regression cases publish after an outer snapshot, exercise outer rollback after successful
+composition, and force actual authorization and nested question-lock deadlock/timeout
+errors under both supported isolation levels before an explicit retry. Separate fault
+injection at each SQL dependency boundary verifies safe reason propagation, rollback and
+same-key recovery; it does not replace the real InnoDB conflict scenarios. Receipt tests
+also preserve `UNKNOWN_OUTCOME` for completion failures carrying a sanitized conflict.
+`AttemptStartValidationTest` checks malformed input without protected lookup or writes.
+Public delivery, answer acceptance, feedback/release and API activation remain their
+separate integration outcomes; this service does not claim those flows are enabled.
+
 ---
 
 ## Immutable Quiz Revisions

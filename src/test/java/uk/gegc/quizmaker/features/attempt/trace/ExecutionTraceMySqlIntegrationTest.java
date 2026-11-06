@@ -32,6 +32,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.trace.TraceException;
 import uk.gegc.quizmaker.features.attempt.domain.repository.ExecutionTraceRepository;
 import uk.gegc.quizmaker.features.attempt.infra.repository.*;
 import uk.gegc.quizmaker.features.quiz.infra.repository.JdbcQuizRevisionRepository;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.sql.SQLException;
 import java.time.*;
@@ -523,7 +524,7 @@ class ExecutionTraceMySqlIntegrationTest {
             var second = workers.submit(() -> deadlockWorker(b, a, 2, isolation, barrier));
             var outcomes = List.of(first.get(30, TimeUnit.SECONDS), second.get(30, TimeUnit.SECONDS));
             assertThat(outcomes.stream().filter(Appended.class::isInstance)).hasSize(1);
-            assertThat(outcomes).contains(PERSISTENCE_UNAVAILABLE);
+            assertThat(outcomes).contains(DatabaseConflictException.Kind.DEADLOCK);
             assertThat(source.sqlErrorCodes).contains(1213);
             for (int i = 0; i < 2; i++) assertThat(marker(i + 1)).isEqualTo(outcomes.get(i) instanceof Appended ? "worker" : "original");
             assertThat(page(a).size() + page(b).size()).isEqualTo(3);
@@ -601,7 +602,10 @@ class ExecutionTraceMySqlIntegrationTest {
                 barrier(barrier);
                 return service.append(next, event("deadlock-" + marker));
             });
-        } catch (TraceException failure) { return failure.reason(); }
+        } catch (DatabaseConflictException failure) {
+            assertThat(failure).hasNoCause(); assertThat(failure.getSuppressed()).isEmpty();
+            return failure.kind();
+        }
     }
 
     private Object result(Scope scope, Event event, String isolation) {

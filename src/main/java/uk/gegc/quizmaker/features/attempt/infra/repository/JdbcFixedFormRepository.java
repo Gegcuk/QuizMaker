@@ -39,17 +39,15 @@ public class JdbcFixedFormRepository implements FixedFormRepository {
         var parameters = new MapSqlParameterSource("owner", bytes(ownerId))
                 .addValue("id", bytes(form.id())).addValue("revision", bytes(form.quizRevisionId()))
                 .addValue("version", form.schemaVersion()).addValue("count", form.items().size());
-        if (!Boolean.TRUE.equals(jdbc.queryForObject("""
-                SELECT EXISTS(SELECT 1 FROM quiz_revisions WHERE id=:revision AND owner_id=:owner)
-                """, parameters, Boolean.class))) throw new FixedFormException(REVISION_UNAVAILABLE);
+        if (!currentOwner(parameters)) throw new FixedFormException(REVISION_UNAVAILABLE);
         var sources = form.items().stream().map(FixedForm.Item::sourceItemId).toList();
         for (int start = 0; start < sources.size(); start += SQL_BATCH) {
             var part = sources.subList(start, Math.min(start + SQL_BATCH, sources.size()));
             parameters.addValue("sources", part.stream().map(JdbcFixedFormRepository::bytes).toList());
-            Integer count = jdbc.queryForObject("""
-                    SELECT COUNT(*) FROM quiz_revision_items WHERE quiz_revision_id=:revision AND id IN (:sources)
-                    """, parameters, Integer.class);
-            if (!Objects.equals(count, part.size())) throw new FixedFormException(REVISION_UNAVAILABLE);
+            var found = jdbc.queryForList("""
+                    SELECT id FROM quiz_revision_items WHERE quiz_revision_id=:revision AND id IN (:sources) FOR SHARE
+                    """, parameters);
+            if (found.size() != part.size()) throw new FixedFormException(REVISION_UNAVAILABLE);
         }
         // The unique root key serializes callers, including a concurrent identical first insert.
         // Never overwrite metadata. item_count prevents an apparent replay from appending items.
@@ -61,9 +59,8 @@ public class JdbcFixedFormRepository implements FixedFormRepository {
         var root = jdbc.query("SELECT id,schema_version,quiz_revision_id,item_count FROM attempt_form WHERE id=:id FOR UPDATE",
                 parameters, (row, index) -> root(row)).get(0);
         if (!root.revision().equals(form.quizRevisionId())) {
-            Boolean owned = jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM quiz_revisions WHERE id=:revision AND owner_id=:owner)",
-                    new MapSqlParameterSource("revision", bytes(root.revision())).addValue("owner", bytes(ownerId)), Boolean.class);
-            if (!Boolean.TRUE.equals(owned)) throw new FixedFormException(FORM_UNAVAILABLE);
+            if (!currentOwner(new MapSqlParameterSource("revision", bytes(root.revision())).addValue("owner", bytes(ownerId))))
+                throw new FixedFormException(FORM_UNAVAILABLE);
             throw new FixedFormException(FORM_CONFLICT);
         }
         if (root.version() != form.schemaVersion() || root.count() != form.items().size()) {
@@ -116,6 +113,11 @@ public class JdbcFixedFormRepository implements FixedFormRepository {
             }
         }
         return ids.stream().filter(result::containsKey).map(result::get).toList();
+    }
+
+    private boolean currentOwner(MapSqlParameterSource parameters) {
+        return !jdbc.queryForList("SELECT id FROM quiz_revisions WHERE id=:revision AND owner_id=:owner FOR SHARE",
+                parameters).isEmpty();
     }
 
     private static Root root(ResultSet row) throws SQLException {

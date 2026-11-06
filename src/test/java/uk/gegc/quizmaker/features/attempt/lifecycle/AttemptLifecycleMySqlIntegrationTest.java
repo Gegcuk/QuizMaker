@@ -27,6 +27,7 @@ import uk.gegc.quizmaker.features.attempt.application.impl.AttemptLifecycleServi
 import uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.*;
 import uk.gegc.quizmaker.features.attempt.domain.repository.LifecycleStateRepository;
 import uk.gegc.quizmaker.features.attempt.infra.repository.JdbcLifecycleStateRepository;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.nio.ByteBuffer;
 import java.sql.SQLException;
@@ -290,7 +291,7 @@ class AttemptLifecycleMySqlIntegrationTest {
             assertThat(results).filteredOn(result -> result.failure() == null).hasSize(1);
             // InnoDB may choose a deadlock victim during competing first inserts. It remains
             // a typed database failure, not a duplicate-key conflict or an automatic retry.
-            var expected = source.sqlErrorCodes.contains(1213) ? PERSISTENCE_UNAVAILABLE : STATE_CONFLICT;
+            Enum<?> expected = source.sqlErrorCodes.contains(1213) ? DatabaseConflictException.Kind.DEADLOCK : STATE_CONFLICT;
             assertThat(results).as("outcomes=%s, SQL codes=%s", results, source.sqlErrorCodes)
                     .filteredOn(result -> result.failure() == expected).hasSize(1);
             assertThat(source.sqlErrorCodes).containsExactly(expected == STATE_CONFLICT ? 1062 : 1213);
@@ -435,7 +436,7 @@ class AttemptLifecycleMySqlIntegrationTest {
             var second = pool.submit(() -> deadlockCommand(other, ID, gate));
             var results = List.of(first.get(25, TimeUnit.SECONDS), second.get(25, TimeUnit.SECONDS));
             assertThat(results).filteredOn(result -> result.failure() == null).hasSize(1);
-            assertThat(results).filteredOn(result -> result.failure() == PERSISTENCE_UNAVAILABLE).hasSize(1);
+            assertThat(results).filteredOn(result -> result.failure() == DatabaseConflictException.Kind.DEADLOCK).hasSize(1);
             assertThat(source.sqlErrorCodes).contains(1213);
             var winner = results.stream().filter(result -> result.failure() == null).findFirst().orElseThrow();
             var loser = results.stream().filter(result -> result.failure() != null).findFirst().orElseThrow();
@@ -482,8 +483,9 @@ class AttemptLifecycleMySqlIntegrationTest {
                         assertThat(boundary.save(own, 0, STARTED).rowVersion()).isEqualTo(1);
                         await(gate);
                         try { boundary.lock(peer); }
-                        catch (LifecycleStateException failure) {
-                            assertThat(failure.reason()).isEqualTo(PERSISTENCE_UNAVAILABLE);
+                        catch (DatabaseConflictException failure) {
+                            assertThat(failure.kind()).isEqualTo(DatabaseConflictException.Kind.DEADLOCK);
+                            assertThat(failure).hasNoCause(); assertThat(failure.getSuppressed()).isEmpty();
                             caught.set(true);
                             // InnoDB has rolled back the victim. The caller still attempts a new
                             // write; prove it reached MySQL before the outer rollback-only guard.
@@ -497,14 +499,14 @@ class AttemptLifecycleMySqlIntegrationTest {
                     return new Outcome(own, null);
                 } catch (UnexpectedRollbackException failure) {
                     assertThat(caught).as("rollback must follow a reached real deadlock").isTrue();
-                    return new Outcome(own, PERSISTENCE_UNAVAILABLE);
+                    return new Outcome(own, DatabaseConflictException.Kind.DEADLOCK);
                 }
             };
             var first = pool.submit(() -> command.apply(ID, other));
             var second = pool.submit(() -> command.apply(other, ID));
             var results = List.of(first.get(25, TimeUnit.SECONDS), second.get(25, TimeUnit.SECONDS));
             assertThat(results).filteredOn(result -> result.failure() == null).hasSize(1);
-            assertThat(results).filteredOn(result -> result.failure() == PERSISTENCE_UNAVAILABLE).hasSize(1);
+            assertThat(results).filteredOn(result -> result.failure() == DatabaseConflictException.Kind.DEADLOCK).hasSize(1);
             assertThat(source.sqlErrorCodes).containsExactly(1213);
             assertThat(continuedWrites).as("one victim successfully executed its post-deadlock SQL before commit").hasValue(1);
             // These are fresh reads after both outer transactions ended, before fixture cleanup.
@@ -604,6 +606,10 @@ class AttemptLifecycleMySqlIntegrationTest {
     private static Outcome outcome(UUID id, Supplier<LifecycleState> action) {
         try { action.get(); return new Outcome(id, null); }
         catch (LifecycleStateException failure) { return new Outcome(id, failure.reason()); }
+        catch (DatabaseConflictException failure) {
+            assertThat(failure).hasNoCause(); assertThat(failure.getSuppressed()).isEmpty();
+            return new Outcome(id, failure.kind());
+        }
     }
 
     private static void violatesCheck(Runnable action) {
@@ -651,5 +657,5 @@ class AttemptLifecycleMySqlIntegrationTest {
         assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
     }
 
-    private record Outcome(UUID id, LifecycleStateException.Reason failure) { }
+    private record Outcome(UUID id, Enum<?> failure) { }
 }

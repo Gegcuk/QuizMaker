@@ -13,6 +13,7 @@ import uk.gegc.quizmaker.features.attempt.application.AuthenticatedSubjectResolv
 import uk.gegc.quizmaker.features.attempt.domain.model.subject.AttemptSubject;
 import uk.gegc.quizmaker.features.attempt.domain.model.subject.SubjectResolutionException;
 import uk.gegc.quizmaker.features.user.application.AuthenticatedUserLookup;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.util.Locale;
 import java.util.UUID;
@@ -58,10 +59,18 @@ public class AuthenticatedSubjectResolverImpl implements AuthenticatedSubjectRes
             var subject = AttemptSubject.authenticated(serverAttemptId, userId);
             outcome = "resolved";
             return subject;
+        } catch (DatabaseConflictException failure) {
+            outcome = failure.outcome();
+            throw failure;
         } catch (SubjectResolutionException failure) {
             outcome = failure.reason().name().toLowerCase(Locale.ROOT);
             throw failure;
         } catch (DataAccessException | TransactionException failure) {
+            var conflict = DatabaseConflictException.from(failure);
+            if (conflict.isPresent()) {
+                outcome = conflict.get().outcome();
+                throw conflict.get();
+            }
             throw new SubjectResolutionException(UNAVAILABLE);
         } finally {
             record(sample, outcome);
