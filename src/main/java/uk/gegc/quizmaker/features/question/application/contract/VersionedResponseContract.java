@@ -27,4 +27,13 @@ public interface VersionedResponseContract {
     default ParticipantContent participantContent(QuestionRevision question) {
         throw new ContractResolutionException(ContractResolutionException.Reason.UNSUPPORTED_CONTRACT);
     }
+
+    /**
+     * Text projection for a view that separately represents the saved top-level attachment through
+     * its media/disclosure ports. Embedded media must still fail closed. Opt-in per saved contract;
+     * this method grants no start, storage, release or image-display authority.
+     */
+    default ParticipantContent participantContentWithSeparateAttachment(QuestionRevision question) {
+        throw new ContractResolutionException(ContractResolutionException.Reason.UNSUPPORTED_CONTRACT);
+    }
 }

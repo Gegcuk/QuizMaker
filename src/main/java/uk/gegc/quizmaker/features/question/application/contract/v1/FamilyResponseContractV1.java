@@ -33,8 +33,16 @@ public final class FamilyResponseContractV1 implements VersionedResponseContract
     }
 
     @Override public ParticipantContent participantContent(QuestionRevision question) {
+        return participantContent(question, false);
+    }
+
+    @Override public ParticipantContent participantContentWithSeparateAttachment(QuestionRevision question) {
+        return participantContent(question, true);
+    }
+
+    private ParticipantContent participantContent(QuestionRevision question, boolean separateAttachment) {
         JsonNode content = FamilyContentV1.read(type, question);
-        if (question.attachmentAssetId() != null || question.attachmentUrl() != null || containsMedia(content))
+        if (!separateAttachment && (question.attachmentAssetId() != null || question.attachmentUrl() != null) || containsMedia(content))
             throw new ContractResolutionException(ContractResolutionException.Reason.UNSUPPORTED_CONTRACT);
         var options = new ArrayList<ParticipantContent.Option>();
         for (int i = 0; i < question.options().size(); i++) {

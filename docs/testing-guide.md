@@ -162,6 +162,24 @@ The HTTP suite checks the real security chain; activation tests keep the new rou
 default. These tests do not claim answer submission, navigation, completion-command or #609
 activation conformance.
 
+Canonical participant views (#526) add the following scoped verification:
+
+```bash
+./mvnw test -Dtest=ParticipantAttemptViewMySqlIntegrationTest,ParticipantViewLegacyHttpIntegrationTest,ParticipantAttemptViewOpenApiContractTest,ParticipantAttemptViewActivationTest,FamilyContractV1Test,ParticipantFormProjectorTest,AttemptDeliveryMySqlIntegrationTest,AttemptFormOpenApiContractTest,AttemptFormActivationTest
+```
+
+The new view suites use generated `attempt_view_<id>` and `legacy_view_<id>` MySQL catalogs
+with Flyway and the same `TEST_MYSQL_PORT`/administrative credential convention. They exercise
+actual target start/read and legacy writer/mapper/HTTP paths, access revocation, repeatable-read
+snapshots older than publication/start, concurrent reads, rollback of a caller write, and
+non-enumerating failures. Bounded-query assertions include serialization for three parents at
+one and twenty children. `PARTICIPANT-VIEW-MEDIA` explicitly uses persisted canonical fixtures
+and typed disclosure/media reader doubles: it proves projection of available/unavailable/restricted
+images after service recreation, not completed-review release, a real storage backend, media
+start or timing compensation. Full/grouped OpenAPI validates both legacy and target examples;
+default/false activation leaves the existing controller on its legacy reader. Run `./mvnw verify`
+after these checks for shared-controller/family-contract regressions; real providers remain excluded.
+
 Reserve integration tests for behavior that crosses real boundaries: service transactions, `AFTER_COMMIT` listeners, migration wiring, security configuration, serialization, or asynchronous job orchestration.
 
 Reuse the Spring context within a class when scenario isolation does not require a restart. `QuestionSoftDeleteTest` and `BalanceEndpointIntegrationTest` retain their test-managed rollback and verify fixture removal in `@AfterTransaction`. `AttemptControllerCurrentQuestionIntegrationTest` and `QuizControllerCachingAndRateLimitTest` retain committed fixtures and real request transactions; they physically remove only their own rows after each scenario, with foreign keys enabled. Rate-limit scenarios use a distinct client IP per scenario and keep one IP for every request within the 120/121 boundary check. ETag scenarios retain direct requests without forwarded headers. These classes still close their contexts after the class and run in the serial database lane.

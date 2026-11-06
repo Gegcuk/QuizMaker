@@ -25,6 +25,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
+import uk.gegc.quizmaker.features.attempt.application.ParticipantAttemptViewService;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 
@@ -39,6 +40,7 @@ import java.util.UUID;
 public class AttemptController {
 
     private final AttemptService attemptService;
+    private final org.springframework.beans.factory.ObjectProvider<ParticipantAttemptViewService> participantViews;
 
     @Operation(
             summary = "Start an attempt for a quiz",
@@ -187,27 +189,54 @@ public class AttemptController {
         return ResponseEntity.ok(result);
     }
 
-    @Operation(summary = "Get attempt details", description = "Retrieve detailed information for a specific attempt.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Attempt details returned",
-                    content = @Content(
-                            mediaType = "application/json",
-                            schema = @Schema(implementation = AttemptDetailsDto.class)
-                    )
-            ),
-            @ApiResponse(responseCode = "404", description = "Attempt not found",
-                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
-    })
+    @Operation(summary = "Get attempt details", description = "Retrieve own attempt details. Legacy retains its existing successful envelope. " +
+            "The optional participant-view adapter returns POLICY_DRIVEN/v1 for persisted target attempts: saved revision/form/order, " +
+            "current state and server-derived actions; no keys, scores, answers, explanations or private provenance. " +
+            "Target reads require ATTEMPT_READ, the bound authenticated participant, and current quiz ownership/full editing authority. " +
+            "Unknown/foreign/unavailable target roots share 404; include flags never grant disclosure. " +
+            "No pagination/filter/sort or idempotency key. Online only; adapter responses use Cache-Control: no-store. " +
+            "Adapter disabled by default pending #609. Missing release/media integrations cannot enable completed review or media starts.")
+    @ApiResponse(responseCode = "200", description = "Attempt details returned",
+            content = @Content(
+                    mediaType = "application/json",
+                    schema = @Schema(implementation = AttemptDetailsResponse.class), examples = {
+                        @ExampleObject(name = "legacy", value = """
+                            {"attemptId":"10000000-0000-0000-0000-000000000001","quizId":"20000000-0000-0000-0000-000000000001",
+                             "userId":"30000000-0000-0000-0000-000000000001","startedAt":"2026-11-06T12:00:00Z",
+                             "completedAt":null,"status":"IN_PROGRESS","mode":"ALL_AT_ONCE","answers":[]}
+                            """),
+                        @ExampleObject(name = "policyDriven", value = """
+                            {"representation":"POLICY_DRIVEN","schemaVersion":1,"attemptId":"10000000-0000-0000-0000-000000000001",
+                             "quizId":"20000000-0000-0000-0000-000000000001","quizRevisionId":"30000000-0000-0000-0000-000000000001",
+                             "formId":"40000000-0000-0000-0000-000000000001","stateVersion":1,"policyVersion":1,
+                             "execution":"IN_PROGRESS","answerCollection":"NOT_STARTED","startedAt":"2026-11-06T12:00:00Z",
+                             "timing":"UNTIMED","contentVisibility":"VISIBLE","items":[{"id":"50000000-0000-0000-0000-000000000001",
+                             "position":0,"type":"TRUE_FALSE","questionText":"Water is a liquid at room temperature.","content":{"kind":"TRUE_FALSE"}}],
+                             "allowedActions":["VIEW_ATTEMPT"]}
+                            """)
+                    }
+            )
+    )
+    @ApiResponse(responseCode = "404", description = "Attempt not found",
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    @io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
+    @ApiResponse(responseCode = "400", description = "Invalid attempt identifier", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "403", description = "Legacy ownership denial while the adapter is disabled", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "409", description = "Target attempt is currently busy", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "422", description = "Unsupported saved target representation or media integration", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "500", description = "Corrupt target evidence; no partial view", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "503", description = "Target read temporarily unavailable; no partial view", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     @GetMapping("/{attemptId}")
-    public ResponseEntity<AttemptDetailsDto> getAttempt(
+    public ResponseEntity<AttemptDetailsResponse> getAttempt(
             @Parameter(description = "UUID of the attempt to retrieve", required = true)
             @PathVariable UUID attemptId,
 
             Authentication authentication
     ) {
-        String username = authentication.getName();
-        AttemptDetailsDto attempt = attemptService.getAttemptDetail(username, attemptId);
-        return ResponseEntity.ok(attempt);
+        var reader = participantViews.getIfAvailable();
+        if (reader != null) return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore()).body(reader.read(attemptId));
+        return ResponseEntity.ok(attemptService.getAttemptDetail(authentication.getName(), attemptId));
     }
 
     @Operation(

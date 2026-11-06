@@ -85,7 +85,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         PublishedQuestionContractServiceImpl.class, BaselineQuestionContractConfig.class,
         FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
-        AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
+        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
         AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
         JdbcPolicySnapshotRepository.class, QuestionSelectionServiceImpl.class,
@@ -433,10 +433,7 @@ class AttemptDeliveryMySqlIntegrationTest {
     }
 
     private AttemptDeliveryService recreated() {
-        return new AttemptDeliveryServiceImpl(access, context.getBean(PolicySnapshotService.class),
-                context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.FixedFormRepository.class),
-                context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.FormOptionOrderRepository.class),
-                context.getBean(QuizRevisionRepository.class), context.getBean(QuestionRevisionContractService.class), manager, metrics);
+        return new AttemptDeliveryServiceImpl(context.getBean(AttemptReadFactsService.class), manager, metrics);
     }
     @Test void authorityRemainsLockedThroughActualContentProjection() throws Exception {
         var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "delivery"));
@@ -482,10 +479,7 @@ class AttemptDeliveryMySqlIntegrationTest {
         var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "delivery"));
         var broken = org.mockito.Mockito.mock(io.micrometer.core.instrument.MeterRegistry.class);
         org.mockito.Mockito.when(broken.config()).thenThrow(new IllegalStateException("synthetic metrics outage"));
-        var checked = new AttemptDeliveryServiceImpl(access, context.getBean(PolicySnapshotService.class),
-                context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.FixedFormRepository.class),
-                context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.FormOptionOrderRepository.class),
-                context.getBean(QuizRevisionRepository.class), context.getBean(QuestionRevisionContractService.class), manager, broken);
+        var checked = new AttemptDeliveryServiceImpl(context.getBean(AttemptReadFactsService.class), manager, broken);
         assertThat(checked.read(started.attemptId())).isEqualTo(delivery.read(started.attemptId()));
         revoke(ownerId, "ATTEMPT_READ");
         assertThatThrownBy(() -> checked.read(started.attemptId())).isInstanceOfSatisfying(
