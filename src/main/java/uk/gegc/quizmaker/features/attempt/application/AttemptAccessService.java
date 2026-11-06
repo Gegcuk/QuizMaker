@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.attempt.application;
 
 import java.util.UUID;
+import uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.LifecycleState;
 
 /** Dark authenticated self-attempt boundary; no legacy, guest, operator or HTTP activation. */
 public interface AttemptAccessService {
@@ -17,7 +18,8 @@ public interface AttemptAccessService {
 
     /** Internal references for this invocation and operation only. Never accept this value from a client. */
     record Access(UUID attemptId, Operation operation, UUID quizId, UUID quizRevisionId,
-                  UUID formId, UUID policySnapshotId, long stateVersion) {
+                  UUID formId, UUID policySnapshotId, long stateVersion,
+                  UUID contentOwnerId, LifecycleState lifecycle) {
         @Override public String toString() { return "AttemptAccess[operation=" + operation + "]"; }
     }
 }

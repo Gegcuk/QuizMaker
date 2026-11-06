@@ -225,7 +225,8 @@ class AttemptAccessMySqlIntegrationTest {
         assertThat(targetSnapshot()).isEqualTo(before);
         // Access returns only scoped references, never an answer, grade, release or allowed-actions DTO.
         assertThat(Arrays.stream(AttemptAccessService.Access.class.getRecordComponents()).map(RecordComponent::getName))
-                .containsExactly("attemptId", "operation", "quizId", "quizRevisionId", "formId", "policySnapshotId", "stateVersion");
+                .containsExactly("attemptId", "operation", "quizId", "quizRevisionId", "formId", "policySnapshotId", "stateVersion",
+                        "contentOwnerId", "lifecycle");
     }
 
     @ParameterizedTest @ValueSource(strings = {"QUESTION_ADMIN", "QUIZ_MODERATE"})

@@ -9,6 +9,9 @@ public interface PolicySnapshotRepository {
 
     Optional<StoredSnapshot> findById(UUID revisionOwnerId, UUID snapshotId);
 
+    /** Current read with shared locks held by the caller transaction. */
+    Optional<StoredSnapshot> findByIdForShare(UUID revisionOwnerId, UUID snapshotId);
+
     /** Untrusted storage representation: the application boundary verifies every read. */
     record StoredSnapshot(UUID id, int schemaVersion, UUID quizRevisionId, int resolverVersion,
                           int canonicalVersion, String hashAlgorithm, String canonicalJson, String hash) { }

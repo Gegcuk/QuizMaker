@@ -85,8 +85,18 @@ public class JdbcFixedFormRepository implements FixedFormRepository {
 
     @Override
     public List<FixedForm> findByIds(UUID ownerId, Collection<UUID> formIds) {
+        return read(ownerId, formIds, false);
+    }
+
+    @Override
+    public List<FixedForm> findByIdsForShare(UUID ownerId, Collection<UUID> formIds) {
+        return read(ownerId, formIds, true);
+    }
+
+    private List<FixedForm> read(UUID ownerId, Collection<UUID> formIds, boolean current) {
         if (ownerId == null) throw new FixedFormException(FORM_UNAVAILABLE);
         if (formIds == null || formIds.stream().anyMatch(Objects::isNull)) throw new FixedFormException(INVALID_FORM);
+        String lock = current ? " FOR SHARE" : "";
         var ids = formIds.stream().distinct().toList();
         Map<UUID, FixedForm> result = new HashMap<>();
         for (int start = 0; start < ids.size(); start += SQL_BATCH) {
@@ -97,11 +107,11 @@ public class JdbcFixedFormRepository implements FixedFormRepository {
                     SELECT f.id,f.schema_version,f.quiz_revision_id,f.item_count FROM attempt_form f
                     JOIN quiz_revisions r ON r.id=f.quiz_revision_id WHERE r.owner_id=:owner AND f.id IN (:ids)
                     ORDER BY f.id
-                    """, parameters, (row, index) -> root(row));
+                    """ + lock, parameters, (row, index) -> root(row));
             if (roots.isEmpty()) continue;
             parameters.addValue("ids", roots.stream().map(root -> bytes(root.id())).toList());
             Map<UUID, List<FixedForm.Item>> items = new HashMap<>();
-            jdbc.query("SELECT form_id,id,source_item_id,position FROM attempt_form_item WHERE form_id IN (:ids) ORDER BY form_id,position",
+            jdbc.query("SELECT form_id,id,source_item_id,position FROM attempt_form_item WHERE form_id IN (:ids) ORDER BY form_id,position" + lock,
                     parameters, (org.springframework.jdbc.core.RowCallbackHandler) row ->
                             items.computeIfAbsent(uuid(row, "form_id"), ignored -> new ArrayList<>()).add(item(row)));
             for (var root : roots) {

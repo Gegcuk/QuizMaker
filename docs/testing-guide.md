@@ -146,6 +146,22 @@ new-source attribution and preservation of unknown legacy authority on import up
 
 ## Integration Tests
 
+Flat attempt delivery has a focused real-MySQL composition suite and separate HTTP/activation checks:
+
+```bash
+./mvnw test -Dtest=AttemptDeliveryMySqlIntegrationTest,AttemptFormOpenApiContractTest,AttemptFormActivationTest,AttemptAccessServiceTest,AttemptAccessMySqlIntegrationTest
+```
+
+`AttemptDeliveryMySqlIntegrationTest` uses a generated `attempt_delivery_<id>` catalog via
+`TEST_MYSQL_PORT` and the same optional administrative credentials as the publication suite.
+It migrates the full schema, invokes real publication/binding/start/access/read services and
+drops only its own catalog. Object storage is fake. Persisted-state comparisons surround reads
+and injected SQL failures; a lock-wait assertion proves that permission revocation waits for
+actual content projection. SQL counts cover multiple parents and complete form serialization.
+The HTTP suite checks the real security chain; activation tests keep the new route absent by
+default. These tests do not claim answer submission, navigation, completion-command or #609
+activation conformance.
+
 Reserve integration tests for behavior that crosses real boundaries: service transactions, `AFTER_COMMIT` listeners, migration wiring, security configuration, serialization, or asynchronous job orchestration.
 
 Reuse the Spring context within a class when scenario isolation does not require a restart. `QuestionSoftDeleteTest` and `BalanceEndpointIntegrationTest` retain their test-managed rollback and verify fixture removal in `@AfterTransaction`. `AttemptControllerCurrentQuestionIntegrationTest` and `QuizControllerCachingAndRateLimitTest` retain committed fixtures and real request transactions; they physically remove only their own rows after each scenario, with foreign keys enabled. Rate-limit scenarios use a distinct client IP per scenario and keep one IP for every request within the 120/121 boundary check. ETag scenarios retain direct requests without forwarded headers. These classes still close their contexts after the class and run in the serial database lane.

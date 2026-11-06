@@ -70,7 +70,7 @@ public class AttemptAccessServiceImpl implements AttemptAccessService {
         var owner = quizzes.lockParticipantAccess(subject.userId(), evidence.quizId(), required);
         if (!owner.equals(evidence.contentOwnerId())) throw new AttemptAccessException(DENIED);
         return new Access(attemptId, operation, evidence.quizId(), evidence.revisionId(), evidence.formId(),
-                evidence.policySnapshotId(), evidence.lifecycle().rowVersion());
+                evidence.policySnapshotId(), evidence.lifecycle().rowVersion(), owner, evidence.lifecycle());
     }
 
     private static AttemptAccessException translate(RuntimeException failure) {
