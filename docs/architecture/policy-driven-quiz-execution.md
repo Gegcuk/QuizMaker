@@ -2788,6 +2788,47 @@ Selection does not automatically mean delivery.
 
 Delivery may have security, timing, or exposure consequences.
 
+### Persisted flat delivery (#524)
+
+`AttemptDeliveryService.read` composes real #600 start evidence, #537 current participant access,
+#522 fixed form/order, persisted question-contract bindings and #528 lifecycle state. The additive
+`GET /api/v1/attempts/{attemptId}/form` adapter is absent unless
+`quizmaker.attempts.flat-delivery-enabled=true`; public activation remains gated by #609. Existing
+attempt routes, immediate practice feedback and legacy envelopes keep their behavior.
+
+Only active, text-only, implicit-flat `ALL_AT_ONCE` / `PRECOMPUTED` forms are supported. The five
+baseline families are `MCQ_SINGLE`, `MCQ_MULTI`, `TRUE_FALSE`, `FILL_GAP` and `ORDERING`. The response
+contains stable form-item/option IDs and saved order, participant-safe content, `stateVersion`
+and server-derived `allowedActions`. Reconnects and subsequent author publications return the
+original saved form. This is an online-only read with `Cache-Control: no-store`; it neither creates
+delivery state nor supplies an offline package. It exposes no keys, correctness, explanations,
+private source references or raw author JSON. Client include flags do not expand disclosure.
+
+The service holds current access and contract locks until its read transaction finishes. Access
+requires the bound participant, `ATTEMPT_READ` and current ownership/full-editor authority under
+the [authenticated self-attempt access decision](./decision-register.md#authenticated-self-attempt-access).
+The locked lifecycle returned by #537 supplies the version/state, even inside an older caller
+snapshot. Missing accepted-response and completion facts remain unknown: #523 currently derives
+only `VIEW_ATTEMPT`. Real answer/navigation/completion consumers (#543/#525/#529) must supply and
+verify their facts before advertising their actions; this increment does not claim those integrations.
+
+The named DTOs use a discriminated content union in the `attempts` OpenAPI group and API summary.
+Failures return RFC 7807 without partial form content: `400` malformed ID, `401` unauthenticated,
+uniform `404` absent/foreign/legacy/ineligible roots (including unknown root versions), `409`
+inactive/busy, `422` unsupported saved delivery contract, `500` corrupt evidence and `503` storage
+unavailability. Reads never regenerate, rebind, repair or fall back to mutable quiz content.
+The `quizmaker.attempt.delivery` timer has fixed version/outcome tags only; `delivered` includes
+successful resume. Telemetry failure cannot change the result.
+
+`AttemptDeliveryMySqlIntegrationTest` publishes and binds real five-family content, starts through
+#600 and reads through the service and HTTP adapter. It verifies both ordering policies, service
+recreation, republishing, access loss, corrupt/versioned evidence, fresh lifecycle reads, storage
+failure and a real permission-revocation race during projection. It measures the complete read
+for three independent participants/quizzes with one versus twenty questions: 57 SELECTs in either
+case, with no authoritative writes. Lifecycle terminal-state fixtures demonstrate read behavior,
+not the separately owned terminal command. MVC tests use the real security chain and verify typed
+JSON, errors, examples, full/grouped OpenAPI, discovery and default-disabled activation.
+
 ---
 
 ## Navigation
