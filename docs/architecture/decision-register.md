@@ -220,6 +220,17 @@ The new immutable FILL_GAP response/scoring v1 contract trims answers and lowerc
 
 For the legacy `TIMED` refinement, cover disabled quiz timing with an unambiguous authorized untimed policy, a stored inactive duration, ambiguity without attempt creation, absent authority, a required timed assignment, invalid enabled timing, unchanged legacy response fields and active-attempt immutability. Do not substitute a broad "TIMED always becomes practice" test for these conditions.
 
+<a id="authenticated-self-attempt-access"></a>
+## Authenticated self-attempt access — DECIDED
+
+**Decision date/source:** 6 November 2026, repository owner approved options 1A and 2A for [#537](https://github.com/Gegcuk/QuizMaker/issues/537).
+
+- The initial dark authenticated practice path requires `ATTEMPT_READ` for `VIEW` and `RESULT`, and `ATTEMPT_CREATE` for `ANSWER`. Each operation is checked explicitly. `ATTEMPT_READ` alone cannot authorize an answer; `ATTEMPT_CREATE` alone does not authorize a view/result. A result access check is not permission to disclose result categories.
+- The current actor must be the immutable participant bound to the target attempt and must still own the quiz or have full question-and-answer editing authority over it. Reuse the implemented #600 mapping: owner, or `QUESTION_UPDATE` together with `QUESTION_ADMIN` or `QUIZ_MODERATE`. The operation permission is required for owners and editors alike. `ATTEMPT_READ_ALL`, a role name, public visibility, metadata editing or historical rights do not bypass either condition.
+- Loss of full editing authority closes access to this initial practice path even when the quiz remains public. For example, Boris starts as a full editor; after `QUESTION_UPDATE` is revoked, he cannot view, answer or request the result of that attempt through #537. Restoring the relevant rights can restore access; it does not rewrite the captured policy, form or result.
+- Active-account, non-deleted-resource and current-permission checks are repeated per operation. Unknown/missing target evidence fails closed without inferring identity from legacy rows. Current author edits or a later publication do not replace the attempt's saved revision.
+- This scope does not add role grants, an endpoint, new start restrictions, guest/assignment access, release decisions or target activation. Creator-authorized take-only paths remain their separately owned integration. Existing legacy routes retain their behavior.
+
 <a id="one-by-one-navigation"></a>
 ## ONE_BY_ONE sequential default and configurable skip/return — DECIDED
 

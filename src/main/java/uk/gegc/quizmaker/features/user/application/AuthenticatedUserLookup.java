@@ -7,4 +7,7 @@ import java.util.UUID;
 public interface AuthenticatedUserLookup {
     /** Exact username from a trusted principal, never a caller-selected user ID or email fallback. */
     Optional<UUID> findActiveUserId(String trustedUsername);
+
+    /** Requires a caller transaction; locks current username/eligibility through its completion. */
+    Optional<UUID> lockActiveUserId(String trustedUsername);
 }

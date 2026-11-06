@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.user.application.impl;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.user.application.AuthenticatedUserLookup;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
@@ -21,5 +22,14 @@ public class AuthenticatedUserLookupImpl implements AuthenticatedUserLookup {
             return Optional.empty();
         }
         return users.findActiveAuthenticatedUserId(trustedUsername);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<UUID> lockActiveUserId(String trustedUsername) {
+        if (trustedUsername == null || trustedUsername.isBlank() || trustedUsername.length() > 50) {
+            return Optional.empty();
+        }
+        return users.lockActiveAuthenticatedUserId(trustedUsername);
     }
 }

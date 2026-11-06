@@ -22,6 +22,11 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<UUID> findActiveAuthenticatedUserId(@Param("username") String username);
 
     @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("SELECT u.id FROM User u WHERE u.username = :username " +
+           "AND u.isActive = true AND u.isDeleted = false AND u.username <> 'anonymous'")
+    Optional<UUID> lockActiveAuthenticatedUserId(@Param("username") String username);
+
+    @Lock(LockModeType.PESSIMISTIC_READ)
     @Query("SELECT u FROM User u WHERE u.id = :id")
     Optional<User> findByIdForOwnershipWrite(@Param("id") UUID id);
 

@@ -2085,6 +2085,61 @@ mixed-credential transport integration, and #609 owns public activation. Existin
 authentication responses do not invoke this resolver and remain unchanged. No endpoint, schema
 migration or historical identity inference is introduced.
 
+### Authenticated self-attempt access (#537)
+
+`AttemptAccessService.requireAccess(attemptId, operation)` is the dark application boundary for
+authenticated self-attempt `VIEW`, `ANSWER` and `RESULT`. The [6 November access decision](./decision-register.md#authenticated-self-attempt-access)
+requires `ATTEMPT_READ` for view/result and `ATTEMPT_CREATE` for answer, plus current quiz ownership
+or the same full-editor authority as #600. Public visibility, `ATTEMPT_READ_ALL`, role names and
+caller-supplied identity cannot replace the immutable participant binding. A private quiz remains
+accessible to its qualifying owner/editor for their own attempt; a removed quiz or revoked rights
+deny access. Loss of editing rights also denies access to an already started public-quiz practice.
+
+The existing #536 principal validation is reused through `resolveCurrent`, whose user-owned scalar
+query takes a current shared lock rather than using the caller's earlier transaction snapshot.
+The ordinary `resolve` lookup remains unchanged. First, a separate current locking read checks the
+#535 binding using the exact `(user_id, attempt_id)` range and forces `ix_attempt_subject_user`.
+Only a matching participant binding permits the subsequent bounded metadata read of lifecycle, trace scope, form,
+policy snapshot and immutable quiz revision. This ordering and index selection prevent a locked
+foreign subject/lifecycle/trace row from turning `DENIED` into an observable lock-timeout outcome;
+a foreign or absent binding never reaches the metadata read. Missing roots,
+unsupported metadata versions, mismatched revision references or unstarted/inconsistent lifecycle
+evidence deny access. These queries read no questions, answers, policy JSON or source documents. The
+quiz-owned access boundary locks current account, effective permissions and non-deleted quiz facts;
+the revision's content owner must match the resource owner. A newer publication does not invalidate
+the old attempt's saved revision or cause mutable-content reconstruction.
+
+All reads join a caller transaction when one exists. Consumers must call this boundary inside
+their own operation transaction after acquiring any command serialization lock. Shared access
+locks last until that transaction finishes, including when it started before a permission change
+under `REPEATABLE_READ`. Calling it without an outer transaction provides a current check only.
+The returned references are invocation/operation-scoped facts, not a bearer credential or a cached
+authorization grant. They do not authorize a lifecycle transition, delivery, grading, release or
+an answer write; #523/#524/#543/#555/#556 retain those guards and their real integration tests.
+`RESULT` can pass access checking while the result remains unreleased or does not yet exist.
+
+The service writes no domain records. All missing/foreign/legacy/resource/version refusals use
+the same content-free `DENIED` reason, without exception causes or suppressed diagnostics.
+Absent authentication is `UNAUTHENTICATED`; ordinary storage failure is `UNAVAILABLE`.
+Existing database-conflict classification is retained as `IN_PROGRESS` for MySQL 1205 and
+`RETRYABLE` for 1213, without automatic retries. Failures within a joined transaction mark it
+for rollback. The bounded `quizmaker.attempt.access` timer records operation/outcome only and
+cannot change authorization. No HTTP route or exception advice is installed; future adapters
+own uniform non-enumerating RFC 7807 mapping. Existing legacy routes remain authoritative.
+
+`AttemptAccessMySqlIntegrationTest` creates real published, contract-bound content and invokes
+#600 before checking access. It covers independent operation permissions, full-editor revocation,
+wrong-owner and caller-identity probes, absent/legacy/partial/version-incompatible evidence,
+old transaction snapshots, republishing, storage failure and actual lock contention. Under both
+`READ_COMMITTED` and `REPEATABLE_READ`, locked foreign subject/lifecycle/trace rows return the same
+`DENIED` as absent attempts for all three operations, while own contention retains `IN_PROGRESS`
+and succeeds after the lock is released. It compares persisted state before/after reads, verifies
+outer rollback, checks the binding lookup's actual index plan and measures SQL across multiple
+owners/quizzes with small and larger forms (at most six SELECTs per successful check). External
+storage is replaced only at its port.
+These checks prove the access boundary; they do not claim target answer/result delivery or public
+activation, which remain with their named consumers and #609.
+
 ### Authenticated subject storage (#535)
 
 `AttemptSubjectService` is an internal, dark persistence boundary for `AUTHENTICATED_USER/v1`.
