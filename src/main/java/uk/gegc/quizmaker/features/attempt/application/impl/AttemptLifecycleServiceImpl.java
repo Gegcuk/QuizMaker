@@ -13,6 +13,7 @@ import uk.gegc.quizmaker.features.attempt.application.AttemptLifecycleService;
 import uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.*;
 import uk.gegc.quizmaker.features.attempt.domain.repository.LifecycleStateRepository;
 import uk.gegc.quizmaker.features.attempt.domain.repository.LifecycleStateRepository.StoredState;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.time.Clock;
 import java.util.Locale;
@@ -105,13 +106,22 @@ public class AttemptLifecycleServiceImpl implements AttemptLifecycleService {
             T result = transaction.execute(status -> action.get());
             outcome = "returned";
             return result;
+        } catch (DatabaseConflictException failure) {
+            outcome = failure.outcome();
+            throw failure;
         } catch (LifecycleStateException failure) {
             outcome = failure.reason().name().toLowerCase(Locale.ROOT);
             throw failure;
-        } catch (DuplicateKeyException failure) {
-            outcome = "state_conflict";
-            throw new LifecycleStateException(STATE_CONFLICT);
         } catch (DataAccessException | TransactionException failure) {
+            var conflict = DatabaseConflictException.from(failure);
+            if (conflict.isPresent()) {
+                outcome = conflict.get().outcome();
+                throw conflict.get();
+            }
+            if (failure instanceof DuplicateKeyException) {
+                outcome = "state_conflict";
+                throw new LifecycleStateException(STATE_CONFLICT);
+            }
             throw new LifecycleStateException(PERSISTENCE_UNAVAILABLE);
         } finally {
             record(operation, outcome, sample);

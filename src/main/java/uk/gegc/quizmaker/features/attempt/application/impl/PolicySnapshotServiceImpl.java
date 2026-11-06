@@ -11,6 +11,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.snapshot.*;
 import uk.gegc.quizmaker.features.attempt.domain.repository.PolicySnapshotRepository;
 import uk.gegc.quizmaker.features.attempt.domain.repository.PolicySnapshotRepository.StoredSnapshot;
 import uk.gegc.quizmaker.features.attempt.infra.policy.CanonicalPolicyFormat;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.util.Locale;
 import java.util.UUID;
@@ -75,10 +76,18 @@ public class PolicySnapshotServiceImpl implements PolicySnapshotService {
             T value = transaction.execute(status -> action.get());
             outcome = "verified";
             return value;
+        } catch (DatabaseConflictException failure) {
+            outcome = failure.outcome();
+            throw failure;
         } catch (PolicySnapshotException failure) {
             outcome = failure.reason().name().toLowerCase(Locale.ROOT);
             throw failure;
         } catch (DataAccessException | TransactionException failure) {
+            var conflict = DatabaseConflictException.from(failure);
+            if (conflict.isPresent()) {
+                outcome = conflict.get().outcome();
+                throw conflict.get();
+            }
             throw new PolicySnapshotException(PERSISTENCE_UNAVAILABLE);
         } finally {
             count(operation, outcome);

@@ -22,6 +22,7 @@ import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolut
 import uk.gegc.quizmaker.features.question.domain.model.contract.OptionLayout;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.util.*;
 import java.util.function.Supplier;
@@ -110,18 +111,27 @@ public class FormOptionOrderServiceImpl implements FormOptionOrderService {
         String outcome = "persistence_unavailable";
         try {
             T result = transaction.execute(status -> action.get()); outcome = "success"; return result;
+        } catch (DatabaseConflictException failure) {
+            outcome = failure.outcome();
+            throw failure;
         } catch (FixedFormException | OptionOrderException | ContractResolutionException
                  | uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException failure) {
             outcome = failure instanceof ContractResolutionException contractFailure
                     && contractFailure.reason() == ContractResolutionException.Reason.PERSISTENCE_UNAVAILABLE
                     ? "persistence_unavailable" : "rejected";
             throw failure;
-        } catch (DataIntegrityViolationException failure) {
-            outcome = "rejected";
-            throw new OptionOrderException(ORDER_CONFLICT);
-        }
-        catch (DataAccessException | TransactionException failure) { throw new OptionOrderException(PERSISTENCE_UNAVAILABLE); }
-        finally {
+        } catch (DataAccessException | TransactionException failure) {
+            var conflict = DatabaseConflictException.from(failure);
+            if (conflict.isPresent()) {
+                outcome = conflict.get().outcome();
+                throw conflict.get();
+            }
+            if (failure instanceof DataIntegrityViolationException) {
+                outcome = "rejected";
+                throw new OptionOrderException(ORDER_CONFLICT);
+            }
+            throw new OptionOrderException(PERSISTENCE_UNAVAILABLE);
+        } finally {
             // Observability cannot change commit/rollback or replace an existing failure.
             try { if (sample != null) sample.stop(Timer.builder("quizmaker.attempt.option.order.operations")
                     .tags("operation", operation, "outcome", outcome).register(metrics)); }

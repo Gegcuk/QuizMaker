@@ -13,6 +13,7 @@ import uk.gegc.quizmaker.features.question.application.contract.ResolvedQuestion
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
 import uk.gegc.quizmaker.features.question.domain.model.contract.QuestionContractBinding;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionContractBindingRepository;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.util.Collections;
 import java.util.Comparator;
@@ -165,6 +166,8 @@ public class QuestionRevisionContractServiceImpl implements QuestionRevisionCont
                 }
             });
         } catch (DataAccessException | TransactionException failure) {
+            var conflict = DatabaseConflictException.from(failure);
+            if (conflict.isPresent()) throw conflict.get();
             throw new ContractResolutionException(PERSISTENCE_UNAVAILABLE);
         }
     }

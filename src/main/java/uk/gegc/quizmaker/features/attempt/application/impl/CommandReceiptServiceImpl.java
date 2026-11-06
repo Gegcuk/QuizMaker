@@ -13,6 +13,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.ReceiptException;
 import uk.gegc.quizmaker.features.attempt.domain.repository.CommandReceiptRepository;
 import uk.gegc.quizmaker.features.attempt.infra.receipt.ReceiptDatabaseFailure;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.time.Clock;
 import java.util.Locale;
@@ -44,6 +45,7 @@ public class CommandReceiptServiceImpl implements CommandReceiptService {
             require(request != null && authorization != null && work != null, INVALID_INPUT);
             // Before any protected existence, replay, conflict, expiry or version inspection.
             try { authorization.check(); }
+            catch (DatabaseConflictException failure) { throw databaseFailure(failure); }
             catch (RuntimeException failure) { throw new ReceiptException(ACCESS_DENIED); }
             var now = CommandReceipt.time(clock.instant());
             UUID candidateId = UUID.randomUUID();
@@ -97,7 +99,8 @@ public class CommandReceiptServiceImpl implements CommandReceiptService {
                 // fixed reasons; never retain callback/driver cause, suppressed errors or messages.
                 catch (RuntimeException failure) {
                     execution.failure = failure instanceof ReceiptException receipt ? new ReceiptException(receipt.reason())
-                            : failure instanceof DataAccessException database ? databaseFailure(database)
+                            : (failure instanceof DataAccessException || failure instanceof DatabaseConflictException)
+                            ? databaseFailure(failure)
                             : new ReceiptException(COMMAND_DENIED);
                     throw execution.failure;
                 } finally {
@@ -123,7 +126,7 @@ public class CommandReceiptServiceImpl implements CommandReceiptService {
         }
     }
 
-    private static ReceiptException databaseFailure(DataAccessException failure) {
+    private static ReceiptException databaseFailure(RuntimeException failure) {
         return new ReceiptException(ReceiptDatabaseFailure.reason(failure));
     }
 }

@@ -14,6 +14,7 @@ import uk.gegc.quizmaker.features.attempt.application.ExecutionTraceService;
 import uk.gegc.quizmaker.features.attempt.domain.model.trace.ExecutionTrace.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.trace.TraceException;
 import uk.gegc.quizmaker.features.attempt.domain.repository.ExecutionTraceRepository;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.time.Clock;
 import java.util.Locale;
@@ -73,13 +74,22 @@ public class ExecutionTraceServiceImpl implements ExecutionTraceService {
             });
             outcome = result.replayed() ? "replay_returned" : "append_returned";
             return result;
+        } catch (DatabaseConflictException failure) {
+            outcome = failure.outcome();
+            throw failure;
         } catch (TraceException failure) {
             outcome = failure.reason().name().toLowerCase(Locale.ROOT);
             throw failure;
-        } catch (DataIntegrityViolationException failure) {
-            outcome = "event_conflict";
-            throw new TraceException(EVENT_CONFLICT);
         } catch (DataAccessException | TransactionException failure) {
+            var conflict = DatabaseConflictException.from(failure);
+            if (conflict.isPresent()) {
+                outcome = conflict.get().outcome();
+                throw conflict.get();
+            }
+            if (failure instanceof DataIntegrityViolationException) {
+                outcome = "event_conflict";
+                throw new TraceException(EVENT_CONFLICT);
+            }
             throw new TraceException(PERSISTENCE_UNAVAILABLE);
         } finally {
             try {

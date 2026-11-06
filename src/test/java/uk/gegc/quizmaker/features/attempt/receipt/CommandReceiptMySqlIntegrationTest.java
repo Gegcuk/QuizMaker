@@ -34,6 +34,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.receipt.ReceiptException;
 import uk.gegc.quizmaker.features.attempt.domain.model.subject.AttemptSubject;
 import uk.gegc.quizmaker.features.attempt.domain.repository.CommandReceiptRepository;
 import uk.gegc.quizmaker.features.attempt.infra.repository.*;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.nio.ByteBuffer;
 import java.sql.SQLException;
@@ -222,6 +223,29 @@ class CommandReceiptMySqlIntegrationTest {
     }
 
     @ParameterizedTest
+    @CsvSource({"authorization,1213", "authorization,1205", "work,1213", "work,1205"})
+    void sanitizedDependencyConflictsKeepTheirReasonAndAllowExplicitRetry(String phase, int code) throws Exception {
+        var request = request("nested-conflict");
+        var failure = DatabaseConflictException.from(new SQLException("Private driver diagnostic", "HY000", code)).orElseThrow();
+        var access = new AtomicInteger(); var calls = new AtomicInteger();
+        // The dependency's public signal is already sanitized; receipt must not need its SQL cause.
+        rejected(() -> service.execute(request, () -> {
+            access.incrementAndGet();
+            if (phase.equals("authorization")) throw failure;
+        }, id -> {
+            calls.incrementAndGet(); start(user); throw failure;
+        }), code == 1213 ? RETRYABLE : IN_PROGRESS);
+        assertThat(access).hasValue(1);
+        assertThat(calls).hasValue(phase.equals("authorization") ? 0 : 1);
+        assertThat(count("attempt_command_receipt")).isZero();
+        assertThat(count("attempt_lifecycle_state")).isZero();
+        assertThat(count("attempt_participant_subject")).isZero();
+        assertThat(execute(request).replayed()).isFalse();
+        assertThat(count("attempt_command_receipt")).isEqualTo(1);
+        assertThat(count("attempt_lifecycle_state")).isEqualTo(1);
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"unexpected", "known", "authorization"})
     void sensitiveCallbackDiagnosticsNeverReachCallerOrTransactionRollbackLog(String kind) throws Exception {
         String secret = "SYNTHETIC_PRIVATE_ANSWER_599";
@@ -249,7 +273,9 @@ class CommandReceiptMySqlIntegrationTest {
     @ParameterizedTest
     @CsvSource({"beforeCommit,unexpected,false", "beforeCommit,known,false", "afterCommit,unexpected,false",
             "afterCommit,known,false", "afterCommit,connection,false", "beforeCommit,unexpected,true",
-            "beforeCommit,known,true", "afterCommit,unexpected,true", "afterCommit,known,true"})
+            "beforeCommit,known,true", "afterCommit,unexpected,true", "afterCommit,known,true",
+            "beforeCommit,deadlock,false", "afterCommit,deadlock,false",
+            "beforeCommit,timeout,false", "afterCommit,timeout,false"})
     void completionFailuresAreRedactedBeforeSpringLoggingAndReconcileWithTheSameKey(String phase, String kind, boolean joined) throws Exception {
         String marker = "SYNTHETIC_PRIVATE_COMPLETION_599";
         var logger = (Logger) LoggerFactory.getLogger(DataSourceTransactionManager.class);
@@ -259,9 +285,11 @@ class CommandReceiptMySqlIntegrationTest {
             RuntimeException failure = switch (kind) {
                 case "known" -> new ReceiptException(COMMAND_DENIED);
                 case "connection" -> new CannotCreateTransactionException(marker);
+                case "deadlock", "timeout" -> DatabaseConflictException.from(new SQLException(marker,
+                        "HY000", kind.equals("deadlock") ? 1213 : 1205)).orElseThrow();
                 default -> new IllegalStateException(marker);
             };
-            failure.initCause(new IllegalArgumentException(marker));
+            if (!(failure instanceof DatabaseConflictException)) failure.initCause(new IllegalArgumentException(marker));
             failure.addSuppressed(new IllegalArgumentException(marker));
             var request = request("completion"); var calls = new AtomicInteger();
             var acknowledgement = new AtomicReference<Acknowledgement>();

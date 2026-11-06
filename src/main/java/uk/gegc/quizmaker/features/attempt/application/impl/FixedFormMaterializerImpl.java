@@ -18,6 +18,7 @@ import uk.gegc.quizmaker.features.question.application.QuestionRevisionContractS
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.util.Set;
 import java.util.UUID;
@@ -73,6 +74,9 @@ public class FixedFormMaterializerImpl implements FixedFormMaterializer {
             });
             outcome = "success";
             return result;
+        } catch (DatabaseConflictException failure) {
+            outcome = failure.outcome();
+            throw failure;
         } catch (FormMaterializationException failure) {
             if (failure.reason() == INVALID_MATERIAL) outcome = "redaction_failure";
             if (failure.reason() == PERSISTENCE_UNAVAILABLE) outcome = "persistence_unavailable";
@@ -87,6 +91,11 @@ public class FixedFormMaterializerImpl implements FixedFormMaterializer {
             if (failure.reason() == ContractResolutionException.Reason.PERSISTENCE_UNAVAILABLE) outcome = "persistence_unavailable";
             throw failure;
         } catch (DataAccessException | TransactionException failure) {
+            var conflict = DatabaseConflictException.from(failure);
+            if (conflict.isPresent()) {
+                outcome = conflict.get().outcome();
+                throw conflict.get();
+            }
             outcome = "persistence_unavailable";
             throw new FormMaterializationException(PERSISTENCE_UNAVAILABLE);
         } finally {

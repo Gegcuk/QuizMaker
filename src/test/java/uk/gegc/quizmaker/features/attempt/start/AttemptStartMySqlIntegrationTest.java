@@ -264,6 +264,44 @@ class AttemptStartMySqlIntegrationTest {
         assertCoherent(restarted().start(command), 5);
     }
 
+    /** Fault injection proves propagation at each real SQL boundary; tests below force real InnoDB conflicts. */
+    @ParameterizedTest @org.junit.jupiter.params.provider.MethodSource("databaseFailureBoundaries")
+    void nestedSqlFailuresRetainSafeReasonsAndRollBackEveryWrite(String checkpoint, int occurrence, int code) {
+        var command = command(prepared(), AnswerOrder.AUTHORED, "nested-sql-failure");
+        var seen = new AtomicInteger(); var reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.contains(checkpoint) && seen.incrementAndGet() == occurrence) {
+                reached.set(true);
+                throw new SQLException("Synthetic private SQL diagnostic", code == 1213 ? "40001" : code == 1205 ? "HY000" : "08006", code);
+            }
+        };
+        var expected = code == 1213 ? RETRYABLE : code == 1205 ? IN_PROGRESS : PERSISTENCE_UNAVAILABLE;
+        denied(() -> starts.start(command), expected);
+        assertThat(reached).isTrue(); assertThat(seen).hasValue(occurrence);
+        observer().reset(); assertNoTargetRows();
+        assertCoherent(restarted().start(command), 5);
+    }
+
+    static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> databaseFailureBoundaries() {
+        record Boundary(String sql, int occurrence) { }
+        return List.of(
+                new Boundary("from users ", 1), // AuthenticatedSubjectResolver.
+                new Boundary("LEFT JOIN quiz_revision_items i ON i.quiz_revision_id=r.id", 1), // Contract scope.
+                new Boundary("FROM question_revision_contract_bindings b", 1), // Contract resolution.
+                new Boundary("INSERT INTO attempt_policy_snapshot", 1),
+                new Boundary("SELECT * FROM quiz_revisions WHERE owner_id", 2), // Materializer's read.
+                new Boundary("SELECT * FROM quiz_revisions WHERE owner_id", 3), // Option-order service's read.
+                new Boundary("INSERT INTO attempt_form (", 1),
+                new Boundary("INSERT INTO attempt_form_option_order", 1),
+                new Boundary("INSERT INTO attempt_participant_subject", 1),
+                new Boundary("INSERT INTO attempt_lifecycle_state", 1),
+                new Boundary("UPDATE attempt_lifecycle_state", 1),
+                new Boundary("INSERT INTO attempt_trace_event", 1),
+                new Boundary("UPDATE attempt_command_receipt SET", 1))
+                .stream().flatMap(point -> IntStream.of(1213, 1205, 0).mapToObj(code ->
+                        org.junit.jupiter.params.provider.Arguments.of(point.sql(), point.occurrence(), code)));
+    }
+
     @Test void outerJpaRollbackCannotLeaveAReceiptOrAnyTargetEvidence() {
         var command = command(prepared(), AnswerOrder.AUTHORED, "outer");
         tx.executeWithoutResult(status -> {
@@ -585,6 +623,80 @@ class AttemptStartMySqlIntegrationTest {
         } finally {
             release.countDown(); observer().reset(); pool.shutdownNow();
             assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @ParameterizedTest @ValueSource(ints = {2, 4})
+    void nestedContractLockTimeoutPreservesInProgressAndRollback(int isolation) throws Exception {
+        UUID revision = prepared();
+        var command = command(revision, AnswerOrder.AUTHORED, "contract-timeout");
+        var locked = new CountDownLatch(1); var release = new CountDownLatch(1);
+        var pool = Executors.newSingleThreadExecutor();
+        try {
+            var binder = pool.submit(() -> tx.executeWithoutResult(status -> {
+                contracts.declareScope(ownerId, Set.of(revision));
+                contracts.resolve(ownerId, revision);
+                locked.countDown();
+                try { assertThat(release.await(15, TimeUnit.SECONDS)).isTrue(); }
+                catch (InterruptedException failure) { throw new AssertionError(failure); }
+            }));
+            assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+            var outer = new TransactionTemplate(manager); outer.setIsolationLevel(isolation);
+            AttemptStartException.Reason actual;
+            try {
+                outer.execute(status -> {
+                    int previous = sql.queryForObject("SELECT @@SESSION.innodb_lock_wait_timeout", Integer.class);
+                    sql.execute("SET SESSION innodb_lock_wait_timeout=1");
+                    try { return starts.start(command); }
+                    finally { sql.execute("SET SESSION innodb_lock_wait_timeout=" + previous); }
+                });
+                throw new AssertionError("A blocked start must time out");
+            } catch (AttemptStartException failure) {
+                assertThat(failure.getCause()).isNull(); assertThat(failure.getSuppressed()).isEmpty();
+                actual = failure.reason();
+            }
+            assertThat(observer().sqlErrorCodes).containsExactly(1205);
+            observer().reset(); assertNoTargetRows();
+            release.countDown(); binder.get(10, TimeUnit.SECONDS);
+            assertCoherent(restarted().start(command), 5);
+            assertThat(actual).isEqualTo(IN_PROGRESS);
+        } finally {
+            release.countDown(); observer().reset(); pool.shutdownNow();
+            assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @ParameterizedTest @ValueSource(ints = {2, 4})
+    void nestedContractDeadlockPreservesRetryableAndRollback(int isolation) throws Exception {
+        UUID revision = prepared();
+        var command = command(revision, AnswerOrder.AUTHORED, "contract-deadlock");
+        sql.execute("CREATE TABLE nested_start_deadlock_weight (id INT PRIMARY KEY, value INT) ENGINE=InnoDB");
+        var held = new CountDownLatch(1); var starting = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var editor = pool.submit(() -> tx.executeWithoutResult(status -> {
+                for (int i = 0; i < 100; i++) sql.update("INSERT INTO nested_start_deadlock_weight VALUES (?,0)", i);
+                contracts.declareScope(ownerId, Set.of(revision));
+                contracts.resolve(ownerId, revision);
+                held.countDown();
+                try { assertThat(starting.await(10, TimeUnit.SECONDS)).isTrue(); }
+                catch (InterruptedException failure) { throw new AssertionError(failure); }
+                sql.update("UPDATE quizzes SET title='Concurrent edit' WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString());
+            }));
+            assertThat(held.await(10, TimeUnit.SECONDS)).isTrue();
+            observer().beforeSql = (statement, connection) -> {
+                if (statement.contains("SELECT locked.id FROM")) starting.countDown();
+            };
+            Object actual = pool.submit(() -> raced(command, isolation)).get(20, TimeUnit.SECONDS);
+            editor.get(20, TimeUnit.SECONDS);
+            assertThat(observer().sqlErrorCodes).contains(1213);
+            observer().reset(); assertNoTargetRows();
+            assertCoherent(restarted().start(command), 5);
+            assertThat(actual).isEqualTo(RETRYABLE);
+        } finally {
+            starting.countDown(); observer().reset(); pool.shutdownNow();
+            assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+            sql.execute("DROP TABLE nested_start_deadlock_weight");
         }
     }
 

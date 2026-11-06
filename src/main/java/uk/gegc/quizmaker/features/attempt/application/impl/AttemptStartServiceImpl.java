@@ -26,6 +26,7 @@ import uk.gegc.quizmaker.features.attempt.infra.receipt.ReceiptDatabaseFailure;
 import uk.gegc.quizmaker.features.question.application.QuestionRevisionContractService;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
 import uk.gegc.quizmaker.features.quiz.application.QuizPracticeSourceService;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.util.*;
 import java.util.function.Supplier;
@@ -202,7 +203,8 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         if (failure instanceof uk.gegc.quizmaker.features.quiz.domain.model.revision.PublicationException)
             return new AttemptStartException(ACCESS_DENIED);
         if (failure instanceof PresetResolutionException) return new AttemptStartException(UNSUPPORTED_PRESET);
-        if (failure instanceof DataAccessException || failure instanceof TransactionException)
+        if (failure instanceof DataAccessException || failure instanceof TransactionException
+                || failure instanceof DatabaseConflictException)
             return new AttemptStartException(switch (ReceiptDatabaseFailure.reason(failure)) {
                 case RETRYABLE -> RETRYABLE;
                 case IN_PROGRESS -> IN_PROGRESS;

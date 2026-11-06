@@ -12,6 +12,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.subject.AttemptSubject;
 import uk.gegc.quizmaker.features.attempt.domain.model.subject.AttemptSubjectException;
 import uk.gegc.quizmaker.features.attempt.domain.model.subject.AttemptSubjectLookup;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptSubjectRepository;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.util.Locale;
 import java.util.UUID;
@@ -60,10 +61,18 @@ public class AttemptSubjectServiceImpl implements AttemptSubjectService {
             T result = transaction.execute(status -> action.get());
             outcome = result instanceof AttemptSubjectLookup.LegacyOrUnbound ? "legacy_or_unbound" : "success";
             return result;
+        } catch (DatabaseConflictException failure) {
+            outcome = failure.outcome();
+            throw failure;
         } catch (AttemptSubjectException failure) {
             outcome = failure.reason().name().toLowerCase(Locale.ROOT);
             throw failure;
         } catch (DataAccessException | TransactionException failure) {
+            var conflict = DatabaseConflictException.from(failure);
+            if (conflict.isPresent()) {
+                outcome = conflict.get().outcome();
+                throw conflict.get();
+            }
             throw new AttemptSubjectException(PERSISTENCE_UNAVAILABLE);
         } finally {
             recordTimer(sample, operation, outcome);
