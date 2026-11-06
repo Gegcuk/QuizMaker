@@ -28,24 +28,27 @@ public class JdbcQuizPracticeSourceRepository implements QuizPracticeSourceRepos
                 WHERE ur.user_id=UUID_TO_BIN(:id) FOR SHARE
                 """, Map.of("id", id.toString()), (rs, row) -> rs.getString(1)));
     }
-    @Override public Optional<Source> lockSource(UUID quizId) {
+    @Override public Optional<Source> lockQuiz(UUID quizId) {
         // Publication takes the same quiz lock exclusively before changing its head. Locking reads
         // also avoid a stale REPEATABLE_READ snapshot when a caller performed earlier reads.
         var parameters = Map.of("id", quizId.toString());
-        var quiz = sql.query("""
+        return sql.query("""
                 SELECT BIN_TO_UUID(creator_id) owner_id, is_timer_enabled FROM quizzes
                 WHERE quiz_id=UUID_TO_BIN(:id) AND is_deleted=FALSE FOR SHARE
                 """, parameters, (rs, row) -> new Source(UUID.fromString(rs.getString(1)),
-                (Boolean) rs.getObject(2), null, 0));
+                (Boolean) rs.getObject(2), null, 0)).stream().findFirst();
+    }
+    @Override public Optional<Source> lockSource(UUID quizId) {
+        var quiz = lockQuiz(quizId);
         if (quiz.isEmpty()) return Optional.empty();
         var head = sql.query("""
                 SELECT BIN_TO_UUID(h.revision_id), h.publication_version FROM quiz_publication_heads h
                 JOIN quiz_publications p ON p.revision_id=h.revision_id AND p.quiz_id=h.quiz_id
                 JOIN quiz_revisions r ON r.id=h.revision_id
                 WHERE h.quiz_id=UUID_TO_BIN(:id) AND r.owner_id=UUID_TO_BIN(:owner) FOR SHARE
-                """, new org.springframework.jdbc.core.namedparam.MapSqlParameterSource(parameters)
-                .addValue("owner", quiz.get(0).ownerId().toString()), (rs, row) ->
-                new Source(quiz.get(0).ownerId(), quiz.get(0).timerEnabled(), UUID.fromString(rs.getString(1)), rs.getLong(2)));
+                """, new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("id", quizId.toString())
+                .addValue("owner", quiz.get().ownerId().toString()), (rs, row) ->
+                new Source(quiz.get().ownerId(), quiz.get().timerEnabled(), UUID.fromString(rs.getString(1)), rs.getLong(2)));
         return head.stream().findFirst();
     }
 }

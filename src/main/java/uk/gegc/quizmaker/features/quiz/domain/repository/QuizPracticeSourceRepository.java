@@ -9,5 +9,6 @@ public interface QuizPracticeSourceRepository {
     record Source(UUID ownerId, Boolean timerEnabled, UUID currentRevisionId, long publicationVersion) { }
     boolean lockActiveUser(UUID userId);
     Set<String> lockPermissions(UUID userId);
+    Optional<Source> lockQuiz(UUID quizId);
     Optional<Source> lockSource(UUID quizId);
 }

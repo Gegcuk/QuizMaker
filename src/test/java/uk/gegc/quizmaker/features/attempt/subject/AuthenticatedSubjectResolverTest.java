@@ -61,6 +61,21 @@ class AuthenticatedSubjectResolverTest {
     }
 
     @Test
+    void existingAttemptResolutionUsesCurrentEligibilityAndRetainsIdentityGuards() {
+        authenticate(token(principal("alice")));
+        when(users.lockActiveUserId("alice")).thenReturn(Optional.of(alice));
+        assertThat(resolver.resolveCurrent(attempt)).isEqualTo(AttemptSubject.authenticated(attempt, alice));
+        when(users.lockActiveUserId("alice")).thenReturn(Optional.empty());
+        rejected(() -> resolver.resolveCurrent(attempt), INVALID);
+        SecurityContextHolder.clearContext();
+        rejected(() -> resolver.resolveCurrent(attempt), UNAUTHENTICATED);
+        authenticate(UsernamePasswordAuthenticationToken.authenticated(alice, null, List.of()));
+        rejected(() -> resolver.resolveCurrent(attempt), INVALID);
+        verify(users, times(2)).lockActiveUserId("alice");
+        verifyNoMoreInteractions(users);
+    }
+
+    @Test
     void absentAnonymousAndUnauthenticatedContextsFailEvenWhenAnonymousTokenIsAuthenticated() {
         SecurityContextHolder.clearContext();
         rejected(() -> resolver.resolve(attempt), UNAUTHENTICATED);

@@ -12,4 +12,7 @@ public interface AuthenticatedSubjectResolver {
      * #600 owns atomic start/binding; #537 owns resource access and #625 guest resolution.
      */
     AttemptSubject resolve(UUID serverAttemptId);
+
+    /** Current locking identity read for an existing caller transaction; never uses an old snapshot. */
+    AttemptSubject resolveCurrent(UUID serverAttemptId);
 }

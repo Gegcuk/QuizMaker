@@ -16,7 +16,9 @@ import uk.gegc.quizmaker.features.user.application.AuthenticatedUserLookup;
 import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 
 import static uk.gegc.quizmaker.features.attempt.domain.model.subject.SubjectResolutionException.Reason.*;
 
@@ -32,6 +34,15 @@ public class AuthenticatedSubjectResolverImpl implements AuthenticatedSubjectRes
 
     @Override
     public AttemptSubject resolve(UUID serverAttemptId) {
+        return resolve(serverAttemptId, users::findActiveUserId);
+    }
+
+    @Override
+    public AttemptSubject resolveCurrent(UUID serverAttemptId) {
+        return resolve(serverAttemptId, users::lockActiveUserId);
+    }
+
+    private AttemptSubject resolve(UUID serverAttemptId, Function<String, Optional<UUID>> lookup) {
         var sample = startTimer();
         String outcome = "unavailable";
         try {
@@ -54,7 +65,7 @@ public class AuthenticatedSubjectResolverImpl implements AuthenticatedSubjectRes
                 throw new SubjectResolutionException(INVALID);
             }
             if (!username.equals(authentication.getName())) throw new SubjectResolutionException(MIXED);
-            UUID userId = users.findActiveUserId(username)
+            UUID userId = lookup.apply(username)
                     .orElseThrow(() -> new SubjectResolutionException(INVALID));
             var subject = AttemptSubject.authenticated(serverAttemptId, userId);
             outcome = "resolved";

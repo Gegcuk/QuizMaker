@@ -18,8 +18,23 @@ class AuthenticatedUserLookupTest {
         AuthenticatedUserLookup lookup = new AuthenticatedUserLookupImpl(users);
         for (String username : new String[]{null, "", " ", "a".repeat(51)}) {
             assertThat(lookup.findActiveUserId(username)).isEmpty();
+            assertThat(lookup.lockActiveUserId(username)).isEmpty();
         }
         verifyNoInteractions(users);
+    }
+
+    @Test
+    void currentLookupUsesTheLockingQueryAndPreservesThePrincipalName() {
+        var users = mock(UserRepository.class);
+        UUID expected = UUID.randomUUID();
+        when(users.lockActiveAuthenticatedUserId("Alice")).thenReturn(Optional.of(expected));
+        when(users.lockActiveAuthenticatedUserId("missing")).thenReturn(Optional.empty());
+        AuthenticatedUserLookup lookup = new AuthenticatedUserLookupImpl(users);
+        assertThat(lookup.lockActiveUserId("Alice")).contains(expected);
+        assertThat(lookup.lockActiveUserId("missing")).isEmpty();
+        verify(users).lockActiveAuthenticatedUserId("Alice");
+        verify(users).lockActiveAuthenticatedUserId("missing");
+        verifyNoMoreInteractions(users);
     }
 
     @Test
