@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.quiz.infra.repository;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
@@ -90,17 +91,28 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
     @Override
     @Transactional(readOnly = true)
     public List<QuizRevision> findByIds(UUID ownerId, Collection<UUID> revisionIds) {
+        return read(ownerId, revisionIds, false);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<QuizRevision> findByIdForShare(UUID ownerId, UUID revisionId) {
+        return read(ownerId, List.of(revisionId), true).stream().findFirst();
+    }
+
+    private List<QuizRevision> read(UUID ownerId, Collection<UUID> revisionIds, boolean current) {
         Objects.requireNonNull(ownerId, "ownerId must not be null");
         Objects.requireNonNull(revisionIds, "revisionIds must not be null");
         List<UUID> ids = revisionIds.stream().map(Objects::requireNonNull).distinct().toList();
         Map<UUID, QuizRevision> result = new HashMap<>();
+        String lock = current ? " FOR SHARE" : "";
         try {
             for (int start = 0; start < ids.size(); start += SQL_BATCH) {
                 List<UUID> part = ids.subList(start, Math.min(start + SQL_BATCH, ids.size()));
                 Map<String, Object> parameters = Map.of("owner", bytes(ownerId), "ids", binaryIds(part));
                 List<QuizRevision> roots = jdbc.query("""
                         SELECT * FROM quiz_revisions WHERE owner_id = :owner AND id IN (:ids)
-                        """, parameters, (rs, row) -> new QuizRevision(uuid(rs, "id"), uuid(rs, "quiz_id"),
+                        """ + lock, parameters, (rs, row) -> new QuizRevision(uuid(rs, "id"), uuid(rs, "quiz_id"),
                         uuid(rs, "owner_id"), rs.getInt("schema_version"), rs.getString("title"), rs.getString("description"),
                         rs.getTimestamp("created_at").toInstant(), List.of()));
                 if (roots.isEmpty()) continue;
@@ -109,12 +121,14 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
                         SELECT i.id AS item_id, i.quiz_revision_id, i.authored_position AS item_position, q.*
                         FROM quiz_revision_items i JOIN question_revisions q ON q.id = i.question_revision_id
                         WHERE i.quiz_revision_id IN (:ids) ORDER BY i.quiz_revision_id, i.authored_position
-                        """, scoped, (rs, row) -> new ItemRow(uuid(rs, "quiz_revision_id"), uuid(rs, "item_id"),
+                        """ + lock, scoped, (rs, row) -> new ItemRow(uuid(rs, "quiz_revision_id"), uuid(rs, "item_id"),
                         rs.getInt("item_position"), question(rs)));
+                // A locking outer SELECT does not make a nested subquery a current read.
+                // Both membership and option rows must see the same newly published revision.
                 Map<UUID, List<QuestionRevision.Option>> options = readOptions("""
                         EXISTS (SELECT 1 FROM quiz_revision_items i
-                                WHERE i.question_revision_id = o.question_revision_id AND i.quiz_revision_id IN (:ids))
-                        """, scoped);
+                                WHERE i.question_revision_id = o.question_revision_id AND i.quiz_revision_id IN (:ids)
+                        """ + lock + ")", scoped, current);
                 Map<UUID, List<QuizRevision.Item>> byRoot = new HashMap<>();
                 items.forEach(item -> byRoot.computeIfAbsent(item.rootId(), ignored -> new ArrayList<>())
                         .add(new QuizRevision.Item(item.id(), item.position(),
@@ -142,8 +156,13 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
     }
 
     private Map<UUID, List<QuestionRevision.Option>> readOptions(String predicate, Map<String, ?> parameters) {
+        return readOptions(predicate, parameters, false);
+    }
+
+    private Map<UUID, List<QuestionRevision.Option>> readOptions(String predicate, Map<String, ?> parameters, boolean current) {
         Map<UUID, List<QuestionRevision.Option>> result = new HashMap<>();
-        jdbc.query("SELECT o.* FROM question_option_revisions o WHERE " + predicate + " ORDER BY o.authored_position",
+        jdbc.query("SELECT o.* FROM question_option_revisions o WHERE " + predicate + " ORDER BY o.authored_position"
+                        + (current ? " FOR SHARE" : ""),
                 parameters, (rs, row) -> {
                     result.computeIfAbsent(uuid(rs, "question_revision_id"), ignored -> new ArrayList<>())
                             .add(new QuestionRevision.Option(uuid(rs, "id"), rs.getString("source_key"),

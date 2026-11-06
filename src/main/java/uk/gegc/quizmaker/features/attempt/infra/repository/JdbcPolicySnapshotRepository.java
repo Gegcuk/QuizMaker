@@ -34,9 +34,9 @@ public class JdbcPolicySnapshotRepository implements PolicySnapshotRepository {
                 .addValue("revision", bytes(value.quizRevisionId())).addValue("schema", value.schemaVersion())
                 .addValue("resolver", value.resolverVersion()).addValue("canonical", value.canonicalVersion())
                 .addValue("algorithm", value.hashAlgorithm()).addValue("json", value.canonicalJson()).addValue("hash", value.hash());
-        if (!Boolean.TRUE.equals(jdbc.queryForObject("""
-                SELECT EXISTS(SELECT 1 FROM quiz_revisions WHERE id=:revision AND owner_id=:owner AND schema_version=1)
-                """, parameters, Boolean.class))) throw new PolicySnapshotException(SNAPSHOT_UNAVAILABLE);
+        if (jdbc.queryForList("""
+                SELECT id FROM quiz_revisions WHERE id=:revision AND owner_id=:owner AND schema_version=1 FOR SHARE
+                """, parameters).isEmpty()) throw new PolicySnapshotException(SNAPSHOT_UNAVAILABLE);
         // The unique ID serializes competing inserts. No existing evidence is overwritten.
         jdbc.update("""
                 INSERT INTO attempt_policy_snapshot
@@ -47,7 +47,7 @@ public class JdbcPolicySnapshotRepository implements PolicySnapshotRepository {
         // Current read also sees a concurrent winner under an older REPEATABLE_READ snapshot.
         // Lock only the snapshot: upgrading the revision's FK shared lock would deadlock
         // independent snapshot inserts referencing the same immutable revision.
-        return jdbc.query(SELECT + " FOR UPDATE OF s", parameters, (row, index) -> stored(row)).stream().findFirst()
+        return jdbc.query(SELECT + " FOR UPDATE OF s FOR SHARE OF q", parameters, (row, index) -> stored(row)).stream().findFirst()
                 .orElseThrow(() -> new PolicySnapshotException(SNAPSHOT_UNAVAILABLE));
     }
 

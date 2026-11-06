@@ -12,8 +12,8 @@ import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt;
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.ReceiptException;
 import uk.gegc.quizmaker.features.attempt.domain.repository.CommandReceiptRepository;
+import uk.gegc.quizmaker.features.attempt.infra.receipt.ReceiptDatabaseFailure;
 
-import java.sql.SQLException;
 import java.time.Clock;
 import java.util.Locale;
 import java.util.UUID;
@@ -124,12 +124,6 @@ public class CommandReceiptServiceImpl implements CommandReceiptService {
     }
 
     private static ReceiptException databaseFailure(DataAccessException failure) {
-        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
-            if (cause instanceof SQLException sql) {
-                if (sql.getErrorCode() == 1213) return new ReceiptException(RETRYABLE);
-                if (sql.getErrorCode() == 1205) return new ReceiptException(IN_PROGRESS);
-            }
-        }
-        return new ReceiptException(PERSISTENCE_UNAVAILABLE);
+        return new ReceiptException(ReceiptDatabaseFailure.reason(failure));
     }
 }

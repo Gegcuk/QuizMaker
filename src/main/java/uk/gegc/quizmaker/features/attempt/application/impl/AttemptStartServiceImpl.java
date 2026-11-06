@@ -22,6 +22,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStartExcepti
 import uk.gegc.quizmaker.features.attempt.domain.model.subject.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.trace.ExecutionTrace;
 import uk.gegc.quizmaker.features.attempt.infra.receipt.CanonicalCommandInput;
+import uk.gegc.quizmaker.features.attempt.infra.receipt.ReceiptDatabaseFailure;
 import uk.gegc.quizmaker.features.question.application.QuestionRevisionContractService;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
 import uk.gegc.quizmaker.features.quiz.application.QuizPracticeSourceService;
@@ -118,9 +119,11 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                         : access.timerEnabled() ? QuizTimerState.ENABLED : QuizTimerState.DISABLED, List.of(), null));
         if (mapping instanceof LegacyPracticeMapping.Unsupported) throw new AttemptStartException(UNSUPPORTED_LEGACY_MODE);
         require(mapping instanceof LegacyPracticeMapping.Mapped, UNSUPPORTED_CAPABILITY);
+        // Resolve current membership and take canonical exclusive question locks before any
+        // shared aggregate read. Otherwise simultaneous starts could both need a lock upgrade.
+        contracts.declareScope(access.ownerId(), Set.of(command.content().quizRevisionId()));
         var revision = sources.readRevision(access, command.content().quizRevisionId());
         require(revision.schemaVersion() == command.content().revisionSchemaVersion(), UNSUPPORTED_VERSION);
-        contracts.declareScope(access.ownerId(), Set.of(revision.id()));
         contracts.resolve(access.ownerId(), revision.id());
         var overrides = command.answerOrder() == AnswerOrder.AUTHORED ? List.<SourceOverrides>of()
                 : List.of(new SourceOverrides(OverrideSource.PARTICIPANT, 1,
@@ -200,7 +203,11 @@ public class AttemptStartServiceImpl implements AttemptStartService {
             return new AttemptStartException(ACCESS_DENIED);
         if (failure instanceof PresetResolutionException) return new AttemptStartException(UNSUPPORTED_PRESET);
         if (failure instanceof DataAccessException || failure instanceof TransactionException)
-            return new AttemptStartException(PERSISTENCE_UNAVAILABLE);
+            return new AttemptStartException(switch (ReceiptDatabaseFailure.reason(failure)) {
+                case RETRYABLE -> RETRYABLE;
+                case IN_PROGRESS -> IN_PROGRESS;
+                default -> PERSISTENCE_UNAVAILABLE;
+            });
         // A dependency failure never retains its cause, payload or arbitrary exception message.
         return new AttemptStartException(PERSISTENCE_UNAVAILABLE);
     }

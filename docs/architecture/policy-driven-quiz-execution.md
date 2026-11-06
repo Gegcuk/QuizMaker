@@ -1463,10 +1463,22 @@ or switching engines. Typed internal errors expose no rejected content or underl
 database diagnostics. The `quizmaker.attempt.start` metric uses only fixed version and
 outcome labels; `start_returned` deliberately does not claim an outer transaction committed.
 
+Outer `READ_COMMITTED` and `REPEATABLE_READ` transactions remain supported even when
+their snapshot predates the requested publication. Current reads cover revision roots,
+items, question/option contents, contract membership and snapshot/form write checks.
+Contract scope takes canonical question locks before shared aggregate reads, so two
+independent starts do not need to upgrade shared question locks. The ordinary revision
+read API retains its snapshot semantics; write composition uses `findByIdForShare`.
+SQL conflicts observed at the start/receipt boundary are classified before diagnostic
+causes are discarded: MySQL `1213` remains `RETRYABLE`, and `1205` remains `IN_PROGRESS`.
+Neither classification introduces an automatic retry or overrides commit uncertainty.
+
 `AttemptStartMySqlIntegrationTest` composes real publication, five-family bindings and
 start services, with external storage replaced at its port. It covers successful
 AUTHORED/shuffled starts, fresh-transaction rollback, concurrent identical/conflicting
 requests, receipt recovery, current-access denial and bounded relationship reads.
+Regression cases publish after an outer snapshot, exercise outer rollback after successful
+composition, and force actual authorization deadlock/lock-timeout errors before an explicit retry.
 `AttemptStartValidationTest` checks malformed input without protected lookup or writes.
 Public delivery, answer acceptance, feedback/release and API activation remain their
 separate integration outcomes; this service does not claim those flows are enabled.

@@ -52,9 +52,17 @@ public class FormOptionOrderServiceImpl implements FormOptionOrderService {
         return execute("create_or_replay", write, () -> {
             if (ownerId == null) throw new FixedFormException(FixedFormException.Reason.REVISION_UNAVAILABLE);
             require(form != null && policy != null, INVALID_ORDER);
-            var revision = revisions.findById(ownerId, form.quizRevisionId()).orElseThrow(() ->
+            if (standalone) {
+                try { contracts.declareScope(ownerId, Set.of(form.quizRevisionId())); }
+                catch (ContractResolutionException failure) {
+                    // Earlier scope discovery must not change the existing ownership/missing error.
+                    if (failure.reason() == ContractResolutionException.Reason.REVISION_UNAVAILABLE)
+                        throw new FixedFormException(FixedFormException.Reason.REVISION_UNAVAILABLE);
+                    throw failure;
+                }
+            }
+            var revision = revisions.findByIdForShare(ownerId, form.quizRevisionId()).orElseThrow(() ->
                     new FixedFormException(FixedFormException.Reason.REVISION_UNAVAILABLE));
-            if (standalone) contracts.declareScope(ownerId, Set.of(revision.id()));
             var resolved = contracts.resolve(ownerId, revision.id());
             var sources = new HashMap<UUID, uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision.Item>();
             revision.items().forEach(item -> sources.put(item.id(), item));

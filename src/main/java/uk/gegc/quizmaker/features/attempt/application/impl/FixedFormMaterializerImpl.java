@@ -54,10 +54,19 @@ public class FixedFormMaterializerImpl implements FixedFormMaterializer {
                 require(ownerId != null, REVISION_UNAVAILABLE);
                 require(command != null && command.form() != null && command.selection() != null
                         && command.questionOrder() != null && command.answerOrdering() != null, INVALID_INPUT);
-                var revision = revisions.findById(ownerId, command.form().quizRevisionId())
+                if (standalone) {
+                    try { contracts.declareScope(ownerId, Set.of(command.form().quizRevisionId())); }
+                    catch (ContractResolutionException failure) {
+                        // Scope discovery now precedes content loading; preserve this boundary's
+                        // existing unavailable-revision error without revealing contract metadata.
+                        if (failure.reason() == ContractResolutionException.Reason.REVISION_UNAVAILABLE)
+                            throw new FormMaterializationException(REVISION_UNAVAILABLE);
+                        throw failure;
+                    }
+                }
+                var revision = revisions.findByIdForShare(ownerId, command.form().quizRevisionId())
                         .orElseThrow(() -> new FormMaterializationException(REVISION_UNAVAILABLE));
                 validate(command, revision);
-                if (standalone) contracts.declareScope(ownerId, Set.of(revision.id()));
                 var resolved = contracts.resolve(ownerId, revision.id());
                 var order = orders.createOrReplay(ownerId, command.form(), command.answerOrdering());
                 return ParticipantFormProjector.project(command.form(), revision, order, resolved);

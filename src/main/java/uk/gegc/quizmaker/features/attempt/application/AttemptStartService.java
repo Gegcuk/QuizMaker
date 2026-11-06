@@ -24,6 +24,9 @@ public interface AttemptStartService {
      * provisional until its commit. Retry unknown outcomes with the exact same key and command.
      * Access is rechecked on every call; a new publication invalidates fresh starts on the old
      * reference, but does not reinterpret an already committed receipt. No automatic retry/fallback.
+     * Existing READ_COMMITTED and REPEATABLE_READ transactions are supported, including an
+     * older snapshot: publication membership, revision contents and write eligibility use current
+     * reads. Database lock conflicts keep #599's RETRYABLE / IN_PROGRESS classification.
      */
     Result start(Command command);
 }

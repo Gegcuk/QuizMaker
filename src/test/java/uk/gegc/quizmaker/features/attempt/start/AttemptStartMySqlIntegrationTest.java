@@ -437,6 +437,157 @@ class AttemptStartMySqlIntegrationTest {
         reporter.publishEntry("startSelectCountsFor5_10_20Items", reads.toString());
         reporter.publishEntry("replaySelectCountsFor5_10_20Items", replayReads.toString());
     }
+    @ParameterizedTest @CsvSource({"2,false", "4,false", "2,true", "4,true"})
+    void freshPublicationIsVisibleToStartInsideExistingSnapshot(int isolation, boolean rollback) throws Exception {
+        var questions = FAMILIES.stream().map(this::draft).toList();
+        UUID oldRevision = publish(0, questions); binding.bind(quizId, oldRevision);
+        var pool = Executors.newSingleThreadExecutor();
+        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(isolation);
+        var request = new AtomicReference<AttemptStartService.Command>();
+        try {
+            var result = outer.execute(status -> {
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM quiz_revisions", Integer.class)).isEqualTo(1);
+                UUID next;
+                try {
+                    next = pool.submit(() -> {
+                        authenticate(username);
+                        try {
+                            tx.executeWithoutResult(s -> questions.forEach(id -> {
+                                var changed = this.questions.findById(id).orElseThrow();
+                                changed.setQuestionText("New publication " + changed.getType());
+                                this.questions.saveAndFlush(changed);
+                            }));
+                            UUID revision = publish(1, questions); binding.bind(quizId, revision);
+                            return revision;
+                        } finally { SecurityContextHolder.clearContext(); }
+                    }).get(20, TimeUnit.SECONDS);
+                } catch (Exception error) { throw new AssertionError(error); }
+                assertThat(next).isNotEqualTo(oldRevision);
+                var access = sources.lockAccess(ownerId, quizId);
+                assertThat(access.currentRevisionId()).isEqualTo(next);
+                assertThat(access.publicationVersion()).isEqualTo(2);
+                request.set(new AttemptStartService.Command(1, quizId, content(next), 2, CommandReceipt.Key.from("fresh-after-snapshot"),
+                        BuiltInPracticePreset.REFERENCE, LegacyPracticeRequest.LaunchContext.ORDINARY, "ALL_AT_ONCE", AnswerOrder.SHUFFLED_PER_ATTEMPT));
+                var started = starts.start(request.get());
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_trace_event", Integer.class)).isEqualTo(2);
+                if (rollback) status.setRollbackOnly();
+                return started;
+            });
+            if (rollback) {
+                assertNoTargetRows();
+                var retry = restarted().start(request.get());
+                assertThat(retry.replayed()).isFalse(); assertCoherent(retry, 5);
+            } else {
+                assertCoherent(result, 5);
+                assertThat(restarted().start(request.get()).attemptId()).isEqualTo(result.attemptId());
+            }
+        } finally { pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @ParameterizedTest @ValueSource(ints = {2, 4})
+    void differentKeysConcurrentStartBothCommit(int isolation) throws Exception {
+        UUID revision = prepared();
+        var a = command(revision, AnswerOrder.AUTHORED, "independent-A");
+        var b = command(revision, AnswerOrder.AUTHORED, "independent-B");
+        var barrier = new CyclicBarrier(2);
+        observer().beforeSql = (statement, connection) -> {
+            if (statement.contains("INSERT INTO attempt_command_receipt")) {
+                try { barrier.await(10, TimeUnit.SECONDS); }
+                catch (Exception e) { throw new SQLException("Start barrier failed", e); }
+            }
+        };
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var first = pool.submit(() -> raced(a, isolation)); var second = pool.submit(() -> raced(b, isolation));
+            var outcomes = List.of(first.get(25, TimeUnit.SECONDS), second.get(25, TimeUnit.SECONDS));
+            assertThat(outcomes).allSatisfy(o -> assertThat(o).isInstanceOf(AttemptStartService.Result.class));
+            assertThat(observer().sqlErrorCodes).isEmpty();
+            assertThat(((AttemptStartService.Result) outcomes.get(0)).attemptId())
+                    .isNotEqualTo(((AttemptStartService.Result) outcomes.get(1)).attemptId());
+            assertThat(count("attempt_lifecycle_state")).isEqualTo(2);
+            assertThat(count("attempt_command_receipt")).isEqualTo(2);
+            assertThat(count("attempt_trace_event")).isEqualTo(4);
+        } finally { observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @ParameterizedTest @ValueSource(ints = {-1, 2, 4})
+    void realAuthorizationDeadlockRetainsRetryableReasonAndNoPartialWrites(int isolation) throws Exception {
+        var command = command(prepared(), AnswerOrder.AUTHORED, "deadlock");
+        sql.execute("CREATE TABLE start_deadlock_weight (id INT PRIMARY KEY, value INT) ENGINE=InnoDB");
+        var quizLocked = new CountDownLatch(1); var actorLocked = new CountDownLatch(1);
+        observer().afterSql = (statement, connection) -> {
+            if (statement.contains("username <> 'anonymous' FOR SHARE")) actorLocked.countDown();
+        };
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var editor = pool.submit(() -> tx.executeWithoutResult(status -> {
+                for (int i = 0; i < 100; i++) sql.update("INSERT INTO start_deadlock_weight VALUES (?,0)", i);
+                sql.update("UPDATE quizzes SET title='Concurrent edit' WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString());
+                quizLocked.countDown();
+                try { assertThat(actorLocked.await(10, TimeUnit.SECONDS)).isTrue(); }
+                catch (InterruptedException e) { throw new AssertionError(e); }
+                sql.update("UPDATE users SET is_active=TRUE WHERE user_id=UUID_TO_BIN(?)", ownerId.toString());
+            }));
+            assertThat(quizLocked.await(10, TimeUnit.SECONDS)).isTrue();
+            var start = pool.submit(() -> {
+                authenticate(username);
+                try {
+                    if (isolation == -1) return (Object) starts.start(command);
+                    var outer = new TransactionTemplate(manager); outer.setIsolationLevel(isolation);
+                    return outer.execute(status -> starts.start(command));
+                }
+                catch (AttemptStartException failure) {
+                    assertThat(failure.getCause()).isNull(); assertThat(failure.getSuppressed()).isEmpty();
+                    return failure.reason();
+                }
+                finally { SecurityContextHolder.clearContext(); }
+            });
+            Object result = start.get(20, TimeUnit.SECONDS); editor.get(20, TimeUnit.SECONDS);
+            assertThat(observer().sqlErrorCodes).as("The database really chose a deadlock victim").contains(1213);
+            observer().reset(); assertNoTargetRows();
+            assertThat(result).isEqualTo(RETRYABLE);
+            assertCoherent(restarted().start(command), 5);
+        } finally {
+            observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+            sql.execute("DROP TABLE start_deadlock_weight");
+        }
+    }
+
+    @ParameterizedTest @ValueSource(ints = {2, 4})
+    void realAuthorizationLockTimeoutRetainsInProgressWithoutRetryOrWrites(int isolation) throws Exception {
+        var command = command(prepared(), AnswerOrder.AUTHORED, "access-timeout");
+        var locked = new CountDownLatch(1); var release = new CountDownLatch(1);
+        var authorizations = new AtomicInteger();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.contains("username <> 'anonymous' FOR SHARE")) authorizations.incrementAndGet();
+        };
+        var pool = Executors.newSingleThreadExecutor();
+        try {
+            var editor = pool.submit(() -> tx.executeWithoutResult(status -> {
+                sql.update("UPDATE quizzes SET title='Concurrent edit' WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString());
+                locked.countDown();
+                try { assertThat(release.await(15, TimeUnit.SECONDS)).isTrue(); }
+                catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new AssertionError(failure); }
+            }));
+            assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+            var outer = new TransactionTemplate(manager); outer.setIsolationLevel(isolation);
+            denied(() -> outer.execute(status -> {
+                int previous = sql.queryForObject("SELECT @@SESSION.innodb_lock_wait_timeout", Integer.class);
+                sql.execute("SET SESSION innodb_lock_wait_timeout=1");
+                try { return starts.start(command); }
+                finally { sql.execute("SET SESSION innodb_lock_wait_timeout=" + previous); }
+            }), IN_PROGRESS);
+            assertThat(observer().sqlErrorCodes).containsExactly(1205);
+            assertThat(authorizations).hasValue(1);
+            observer().reset(); assertNoTargetRows();
+            release.countDown(); editor.get(10, TimeUnit.SECONDS);
+            assertCoherent(restarted().start(command), 5);
+        } finally {
+            release.countDown(); observer().reset(); pool.shutdownNow();
+            assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
     private UUID draft(QuestionType type) {
         return tx.execute(s -> {
             var q = new Question(); q.setType(type); q.setDifficulty(Difficulty.EASY); q.setQuestionText("Frozen " + type);
