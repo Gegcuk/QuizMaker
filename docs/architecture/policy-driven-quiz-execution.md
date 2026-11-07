@@ -3178,6 +3178,55 @@ Submission must support:
 
 A batch must not apply looser policy than individual commands.
 
+### Dark single-response acceptance (#543)
+
+`ResponseAcceptanceService` composes the real saved form/contract readers, #523 guards, #528
+lifecycle, #538 trace and #599 receipt transaction. The additive
+`POST /api/v1/attempts/{attemptId}/responses` adapter is absent unless
+`quizmaker.attempts.response-acceptance-enabled=true`; normal configuration leaves it disabled.
+It accepts `formItemId`, `expectedStateVersion`, a named five-family `response` union and the
+existing exact `Idempotency-Key` identity. Authentication, `ATTEMPT_CREATE`, bound participant
+identity and current owner/full-question-editor authority are required, including on replay.
+The route belongs to the Attempts OpenAPI group and API summary. It does not require the
+separate `ATTEMPT_READ` permission to answer.
+
+The supported slice is the existing authenticated, untimed, flat, text-only `ALL_AT_ONCE`
+practice policy with `LOCK_ON_ACCEPTANCE`. Stable option UUIDs resolve against the frozen
+question revision; display position and mutable authoring content cannot select an answer.
+`MCQ_SINGLE`, `MCQ_MULTI`, `TRUE_FALSE`, `FILL_GAP` and `ORDERING` use their actual v1 validators.
+Multi-choice selections normalize as a set; ordering preserves sequence; gap entries sort by
+gap ID without rewriting answer text. Empty arrays retain the frozen family semantics.
+The new HTTP parser rejects duplicate properties, unknown fields, scalar coercion and malformed
+UUIDs without changing legacy JSON parsing. Arrays are bounded to 100 entries, gap answer text
+to 10,000 Unicode code points, and normalized response JSON to 65,536 UTF-8 bytes.
+
+V95 stores immutable learner evidence in `attempt_accepted_response`, including attempt/form/item,
+question revision, response contract/version, normalized payload, command identity and acceptance
+time. Natural uniqueness on attempt/item survives receipt expiry. Composite foreign keys bind
+the form item to its actual question and attempt stream. There is no receipt foreign key,
+legacy backfill or cascade. Existing erasure/retention ownership remains with #664; successful
+target writes require forward-fix recovery rather than destructive downgrade.
+
+The command serializes on the attempt lifecycle before shared content/access reads. Accepted
+row, lifecycle version, `ANSWER_SUBMITTED` trace and receipt acknowledgement commit together.
+Identical retries return the original accepted-response reference and version; stale versions,
+changed same-key input and a new key for an already accepted item cannot overwrite evidence.
+The acknowledgement exposes only `attemptId`, `acceptedResponseId`, `stateVersion`, `replayed`.
+Both success and errors use `Cache-Control: no-store`; errors are bounded RFC 7807 bodies:
+400 malformed input/key, 401 unauthenticated, 404 inaccessible attempt/item, 409 conflict/stale/
+inactive/busy/expired, 422 invalid response/unsupported contract, 500 corrupt saved evidence,
+503 unavailable/retryable/unknown transaction outcome. An uncertain outcome is reconciled with
+the exact same command in a fresh transaction; there are no automatic retries. Metrics contain
+only bounded version/outcome labels, never answer text, identifiers or keys.
+
+For example, losing the network acknowledgement after confirming a shuffled choice and retrying
+with the same key returns the same acceptance; it neither creates a second answer nor interprets
+the choice as its new display position. This foundation performs no grading, feedback release,
+whole-attempt completion, editable conversion or batch submission. Those compositions remain
+with #603, #555/#556, #529, #834 and #629; #609 owns initial-flow activation. Legacy `/answers`
+and immediate practice feedback stay unchanged. Before browser activation, the deployment CORS
+allowlist must permit `Idempotency-Key`; this issue does not alter the existing security config.
+
 ### Implemented canonical command receipts (#599)
 
 `CommandReceiptService` is an internal, dark authenticated-command boundary. Its Spring

@@ -8,9 +8,12 @@ import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPol
 import uk.gegc.quizmaker.features.question.application.contract.ResolvedQuestionContracts;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
 
-/** Internal evidence only. The caller must hold a transaction through projection/serialization mapping. */
+/**
+ * Internal evidence only. The caller must hold a transaction through projection/serialization mapping.
+ * Sanitized database conflicts reach the caller, which owns its outward command or read error contract.
+ */
 public interface AttemptReadFactsService {
-    enum Purpose { ACTIVE_DELIVERY, PARTICIPANT_VIEW }
+    enum Purpose { ACTIVE_DELIVERY, PARTICIPANT_VIEW, ACCEPT_RESPONSE }
     Facts read(UUID attemptId, Purpose purpose);
 
     record Facts(AttemptAccessService.Access access, ResolvedAttemptPolicy policy, FixedForm form,
