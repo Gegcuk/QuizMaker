@@ -1,5 +1,11 @@
 package uk.gegc.quizmaker.features.attempt.trace;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
+import org.slf4j.LoggerFactory;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.flywaydb.core.Flyway;
@@ -177,27 +183,60 @@ class ExecutionTraceMySqlIntegrationTest {
         assertThat(count("attempt_trace_stream")).isZero();
     }
 
-    @Test
-    void faultAfterRealInsertMarksCaughtFailureRollbackOnlyAndUndoesCounterAndBusinessWrites() {
+    @ParameterizedTest
+    @ValueSource(strings = {"sql", "known", "unexpected"})
+    void faultAfterRealInsertMarksCaughtFailureRollbackOnlyAndUndoesCounterAndBusinessWrites(String kind) {
         var scope = fixture(); var reached = new AtomicBoolean();
+        String privateMarker = "private-trace-write-marker";
+        var reason = kind.equals("known") ? CORRUPT_TRACE : PERSISTENCE_UNAVAILABLE;
         source.afterSql = (statement, connection) -> {
             if (statement.startsWith("INSERT INTO attempt_trace_event")) {
                 assertThat(count("attempt_trace_event")).isEqualTo(1);
-                reached.set(true); throw new SQLException("Synthetic post-insert failure", "45000");
+                reached.set(true);
+                if (kind.equals("sql")) throw new SQLException(privateMarker, "45000");
+                RuntimeException failure = kind.equals("known") ? new TraceException(CORRUPT_TRACE)
+                        : new IllegalStateException(privateMarker);
+                failure.initCause(new IllegalArgumentException(privateMarker));
+                failure.addSuppressed(new IllegalStateException(privateMarker));
+                throw failure;
             }
         };
-        assertThatThrownBy(() -> tx("READ_COMMITTED").executeWithoutResult(status -> {
-            sql.update("UPDATE trace_business_fixture SET marker='partial' WHERE id=1");
-            rejected(() -> service.append(scope, event("reached-insert")), PERSISTENCE_UNAVAILABLE);
-            assertThat(status.isRollbackOnly()).isTrue();
-            sql.update("UPDATE trace_business_fixture SET marker='after-catch' WHERE id=2");
-        })).isInstanceOf(UnexpectedRollbackException.class);
-        source.reset();
-        assertThat(reached).isTrue();
-        assertThat(count("attempt_trace_stream")).isZero();
-        assertThat(count("attempt_trace_event")).isZero();
-        assertThat(marker(1)).isEqualTo("original"); assertThat(marker(2)).isEqualTo("original");
-        assertThat(append(scope, event("reached-insert")).event().sequence()).isEqualTo(1);
+        var logger = (Logger) LoggerFactory.getLogger(TransactionTemplate.class);
+        Level previous = logger.getLevel(); Thread requestThread = Thread.currentThread();
+        var captured = new ListAppender<ILoggingEvent>() {
+            @Override protected void append(ILoggingEvent event) {
+                if (Thread.currentThread() == requestThread) {
+                    event.prepareForDeferredProcessing(); super.append(event);
+                }
+            }
+        };
+        captured.setContext(logger.getLoggerContext()); captured.start();
+        logger.addAppender(captured); logger.setLevel(Level.DEBUG);
+        try {
+            assertThatThrownBy(() -> tx("READ_COMMITTED").executeWithoutResult(status -> {
+                sql.update("UPDATE trace_business_fixture SET marker='partial' WHERE id=1");
+                rejected(() -> service.append(scope, event("reached-insert")), reason);
+                assertThat(status.isRollbackOnly()).isTrue();
+                sql.update("UPDATE trace_business_fixture SET marker='after-catch' WHERE id=2");
+            })).isInstanceOf(UnexpectedRollbackException.class);
+            source.reset();
+            assertThat(reached).isTrue();
+            assertThat(count("attempt_trace_stream")).isZero();
+            assertThat(count("attempt_trace_event")).isZero();
+            assertThat(marker(1)).isEqualTo("original"); assertThat(marker(2)).isEqualTo("original");
+            assertThat(append(scope, event("reached-insert")).event().sequence()).isEqualTo(1);
+            assertThat(captured.list).anySatisfy(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.DEBUG);
+                assertThat(event.getThrowableProxy()).isNotNull();
+            });
+            assertThat(captured.list).allSatisfy(event -> {
+                assertThat(event.getFormattedMessage()).doesNotContain(privateMarker);
+                if (event.getThrowableProxy() != null) assertThat(ThrowableProxyUtil.asString(event.getThrowableProxy()))
+                        .doesNotContain(privateMarker);
+            });
+        } finally {
+            source.reset(); logger.detachAppender(captured); logger.setLevel(previous); captured.stop();
+        }
     }
 
     @Test

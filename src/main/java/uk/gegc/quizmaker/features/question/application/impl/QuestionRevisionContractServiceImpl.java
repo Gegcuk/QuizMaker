@@ -162,7 +162,14 @@ public class QuestionRevisionContractServiceImpl implements QuestionRevisionCont
                         var scope = currentScope();
                         if (scope != null) scope.violated = true;
                     }
-                    throw failure;
+                    // Preserve the transaction-wide poison flag before dropping diagnostics.
+                    throw new ContractResolutionException(failure.reason());
+                } catch (RuntimeException failure) {
+                    // Both declaration and resolution may participate in an outer command.
+                    // Their own template must never receive raw driver/content exceptions.
+                    var conflict = DatabaseConflictException.from(failure);
+                    if (conflict.isPresent()) throw conflict.get();
+                    throw new ContractResolutionException(PERSISTENCE_UNAVAILABLE);
                 }
             });
         } catch (DataAccessException | TransactionException failure) {

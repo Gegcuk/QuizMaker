@@ -123,6 +123,17 @@ Every row below has a sourced approved clause. The interaction column identifies
 | <a id="d37"></a>D37 | Resolve local time + IANA zone once into persisted UTC evidence; reject unresolved DST ambiguity; first valid manual/scheduled release commit wins. | [#675](https://github.com/Gegcuk/QuizMaker/issues/675) | Release changes create new evidence, not reinterpretation. |
 | <a id="d38"></a>D38 | Formal fixture: bank 40; persisted random form 20 (8 single MCQ, 4 multi, 4 true/false, 2 fill-gap, 2 ordering); sequential, answer-before-next, no skip/backtrack; 30min, one attempt, binary 1 point/item, pass14/20; score/pass only after deadline. | [#668](https://github.com/Gegcuk/QuizMaker/issues/668) | Authenticated roster; no pause/grace/guests/sections/accommodations/manual/Offline/Adaptive/Branching/Live. Exact fixture remains in source. |
 
+<a id="automatic-result-normalization"></a>
+### D02 automatic-result normalization refinement — 7 November 2026
+
+The repository owner approved #603's implementation scope and selected `HALF_UP` for
+the persisted integer basis-point representation. Calculate `earned * 10000 / possible`
+using exact arithmetic and round once to an integer: `2/3 → 6667`, `1/32 → 313`.
+Pass/fail still compares exact earned/possible values with the captured threshold;
+`13999/20000` rounds to `7000` basis points but fails a `7000` threshold. The saved
+threshold remains authoritative, with the already approved default `7000`.
+This refinement does not change family scoring, unanswered-item treatment or disclosure.
+
 ## R01–R17: refinements and readiness
 
 An approved part below is preserved even when the surrounding issue is partially decided. The open-question link names the remaining scope, not a request to choose the whole feature again.
