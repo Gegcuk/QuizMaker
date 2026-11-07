@@ -137,7 +137,15 @@ public class AutomaticResultServiceImpl implements AutomaticResultService {
     }
     private <T>T execute(String operation,TransactionTemplate tx,Supplier<T> action) {
         var timer=Timer.start(); String outcome="unavailable";
-        try { var result=tx.execute(s->action.get()); outcome="committed"; return result; }
+        try {
+            var result=tx.execute(s->{
+                try { return action.get(); }
+                // TransactionTemplate logs the callback failure before returning control here.
+                // Drop driver/content diagnostics before that rollback boundary sees them.
+                catch(RuntimeException failure) { throw translate(failure); }
+            });
+            outcome="committed"; return result;
+        }
         catch(RuntimeException failure) {
             var safe=translate(failure); outcome=safe.reason().name().toLowerCase(Locale.ROOT); throw safe;
         } finally {

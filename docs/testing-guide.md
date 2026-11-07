@@ -248,6 +248,11 @@ outbox inserts prove rollback through fresh transactions. A 501-item fixture pro
 the first real 500-grade batch. Lost commit acknowledgements are reconciled with the same retained
 submission ID. Query counters compare three parents with five versus twenty-five items for both
 creation and replay, including actual JDBC/JPA composition.
+The four result/grade/trace/outbox write-fault scenarios explicitly capture `TransactionTemplate`
+DEBUG logs, including throwable causes and suppressed exceptions. They require actual rollback
+diagnostics and reject a synthetic private driver marker, while retaining reached-write, fresh-read
+rollback and successful-retry assertions. Direct trace tests additionally exercise SQL, known-domain
+and unexpected-runtime failures with sensitive nested diagnostics in a participating transaction.
 Well-shaped impossible option/gap references fail closed; positive controls use real accepted
 empty MCQ_MULTI/ORDERING/FILL_GAP arrays and preserve their zero-credit accepted identity.
 

@@ -1,5 +1,11 @@
 package uk.gegc.quizmaker.features.attempt.submission;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
+import org.slf4j.LoggerFactory;
 import uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ParticipantContent;
@@ -338,11 +344,36 @@ class AutomaticResultMySqlIntegrationTest {
                 throw new SQLException("private-graded-write-marker","08006");
             }
         };
-        reject(f.submission(),AutomaticResultException.Reason.UNAVAILABLE);
-        observer().afterSql=null; assertThat(reached).isTrue(); noResult(f);
-        var after=tx.execute(s->sql.queryForList("SELECT BIN_TO_UUID(id) id,normalized_response FROM attempt_accepted_response ORDER BY id"));
-        assertThat(after).isEqualTo(accepted);
-        assertThat(recreated().finalizeSubmission(f.submission()).score().earned()).isEqualTo(2);
+        var logger=(Logger)LoggerFactory.getLogger(TransactionTemplate.class);
+        Level previous=logger.getLevel(); Thread requestThread=Thread.currentThread();
+        var captured=new ListAppender<ILoggingEvent>() {
+            @Override protected void append(ILoggingEvent event) {
+                if(Thread.currentThread()==requestThread) {
+                    event.prepareForDeferredProcessing(); super.append(event);
+                }
+            }
+        };
+        captured.setContext(logger.getLoggerContext()); captured.start();
+        logger.addAppender(captured); logger.setLevel(Level.DEBUG);
+        try {
+            reject(f.submission(),AutomaticResultException.Reason.UNAVAILABLE);
+            observer().afterSql=null; assertThat(reached).isTrue(); noResult(f);
+            var after=tx.execute(s->sql.queryForList("SELECT BIN_TO_UUID(id) id,normalized_response FROM attempt_accepted_response ORDER BY id"));
+            assertThat(after).isEqualTo(accepted);
+            assertThat(recreated().finalizeSubmission(f.submission()).score().earned()).isEqualTo(2);
+            // A real rollback diagnostic must be captured; disabling logs is not redaction.
+            assertThat(captured.list).anySatisfy(event->{
+                assertThat(event.getLevel()).isEqualTo(Level.DEBUG);
+                assertThat(event.getThrowableProxy()).isNotNull();
+            });
+            assertThat(captured.list).allSatisfy(event->{
+                assertThat(event.getFormattedMessage()).doesNotContain("private-graded-write-marker");
+                if(event.getThrowableProxy()!=null) assertThat(ThrowableProxyUtil.asString(event.getThrowableProxy()))
+                        .doesNotContain("private-graded-write-marker");
+            });
+        } finally {
+            observer().afterSql=null; logger.detachAppender(captured); logger.setLevel(previous); captured.stop();
+        }
     }
     @Test void partialGradeBatchFailureRollsBackAnActuallyReachedPrefix() {
         var f=fixture(501,0,0); var reached=new AtomicBoolean();

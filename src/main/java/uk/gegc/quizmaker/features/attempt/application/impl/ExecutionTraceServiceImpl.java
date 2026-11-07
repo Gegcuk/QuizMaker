@@ -46,31 +46,37 @@ public class ExecutionTraceServiceImpl implements ExecutionTraceService {
         try {
             require(TransactionSynchronizationManager.isActualTransactionActive(), TRANSACTION_REQUIRED);
             var result = mandatory.execute(status -> {
-                require(scope != null && event != null, INVALID_INPUT);
-                repository.ensureStream(scope);
-                var stream = repository.lockStream(scope.attemptId()).orElseThrow(() -> new TraceException(CONTEXT_UNAVAILABLE));
-                require(stream.version() == VERSION, UNSUPPORTED_VERSION);
-                require(scope.equals(stream.scope()), EVENT_CONFLICT);
-                require(stream.lastSequence() >= 0, CORRUPT_TRACE);
-                if (stream.lastSequence() > 0) {
-                    var last = repository.last(scope.attemptId());
-                    require(last.isPresent() && last.get().sequence() == stream.lastSequence(), CORRUPT_TRACE);
+                try {
+                    require(scope != null && event != null, INVALID_INPUT);
+                    repository.ensureStream(scope);
+                    var stream = repository.lockStream(scope.attemptId()).orElseThrow(() -> new TraceException(CONTEXT_UNAVAILABLE));
+                    require(stream.version() == VERSION, UNSUPPORTED_VERSION);
+                    require(scope.equals(stream.scope()), EVENT_CONFLICT);
+                    require(stream.lastSequence() >= 0, CORRUPT_TRACE);
+                    if (stream.lastSequence() > 0) {
+                        var last = repository.last(scope.attemptId());
+                        require(last.isPresent() && last.get().sequence() == stream.lastSequence(), CORRUPT_TRACE);
+                    }
+                    var identity = repository.reserve(scope.attemptId(), event.id());
+                    require(identity.attemptId().equals(scope.attemptId()), EVENT_CONFLICT);
+                    require(identity.sequence() >= 0, CORRUPT_TRACE);
+                    if (identity.sequence() > 0) {
+                        var saved = repository.findEvent(event.id()).orElseThrow(() -> new TraceException(CORRUPT_TRACE));
+                        require(saved.scope().equals(scope) && saved.event().equals(event), EVENT_CONFLICT);
+                        require(saved.sequence() == identity.sequence() && saved.sequence() <= stream.lastSequence(), CORRUPT_TRACE);
+                        return new Appended(saved, true);
+                    }
+                    require(stream.lastSequence() < Long.MAX_VALUE, CORRUPT_TRACE);
+                    var saved = new Stored(scope, stream.lastSequence() + 1, clock.instant(), event);
+                    repository.insert(saved);
+                    require(repository.assign(event.id(), saved.sequence()), CORRUPT_TRACE);
+                    require(repository.advance(scope.attemptId(), stream.lastSequence()), CORRUPT_TRACE);
+                    return new Appended(saved, false);
+                } catch (RuntimeException failure) {
+                    // Even a participating template logs callback failures before an outer
+                    // command can sanitize them. Keep driver/content details out of that log.
+                    throw sanitized(failure);
                 }
-                var identity = repository.reserve(scope.attemptId(), event.id());
-                require(identity.attemptId().equals(scope.attemptId()), EVENT_CONFLICT);
-                require(identity.sequence() >= 0, CORRUPT_TRACE);
-                if (identity.sequence() > 0) {
-                    var saved = repository.findEvent(event.id()).orElseThrow(() -> new TraceException(CORRUPT_TRACE));
-                    require(saved.scope().equals(scope) && saved.event().equals(event), EVENT_CONFLICT);
-                    require(saved.sequence() == identity.sequence() && saved.sequence() <= stream.lastSequence(), CORRUPT_TRACE);
-                    return new Appended(saved, true);
-                }
-                require(stream.lastSequence() < Long.MAX_VALUE, CORRUPT_TRACE);
-                var saved = new Stored(scope, stream.lastSequence() + 1, clock.instant(), event);
-                repository.insert(saved);
-                require(repository.assign(event.id(), saved.sequence()), CORRUPT_TRACE);
-                require(repository.advance(scope.attemptId(), stream.lastSequence()), CORRUPT_TRACE);
-                return new Appended(saved, false);
             });
             outcome = result.replayed() ? "replay_returned" : "append_returned";
             return result;
@@ -79,7 +85,7 @@ public class ExecutionTraceServiceImpl implements ExecutionTraceService {
             throw failure;
         } catch (TraceException failure) {
             outcome = failure.reason().name().toLowerCase(Locale.ROOT);
-            throw failure;
+            throw new TraceException(failure.reason());
         } catch (DataAccessException | TransactionException failure) {
             var conflict = DatabaseConflictException.from(failure);
             if (conflict.isPresent()) {
@@ -99,5 +105,12 @@ public class ExecutionTraceServiceImpl implements ExecutionTraceService {
                 // Optional telemetry must not replace the result or affect the caller transaction.
             }
         }
+    }
+
+    private static RuntimeException sanitized(RuntimeException failure) {
+        if (failure instanceof TraceException known) return new TraceException(known.reason());
+        var conflict = DatabaseConflictException.from(failure);
+        if (conflict.isPresent()) return conflict.get();
+        return new TraceException(failure instanceof DataIntegrityViolationException ? EVENT_CONFLICT : PERSISTENCE_UNAVAILABLE);
     }
 }
