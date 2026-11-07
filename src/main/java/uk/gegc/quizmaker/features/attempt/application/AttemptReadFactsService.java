@@ -13,7 +13,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
  * Sanitized database conflicts reach the caller, which owns its outward command or read error contract.
  */
 public interface AttemptReadFactsService {
-    enum Purpose { ACTIVE_DELIVERY, PARTICIPANT_VIEW, ACCEPT_RESPONSE }
+    enum Purpose { ACTIVE_DELIVERY, PARTICIPANT_VIEW, ACCEPT_RESPONSE, SUBMIT_ATTEMPT }
     Facts read(UUID attemptId, Purpose purpose);
 
     record Facts(AttemptAccessService.Access access, ResolvedAttemptPolicy policy, FixedForm form,
