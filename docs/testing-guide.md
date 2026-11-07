@@ -226,6 +226,34 @@ Avoid adding `@Nested` containers beneath a class-level `@DirtiesContext` solely
 - For asynchronous behavior, invoke a synchronous seam, use a controlled executor, or wait on a deterministic signal. Do not use arbitrary sleeps.
 - Verify idempotency, retries, and rollback/partial-failure behavior where the feature uses them.
 
+### Automatic result facts (#603)
+
+```bash
+./mvnw test -Dtest=AutomaticResultTest,AutomaticResultMySqlIntegrationTest
+./mvnw test -Dtest=AutomaticResultMySqlIntegrationTest -Dresult.test.isolation=TRANSACTION_READ_COMMITTED
+```
+
+Use the existing test MySQL configuration (`TEST_MYSQL_PORT` and optional administrative
+credentials). The integration suite creates and drops its own `automatic_result_<id>` catalog,
+keeps foreign keys enabled and runs actual publication, contract binding, start, response
+acceptance and terminal submission before grading. Only external image storage is a fake.
+Default isolation is explicitly `REPEATABLE READ`; the second command covers `READ COMMITTED`.
+
+Coverage includes correct/incorrect golden inputs for all five families, MCQ_MULTI all-or-nothing
+scoring, unanswered items, HALF_UP normalization and exact pass boundaries, immutable provenance,
+author edits, receipt cleanup, missing deployed scorers through the real registry, corrupt scope/
+counts/payloads, unsupported stored grading modes, real uniqueness/CHECK/FK constraints, concurrent
+successful consumers and restart recovery. Reached-write faults after result, grades, trace and
+outbox inserts prove rollback through fresh transactions. A 501-item fixture proves rollback after
+the first real 500-grade batch. Lost commit acknowledgements are reconciled with the same retained
+submission ID. Query counters compare three parents with five versus twenty-five items for both
+creation and replay, including actual JDBC/JPA composition.
+Well-shaped impossible option/gap references fail closed; positive controls use real accepted
+empty MCQ_MULTI/ORDERING/FILL_GAP arrays and preserve their zero-credit accepted identity.
+
+No public endpoint, release, notification, scheduler or offline activation is claimed. Run the
+full `./mvnw verify` gate for existing API/training/OpenAPI compatibility after focused checks.
+
 ## External Systems And AI
 
 Automated tests must never call real OpenAI, Stripe, email, storage, transcription, or other paid/remote services.

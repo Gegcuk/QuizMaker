@@ -3286,6 +3286,54 @@ values and pending/empty items are not proof of eight persisted conversions. Rea
 conversion remains #834; real timing/expiry is #601/#702, section composition #711, grading #603,
 release #555/#556 and public conformance/activation #609. No unsupported capability is activated.
 
+### Dark automatic result facts (#603)
+
+`AutomaticResultService` consumes committed #529 submission intents through the internal
+`SubmittedAttemptSource` boundary. It is a trusted system service, not participant read or
+disclosure authority. The source derives scope from retained submission/subject/form/policy
+references, verifies the terminal lifecycle and accepted set, and loads immutable revisions
+and exact contract versions. It never reads mutable authoring questions or requires an active
+participant session to finish already submitted work. Existing participant access checks and
+all legacy routes remain unchanged.
+
+`binary-result/v1` uses the five #701 binary family contracts. Each form item contributes one
+possible point. Accepted correct responses earn one; accepted incorrect responses and allowed
+unanswered items earn zero. An unanswered item retains a null response reference; no accepted
+incorrect answer is fabricated. V97 stores integer earned/possible totals, per-item revision,
+response/scoring versions and response references, the captured threshold, policy hash and
+immutable form/policy/revision/submission references. [D02's owner-approved HALF_UP refinement](decision-register.md#automatic-result-normalization)
+governs normalized basis points. Exact cross multiplication determines pass/fail independently
+of rounding, and no floating-point value is authoritative.
+
+One transaction locks the retained intent, validates source evidence and creates the immutable
+result, item grades, `AUTOMATIC_GRADE_PRODUCED` trace and one `attempt_result_created` outbox fact.
+The outbox ID is the result/trace ID. Unique submission and attempt keys protect the initial
+automatic result; repeated processing returns the original result without rescoring or changing
+its timestamp. Receipt expiration, author edits and service restart do not change it. Unknown
+or missing contracts, inconsistent counts/scope, malformed evidence and unsupported stored
+grading modes fail closed, leaving no partial result. No manual, mixed or ungraded writer is
+introduced; future corrections create separately owned superseding evidence.
+Stored responses round-trip through #543's frozen source-key adapter and canonical membership
+validation before scoring. Unknown option/gap references cannot become synthetic incorrect
+grades. Real accepted empty arrays retain their existing incorrect-answer semantics and their
+accepted-response identity; they are not reclassified as unanswered.
+
+Recovery uses bounded `pending(limit)` discovery and re-drives `finalizeSubmission` with the
+same retained submission ID in a fresh transaction. A committed result consumes the intent by
+natural identity; the intent itself is retained. After an unavailable/unknown commit outcome,
+re-drive that identity rather than create another result. `BUSY` and `RETRYABLE` distinguish
+lock timeout and deadlock. No automatic retry count, polling schedule or external dispatch is
+selected here. Integrating runtime triggers and controlled public activation remains #609;
+disclosure/release remains #555/#556. New metrics use only bounded version/operation/outcome
+labels (`quizmaker.result.automatic`); failures contain no answer content or driver diagnostics.
+
+For example, seven correct, one incorrect and two unanswered items produce `7/10`, `7000`, pass
+at the default threshold, with eight accepted-response references. Restarting the consumer or
+editing the author's current answer key preserves exactly that saved fact. This foundation
+does not make the total participant-visible, issue a certificate or emit a delivered notice.
+Keep additive tables on application rollback; forward-fix retained evidence. #664/#699 retain
+erasure/retention ownership; this migration adds no cascade, age cleanup or legacy backfill.
+
 ### Implemented canonical command receipts (#599)
 
 `CommandReceiptService` is an internal, dark authenticated-command boundary. Its Spring
