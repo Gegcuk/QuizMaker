@@ -36,7 +36,7 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
 
     @Override public Facts read(UUID attemptId, Purpose purpose) {
         try {
-            var granted = access.requireAccess(attemptId, purpose == Purpose.ACCEPT_RESPONSE
+            var granted = access.requireAccess(attemptId, purpose == Purpose.ACCEPT_RESPONSE || purpose == Purpose.SUBMIT_ATTEMPT
                     ? AttemptAccessService.Operation.ANSWER : AttemptAccessService.Operation.VIEW);
             if (purpose != Purpose.PARTICIPANT_VIEW && granted.lifecycle().state().execution()
                     != uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycle.Execution.IN_PROGRESS)

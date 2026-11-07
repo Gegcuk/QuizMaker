@@ -3227,6 +3227,65 @@ with #603, #555/#556, #529, #834 and #629; #609 owns initial-flow activation. Le
 and immediate practice feedback stay unchanged. Before browser activation, the deployment CORS
 allowlist must permit `Idempotency-Key`; this issue does not alter the existing security config.
 
+### Dark atomic terminal submission (#529)
+
+`AttemptSubmissionService` owns the participant command for the existing authenticated,
+untimed, flat `ALL_AT_ONCE` immediate-acceptance slice. Its additive
+`POST /api/v1/attempts/{attemptId}/submit` adapter is absent unless
+`quizmaker.attempts.submission-enabled=true`. Public routing activation, including any
+adaptation of the existing `/complete` route, remains #609. Existing legacy request/response
+envelopes and immediate practice feedback are preserved; web/iOS clients need no change while
+the adapter is disabled. Browser activation also requires the existing CORS deployment gate
+for `Idempotency-Key`.
+
+The named `AttemptSubmitRequest` accepts only `expectedStateVersion` and
+`completionConfirmed`; final submit carries no answers, participant identity or policy overrides.
+The strict adapter rejects unknown/duplicate fields, trailing JSON and scalar coercion without
+changing legacy parsing. Authentication, `ATTEMPT_CREATE`, the bound participant and current
+owner/full-question-editor authority are rechecked before both fresh execution and receipt replay.
+The separate read permission is not required to submit. Form membership, immutable contracts,
+saved require-all and confirmation are server-owned facts. Completeness reads one indexed set of
+accepted-response metadata, without loading response payloads or querying once per item.
+
+The command takes the same lifecycle root lock as #543 before shared content/access reads.
+`AttemptTerminalSubmission` joins that receipt transaction, checks completeness and the expected
+version, invokes the response-finalization boundary, closes collection, writes `ANSWER_LOCKED`
+and `ATTEMPT_SUBMITTED` trace events, and records the submission plus one finalization intent.
+Terminal state prevents a later answer from joining the accepted set. All writes commit together;
+another connection cannot see the finalization intent before that commit. V96 adds retained
+`attempt_submission` and `attempt_finalization_intent` evidence with natural uniqueness, immutable
+form/policy/revision references, counts and a server timestamp. It introduces no legacy backfill,
+cascade or cleanup. Receipt expiry does not erase these records. Keep the additive tables during
+application rollback; forward-fix retained target attempts. #664/#699 retain lifecycle/erasure
+ownership, and #603 owns actual intent consumption, automatic scoring and its recovery protocol.
+
+`AttemptSubmitAcknowledgement` contains only `attemptId`, `submissionId`, `stateVersion` and
+`replayed`; submission does not grant result/review disclosure. An identical retry returns the
+original acknowledgement/version after current authorization. Changed same-key input, a stale
+version or another fresh submission conflicts. Unknown outcomes retain their identity and are
+reconciled by an exact retry; no automatic retry policy is added. RFC 7807 `AttemptSubmitProblem`
+documents 400 malformed input/key, 401 authentication, 404 inaccessible attempt, 409 conflict/
+stale/inactive/busy/expired receipt, 422 missing required answers/confirmation/unsupported
+capability, 500 corrupt evidence and 503 unavailable/retryable/unknown outcome. Only an authorized
+incomplete response includes the safe `missingFormItemIds`; other failures have an empty list.
+Success and errors use `Cache-Control: no-store`. Metrics use only version/outcome labels.
+
+For example, eight accepted answers in a ten-item form finish with two unanswered items when
+require-all is OFF and completion is confirmed. ON denies without state/receipt/trace/intent
+writes; after the remaining two answers are accepted, a fresh version can complete. Standard
+minimal start retains its OFF preset. The ON submission fixture captures a separate policy via
+real foundation services; it does not claim a new public ON starter.
+
+MySQL tests use actual publication, contracts, start, acceptance, receipts and terminal writes.
+They cover both isolation levels, controlled answer-versus-submit orderings, concurrent submits,
+recreated-service replay, commit acknowledgement loss, reached-write rollback, metadata corruption,
+current access, history/receipt cleanup and multi-parent query counts. Closed-scope fixtures prove
+the terminal contract with captured scope facts, not a working section/timer writer. The named
+`SubmissionResponseFinalizer` double proves orchestration and rollback only: its eight eligible
+values and pending/empty items are not proof of eight persisted conversions. Real editable
+conversion remains #834; real timing/expiry is #601/#702, section composition #711, grading #603,
+release #555/#556 and public conformance/activation #609. No unsupported capability is activated.
+
 ### Implemented canonical command receipts (#599)
 
 `CommandReceiptService` is an internal, dark authenticated-command boundary. Its Spring
