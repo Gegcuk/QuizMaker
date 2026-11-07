@@ -307,6 +307,9 @@ Ask before:
 
 ## Git and delivery safety
 
+- Work in this repository's primary checkout on the issue branch, so the owner can review changes in the existing editor window. Leave the primary checkout on that branch after delivery.
+- Do not create or use additional worktrees, temporary clones, or temporary source checkouts without the owner's explicit request or approval for the current task. Temporary logs and test artifacts are allowed outside the repository.
+- Preserve unrelated working-tree changes. If they prevent a safe branch switch or reliable verification in the primary checkout, explain the concrete conflict and ask how to proceed; do not automatically stash, discard, relocate changes, or switch to a separate checkout.
 - AI agents may perform ordinary, non-force pushes of issue branches to `origin` after the required verification.
 - Never push `main`, `master`, or another protected branch; never force-push.
 - Never create or merge pull requests, publish releases, or trigger deployments.

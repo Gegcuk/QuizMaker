@@ -24,8 +24,11 @@ public record AttemptFormResponse(
     public AttemptFormResponse { items = List.copyOf(items); allowedActions = List.copyOf(allowedActions); }
     public static AttemptFormResponse from(AttemptDeliveryService.View view) {
         return new AttemptFormResponse(view.attemptId(), view.stateVersion(), view.form().id(), view.form().schemaVersion(),
-                view.form().items().stream().map(item -> new Item(item.id(), item.position(), item.type(),
-                        item.questionText(), content(item.content()))).toList(), view.allowedActions());
+                items(view.form()), view.allowedActions());
+    }
+    public static List<Item> items(uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm form) {
+        return form.items().stream().map(item -> new Item(item.id(), item.position(), item.type(),
+                item.questionText(), content(item.content()))).toList();
     }
 
     @Schema(name = "AttemptFormItem", description = "Stable form-item ID; position is zero-based. No source IDs or protected grading fields.")

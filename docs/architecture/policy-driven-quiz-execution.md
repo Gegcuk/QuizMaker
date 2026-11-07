@@ -2839,6 +2839,69 @@ case, with no authoritative writes. Lifecycle terminal-state fixtures demonstrat
 not the separately owned terminal command. MVC tests use the real security chain and verify typed
 JSON, errors, examples, full/grouped OpenAPI, discovery and default-disabled activation.
 
+
+### Canonical participant view (#526)
+
+`GET /api/v1/attempts/{attemptId}` has an optional `ParticipantAttemptViewService` adapter,
+registered only with `quizmaker.attempts.participant-view-enabled=true`. The default remains
+legacy. With the adapter enabled, an owned legacy-only attempt still returns the exact
+`AttemptDetailsDto` envelope, including its existing answers and nullable `completedAt`;
+it gains no target-only fields or inferred immutable history. A named OpenAPI `oneOf`
+distinguishes that schema from `ParticipantAttemptView` (`representation: POLICY_DRIVEN`,
+`schemaVersion: 1`). Unknown or incomplete target roots and mixed legacy/target identity
+never trigger legacy fallback. Route selection checks only the authenticated user's legacy
+row before current target-root probes, preserving non-enumeration and legacy snapshot reads.
+
+The target view uses the same `AttemptReadFactsService` as #524. It holds current access,
+lifecycle, policy, form/order, revision and contract evidence through projection, including
+inside an older `READ_COMMITTED` or `REPEATABLE_READ` caller transaction. `/form` keeps its
+active-only, text-only behavior. The view adds immutable quiz/revision/form IDs, current
+execution/answer-collection state, state/policy versions, original UTC start/submission times,
+and the saved item/option order. The supported policy is untimed; `timing: UNTIMED` does not
+invent a deadline. Actions come from #523 with unknown item/completion facts, currently only
+`VIEW_ATTEMPT`. Reads neither create delivery/answer state nor grant more time.
+
+For example, reconnecting after an author republishes a changed question still shows the
+participant's original saved text and order. A committed submission changes `execution` and
+`stateVersion`, but terminal status alone is not review-release proof: the default disclosure
+reader returns `WITHHELD` and omits `items`. Keys, submitted responses, scores, explanations
+and private provenance are structurally absent from the target DTO, regardless of query flags.
+
+`ParticipantViewDisclosureReader` and `ParticipantViewMediaReader` are explicit boundaries
+for the separately owned current release/display decisions. The media reader takes the exact
+saved question/asset references in one batch. A released completed projection retains permitted
+text and represents each top-level attachment as `AVAILABLE` with its original permitted URL,
+`UNAVAILABLE` without a URL, or `RESTRICTED` without a URL. Family contracts explicitly opt in
+to text projection with a separately represented attachment; embedded media is still unsupported.
+Corrupt/missing form evidence fails before either reader can authorize partial content.
+The shipped media adapter rejects media with `422`, rather than pretending missing integration
+is a storage outage. Active-media failure from a typed reader rejects the whole read with `503`;
+it cannot pause a timer, create a grade or perform technical cancellation.
+
+Adapter responses use `Cache-Control: no-store`; the schema is online-only, with no pagination,
+filters, sorting or idempotency key. The route remains in the `attempts` group and API summary.
+Target RFC 7807 failures are `400` malformed ID, `401` unauthenticated, uniform `404`
+absent/foreign/ineligible/unknown root version, `409` lock contention, `422` unsupported saved
+contract, `500` corrupt evidence and `503` dependency failure. Exceptions contain no private
+causes or partial view. A caught failed read still marks an enclosing transaction for rollback.
+The `quizmaker.attempt.view` timer uses only fixed `version`/`outcome` tags and cannot affect
+success or denial. No new migration, dependency, command, retention or cleanup behavior is added.
+
+Automated evidence combines actual publication/binding/#600 start and HTTP reads, legacy writers
+for all nine question families and all three modes, real permission-revocation contention,
+concurrent readers, older caller snapshots, service recreation, corrupt/future-version evidence,
+rollback after injected SQL failure, and full/grouped OpenAPI examples. Complete target reads
+and serialization use 63 SELECTs for three independent participants/quizzes with either one or
+twenty questions; legacy mapping uses nine JPA statements for three parents with either one or
+twenty accepted answers. Route-selection JDBC statements are constant per legacy attempt.
+
+The `PARTICIPANT-VIEW-MEDIA` tests use real persisted publication/image bindings, form, lifecycle
+and trace evidence plus typed disclosure/availability doubles. They prove DTO projection after
+service recreation, current restriction changes, omitted restricted URLs, and unchanged evidence;
+they do not prove media start, storage/restriction integration (#818/#831), real completed-review
+release (#556), or real timed behavior (#668/#711). Those capabilities and public activation
+(#609) retain their separate gates.
+
 ---
 
 ## Navigation

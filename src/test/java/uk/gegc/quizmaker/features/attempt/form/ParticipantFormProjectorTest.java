@@ -79,6 +79,8 @@ class ParticipantFormProjectorTest {
             public ContractVersion version() { return new ContractVersion("fixture.old", 1); }
             public void validate(QuestionRevision q, com.fasterxml.jackson.databind.JsonNode response) { }
         };
+        assertThatThrownBy(() -> old.participantContentWithSeparateAttachment(revision.items().get(0).question()))
+                .isInstanceOf(ContractResolutionException.class).hasMessage("Question contract rejected: UNSUPPORTED_CONTRACT");
         assertThatThrownBy(() -> old.participantContent(revision.items().get(0).question()))
                 .isInstanceOf(ContractResolutionException.class).hasMessage("Question contract rejected: UNSUPPORTED_CONTRACT");
     }

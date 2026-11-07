@@ -25,6 +25,23 @@ public final class ParticipantFormProjector {
 
     public static ParticipantForm project(FixedForm form, QuizRevision revision, FormOptionOrder order,
                                          Map<UUID, ResolvedQuestionContracts> contracts) {
+        return project(form, revision, order, contracts, java.util.Set.of());
+    }
+
+    /**
+     * View-only text projection. Media-bearing items must be identified from the saved revision;
+     * the caller separately applies current disclosure and the exact-binding media reader. This
+     * does not enable media materialization/start or serialize attachment URLs from author content.
+     */
+    public static ParticipantForm projectForView(FixedForm form, QuizRevision revision, FormOptionOrder order,
+                                                Map<UUID, ResolvedQuestionContracts> contracts,
+                                                java.util.Set<UUID> mediaItems) {
+        require(mediaItems != null, INVALID_INPUT);
+        return project(form, revision, order, contracts, mediaItems);
+    }
+
+    private static ParticipantForm project(FixedForm form, QuizRevision revision, FormOptionOrder order,
+                                          Map<UUID, ResolvedQuestionContracts> contracts, java.util.Set<UUID> mediaItems) {
         require(form != null && revision != null && order != null && contracts != null, INVALID_INPUT);
         require(form.quizRevisionId().equals(revision.id()) && form.id().equals(order.formId()), INPUT_MISMATCH);
         require(form.items().size() == order.items().size(), INPUT_MISMATCH);
@@ -41,10 +58,13 @@ public final class ParticipantFormProjector {
             var pair = contracts.get(question.id());
             require(pair != null && pair.binding().equals(options.binding()), INPUT_MISMATCH);
             // Media retention/generation authority belongs to the real publication/media integrations.
-            require(question.attachmentAssetId() == null && question.attachmentUrl() == null, UNSUPPORTED_MEDIA);
+            boolean media = question.attachmentAssetId() != null || question.attachmentUrl() != null;
+            require(!media || mediaItems.contains(item.id()), UNSUPPORTED_MEDIA);
+            require(!mediaItems.contains(item.id()) || question.attachmentAssetId() != null, INPUT_MISMATCH);
             ParticipantContent content;
             try {
-                content = pair.response().participantContent(question);
+                content = mediaItems.contains(item.id()) ? pair.response().participantContentWithSeparateAttachment(question)
+                        : pair.response().participantContent(question);
                 require(content != null, INVALID_MATERIAL);
                 content = orderedContent(question.type(), content, options.optionIds());
             } catch (ContractResolutionException failure) {
@@ -58,6 +78,7 @@ public final class ParticipantFormProjector {
             }
             result.add(new ParticipantForm.Item(item.id(), item.position(), question.type(), question.questionText(), content));
         }
+        require(form.items().stream().map(FixedForm.Item::id).collect(java.util.stream.Collectors.toSet()).containsAll(mediaItems), INPUT_MISMATCH);
         return new ParticipantForm(form.id(), form.schemaVersion(), result);
     }
 

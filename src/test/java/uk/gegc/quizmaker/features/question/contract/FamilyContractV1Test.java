@@ -87,6 +87,23 @@ class FamilyContractV1Test {
     }
 
     @ParameterizedTest
+    @EnumSource(value = QuestionType.class, names = {"MCQ_SINGLE", "MCQ_MULTI", "TRUE_FALSE", "FILL_GAP", "ORDERING"})
+    void separateAttachmentTextProjectionDoesNotLoosenOrdinaryDeliveryOrEmbeddedMedia(QuestionType type) throws Exception {
+        var content = (ObjectNode) QuestionContracts.example(type, QuestionContracts.View.AUTHOR);
+        var original = question(type, content); var response = new FamilyResponseContractV1(type);
+        var attached = new uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision(original.id(), original.questionId(),
+                original.schemaVersion(), type, original.difficulty(), original.questionText(), original.content(), original.hint(),
+                original.explanation(), "https://example.invalid/author-url", UUID.randomUUID(), original.createdAt(), original.options());
+        assertThat(response.participantContentWithSeparateAttachment(attached)).isEqualTo(response.participantContent(original));
+        assertThat(JSON.writeValueAsString(response.participantContentWithSeparateAttachment(attached)))
+                .doesNotContain("author-url", attached.attachmentAssetId().toString(), "correct", "explanation");
+        assertThatThrownBy(() -> response.participantContent(attached)).isInstanceOf(ContractResolutionException.class);
+        content.putObject("media").put("assetId", UUID.randomUUID().toString());
+        assertThatThrownBy(() -> response.participantContentWithSeparateAttachment(question(type, content)))
+                .isInstanceOf(ContractResolutionException.class);
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"en", "tr-TR", "lt-LT"})
     void fillGapRootNormalizationIsIndependentOfDefaultLocale(String language) throws Exception {
         Locale previous = Locale.getDefault();
