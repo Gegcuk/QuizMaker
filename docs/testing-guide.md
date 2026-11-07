@@ -197,6 +197,11 @@ REPEATABLE_READ require an actual acceptance winner, one immutable row/event/rec
 durable replay through recreated command/receipt services. Older caller snapshots must observe
 the committed lifecycle version. Faults after each real authoritative write and before/after
 the actual commit are followed by fresh reads and successful same-command recovery.
+Nested question-revision reads also preserve conflict classification: a real two-connection
+InnoDB deadlock at READ_COMMITTED and REPEATABLE_READ must return `RETRYABLE`, roll back the
+reservation and all target state, and allow the same command to accept once after the competing
+transaction releases its locks. Injected 1205/connection-failure controls retain `IN_PROGRESS`/
+`UNAVAILABLE`; ordinary delivery keeps its existing `BUSY`/`UNAVAILABLE` read responses.
 
 Negative controls cover current subject/permission/editor/account checks, foreign real form
 items, invalid option IDs, stale versions, terminal state and unknown saved contracts. Future

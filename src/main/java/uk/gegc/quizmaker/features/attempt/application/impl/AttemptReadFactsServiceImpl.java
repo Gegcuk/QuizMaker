@@ -13,6 +13,7 @@ import uk.gegc.quizmaker.features.attempt.domain.repository.FixedFormRepository;
 import uk.gegc.quizmaker.features.attempt.domain.repository.FormOptionOrderRepository;
 import uk.gegc.quizmaker.features.question.application.QuestionRevisionContractService;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import static uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException.Reason.*;
 
@@ -56,6 +57,11 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
             var revision = revisions.findByIdForShare(owner, granted.quizRevisionId())
                     .orElseThrow(() -> new AttemptDeliveryException(CORRUPT));
             return new Facts(granted, policy, form.get(0), order.get(0), revision, contracts.resolve(owner, revision.id()));
-        } catch (RuntimeException failure) { throw AttemptReadFailures.translate(failure); }
+        } catch (RuntimeException failure) {
+            // Preserve the sanitized conflict until the caller chooses its command/read error contract.
+            var conflict = DatabaseConflictException.from(failure);
+            if (conflict.isPresent()) throw conflict.get();
+            throw AttemptReadFailures.translate(failure);
+        }
     }
 }

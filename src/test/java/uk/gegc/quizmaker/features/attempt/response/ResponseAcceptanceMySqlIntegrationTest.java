@@ -248,6 +248,114 @@ class ResponseAcceptanceMySqlIntegrationTest {
         assertThat(count("attempt_accepted_response")).isEqualTo(1);
     }
 
+    @ParameterizedTest @CsvSource({"1213,RETRYABLE", "1205,IN_PROGRESS", "0,UNAVAILABLE"})
+    void nestedQuestionReadPreservesDatabaseFailureAndRollsBackTheReservation(int code, String reason) {
+        var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "start"));
+        var request = answer(started.attemptId(), delivery.read(started.attemptId()).form().items().get(2), 1, "answer");
+        var before = targetSnapshot(); var reached = failNestedQuestionLock(code);
+        try {
+            assertThatThrownBy(() -> responses.accept(request)).isInstanceOfSatisfying(ResponseAcceptanceException.class, failure -> {
+                assertThat(failure.reason().name()).isEqualTo(reason);
+                assertThat(failure.getSuppressed()).isEmpty();
+            }).hasNoCause().hasMessageNotContaining("private-nested-read-marker");
+            assertThat(reached).hasValue(1); // No automatic retry, even for the retryable classification.
+        } finally { observer().reset(); }
+        assertThat(targetSnapshot()).isEqualTo(before);
+        assertThat(recreated().accept(request).replayed()).isFalse();
+        assertThat(count("attempt_accepted_response")).isEqualTo(1);
+        assertThat(count("attempt_trace_event")).isEqualTo(3);
+        assertThat(count("attempt_command_receipt")).isEqualTo(2);
+    }
+
+    @ParameterizedTest @CsvSource({"1213,UNAVAILABLE", "1205,BUSY"})
+    void deliveryKeepsItsExistingDatabaseConflictResponse(int code, String reason) {
+        var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "start"));
+        var before = targetSnapshot(); var reached = failNestedQuestionLock(code);
+        try {
+            assertThatThrownBy(() -> delivery.read(started.attemptId()))
+                    .isInstanceOfSatisfying(uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException.class,
+                            failure -> assertThat(failure.reason().name()).isEqualTo(reason))
+                    .hasNoCause().hasMessageNotContaining("private-nested-read-marker");
+            assertThat(reached).hasValue(1);
+        } finally { observer().reset(); }
+        assertThat(targetSnapshot()).isEqualTo(before);
+        assertThat(delivery.read(started.attemptId()).form().items()).hasSize(5);
+    }
+
+    private AtomicInteger failNestedQuestionLock(int code) {
+        var reached = new AtomicInteger();
+        observer().beforeSql = (statement, connection) -> {
+            if (statement.startsWith("SELECT locked.id FROM (")) {
+                reached.incrementAndGet();
+                throw new SQLException("private-nested-read-marker", code == 1213 ? "40001" : code == 1205 ? "HY000" : "08006", code);
+            }
+        };
+        return reached;
+    }
+
+    @ParameterizedTest @ValueSource(ints = {Connection.TRANSACTION_READ_COMMITTED, Connection.TRANSACTION_REPEATABLE_READ})
+    void realDeadlockInsideQuestionReadIsRetryableAndSameCommandRecovers(int isolation) throws Exception {
+        var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "start"));
+        var item = delivery.read(started.attemptId()).form().items().get(2);
+        var request = answer(started.attemptId(), item, 1, "answer");
+        String question = sql.queryForObject("SELECT BIN_TO_UUID(question_revision_id) FROM attempt_form_item_option_order " +
+                "WHERE item_id=UUID_TO_BIN(?)", String.class, item.id().toString());
+        sql.execute("CREATE TABLE acceptance_deadlock_weight(id INT PRIMARY KEY, n INT NOT NULL) ENGINE=InnoDB");
+        sql.batchUpdate("INSERT INTO acceptance_deadlock_weight VALUES (?,0)",
+                IntStream.range(0, 100).mapToObj(i -> new Object[]{i}).toList());
+        var before = targetSnapshot(); var locked = new CountDownLatch(1); var reading = new CountDownLatch(1);
+        var workers = Executors.newSingleThreadExecutor(); var reached = new AtomicInteger();
+        try {
+            var blocker = workers.submit(() -> {
+                try (var connection = source.getConnection()) {
+                    connection.setTransactionIsolation(isolation); connection.setAutoCommit(false);
+                    try {
+                        // More changed rows than acceptance: InnoDB selects the command as the cheaper victim.
+                        try (var statement = connection.createStatement()) { statement.executeUpdate("UPDATE acceptance_deadlock_weight SET n=n+1"); }
+                        lockRow(connection, "SELECT id FROM question_revisions WHERE id=UUID_TO_BIN(?) FOR UPDATE", question);
+                        locked.countDown(); await(reading);
+                        lockRow(connection, "SELECT attempt_id FROM attempt_lifecycle_state WHERE attempt_id=UUID_TO_BIN(?) FOR UPDATE",
+                                started.attemptId().toString());
+                    } finally { connection.rollback(); }
+                }
+                return true;
+            });
+            await(locked);
+            observer().beforeSql = (statement, connection) -> {
+                if (statement.startsWith("SELECT locked.id FROM (")) { reached.incrementAndGet(); reading.countDown(); }
+            };
+            var commandTransaction = new TransactionTemplate(manager); commandTransaction.setIsolationLevel(isolation);
+            assertThatThrownBy(() -> commandTransaction.execute(s -> responses.accept(request)))
+                    .isInstanceOfSatisfying(ResponseAcceptanceException.class, failure -> {
+                        assertThat(failure.reason()).isEqualTo(ResponseAcceptanceException.Reason.RETRYABLE);
+                        assertThat(failure.getSuppressed()).isEmpty();
+                    }).hasNoCause();
+            assertThat(blocker.get(15, TimeUnit.SECONDS)).isTrue();
+            assertThat(reached).hasValue(1);
+            assertThat(observer().sqlErrorCodes).containsExactly(1213); // Actual driver error, not a fault hook.
+            observer().reset();
+            assertThat(targetSnapshot()).isEqualTo(before); // New transactions after the deadlock and before cleanup.
+            assertThat(sql.queryForObject("SELECT SUM(n) FROM acceptance_deadlock_weight", Integer.class)).isZero();
+            var accepted = recreated().accept(request);
+            assertThat(accepted.replayed()).isFalse();
+            assertThat(recreated().accept(request).acceptedResponseId()).isEqualTo(accepted.acceptedResponseId());
+            assertThat(count("attempt_accepted_response")).isEqualTo(1);
+            assertThat(count("attempt_trace_event")).isEqualTo(3);
+            assertThat(count("attempt_command_receipt")).isEqualTo(2);
+        } finally {
+            reading.countDown(); workers.shutdownNow();
+            assertThat(workers.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
+            observer().reset(); sql.execute("DROP TABLE acceptance_deadlock_weight");
+        }
+    }
+
+    private static void lockRow(Connection connection, String query, String id) throws SQLException {
+        try (var statement = connection.prepareStatement(query)) {
+            statement.setString(1, id);
+            try (var rows = statement.executeQuery()) { assertThat(rows.next()).isTrue(); }
+        }
+    }
+
     @ParameterizedTest @ValueSource(booleans = {false, true})
     void commitUncertaintyReconcilesThroughFreshReceiptWithoutRepeatingAnAnswer(boolean committed) {
         var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "start"));
