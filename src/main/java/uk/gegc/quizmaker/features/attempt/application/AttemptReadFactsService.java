@@ -10,7 +10,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
 
 /** Internal evidence only. The caller must hold a transaction through projection/serialization mapping. */
 public interface AttemptReadFactsService {
-    enum Purpose { ACTIVE_DELIVERY, PARTICIPANT_VIEW }
+    enum Purpose { ACTIVE_DELIVERY, PARTICIPANT_VIEW, ACCEPT_RESPONSE }
     Facts read(UUID attemptId, Purpose purpose);
 
     record Facts(AttemptAccessService.Access access, ResolvedAttemptPolicy policy, FixedForm form,

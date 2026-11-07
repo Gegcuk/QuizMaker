@@ -182,6 +182,37 @@ after these checks for shared-controller/family-contract regressions; real provi
 
 Reserve integration tests for behavior that crosses real boundaries: service transactions, `AFTER_COMMIT` listeners, migration wiring, security configuration, serialization, or asynchronous job orchestration.
 
+Immutable response acceptance (#543) has a focused suite:
+
+```bash
+./mvnw test -Dtest=StableResponseNormalizerTest,ResponseAcceptanceMySqlIntegrationTest,ResponseAcceptanceOpenApiTest,ResponseAcceptanceActivationTest
+```
+
+The MySQL class creates an exclusive `attempt_acceptance_<id>` catalog through `TEST_MYSQL_PORT`
+and the existing optional administrative credentials, applies all migrations, and drops only
+that catalog. Publication, contract binding, start, access, acceptance, lifecycle, trace and
+receipt services are real; unexpected object-storage calls fail the fixture. Five families run
+with authored and shuffled option order. Independent transactions at READ_COMMITTED and
+REPEATABLE_READ require an actual acceptance winner, one immutable row/event/receipt, and
+durable replay through recreated command/receipt services. Older caller snapshots must observe
+the committed lifecycle version. Faults after each real authoritative write and before/after
+the actual commit are followed by fresh reads and successful same-command recovery.
+
+Negative controls cover current subject/permission/editor/account checks, foreign real form
+items, invalid option IDs, stale versions, terminal state and unknown saved contracts. Future
+contract fixtures keep foreign keys enabled and consistent; terminal fixtures do not claim the
+future #529 writer. Receipt expiry/cleanup must retain the accepted row. HTTP-to-MySQL tests
+exercise real acceptance and replay; the separate MVC/OpenAPI suite verifies the security chain,
+strict request parsing, error mapping, named five-family schemas, valid examples, one logical
+group, API-summary discovery and default-off activation. Unicode tests distinguish character
+and UTF-8 byte bounds. SQL counters compare three parents with one versus twenty items,
+including real JDBC/JPA readers and complete participant projection.
+
+Run `./mvnw verify` for compatibility after this suite. In particular, retained legacy answer and
+practice-feedback behavior, participant view/delivery readers and frozen family scoring remain
+covered by their existing suites. These checks do not prove grading/result, terminal submission,
+editable finalization, batch acceptance or #609 activation, which retain their separate owners.
+
 Reuse the Spring context within a class when scenario isolation does not require a restart. `QuestionSoftDeleteTest` and `BalanceEndpointIntegrationTest` retain their test-managed rollback and verify fixture removal in `@AfterTransaction`. `AttemptControllerCurrentQuestionIntegrationTest` and `QuizControllerCachingAndRateLimitTest` retain committed fixtures and real request transactions; they physically remove only their own rows after each scenario, with foreign keys enabled. Rate-limit scenarios use a distinct client IP per scenario and keep one IP for every request within the 120/121 boundary check. ETag scenarios retain direct requests without forwarded headers. These classes still close their contexts after the class and run in the serial database lane.
 
 Avoid adding `@Nested` containers beneath a class-level `@DirtiesContext` solely for display grouping: inherited context invalidation can cause a restart after each nested container. Balance endpoint scenarios use grouped display names in one class instead. Do not globally remove `@DirtiesContext` from shared integration bases, since other suites change the shared schema or bean state.
