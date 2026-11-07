@@ -3326,11 +3326,13 @@ lock timeout and deadlock. No automatic retry count, polling schedule or externa
 selected here. Integrating runtime triggers and controlled public activation remains #609;
 disclosure/release remains #555/#556. New metrics use only bounded version/operation/outcome
 labels (`quizmaker.result.automatic`); failures contain no answer content or driver diagnostics.
-Callback failures are sanitized inside both the result transaction and the participating trace
-transaction, before `TransactionTemplate` can log rollback diagnostics. Known failure reasons
-and database-conflict classifications survive; original causes, suppressed exceptions and raw
-driver messages do not cross these callback boundaries. Rollback and same-submission recovery
-retain their existing behavior.
+For the grading path, runtime callback failures are sanitized at every participating
+`TransactionTemplate`: the result command, lifecycle access, policy-snapshot read, question-contract
+declaration/resolution and trace append. Cleanup happens before each template can log rollback
+diagnostics. Known failure reasons and database-conflict classifications survive; original causes,
+suppressed exceptions and raw driver messages do not cross these callback boundaries. Joined
+transactions remain rollback-only after failure, and contract-scope violations retain their
+transaction-wide poison flag even across savepoints. Same-submission recovery retains its identity.
 
 For example, seven correct, one incorrect and two unanswered items produce `7/10`, `7000`, pass
 at the default threshold, with eight accepted-response references. Restarting the consumer or

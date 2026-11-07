@@ -103,7 +103,11 @@ public class AttemptLifecycleServiceImpl implements AttemptLifecycleService {
         var sample = Timer.start();
         String outcome = "persistence_unavailable";
         try {
-            T result = transaction.execute(status -> action.get());
+            T result = transaction.execute(status -> {
+                try { return action.get(); }
+                // A participating template logs before an outer command can sanitize.
+                catch (RuntimeException failure) { throw sanitized(failure); }
+            });
             outcome = "returned";
             return result;
         } catch (DatabaseConflictException failure) {
@@ -111,7 +115,7 @@ public class AttemptLifecycleServiceImpl implements AttemptLifecycleService {
             throw failure;
         } catch (LifecycleStateException failure) {
             outcome = failure.reason().name().toLowerCase(Locale.ROOT);
-            throw failure;
+            throw new LifecycleStateException(failure.reason());
         } catch (DataAccessException | TransactionException failure) {
             var conflict = DatabaseConflictException.from(failure);
             if (conflict.isPresent()) {
@@ -126,6 +130,13 @@ public class AttemptLifecycleServiceImpl implements AttemptLifecycleService {
         } finally {
             record(operation, outcome, sample);
         }
+    }
+
+    private static RuntimeException sanitized(RuntimeException failure) {
+        if (failure instanceof LifecycleStateException known) return new LifecycleStateException(known.reason());
+        var conflict = DatabaseConflictException.from(failure);
+        if (conflict.isPresent()) return conflict.get();
+        return new LifecycleStateException(failure instanceof DuplicateKeyException ? STATE_CONFLICT : PERSISTENCE_UNAVAILABLE);
     }
 
     private void record(String operation, String outcome, Timer.Sample sample) {

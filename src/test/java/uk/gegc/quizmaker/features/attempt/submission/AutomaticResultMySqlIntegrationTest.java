@@ -32,7 +32,9 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -501,16 +503,63 @@ class AutomaticResultMySqlIntegrationTest {
         });
         assertThat(recreated().finalizeSubmission(f.submission())).isEqualTo(r);
     }
-    @ParameterizedTest @CsvSource({"1213,RETRYABLE","1205,BUSY","0,UNAVAILABLE"})
-    void readOutagesRetainPendingIdentityAndSanitizedFailure(int code,String reason) {
+    static java.util.stream.Stream<Arguments> readOutages() {
+        return java.util.stream.Stream.of("lifecycle","policy","declare","resolve","accepted-control").flatMap(checkpoint->
+                java.util.stream.Stream.of(Arguments.of(checkpoint,0,"UNAVAILABLE"),Arguments.of(checkpoint,1213,"RETRYABLE"),
+                        Arguments.of(checkpoint,1205,"BUSY")));
+    }
+    @ParameterizedTest(name="{0}, SQL {1} → {2}") @MethodSource("readOutages")
+    void readOutagesRetainPendingIdentityAndSanitizedFailure(String checkpoint,int code,String reason) {
         var f=fixture(3,2,1); var reached=new AtomicBoolean();
+        var completion=new AtomicInteger(-1);
         observer().beforeSql=(statement,connection)->{
-            if(statement.contains("FROM attempt_accepted_response") && reached.compareAndSet(false,true))
-                throw new SQLException("private-read-marker","HY000",code);
+            boolean selected=switch(checkpoint) {
+                case "lifecycle"->statement.contains("FROM attempt_lifecycle_state WHERE") && statement.contains("FOR UPDATE");
+                case "policy"->statement.contains("FROM attempt_policy_snapshot s");
+                case "declare"->statement.contains("FROM quiz_revisions r LEFT JOIN quiz_revision_items i");
+                case "resolve"->statement.contains("FROM question_revision_contract_bindings b");
+                default->statement.contains("FROM attempt_accepted_response");
+            };
+            if(selected && reached.compareAndSet(false,true)) {
+                org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                        new org.springframework.transaction.support.TransactionSynchronization() {
+                            @Override public void afterCompletion(int status) { completion.set(status); }
+                        });
+                throw new SQLException("private-read-marker",code==1213?"40001":code==1205?"HY000":"08006",code);
+            }
         };
-        reject(f.submission(),AutomaticResultException.Reason.valueOf(reason)); observer().beforeSql=null;
-        assertThat(reached).isTrue(); noResult(f);
-        assertThat(recreated().finalizeSubmission(f.submission()).score().earned()).isEqualTo(1);
+        var logger=(Logger)LoggerFactory.getLogger(TransactionTemplate.class);
+        Level previous=logger.getLevel(); Thread requestThread=Thread.currentThread();
+        var captured=new ListAppender<ILoggingEvent>() {
+            @Override protected void append(ILoggingEvent event) {
+                if(Thread.currentThread()==requestThread) {
+                    event.prepareForDeferredProcessing(); super.append(event);
+                }
+            }
+        };
+        captured.setContext(logger.getLoggerContext()); captured.start();
+        logger.addAppender(captured); logger.setLevel(Level.DEBUG);
+        try {
+            reject(f.submission(),AutomaticResultException.Reason.valueOf(reason)); observer().beforeSql=null;
+            assertThat(reached).isTrue();
+            assertThat(completion).hasValue(org.springframework.transaction.support.TransactionSynchronization.STATUS_ROLLED_BACK);
+            noResult(f);
+            var saved=recreated().finalizeSubmission(f.submission());
+            assertThat(saved.score().earned()).isEqualTo(1);
+            assertThat(recreated().finalizeSubmission(f.submission())).isEqualTo(saved);
+            assertThat(count("attempt_result_created")).isEqualTo(1);
+            assertThat(captured.list).anySatisfy(event->{
+                assertThat(event.getLevel()).isEqualTo(Level.DEBUG);
+                assertThat(event.getThrowableProxy()).isNotNull();
+            });
+            assertThat(captured.list).allSatisfy(event->{
+                assertThat(event.getFormattedMessage()).doesNotContain("private-read-marker");
+                if(event.getThrowableProxy()!=null) assertThat(ThrowableProxyUtil.asString(event.getThrowableProxy()))
+                        .doesNotContain("private-read-marker");
+            });
+        } finally {
+            observer().beforeSql=null; logger.detachAppender(captured); logger.setLevel(previous); captured.stop();
+        }
     }
     @Test void multipleParentReadsHaveMeasuredBoundedSql(TestReporter reporter) {
         var small=new ArrayList<Fixture>(); var large=new ArrayList<Fixture>();

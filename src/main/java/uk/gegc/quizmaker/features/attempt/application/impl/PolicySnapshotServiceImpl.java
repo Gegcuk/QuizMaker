@@ -79,7 +79,11 @@ public class PolicySnapshotServiceImpl implements PolicySnapshotService {
     private <T> T execute(String operation, TransactionTemplate transaction, Supplier<T> action) {
         String outcome = "persistence_unavailable";
         try {
-            T value = transaction.execute(status -> action.get());
+            T value = transaction.execute(status -> {
+                try { return action.get(); }
+                // Sanitize at this boundary too, even when joining a grading transaction.
+                catch (RuntimeException failure) { throw sanitized(failure); }
+            });
             outcome = "verified";
             return value;
         } catch (DatabaseConflictException failure) {
@@ -87,7 +91,7 @@ public class PolicySnapshotServiceImpl implements PolicySnapshotService {
             throw failure;
         } catch (PolicySnapshotException failure) {
             outcome = failure.reason().name().toLowerCase(Locale.ROOT);
-            throw failure;
+            throw new PolicySnapshotException(failure.reason());
         } catch (DataAccessException | TransactionException failure) {
             var conflict = DatabaseConflictException.from(failure);
             if (conflict.isPresent()) {
@@ -98,6 +102,12 @@ public class PolicySnapshotServiceImpl implements PolicySnapshotService {
         } finally {
             count(operation, outcome);
         }
+    }
+
+    private static RuntimeException sanitized(RuntimeException failure) {
+        if (failure instanceof PolicySnapshotException known) return new PolicySnapshotException(known.reason());
+        var conflict = DatabaseConflictException.from(failure);
+        return conflict.isPresent() ? conflict.get() : new PolicySnapshotException(PERSISTENCE_UNAVAILABLE);
     }
 
     private void count(String operation, String outcome) {

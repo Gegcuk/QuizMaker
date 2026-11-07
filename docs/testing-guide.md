@@ -253,6 +253,10 @@ DEBUG logs, including throwable causes and suppressed exceptions. They require a
 diagnostics and reject a synthetic private driver marker, while retaining reached-write, fresh-read
 rollback and successful-retry assertions. Direct trace tests additionally exercise SQL, known-domain
 and unexpected-runtime failures with sensitive nested diagnostics in a participating transaction.
+Read-fault coverage exercises lifecycle `lock`, policy `readCurrent`, contract `declareScope` and
+`resolve`, plus direct accepted-response reads as a protected control. Each point runs SQL codes
+`0`, `1213` and `1205`: fifteen scenarios verify sanitized DEBUG diagnostics, preserved failure/
+conflict classification, actual rolled-back completion and one successful same-submission retry.
 Well-shaped impossible option/gap references fail closed; positive controls use real accepted
 empty MCQ_MULTI/ORDERING/FILL_GAP arrays and preserve their zero-credit accepted identity.
 
