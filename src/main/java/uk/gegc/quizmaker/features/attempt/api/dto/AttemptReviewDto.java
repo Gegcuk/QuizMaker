@@ -16,7 +16,7 @@ public record AttemptReviewDto(
         @Schema(description = "UUID of the quiz", example = "1c2d3e4f-5a6b-7c8d-9e0f-1a2b3c4d5e6f")
         UUID quizId,
 
-        @Schema(description = "UUID of the user", example = "9f8e7d6c-5b4a-3c2d-1b0a-9f8e7d6c5b4a")
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "UUID of the authenticated legacy attempt owner", example = "9f8e7d6c-5b4a-3c2d-1b0a-9f8e7d6c5b4a")
         UUID userId,
 
         @Schema(description = "Timestamp when the attempt was started", example = "2025-05-20T14:30:00Z")
@@ -39,6 +39,6 @@ public record AttemptReviewDto(
 
         @Schema(description = "Detailed review of each answer with user responses and correct answers")
         List<AnswerReviewDto> answers
-) {
+) implements AttemptReviewResponse {
 }
 

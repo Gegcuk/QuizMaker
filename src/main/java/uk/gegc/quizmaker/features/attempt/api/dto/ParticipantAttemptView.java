@@ -12,7 +12,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycl
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
-@Schema(name = "ParticipantAttemptView", description = "Versioned participant projection. No keys, responses, scores, explanations, subject IDs or private provenance. Missing item/completion facts grant no write actions. UTC times; no pagination, filtering or sorting.")
+@Schema(name = "ParticipantAttemptView", description = "Versioned participant projection. Protected categories occur only inside result after committed release and current authorization. No subject IDs or private provenance. UTC times; no pagination, filtering or sorting.")
 public record ParticipantAttemptView(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) Representation representation,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1", maximum = "1") int schemaVersion,
@@ -28,13 +28,22 @@ public record ParticipantAttemptView(
         @Schema(description = "Absent until collection is submitted. Does not establish grading or release.") Instant submittedAt,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "This implemented baseline is untimed; it cannot supply a timer/deadline for a future timed capability.") Timing timing,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "WITHHELD means no content disclosure proof is available; it is not a grading/result state. Items are absent when withheld.") ContentVisibility contentVisibility,
-        @Schema(description = "Saved item/option order. Absent when content is withheld.") List<Item> items,
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Advisory server decisions; every command must reauthorize. The current read-only baseline reports VIEW_ATTEMPT.") List<AttemptCommands.Type> allowedActions
-) implements AttemptDetailsResponse {
+        @Schema(description = "Saved item/option order. Absent when content is withheld or review context was not requested.") List<Item> items,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Advisory server decisions; every command must reauthorize. The current read-only baseline reports VIEW_ATTEMPT.") List<AttemptCommands.Type> allowedActions,
+        @Schema(description = "Absent until a matching release commits. Every nested category is independently authorized; include flags cannot grant access.")
+        uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView result
+) implements AttemptDetailsResponse, AttemptReviewResponse {
     public enum Representation { POLICY_DRIVEN }
     public enum Timing { UNTIMED }
     public ParticipantAttemptView {
         items = items == null ? null : List.copyOf(items); allowedActions = List.copyOf(allowedActions);
+    }
+    public ParticipantAttemptView(Representation representation, int schemaVersion, UUID attemptId, UUID quizId,
+            UUID quizRevisionId, UUID formId, long stateVersion, int policyVersion, AttemptLifecycle.Execution execution,
+            AttemptLifecycle.AnswerCollection answerCollection, Instant startedAt, Instant submittedAt, Timing timing,
+            ContentVisibility contentVisibility, List<Item> items, List<AttemptCommands.Type> allowedActions) {
+        this(representation, schemaVersion, attemptId, quizId, quizRevisionId, formId, stateVersion, policyVersion,
+                execution, answerCollection, startedAt, submittedAt, timing, contentVisibility, items, allowedActions, null);
     }
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @Schema(name = "ParticipantAttemptItem", description = "Original saved form-item identity and zero-based position. No source question/option keys.")

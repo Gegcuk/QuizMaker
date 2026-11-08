@@ -17,8 +17,12 @@ public interface AttemptReadFactsService {
     Facts read(UUID attemptId, Purpose purpose);
 
     record Facts(AttemptAccessService.Access access, ResolvedAttemptPolicy policy, FixedForm form,
-                 FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts) {
+                 FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts, String policyHash) {
         public Facts { contracts = Map.copyOf(contracts); }
+        public Facts(AttemptAccessService.Access access, ResolvedAttemptPolicy policy, FixedForm form,
+                     FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts) {
+            this(access, policy, form, order, revision, contracts, null);
+        }
         @Override public String toString() { return "AttemptReadFacts"; }
     }
 }

@@ -53,6 +53,29 @@ The release-quality command is `./mvnw verify`. It runs the bounded parallel lan
 - Test profiles disable automatic Stripe pack synchronization. A test that needs pack synchronization must provide a fake `StripePackSyncService` or explicitly opt into the live-provider lane; a real-looking key must never activate background network access.
 - When CI fails, download the `surefire-reports` artifact. It includes Surefire/Failsafe reports, fork dumps, and JaCoCo output, subject to the workflow retention policy.
 
+### Immediate Result Release
+
+Run the focused #556 checks with Java 17 and the existing test MySQL configuration:
+
+```bash
+./mvnw test -Dtest=ImmediateResultReleaseMySqlIntegrationTest,PracticeReviewProjectorTest,ParticipantAttemptViewOpenApiContractTest,ParticipantAttemptViewActivationTest
+./mvnw test -Dtest=ImmediateResultReleaseMySqlIntegrationTest -Dresult.test.isolation=TRANSACTION_READ_COMMITTED
+```
+
+The MySQL class creates its own `immediate_release_<id>` catalog through `TEST_MYSQL_PORT`
+and optional `TEST_MYSQL_ADMIN_USERNAME`/`TEST_MYSQL_ADMIN_PASSWORD`. It uses the real internal
+writers through publication, start, acceptance, submission, grading and release. No remote or
+paid provider is called. Default isolation is explicitly `REPEATABLE READ`; the second command
+checks the same invariants at `READ COMMITTED`.
+
+Tests distinguish a missing result from a committed release, verify structural absence of
+protected fields, current RESULT authority, deterministic frozen answer identifiers, concurrent
+successful releases, failures after actual writes and commit-response loss. Fresh transactions
+inspect rollback, and recreated services reconcile the same durable release identity. Real
+HTTP reads cover include flags, wrong participants and lost permission. Multiple parents with
+1 versus 20 items are serialized while measuring both JDBC and JPA queries. OpenAPI checks
+cover full/grouped schemas, examples, expected errors and exclusive legacy/target envelopes.
+
 ### Documentation-Only Pull Requests
 
 CI inspects the complete PR diff before starting `build-and-test`. It skips that job, including MySQL and Maven, only when every changed path is documentation: root `.md`/`.rst`/`.adoc` files; those formats plus `.txt`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.svg`, `.webp`, and `.pdf` under `docs/`; or Markdown issue/PR templates under `.github/`. Other paths, including application prompts/resources, build files, workflows, and executable files under `docs/`, require the usual tests. Moving code into documentation still requires tests because the old code path is included in the diff.

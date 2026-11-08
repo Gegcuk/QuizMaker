@@ -84,7 +84,8 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
         var mediaIds = references.stream().map(ParticipantViewMediaReader.Reference::formItemId).collect(Collectors.toSet());
         // Validate the complete immutable form even when its content must be withheld.
         var projected = ParticipantFormProjector.projectForView(saved.form(), saved.revision(), saved.order(), saved.contracts(), mediaIds);
-        var visibility = disclosure.contentVisibility(saved);
+        var disclosed = disclosure.project(saved);
+        var visibility = disclosed.visibility();
         if (visibility == null) throw new AttemptDeliveryException(CORRUPT);
         List<ParticipantAttemptView.Item> items = null;
         if (visibility == VISIBLE) {
@@ -106,6 +107,36 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
         return new ParticipantAttemptView(ParticipantAttemptView.Representation.POLICY_DRIVEN, 1, attemptId,
                 granted.quizId(), granted.quizRevisionId(), granted.formId(), granted.stateVersion(), saved.policy().schemaVersion(),
                 lifecycle.state().execution(), lifecycle.state().answers(), lifecycle.startedAt(), lifecycle.submittedAt(),
-                ParticipantAttemptView.Timing.UNTIMED, visibility, items, AttemptCommands.allowedActions(context).actions());
+                ParticipantAttemptView.Timing.UNTIMED, visibility, items, AttemptCommands.allowedActions(context).actions(), disclosed.result());
+    }
+
+    @Override public AttemptReviewResponse review(UUID attemptId, boolean includeUserAnswers,
+            boolean includeCorrectAnswers, boolean includeQuestionContext) {
+        boolean legacyOnly;
+        try {
+            legacyOnly = Boolean.TRUE.equals(transaction.execute(status -> {
+                try {
+                    if (attemptId == null) throw new AttemptDeliveryException(NOT_FOUND);
+                    var subject = identity.resolveCurrent(attemptId);
+                    return routes.isOwnedLegacyOnly(attemptId, subject.userId());
+                } catch (RuntimeException failure) { throw AttemptReadFailures.translate(failure); }
+            }));
+        } catch (RuntimeException failure) { throw AttemptReadFailures.translate(failure); }
+        // Historical success/error envelopes remain owned by the existing legacy service.
+        if (legacyOnly) return legacy.getAttemptReview(SecurityContextHolder.getContext().getAuthentication().getName(),
+                attemptId, includeUserAnswers, includeCorrectAnswers, includeQuestionContext);
+        var response = read(attemptId);
+        if (!(response instanceof ParticipantAttemptView view)) throw new AttemptDeliveryException(CORRUPT);
+        var result = view.result();
+        if (result == null || !Boolean.TRUE.equals(result.reviewAvailable())) throw new AttemptDeliveryException(INACTIVE);
+        var filtered = new uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView(result.releaseVersion(), result.releasedAt(),
+                result.totalScore(), result.reviewAvailable(), result.items() == null ? null : result.items().stream().map(item ->
+                new uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView.Item(item.formItemId(), item.score(), item.correctness(),
+                        includeUserAnswers ? item.responseState() : null, includeUserAnswers ? item.submittedAnswer() : null,
+                        includeCorrectAnswers ? item.correctAnswer() : null, includeCorrectAnswers ? item.explanation() : null)).toList());
+        return new ParticipantAttemptView(view.representation(), view.schemaVersion(), view.attemptId(), view.quizId(), view.quizRevisionId(),
+                view.formId(), view.stateVersion(), view.policyVersion(), view.execution(), view.answerCollection(), view.startedAt(),
+                view.submittedAt(), view.timing(), view.contentVisibility(), includeQuestionContext ? view.items() : null,
+                view.allowedActions(), filtered);
     }
 }

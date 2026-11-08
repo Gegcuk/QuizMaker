@@ -195,7 +195,7 @@ public class AttemptController {
             "Target reads require ATTEMPT_READ, the bound authenticated participant, and current quiz ownership/full editing authority. " +
             "Unknown/foreign/unavailable target roots share 404; include flags never grant disclosure. " +
             "No pagination/filter/sort or idempotency key. Online only; adapter responses use Cache-Control: no-store. " +
-            "Adapter disabled by default pending #609. Missing release/media integrations cannot enable completed review or media starts.")
+            "Adapter disabled by default pending #609. Completed result categories require committed release and current RESULT access. Media starts retain their separate integration gate.")
     @ApiResponse(responseCode = "200", description = "Attempt details returned",
             content = @Content(
                     mediaType = "application/json",
@@ -213,7 +213,8 @@ public class AttemptController {
                              "timing":"UNTIMED","contentVisibility":"VISIBLE","items":[{"id":"50000000-0000-0000-0000-000000000001",
                              "position":0,"type":"TRUE_FALSE","questionText":"Water is a liquid at room temperature.","content":{"kind":"TRUE_FALSE"}}],
                              "allowedActions":["VIEW_ATTEMPT"]}
-                            """)
+                            """),
+                        @ExampleObject(name = "releasedPractice", value = ParticipantReviewExamples.REVIEW)
                     }
             )
     )
@@ -492,16 +493,19 @@ public class AttemptController {
     @Operation(
             summary = "Get attempt review",
             description = """
-                    Retrieve a comprehensive review of a completed attempt with user answers and correct answers.
-                    Only available to the attempt owner and only for completed attempts.
-                    Query parameters allow customizing what information to include in the response.
+                    Retrieve the owner's completed review. Requires ATTEMPT_READ and current resource access.
+                    Legacy AttemptReviewDto is unchanged. With the participant-view adapter enabled, target attempts
+                    return POLICY_DRIVEN/v1 from the saved form only after committed release and current RESULT checks.
+                    Include parameters only narrow authorized fields. Unknown, foreign and unavailable target roots
+                    share 404; pending review returns 409. Online only, no pagination/sort/filter or idempotency key.
                     """
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Attempt review returned",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = AttemptReviewDto.class)
+                            schema = @Schema(implementation = AttemptReviewResponse.class),
+                            examples = @ExampleObject(name = "releasedPractice", value = ParticipantReviewExamples.REVIEW)
                     )
             ),
             @ApiResponse(responseCode = "403", description = "Forbidden - User does not own the attempt",
@@ -509,10 +513,16 @@ public class AttemptController {
             @ApiResponse(responseCode = "404", description = "Attempt not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "409", description = "Conflict - Attempt is not completed yet",
-                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid attempt identifier", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "Unsupported saved target contract", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "500", description = "Corrupt target evidence; no partial review", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Target read temporarily unavailable", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
+    @io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
     @GetMapping("/{attemptId}/review")
-    public ResponseEntity<AttemptReviewDto> getAttemptReview(
+    public ResponseEntity<AttemptReviewResponse> getAttemptReview(
             @Parameter(description = "UUID of the attempt to review", required = true)
             @PathVariable UUID attemptId,
 
@@ -539,6 +549,9 @@ public class AttemptController {
 
             Authentication authentication
     ) {
+        var reader = participantViews.getIfAvailable();
+        if (reader != null) return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore())
+                .body(reader.review(attemptId, includeUserAnswers, includeCorrectAnswers, includeQuestionContext));
         String username = authentication.getName();
         AttemptReviewDto review = attemptService.getAttemptReview(
                 username,
@@ -553,16 +566,18 @@ public class AttemptController {
     @Operation(
             summary = "Get attempt answer key",
             description = """
-                    Retrieve an answer key for a completed attempt (correct answers and explanations, no user responses).
-                    This is a convenience endpoint that returns correct answers with question context and explanations.
-                    Only available to the attempt owner and only for completed attempts.
+                    Owner-only completed answer key; requires ATTEMPT_READ and current resource access.
+                    Target attempts use the same committed release, exact saved form and per-category RESULT checks
+                    as review. No submitted responses are included. Legacy envelope remains unchanged.
+                    Online only; no pagination/sort/filter or idempotency key. Enabled target responses use no-store.
                     """
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Answer key returned",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = AttemptReviewDto.class)
+                            schema = @Schema(implementation = AttemptReviewResponse.class),
+                            examples = @ExampleObject(name = "releasedPractice", value = ParticipantReviewExamples.ANSWER_KEY)
                     )
             ),
             @ApiResponse(responseCode = "403", description = "Forbidden - User does not own the attempt",
@@ -570,15 +585,24 @@ public class AttemptController {
             @ApiResponse(responseCode = "404", description = "Attempt not found",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "409", description = "Conflict - Attempt is not completed yet",
-                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid attempt identifier", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "Unsupported saved target contract", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "500", description = "Corrupt target evidence; no partial answer key", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "503", description = "Target read temporarily unavailable", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
+    @io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
     @GetMapping("/{attemptId}/answer-key")
-    public ResponseEntity<AttemptReviewDto> getAttemptAnswerKey(
+    public ResponseEntity<AttemptReviewResponse> getAttemptAnswerKey(
             @Parameter(description = "UUID of the attempt", required = true)
             @PathVariable UUID attemptId,
 
             Authentication authentication
     ) {
+        var reader = participantViews.getIfAvailable();
+        if (reader != null) return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore())
+                .body(reader.review(attemptId, false, true, true));
         String username = authentication.getName();
         AttemptReviewDto answerKey = attemptService.getAttemptAnswerKey(username, attemptId);
         return ResponseEntity.ok(answerKey);
