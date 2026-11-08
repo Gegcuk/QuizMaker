@@ -466,21 +466,40 @@ class AnswerDraftMySqlIntegrationTest {
     @ParameterizedTest @CsvSource({"1213,RETRYABLE", "1205,BUSY", "0,UNAVAILABLE"})
     void databaseFailuresAreSanitizedBeforeTransactionalDebugLogging(int code, AnswerDraftException.Reason reason) {
         var f = fixture(); var reached = new AtomicBoolean();
-        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("org.springframework.orm.jpa.JpaTransactionManager");
-        var previous = logger.getLevel(); var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        var markers = new String[] {"private-draft-fault-marker", "private-draft-cause-marker", "private-draft-suppressed-marker"};
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(TransactionTemplate.class);
+        var previous = logger.getLevel(); var requestThread = Thread.currentThread();
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>() {
+            @Override protected void append(ch.qos.logback.classic.spi.ILoggingEvent event) {
+                if (Thread.currentThread() == requestThread) {
+                    event.prepareForDeferredProcessing(); super.append(event);
+                }
+            }
+        };
+        appender.setContext(logger.getLoggerContext());
         appender.start(); logger.addAppender(appender); logger.setLevel(ch.qos.logback.classic.Level.DEBUG);
         try {
             observer().afterSql = (statement, connection) -> {
                 if (statement.contains("FROM attempt_trace_stream")) {
-                    reached.set(true); throw new SQLException("private-draft-fault-marker", "HY000", code);
+                    reached.set(true);
+                    var failure = new SQLException(markers[0], "HY000", code, new IllegalStateException(markers[1]));
+                    failure.addSuppressed(new IllegalStateException(markers[2]));
+                    throw failure;
                 }
             };
             assertRejected(() -> drafts.save(ownerId, f.reference(), 0, "{\"answer\":true}"), reason);
             assertThat(reached).isTrue();
+            // TransactionTemplate logs callback failures; manager-only or empty captures prove nothing.
+            assertThat(appender.list).anySatisfy(event -> {
+                assertThat(event.getLoggerName()).isEqualTo(TransactionTemplate.class.getName());
+                assertThat(event.getLevel()).isEqualTo(ch.qos.logback.classic.Level.DEBUG);
+                assertThat(event.getThrowableProxy()).isNotNull();
+            });
             assertThat(appender.list).allSatisfy(event -> {
-                assertThat(event.getFormattedMessage()).doesNotContain("private-draft-fault-marker");
+                assertThat(event.getFormattedMessage()).doesNotContain(markers);
+                // The rendered throwable includes nested causes and suppressed exceptions.
                 if (event.getThrowableProxy() != null) assertThat(ch.qos.logback.classic.spi.ThrowableProxyUtil.asString(event.getThrowableProxy()))
-                        .doesNotContain("private-draft-fault-marker");
+                        .doesNotContain(markers);
             });
         } finally { observer().reset(); logger.detachAppender(appender); logger.setLevel(previous); appender.stop(); }
         assertThat(drafts.save(ownerId, f.reference(), 0, "{\"answer\":true}").version()).isEqualTo(1);
