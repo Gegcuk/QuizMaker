@@ -87,7 +87,7 @@ class CommandBoundaryTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"", "start", " START", "START ", "1", "SAVE_DRAFT", "REQUEST_PAUSE", "RESUME_ATTEMPT",
+    @ValueSource(strings = {"", "start", " START", "START ", "1", "save_draft", "REQUEST_PAUSE", "RESUME_ATTEMPT",
             "SUBMIT_SECTION", "EXPIRE_ATTEMPT", "RELEASE_RESULT", "REQUEST_HINT", "private-response-secret"})
     void unknownNamesAndDeferredCapabilitiesNeverSelectAPermissiveDefault(String value) {
         rejected(1, value, Reason.UNKNOWN_COMMAND);

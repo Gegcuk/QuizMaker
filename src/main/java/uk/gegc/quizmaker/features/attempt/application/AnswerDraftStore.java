@@ -10,6 +10,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.draft.AnswerDraft.Referen
  * #542/#834 own principal/permission, current content access, policy, section and finalization guards.
  * Values use the exact saved response contract's normalized vocabulary, not display indexes.
  * Expected version 0 means never saved; deletion retains a versioned tombstone with no response value.
+ * Deleting a never-saved item at version 0 creates version 1, blocking delayed first saves.
  * Methods join an existing transaction or create a short one; later outer rollback still rolls back drafts.
  */
 public interface AnswerDraftStore {

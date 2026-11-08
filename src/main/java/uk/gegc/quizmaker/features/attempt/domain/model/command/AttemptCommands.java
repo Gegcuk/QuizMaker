@@ -24,7 +24,7 @@ public final class AttemptCommands {
     private AttemptCommands() {}
 
     /** Only the initial participant command vocabulary; future capabilities fail closed. */
-    public enum Type { START, VIEW_ATTEMPT, NAVIGATE_TO_ITEM, SUBMIT_ANSWER, SUBMIT_ATTEMPT }
+    public enum Type { START, VIEW_ATTEMPT, NAVIGATE_TO_ITEM, SUBMIT_ANSWER, SUBMIT_ATTEMPT, SAVE_DRAFT, DELETE_DRAFT }
     public enum Outcome { ALLOWED, REPLAY, DENIED, STALE, CONFLICT }
     /** VERIFIED means the consumer checked current identity, ownership and every applicable boundary. */
     public enum Access { VERIFIED, DENIED, MISSING }
@@ -32,7 +32,7 @@ public final class AttemptCommands {
         ALLOWED, VERIFIED_REPLAY, INVALID_INPUT, UNSUPPORTED_VERSION, UNKNOWN_COMMAND,
         MISSING_CONTEXT, ACCESS_DENIED, MISSING_METADATA, INVALID_METADATA,
         STALE_VERSION, CONFLICTING_REPLAY, ITEM_UNAVAILABLE, ANSWER_LOCKED,
-        UNSUPPORTED_RESPONSE_STATE, POLICY_FACTS_MISMATCH, LIFECYCLE_DENIED
+        UNSUPPORTED_RESPONSE_STATE, POLICY_FACTS_MISMATCH, LIFECYCLE_DENIED, DRAFTS_DISABLED
     }
 
     /** Contains no client assertion about allowed actions, mode, status, subject or next state. */
@@ -130,6 +130,8 @@ public final class AttemptCommands {
             case VIEW_ATTEMPT -> context.state().execution() == Execution.CREATED
                     ? lifecycleDenied(LifecycleException.Reason.NOT_STARTED) : decision(Reason.ALLOWED);
             case NAVIGATE_TO_ITEM, SUBMIT_ANSWER -> itemEligibility(type, context);
+            case SAVE_DRAFT, DELETE_DRAFT -> !context.policy().submission().draftsEnabled()
+                    ? decision(Reason.DRAFTS_DISABLED) : itemEligibility(type, context);
             case SUBMIT_ATTEMPT -> completionEligibility(context);
         };
     }
@@ -179,7 +181,7 @@ public final class AttemptCommands {
             case SUBMIT_ANSWER -> lifecycle(context, Event.RESPONSE_RECORDED, AttemptLifecycle.Context.identicalReplay());
             case SUBMIT_ATTEMPT -> lifecycle(context, Event.SUBMIT, AttemptLifecycle.Context.identicalReplay());
             // Receipt identity proves the original navigation; current terminality cannot undo it.
-            case NAVIGATE_TO_ITEM -> context.state().execution() == Execution.CREATED
+            case NAVIGATE_TO_ITEM, SAVE_DRAFT, DELETE_DRAFT -> context.state().execution() == Execution.CREATED
                     ? lifecycleDenied(LifecycleException.Reason.REPLAY_STATE_MISMATCH)
                     : decision(Reason.VERIFIED_REPLAY);
             case VIEW_ATTEMPT -> eligibility(type, context);

@@ -84,9 +84,8 @@ public class AnswerDraftStoreImpl implements AnswerDraftStore {
             require(!repository.accepted(ref), INACTIVE);
             // Missing-row locking probes take shared gap locks under RR and can deadlock
             // unrelated first inserts. The unique key checks an expected-zero insert directly.
-            var old = expected == 0 && !delete ? Optional.<AnswerDraft>empty() : repository.read(ref);
+            var old = expected == 0 ? Optional.<AnswerDraft>empty() : repository.read(ref);
             require(old.map(AnswerDraft::version).orElse(0L) == expected, CONFLICT);
-            require(!delete || old.isPresent(), CONFLICT);
             String normalized = delete ? null : validate(scope, contract, value);
             var now = AnswerDraft.time(clock.instant());
             require(!now.isBefore(state.startedAt()), INVALID_INPUT);
