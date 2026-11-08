@@ -4129,6 +4129,14 @@ intent serializes this command with finalization and other identical release req
 The command verifies the captured submission, form, revision, policy hash and result binding.
 Missing result facts remain `NOT_READY`; unsupported or inconsistent facts fail closed.
 
+Only this `REQUIRES_NEW` publication transaction explicitly uses `READ_COMMITTED`. Two different
+results may both be absent from the release index; their locking reads must not acquire shared
+`REPEATABLE_READ` gap locks that deadlock at insertion. The retained intent still serializes
+requests for the same submission. Server defaults, the suspended caller and participant reads
+keep their configured isolation. Regression coverage synchronizes different submissions after
+their missing-row reads, requires both publications and exactly one event per result, and checks
+that an older RR caller retains its snapshot while reading committed publication evidence.
+
 One insert-only `attempt_result_release` row and one `RESULT_RELEASED` trace event commit in
 the same transaction. The unique result binding is the durable receipt; it does not depend
 on expiring client-command receipts. Its schema version is `1`, and its timestamp uses the

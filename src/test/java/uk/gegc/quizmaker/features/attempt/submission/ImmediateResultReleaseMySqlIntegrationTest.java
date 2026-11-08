@@ -448,6 +448,91 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         assertThat(count("attempt_result_release")).isEqualTo(1); assertThat(releaseEvents()).isEqualTo(1);
     }
 
+    @Test void differentSubmissionsBothReleaseAfterConcurrentMissingPublicationReads() throws Exception {
+        var first = fixture(2, 2, 2); var firstUser = username; var firstOwner = ownerId; var firstQuiz = quizId;
+        var firstResult = results.finalizeSubmission(first.submission());
+        username = "acceptance-" + UUID.randomUUID().toString().substring(0, 12);
+        ownerId = user(username, true); grant(ownerId, "ATTEMPT_READ", "ATTEMPT_CREATE"); authenticate(username);
+        var second = fixture(3, 3, 2); var secondUser = username;
+        var secondResult = results.finalizeSubmission(second.submission());
+        assertThat(ownerId).isNotEqualTo(firstOwner); assertThat(quizId).isNotEqualTo(firstQuiz);
+        assertThat(first.submission()).isNotEqualTo(second.submission());
+        assertThat(firstResult.quizRevisionId()).isNotEqualTo(secondResult.quizRevisionId());
+        assertThat(count("attempt_result_release")).isZero();
+        SecurityContextHolder.clearContext();
+
+        var missingReads = new CyclicBarrier(2); var seen = ConcurrentHashMap.<Integer>newKeySet();
+        var failures = new CopyOnWriteArrayList<ResultReleaseException>();
+        observer().afterSql = (statement, connection) -> {
+            // Both real locking reads finish on the empty unique-index range before either insert.
+            if (statement.contains("FROM attempt_result_release r") && seen.add(connection)) {
+                try { missingReads.await(10, TimeUnit.SECONDS); }
+                catch (Exception failure) { throw new AssertionError(failure); }
+            }
+        };
+        var pool = Executors.newFixedThreadPool(2);
+        java.util.function.Function<UUID, ImmediateResultReleaseService.Acknowledgement> publish = id -> {
+            try { return releases.release(id); }
+            catch (ResultReleaseException failure) { failures.add(failure); return null; }
+        };
+        List<ImmediateResultReleaseService.Acknowledgement> acknowledgements;
+        try {
+            var a = pool.submit(() -> publish.apply(first.submission()));
+            var b = pool.submit(() -> publish.apply(second.submission()));
+            var firstAck = a.get(20, TimeUnit.SECONDS); var secondAck = b.get(20, TimeUnit.SECONDS);
+            assertThat(seen).hasSize(2);
+            assertThat(failures).as("Independent releases must both commit; SQL errors: %s", observer().sqlErrorCodes).isEmpty();
+            acknowledgements = List.of(firstAck, secondAck);
+            assertThat(acknowledgements).allSatisfy(ack -> assertThat(ack.replayed()).isFalse());
+            assertThat(firstAck.release().id()).isNotEqualTo(secondAck.release().id());
+            assertThat(observer().sqlErrorCodes).doesNotContain(1213);
+        } finally { observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+
+        for (int i = 0; i < 2; i++) {
+            var fixture = List.of(first, second).get(i); var result = List.of(firstResult, secondResult).get(i);
+            var expected = acknowledgements.get(i).release();
+            assertThat(restarted().release(fixture.submission()).release()).isEqualTo(expected);
+            assertThat(releases.release(fixture.submission()).replayed()).isTrue();
+            assertThat(results.finalizeSubmission(fixture.submission())).isEqualTo(result);
+            long publications = tx.execute(s -> sql.queryForObject("SELECT COUNT(*) FROM attempt_result_release WHERE result_id=UUID_TO_BIN(?)",
+                    Long.class, result.id().toString()));
+            long events = tx.execute(s -> sql.queryForObject("SELECT COUNT(*) FROM attempt_trace_event WHERE event_type='RESULT_RELEASED' AND command_id=UUID_TO_BIN(?)",
+                    Long.class, result.id().toString()));
+            assertThat(publications).isEqualTo(1L); assertThat(events).isEqualTo(1L);
+            authenticate(List.of(firstUser, secondUser).get(i));
+            assertThat(view(fixture.attempt()).result().totalScore().earned()).isEqualTo(2);
+        }
+        assertThat(count("attempt_result_release")).isEqualTo(2); assertThat(releaseEvents()).isEqualTo(2);
+    }
+
+    @Test void releaseIsolationIsLocalAndAnOlderRepeatableReadCallerStillReadsThePublication() {
+        var fixture = fixture(2, 2, 2); results.finalizeSubmission(fixture.submission());
+        String serverIsolation = tx.execute(s -> sql.queryForObject("SELECT @@global.transaction_isolation", String.class));
+        var observed = new ArrayList<String>();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.contains("FROM attempt_result_release r"))
+                observed.add(sql.queryForObject("SELECT @@transaction_isolation", String.class));
+        };
+        var caller = new TransactionTemplate(manager);
+        caller.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        try {
+            caller.executeWithoutResult(status -> {
+                assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_result_release", Long.class)).isZero();
+                assertThat(releases.release(fixture.submission()).replayed()).isFalse();
+                assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+                // The nonlocking snapshot is genuinely old; the real participant reader uses current evidence.
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_result_release", Long.class)).isZero();
+                assertThat(view(fixture.attempt()).result().totalScore().earned()).isEqualTo(2);
+                assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+            });
+        } finally { observer().reset(); }
+        assertThat(observed).containsExactly("READ-COMMITTED", "REPEATABLE-READ");
+        String remainingServerIsolation = tx.execute(s -> sql.queryForObject("SELECT @@global.transaction_isolation", String.class));
+        assertThat(remainingServerIsolation).isEqualTo(serverIsolation);
+        assertThat(count("attempt_result_release")).isEqualTo(1); assertThat(releaseEvents()).isEqualTo(1);
+    }
+
     @ParameterizedTest @ValueSource(strings = {"trace", "release", "commit"})
     void reachedWriteFailuresRollbackPublicationAndEvidenceThenRetrySucceeds(String checkpoint) {
         var fixture = fixture(3, 3, 2); var result = results.finalizeSubmission(fixture.submission());

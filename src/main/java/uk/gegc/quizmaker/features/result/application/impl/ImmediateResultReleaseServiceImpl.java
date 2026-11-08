@@ -34,6 +34,8 @@ public class ImmediateResultReleaseServiceImpl implements ImmediateResultRelease
         this.clock = clock; this.metrics = metrics;
         transaction = new TransactionTemplate(manager);
         transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        // Missing releases for different results must not share RR gap locks before insertion.
+        transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
     @Override public Acknowledgement release(UUID submissionId) {
         var timer = Timer.start(); String outcome = "unavailable";

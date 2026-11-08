@@ -65,8 +65,9 @@ Run the focused #556 checks with Java 17 and the existing test MySQL configurati
 The MySQL class creates its own `immediate_release_<id>` catalog through `TEST_MYSQL_PORT`
 and optional `TEST_MYSQL_ADMIN_USERNAME`/`TEST_MYSQL_ADMIN_PASSWORD`. It uses the real internal
 writers through publication, start, acceptance, submission, grading and release. No remote or
-paid provider is called. Default isolation is explicitly `REPEATABLE READ`; the second command
-checks the same invariants at `READ COMMITTED`.
+paid provider is called. Fixture and participant-read isolation defaults to `REPEATABLE READ`;
+the publication command alone explicitly uses `READ_COMMITTED` in its `REQUIRES_NEW` transaction.
+The second command also checks the surrounding fixture/read paths at `READ COMMITTED`.
 
 Tests distinguish a missing result from a committed release, verify structural absence of
 protected fields, current RESULT authority, deterministic frozen answer identifiers, concurrent
@@ -75,6 +76,10 @@ inspect rollback, and recreated services reconcile the same durable release iden
 HTTP reads cover include flags, wrong participants and lost permission. Multiple parents with
 1 versus 20 items are serialized while measuring both JDBC and JPA queries. OpenAPI checks
 cover full/grouped schemas, examples, expected errors and exclusive legacy/target envelopes.
+The independent-submission race waits after both real missing-publication reads and requires
+two successful publications, stable replays and one release event per result. A separate test
+observes the publisher's RC transaction, the unchanged server default, and the resumed RR caller
+and participant reader, including a genuinely old nonlocking snapshot.
 
 ### Documentation-Only Pull Requests
 
