@@ -3081,6 +3081,39 @@ A draft:
 - does not count as a submitted answer;
 - may be returned only to the same authorized subject.
 
+#### Implemented private draft storage (#541)
+
+`AnswerDraftStore` is an internal persistence boundary, separate from draft commands and
+immutable accepted answers. V99 adds `attempt_answer_draft`; no public route, policy
+capability, autosave, cleanup or historical backfill is enabled. It reuses the delivered
+canonical start's authenticated subject, lifecycle and trace/form binding, and the
+materialized item's exact question/response-contract version. Current ownership of a
+quiz does not grant access to another participant's draft.
+
+The natural key is `(attempt_id, form_item_id)`; the attempt's immutable subject binding
+supplies participant identity. Expected version zero means no prior record. Each successful
+save or delete increments the version. Deletion removes the response value and retains a
+versioned tombstone; recreation uses that tombstone's version. Thus a delayed delete or
+save cannot overwrite work saved after deletion/recreation. An absent record and a deleted
+value are distinct. Retention/physical cleanup remains #628/#699, not an age-based worker here.
+
+The store validates bounded normalized JSON against the exact saved response contract
+(existing v1 limit: 65,536 UTF-8 bytes), rejects writes to accepted items or non-active
+attempts, and joins the caller's transaction. Concurrent mutations serialize with the
+canonical acceptance/submission lifecycle lock and use a database version precondition.
+Current reads retain their meaning inside an older REPEATABLE READ snapshot. Errors and
+telemetry omit values and subject/resource identifiers; storage outcome counters and draft
+age in seconds use bounded labels. A database/commit failure can leave an uncertain outcome:
+reread the persisted version before deciding whether a mutation committed; do not infer absence.
+
+Trusted callers remain responsible for authenticated identity, permissions, current content
+access and the enabled policy/section rules. #542 owns public save/delete commands; #834 owns
+ordinary editable-response versus pending-confirmation intent and atomic finalization. Tests
+calling this internal store under an allowed-state fixture do not activate those capabilities
+or prove their integration. In particular, a stored value neither advances lifecycle nor
+creates acceptance, grading, terminal receipts or results. The default immediate-acceptance
+practice path continues to use its existing writer and feedback rules.
+
 ### Provisional responses and pending confirmation
 
 The [21 October owner decision](./decision-register.md#answer-finalization-and-review) approves a configuration where an ordinary participant response remains editable until final attempt submission. A separate [approved configuration](./decision-register.md#section-answer-finalization) permits editing until section submission. Such work is provisional until the applicable finalization boundary; a saved payload is not proof of immutable acceptance. The existing immediate-lock default continues to finalize each individually confirmed answer.
