@@ -49,7 +49,9 @@ public final class FlatNavigation {
             require(cursor.version() == expectedNavigationVersion, Reason.STALE);
             int from = positions.get(cursor.currentFormItemId()), to = positions.get(target);
             if (from == to) return;
-            if (to == from + 1) {
+            int next = from + 1;
+            while (next < items.size() && !readable(items.get(next))) next++;
+            if (to == next) {
                 require(accepted.contains(cursor.currentFormItemId()) || policy.skipAndReturn(), Reason.ANSWER_REQUIRED);
                 return;
             }

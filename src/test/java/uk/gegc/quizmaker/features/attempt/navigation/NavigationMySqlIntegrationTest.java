@@ -310,6 +310,48 @@ class NavigationMySqlIntegrationTest {
         assertThat(count("attempt_accepted_response")).isEqualTo(2);
     }
 
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void returnToSkippedItemCanContinueThroughHiddenAcceptedItems(boolean revisit) {
+        var f = fixture(new NavigationPolicy(NavigationMode.SEQUENTIAL, new NavigationRules(1, true, revisit)), 4);
+        navigation.navigate(move(f, 1, 1, 1L, "skip-a"));
+        answer(f, 1, 1, "answer-b");
+        navigation.navigate(move(f, 0, 2, 2L, "return-a"));
+        answer(f, 0, 2, "answer-a");
+        var before = snapshot();
+        rejected(() -> navigation.navigate(move(f, 3, 3, 3L, "jump-over-c")), NavigationException.Reason.TRANSITION_DENIED);
+        assertThat(snapshot()).isEqualTo(before);
+        long position = 3;
+        if (revisit) {
+            rejected(() -> navigation.navigate(move(f, 2, 3, 3L, "jump-visible-b")), NavigationException.Reason.TRANSITION_DENIED);
+            assertThat(snapshot()).isEqualTo(before);
+            position = navigation.navigate(move(f, 1, 3, 3L, "read-b")).cursor().version();
+        } else {
+            rejected(() -> navigation.navigate(move(f, 1, 3, 3L, "hidden-b")), NavigationException.Reason.NOT_FOUND);
+            assertThat(snapshot()).isEqualTo(before);
+        }
+        var continueToC = move(f, 2, 3, position, "continue-c");
+        var continued = navigation.navigate(continueToC);
+        assertThat(continued.stateVersion()).isEqualTo(3);
+        assertThat(continued.cursor().version()).isEqualTo(position + 1);
+        assertThat(view(f).navigation().currentFormItemId()).isEqualTo(f.id(2));
+        assertThat(view(f).items()).extracting(ParticipantAttemptView.Item::id)
+                .contains(f.id(2), f.id(3));
+        if (!revisit) assertThat(view(f).items()).extracting(ParticipantAttemptView.Item::id)
+                .doesNotContain(f.id(0), f.id(1));
+        assertThat(count("attempt_accepted_response")).isEqualTo(2);
+        answer(f, 2, 3, "answer-c");
+        navigation.navigate(move(f, 3, 4, continued.cursor().version(), "continue-d"));
+        answer(f, 3, 4, "answer-d");
+        var finalPosition = view(f).navigation();
+        var replay = restarted().navigate(continueToC);
+        assertThat(replay.replayed()).isTrue(); assertThat(replay.cursor()).isEqualTo(continued.cursor());
+        assertThat(view(f).navigation()).isEqualTo(finalPosition);
+        assertThat(count("attempt_accepted_response")).isEqualTo(4);
+        assertThat(count("attempt_navigation_result")).isEqualTo(revisit ? 5 : 4);
+        submissions.submit(new AttemptSubmissionService.Command(f.start().attemptId(), 5, true, CommandReceipt.Key.from("complete-all")));
+        assertThat(count("attempt_submission")).isEqualTo(1);
+    }
+
     @ParameterizedTest @CsvSource({"false,false", "false,true", "true,false", "true,true"})
     void readbackAndDirectAnswerDraftRoutesEnforceCapturedIndependentRules(boolean skip, boolean revisit) throws Exception {
         var f = sequential(skip, revisit); answer(f, 0, 1, "answer-a"); navigation.navigate(move(f, 1, 2, 1L, "next"));

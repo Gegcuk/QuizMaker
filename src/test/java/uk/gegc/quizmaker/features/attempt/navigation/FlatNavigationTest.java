@@ -27,6 +27,26 @@ class FlatNavigationTest {
         assertThat(after.accepted()).containsExactly(items.get(1));
         assertThat(after.answerable(items.get(1))).isFalse();
     }
+    @Test void forwardContinuesPastHiddenAcceptedItemsAfterAnsweringAReturnedItem() {
+        var c = context(true, false, 0, Set.of(items.get(0), items.get(1)));
+        c.check(items.get(2), 3L);
+        rejected(() -> c.check(items.get(1), 3L), NOT_FOUND);
+        assertThat(c.accepted()).containsExactlyInAnyOrder(items.get(0), items.get(1));
+    }
+    @Test void forwardCannotJumpOverAnAvailableItemEvenWhenEarlierAcceptedItemsAreHidden() {
+        var ordered = List.of(items.get(0), items.get(1), UUID.randomUUID(), items.get(2), UUID.randomUUID());
+        var c = new FlatNavigation.Context(new NavigationPolicy(NavigationMode.SEQUENTIAL, new NavigationRules(1, true, false)),
+                form, ordered, Set.copyOf(ordered.subList(0, 3)), new FlatNavigation.Cursor(form, ordered.get(0), 3));
+        c.check(ordered.get(3), 3L);
+        rejected(() -> c.check(ordered.get(4), 3L), TRANSITION_DENIED);
+        rejected(() -> c.check(ordered.get(1), 3L), NOT_FOUND);
+        rejected(() -> c.check(ordered.get(2), 3L), NOT_FOUND);
+    }
+    @Test void acceptedItemsRemainSequentialStopsWhenRevisitIsPermitted() {
+        var c = context(true, true, 0, Set.of(items.get(0), items.get(1)));
+        rejected(() -> c.check(items.get(2), 3L), TRANSITION_DENIED);
+        c.check(items.get(1), 3L);
+    }
     @ParameterizedTest @CsvSource({"false,false", "false,true", "true,false", "true,true"})
     void readbackDoesNotGrantEditingAndNeverHidesUnansweredWork(boolean skip, boolean revisit) {
         var c = context(skip, revisit, 1, Set.of(items.get(0)));

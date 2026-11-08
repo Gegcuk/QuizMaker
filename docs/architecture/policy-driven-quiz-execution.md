@@ -5787,9 +5787,12 @@ item at position version 1. FREE never creates a cursor. V101 adds only target m
 content-free receipt extension; it performs no legacy backfill. Disable the endpoint for rollback;
 retain captured policies, positions and receipts for a forward fix rather than deleting evidence.
 
-Default sequential navigation advances one item after the current answer is accepted. Explicit
-skip/return permits advancing unanswered and returning to an earlier unanswered item; accepted
-revisit is a separate read-only choice. A move updates only position metadata, trace and receipt,
+Default sequential navigation advances to the next available item after the current answer is
+accepted. Explicit skip/return permits advancing unanswered and returning to an earlier unanswered item; accepted
+revisit is a separate read-only choice. Forward navigation passes over accepted items hidden by
+the no-revisit policy, but cannot jump over an available item. Returning to a skipped item and
+answering it therefore cannot strand the participant before a hidden accepted neighbour.
+A move updates only position metadata, trace and receipt,
 not answers, lifecycle or grades. Commands for another item cannot bypass the saved position.
 Active delivery and participant reads omit accepted items when revisit is prohibited; this does
 not erase browser copies or change separately authorized post-completion review.

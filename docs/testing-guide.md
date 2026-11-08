@@ -109,7 +109,10 @@ delegate is outside this target-flow fixture. No paid/remote provider is needed.
 
 The navigation counter is separate from lifecycle state. Tests must distinguish a successful
 cursor move from accepting an answer, and exercise successful controls for answer-before-next,
-skip/return, readback and read-only access. Concurrent navigation uses both MySQL isolation levels;
+skip/return, readback and read-only access. The complete skip A → answer B → return A → answer A →
+continue C route is checked with accepted revisit both off and on. Hidden accepted neighbours do
+not block progress, while available questions cannot be jumped over. Concurrent navigation uses
+both MySQL isolation levels;
 reached SQL failures and lost commit responses use fresh reads and recreated services. Query
 measurements include multiple attempts, different form sizes and participant DTO serialization.
 Policy golden fixtures retain the historical FREE bytes/hash. Run `./mvnw verify` after scoped
