@@ -93,6 +93,28 @@ Run the detector's Git-fixture regression tests without Java or MySQL:
 python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 ```
 
+### Flat Navigation
+
+Run #525 checks with JDK 17 and the existing local test MySQL configuration:
+
+```bash
+./mvnw test -Dtest=FlatNavigationTest,NavigationPolicyTest,NavigationOpenApiTest,NavigationActivationTest,NavigationMySqlIntegrationTest
+```
+
+`NavigationMySqlIntegrationTest` creates and removes its own `flat_navigation_<id>` catalog using
+`TEST_MYSQL_PORT` and the existing optional test-admin credentials. It uses the real publication,
+authorized internal start, navigation, answer/draft commands, receipts, transactions and participant
+readers. External image storage is a fail-on-use fake for these text-only fixtures; the legacy
+delegate is outside this target-flow fixture. No paid/remote provider is needed.
+
+The navigation counter is separate from lifecycle state. Tests must distinguish a successful
+cursor move from accepting an answer, and exercise successful controls for answer-before-next,
+skip/return, readback and read-only access. Concurrent navigation uses both MySQL isolation levels;
+reached SQL failures and lost commit responses use fresh reads and recreated services. Query
+measurements include multiple attempts, different form sizes and participant DTO serialization.
+Policy golden fixtures retain the historical FREE bytes/hash. Run `./mvnw verify` after scoped
+checks for existing API, training, migration and shared-reader compatibility.
+
 ## Unit Tests
 
 Use real input values and narrow collaborator doubles. A unit test should describe a rule in observable terms, for example:

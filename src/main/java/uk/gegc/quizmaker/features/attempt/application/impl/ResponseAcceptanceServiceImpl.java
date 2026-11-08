@@ -85,6 +85,7 @@ public class ResponseAcceptanceServiceImpl implements ResponseAcceptanceService 
         ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
         var item = saved.form().items().stream().filter(i -> i.id().equals(c.formItemId())).findFirst()
                 .orElseThrow(() -> new ResponseAcceptanceException(NOT_FOUND));
+        require(saved.navigation().answerable(item.id()), CONFLICT);
         var question = saved.revision().items().stream().filter(i -> i.id().equals(item.sourceItemId()))
                 .findFirst().orElseThrow(() -> new ResponseAcceptanceException(CORRUPT)).question();
         require(question.type() == c.type(), INVALID_INPUT);
@@ -93,7 +94,7 @@ public class ResponseAcceptanceServiceImpl implements ResponseAcceptanceService 
         var current = saved.access().lifecycle();
         var context = new AttemptCommands.Context(AttemptCommands.Access.VERIFIED, saved.policy(), current.state(), current.rowVersion(),
                 new AttemptCommands.ItemFacts(true, true, answers.exists(c.attemptId(), item.id())
-                        ? CompletionFacts.ResponseState.ACCEPTED : CompletionFacts.ResponseState.EMPTY), null);
+                        ? CompletionFacts.ResponseState.ACCEPTED : CompletionFacts.ResponseState.EMPTY, item.id(), saved.navigation()), null);
         var decision = AttemptCommands.evaluate(new AttemptCommands.Command(1, AttemptCommands.Type.SUBMIT_ANSWER), context,
                 new AttemptCommands.Metadata(c.expectedStateVersion(), commandId, AttemptLifecycle.CommandIdentity.FRESH));
         require(decision.outcome() != AttemptCommands.Outcome.STALE, STALE);

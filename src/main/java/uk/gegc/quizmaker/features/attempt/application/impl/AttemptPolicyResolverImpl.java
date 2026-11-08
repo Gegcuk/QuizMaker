@@ -69,6 +69,7 @@ public final class AttemptPolicyResolverImpl implements AttemptPolicyResolver {
         var answerOrder = base.answerOrdering();
         var hints = base.hints();
         var submission = base.submission();
+        var navigation = base.navigation();
         var provenance = new HashMap<String, ValueSource>();
         // Explicit precedence, independent of input collection order. Safety/structural facts
         // cannot be overridden because Choice has no representation for those fields.
@@ -88,6 +89,12 @@ public final class AttemptPolicyResolverImpl implements AttemptPolicyResolver {
                     check(source.allowed().hintModes().contains(hint.value()), FORBIDDEN_OVERRIDE);
                     hints = new HintPolicy(hint.value(), base.hints().source());
                     provenance.put("hints.mode", origin);
+                } else if (choice instanceof NavigationChoice selected) {
+                    check(sourceType == OverrideSource.AUTHOR && source.allowed().navigation().contains(selected.value()), FORBIDDEN_OVERRIDE);
+                    navigation = selected.value();
+                    provenance.put("navigation.mode", origin);
+                    if (navigation.rules() != null) for (String field : List.of("version", "allowSkipAndReturn", "allowAcceptedRevisit"))
+                        provenance.put("navigation.rules." + field, origin);
                 } else if (choice instanceof DraftsChoice draft) {
                     check(sourceType == OverrideSource.AUTHOR && source.allowed().drafts().contains(draft.enabled()), FORBIDDEN_OVERRIDE);
                     submission = new SubmissionPolicy(draft.enabled(), false, submission.requireAllAnswers(),
@@ -99,7 +106,7 @@ public final class AttemptPolicyResolverImpl implements AttemptPolicyResolver {
         }
         // Re-enter the existing aggregate validator after composition; no parallel rule set.
         var effective = new ResolvedAttemptPolicy(base.schemaVersion(), base.content(), base.questionSelection(),
-                base.questionOrdering(), answerOrder, base.delivery(), base.navigation(), submission,
+                base.questionOrdering(), answerOrder, base.delivery(), navigation, submission,
                 base.answerChange(), base.disclosure(), hints, base.timing(), base.pause(), base.attempts(),
                 base.access(), base.grading(), base.review(), base.results(), base.accessibility(), base.integrity());
         return format.encode(request.preset(), effective, provenance);

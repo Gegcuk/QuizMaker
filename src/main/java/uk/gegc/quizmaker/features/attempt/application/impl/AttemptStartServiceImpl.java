@@ -51,16 +51,18 @@ public class AttemptStartServiceImpl implements AttemptStartService {
     private final ExecutionTraceService trace;
     private final CommandReceiptService receipts;
     private final MeterRegistry metrics;
+    private final uk.gegc.quizmaker.features.attempt.domain.repository.NavigationRepository navigation;
 
     public AttemptStartServiceImpl(AuthenticatedSubjectResolver identity, QuizPracticeSourceService sources,
                                    AttemptPresetService presets, AttemptPolicyResolver policies,
                                    PolicySnapshotService snapshots, QuestionRevisionContractService contracts,
                                    QuestionSelectionService selection, FixedFormMaterializer forms,
                                    AttemptSubjectService subjects, AttemptLifecycleService lifecycle,
-                                   ExecutionTraceService trace, CommandReceiptService receipts, MeterRegistry metrics) {
+                                   ExecutionTraceService trace, CommandReceiptService receipts, MeterRegistry metrics,
+                                   uk.gegc.quizmaker.features.attempt.domain.repository.NavigationRepository navigation) {
         this.identity = identity; this.sources = sources; this.presets = presets; this.policies = policies;
         this.snapshots = snapshots; this.contracts = contracts; this.selection = selection; this.forms = forms;
-        this.subjects = subjects; this.lifecycle = lifecycle; this.trace = trace; this.receipts = receipts; this.metrics = metrics;
+        this.subjects = subjects; this.lifecycle = lifecycle; this.trace = trace; this.receipts = receipts; this.metrics = metrics; this.navigation = navigation;
     }
 
     @Override public Result start(Command command) {
@@ -131,8 +133,13 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                 new AllowedChoices(Set.of(AnswerOrder.AUTHORED, AnswerOrder.SHUFFLED_PER_ATTEMPT), Set.of()),
                 List.of(new AnswerOrderChoice(command.answerOrder())))));
         // lockAccess already proved current owner/full-editor authority. No participant grant is accepted.
-        if (command.draftsEnabled()) overrides.add(new SourceOverrides(OverrideSource.AUTHOR, 1,
-                new AllowedChoices(Set.of(), Set.of(), Set.of(true)), List.of(new DraftsChoice(true))));
+        var authorChoices = new ArrayList<Choice>();
+        if (command.draftsEnabled()) authorChoices.add(new DraftsChoice(true));
+        boolean configuredNavigation = !command.navigation().equals(new NavigationPolicy(NavigationMode.FREE));
+        if (configuredNavigation) authorChoices.add(new NavigationChoice(command.navigation()));
+        if (!authorChoices.isEmpty()) overrides.add(new SourceOverrides(OverrideSource.AUTHOR, 1,
+                new AllowedChoices(Set.of(), Set.of(), command.draftsEnabled() ? Set.of(true) : Set.of(),
+                        configuredNavigation ? Set.of(command.navigation()) : Set.of()), authorChoices));
         var resolution = policies.resolve(new PolicyResolutionRequest(1, 1, PolicyResolutionRequest.HASH_ALGORITHM,
                 command.preset(), command.content(), overrides));
         var snapshot = snapshots.createOrReplay(access.ownerId(), new PolicySnapshot(UUID.randomUUID(), resolution));
@@ -152,6 +159,11 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         var transition = AttemptLifecycle.evaluate(initial.state(), AttemptLifecycle.Event.START, AttemptLifecycle.Context.fresh());
         require(transition instanceof AttemptLifecycle.Advance, UNSUPPORTED_CAPABILITY);
         var started = lifecycle.save(subject.attemptId(), 0, ((AttemptLifecycle.Advance) transition).state());
+        if (policy.navigation().mode() == NavigationMode.SEQUENTIAL) {
+            require(!form.items().isEmpty(), UNSUPPORTED_CAPABILITY);
+            navigation.initialize(subject.attemptId(), new uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Cursor(
+                    form.id(), form.items().get(0).id(), 1));
+        }
         var scope = new ExecutionTrace.Scope(subject.attemptId(), snapshot.id(), form.id());
         trace.append(scope, new ExecutionTrace.Event(1, UUID.randomUUID(), ExecutionTrace.Type.FORM_CREATED,
                 ExecutionTrace.Actor.SYSTEM, new ExecutionTrace.Data(commandId, null, null, null, ExecutionTrace.ReasonCode.MATERIALIZED)));
@@ -165,7 +177,7 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         require(c.version() == 1, UNSUPPORTED_VERSION);
         require(c.quizId() != null && c.content() != null && c.publicationVersion() > 0 && c.key() != null
                 && c.preset() != null && c.context() != null && c.legacyMode() != null && c.legacyMode().length() <= 32
-                && c.answerOrder() != null, INVALID_INPUT);
+                && c.answerOrder() != null && c.navigation() != null, INVALID_INPUT);
     }
 
     private static CommandReceipt.Fingerprint fingerprint(Command c) {
@@ -178,6 +190,12 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                 .put("context", c.context().name()).put("legacyMode", c.legacyMode()).put("answerOrder", c.answerOrder().name());
         // Preserve exact fingerprints for starts created before #542 with drafts disabled.
         if (c.draftsEnabled()) json.put("draftsEnabled", true);
+        if (!c.navigation().equals(new NavigationPolicy(NavigationMode.FREE))) {
+            var nav = json.putObject("navigation").put("mode", c.navigation().mode().name());
+            var rules = c.navigation().rules();
+            if (rules != null) nav.putObject("rules").put("version", rules.version())
+                    .put("allowSkipAndReturn", rules.allowSkipAndReturn()).put("allowAcceptedRevisit", rules.allowAcceptedRevisit());
+        }
         return CanonicalCommandInput.fingerprint(1, json);
     }
 

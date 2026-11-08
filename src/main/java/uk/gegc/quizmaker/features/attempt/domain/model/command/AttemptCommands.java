@@ -32,7 +32,7 @@ public final class AttemptCommands {
         ALLOWED, VERIFIED_REPLAY, INVALID_INPUT, UNSUPPORTED_VERSION, UNKNOWN_COMMAND,
         MISSING_CONTEXT, ACCESS_DENIED, MISSING_METADATA, INVALID_METADATA,
         STALE_VERSION, CONFLICTING_REPLAY, ITEM_UNAVAILABLE, ANSWER_LOCKED,
-        UNSUPPORTED_RESPONSE_STATE, POLICY_FACTS_MISMATCH, LIFECYCLE_DENIED, DRAFTS_DISABLED
+        UNSUPPORTED_RESPONSE_STATE, POLICY_FACTS_MISMATCH, LIFECYCLE_DENIED, DRAFTS_DISABLED, ANSWER_REQUIRED, NAVIGATION_DENIED
     }
 
     /** Contains no client assertion about allowed actions, mode, status, subject or next state. */
@@ -47,7 +47,10 @@ public final class AttemptCommands {
     public record Metadata(long expectedVersion, UUID operationId, CommandIdentity identity) {}
 
     /** The consumer resolves exact immutable form membership, delivery and saved response state. */
-    public record ItemFacts(boolean member, boolean delivered, ResponseState response) {}
+    public record ItemFacts(boolean member, boolean delivered, ResponseState response, UUID formItemId,
+                            uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Context navigation) {
+        public ItemFacts(boolean member, boolean delivered, ResponseState response) { this(member, delivered, response, null, null); }
+    }
 
     /**
      * stateVersion is the authoritative optimistic-concurrency counter, not lifecycle schemaVersion.
@@ -145,11 +148,30 @@ public final class AttemptCommands {
         if (item == null || !item.member() || !item.delivered() || item.response() == null) {
             return decision(Reason.ITEM_UNAVAILABLE);
         }
-        if (item.response() != ResponseState.EMPTY && item.response() != ResponseState.ACCEPTED) {
+        if (type != Type.NAVIGATE_TO_ITEM && item.response() != ResponseState.EMPTY && item.response() != ResponseState.ACCEPTED) {
             return decision(Reason.UNSUPPORTED_RESPONSE_STATE);
         }
         if (item.response() == ResponseState.ACCEPTED && context.state().answers() == AnswerCollection.NOT_STARTED) {
             return lifecycleDenied(LifecycleException.Reason.CONTRADICTORY_FACTS);
+        }
+        if (context.policy().navigation().rules() != null) {
+            if (item.navigation() == null || item.formItemId() == null) return decision(Reason.MISSING_CONTEXT);
+            var navigation = item.navigation();
+            if (!navigation.policy().equals(context.policy().navigation())
+                    || (item.response() == ResponseState.ACCEPTED) != navigation.accepted().contains(item.formItemId()))
+                return decision(Reason.POLICY_FACTS_MISMATCH);
+            if (type != Type.NAVIGATE_TO_ITEM) {
+                if (!navigation.answerable(item.formItemId()))
+                    return decision(item.response() == ResponseState.ACCEPTED ? Reason.ANSWER_LOCKED : Reason.NAVIGATION_DENIED);
+            } else try { navigation.check(item.formItemId(), navigation.cursor() == null ? null : navigation.cursor().version()); }
+            catch (uk.gegc.quizmaker.features.attempt.domain.model.navigation.NavigationException denied) {
+                return decision(switch (denied.reason()) {
+                    case NOT_FOUND -> Reason.ITEM_UNAVAILABLE;
+                    case ANSWER_REQUIRED -> Reason.ANSWER_REQUIRED;
+                    case TRANSITION_DENIED -> Reason.NAVIGATION_DENIED;
+                    default -> Reason.POLICY_FACTS_MISMATCH;
+                });
+            }
         }
         if (type == Type.NAVIGATE_TO_ITEM) return decision(Reason.ALLOWED);
         if (item.response() == ResponseState.ACCEPTED) return decision(Reason.ANSWER_LOCKED);

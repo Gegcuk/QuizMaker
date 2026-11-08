@@ -5770,6 +5770,43 @@ The section foundation also needs its consumed contracts in the native graph: #5
 
 Formal D38 #668 unconditionally requires #614 persisted ONE_AT_A_TIME delivery/resume, #525 SEQUENTIAL navigation and #634 scheduled release with #697/#675 configuration/decisions. The real #543 answer command must enable a successful next-item transition after an unanswered request was denied; resume retains that position. After the assignment deadline the actual #634 worker releases only TOTAL_SCORE/PASS_FAIL, with #526 participant reads applying #555 disclosure to persisted release facts. Neither flat delivery nor immediate release proves D38. These requirements do not become prerequisites of first practice or FSRS.
 
+### Flat navigation boundary (#525)
+
+`POST /api/v1/attempts/{attemptId}/navigation` is additive and disabled unless
+`quizmaker.attempts.navigation-commands-enabled=true`. It requires `ATTEMPT_READ`, the bound
+participant and current quiz ownership/full-content-editor authority. It accepts an immutable
+`formItemId`, `expectedStateVersion`, and a positive `expectedNavigationVersion` for sequential
+policies; FREE requests omit the latter. The case-sensitive `Idempotency-Key` follows the existing
+canonical receipt contract. Unknown outcomes are retried with the original input/key.
+
+The internal start accepts an authorized `NavigationPolicy` with independent versioned skip/return
+and accepted-revisit settings. Omitted settings preserve the historical FREE representation,
+provenance, hashes and start fingerprints. Explicit configuration is author-owned, never a
+participant-supplied grant. No active policy is rewritten. Sequential start stores the first form
+item at position version 1. FREE never creates a cursor. V101 adds only target metadata and a
+content-free receipt extension; it performs no legacy backfill. Disable the endpoint for rollback;
+retain captured policies, positions and receipts for a forward fix rather than deleting evidence.
+
+Default sequential navigation advances one item after the current answer is accepted. Explicit
+skip/return permits advancing unanswered and returning to an earlier unanswered item; accepted
+revisit is a separate read-only choice. A move updates only position metadata, trace and receipt,
+not answers, lifecycle or grades. Commands for another item cannot bypass the saved position.
+Active delivery and participant reads omit accepted items when revisit is prohibited; this does
+not erase browser copies or change separately authorized post-completion review.
+
+Identical replay returns the original position/version after current read authorization, even
+after a later move or completion. Acknowledgements expose no content or feedback. Participant
+views add an optional `navigation` position for sequential policies. Wrong/hidden targets return
+non-enumerating 404; stale versions, answer-required and prohibited transitions use typed 409;
+unsupported contracts use 422. Malformed requests use 400, authentication 401, corrupt evidence
+500 and unavailable/retryable/unknown storage outcomes 503. Responses use `no-store`.
+The endpoint belongs only to OpenAPI group `attempts` and is discoverable through API summary.
+Metrics use bounded version/outcome labels without resource IDs, answers or keys.
+
+This boundary is online, flat and ALL_AT_ONCE. It does not implement one-at-a-time delivery,
+section locks, editable/proposal finalization or public rollout. #834 still owns its real composed
+response/navigation scenarios; #614/#616/#711/#668/#609 retain their respective activation gates.
+
 D38 selection is RANDOM_COUNT through actual #545/#547, with a fixed bank and server-controlled fixture seed yielding the approved five-family composition; it is not stratification by family/topic/difficulty quotas. #545 requires #544's strategy contract. #547 requires #600, which supplies #522/#544 transitively; a typed selector double can prove only this extension's real persistence transaction, while D38 uses the actual #545 algorithm. #604 separately requires #547 for real stratified start integration and retains its own structured/topic inputs. It is not a prerequisite of #668, #545 or the generic #547 extension. Readiness checks must inspect each producer's own ancestor closure, not rely on a common downstream conformance issue to provide implementation order.
 
 Release configuration #697 owns immutable versions, validation and saved instants, not release execution or certificates. Its R05 choices are approved. #633/#634 prove their actual release transitions, authority, replay and restart; #633 consumes #698 mandatory audit. The dual manual/scheduled trigger mode requires both real commands as a conditional integration gate. #836 owns finality proof and #557 retains actual certificate issuance, including conditional approval/date modes. Assignment publication #621 likewise owns publication/supersession, while #835 owns transfer/access and #798 revocation/cancellation. Real start/submit races in #798 additionally require #534/#529 for the enabled integration; a prebuilt active-attempt fixture proves only the local cancellation writer.

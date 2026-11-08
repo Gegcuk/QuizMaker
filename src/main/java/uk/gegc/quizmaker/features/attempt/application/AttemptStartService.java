@@ -7,12 +7,18 @@ import uk.gegc.quizmaker.features.attempt.domain.model.preset.PresetReference;
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt.Key;
 
 import java.util.UUID;
+import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.NavigationPolicy;
+import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.NavigationMode;
 
 /** Internal authenticated ALL start. No controller, routing or participant delivery is activated. */
 public interface AttemptStartService {
     /** Requested configuration is never authority; the server resolves user, access and publication. */
     record Command(int version, UUID quizId, ContentPolicy content, long publicationVersion, Key key,
-                   PresetReference preset, LaunchContext context, String legacyMode, AnswerOrder answerOrder, boolean draftsEnabled) {
+                   PresetReference preset, LaunchContext context, String legacyMode, AnswerOrder answerOrder, boolean draftsEnabled, NavigationPolicy navigation) {
+        public Command(int version, UUID quizId, ContentPolicy content, long publicationVersion, Key key,
+                       PresetReference preset, LaunchContext context, String legacyMode, AnswerOrder answerOrder, boolean draftsEnabled) {
+            this(version, quizId, content, publicationVersion, key, preset, context, legacyMode, answerOrder, draftsEnabled, new NavigationPolicy(NavigationMode.FREE));
+        }
         public Command(int version, UUID quizId, ContentPolicy content, long publicationVersion, Key key,
                        PresetReference preset, LaunchContext context, String legacyMode, AnswerOrder answerOrder) {
             this(version, quizId, content, publicationVersion, key, preset, context, legacyMode, answerOrder, false);

@@ -104,8 +104,20 @@ public record ResolvedAttemptPolicy(
         public DeliveryPolicy { present(mode); }
     }
 
-    public record NavigationPolicy(NavigationMode mode) {
-        public NavigationPolicy { present(mode); }
+    public record NavigationPolicy(NavigationMode mode, NavigationRules rules) {
+        public NavigationPolicy(NavigationMode mode) { this(mode, null); }
+        public NavigationPolicy {
+            present(mode);
+            require(rules != null || mode == NavigationMode.FREE, INVALID_COMBINATION);
+            require(mode != NavigationMode.FREE || rules == null || !rules.allowSkipAndReturn(), INVALID_COMBINATION);
+        }
+        public boolean skipAndReturn() { return rules != null && rules.allowSkipAndReturn(); }
+        public boolean acceptedRevisit() { return rules == null || rules.allowAcceptedRevisit(); }
+
+    }
+
+    public record NavigationRules(int version, boolean allowSkipAndReturn, boolean allowAcceptedRevisit) {
+        public NavigationRules { require(version == 1, UNSUPPORTED_STRATEGY_VERSION); }
     }
 
     public record SubmissionPolicy(boolean draftsEnabled, boolean autosaveEnabled,
@@ -195,7 +207,7 @@ public record ResolvedAttemptPolicy(
     public enum QuestionOrder { AUTHORED }
     public enum AnswerOrder { AUTHORED, SHUFFLED_PER_ATTEMPT }
     public enum DeliveryMode { ALL_AT_ONCE }
-    public enum NavigationMode { FREE }
+    public enum NavigationMode { FREE, SEQUENTIAL }
     public enum SubmissionMode { SINGLE_AND_ATOMIC_BATCH }
     public enum RetrySemantics { IDENTICAL_REPLAY_CHANGED_CONFLICT }
     public enum FinalSubmitPayload { NONE }

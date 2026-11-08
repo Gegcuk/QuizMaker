@@ -37,10 +37,12 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.snapshot.PolicySna
  */
 public final class CanonicalPolicyFormat {
     private final JsonMapper mapper = JsonMapper.builder()
+            .addModule(NavigationPolicyJson.module())
             .enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
             .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
             .build();
     private final JsonMapper reader = JsonMapper.builder()
+            .addModule(NavigationPolicyJson.module())
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS,
                     DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES,
@@ -70,6 +72,7 @@ public final class CanonicalPolicyFormat {
             version(root.get("canonicalVersion"));
             version(root.at("/policy/schemaVersion"));
             version(root.at("/preset/version"));
+            if (root.at("/policy/navigation").has("rules")) version(root.at("/policy/navigation/rules/version"));
             if (!HASH_ALGORITHM.equals(root.path("hashAlgorithm").textValue())) {
                 throw new PolicySnapshotException(UNSUPPORTED_HASH_ALGORITHM);
             }
@@ -84,10 +87,15 @@ public final class CanonicalPolicyFormat {
             if (envelope.policy().submission().draftsEnabled()
                     && !new ValueSource(AUTHOR, 1).equals(provenance.get("submission.draftsEnabled")))
                 throw new PolicySnapshotException(CORRUPT_SNAPSHOT);
+            if (envelope.policy().navigation().rules() != null && provenance.entrySet().stream()
+                    .filter(e -> e.getKey().startsWith("navigation."))
+                    .anyMatch(e -> !new ValueSource(AUTHOR, 1).equals(e.getValue())))
+                throw new PolicySnapshotException(CORRUPT_SNAPSHOT);
             for (var entry : provenance.entrySet()) {
                 var source = entry.getValue();
                 boolean selectable = entry.getKey().equals("answerOrdering.mode") || entry.getKey().equals("hints.mode");
-                boolean draft = entry.getKey().equals("submission.draftsEnabled") && source != null && source.source() == AUTHOR;
+                boolean draft = (entry.getKey().equals("submission.draftsEnabled") || entry.getKey().startsWith("navigation."))
+                        && source != null && source.source() == AUTHOR;
                 if (source == null || !(source.equals(defaults.get(entry.getKey())) || draft && source.version() == 1
                         || selectable && (source.source() == AUTHOR || source.source() == PARTICIPANT))) {
                     throw new PolicySnapshotException(CORRUPT_SNAPSHOT);

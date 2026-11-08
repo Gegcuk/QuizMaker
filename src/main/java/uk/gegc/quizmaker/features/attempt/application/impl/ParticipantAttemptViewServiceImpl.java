@@ -96,7 +96,8 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
             if (!lifecycle.state().terminal() && images.values().stream()
                     .anyMatch(image -> image.availability() != ParticipantViewMediaReader.Availability.AVAILABLE))
                 throw new AttemptDeliveryException(UNAVAILABLE);
-            items = AttemptFormResponse.items(projected).stream().map(item -> {
+            items = AttemptFormResponse.items(projected).stream()
+                    .filter(item -> lifecycle.state().terminal() || saved.navigation().readable(item.id())).map(item -> {
                 var image = images.get(item.id());
                 return new ParticipantAttemptView.Item(item.id(), item.position(), item.type(), item.questionText(), item.content(),
                         image == null ? null : new ParticipantAttemptView.Image(image.availability(), image.url()));
@@ -104,10 +105,14 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
         }
         var context = new AttemptCommands.Context(AttemptCommands.Access.VERIFIED, saved.policy(), lifecycle.state(),
                 granted.stateVersion(), null, null);
+        var actions = new ArrayList<>(AttemptCommands.allowedActions(context).actions());
+        if (!lifecycle.state().terminal() && saved.policy().navigation().rules() != null
+                && saved.navigation().items().stream().anyMatch(saved.navigation()::readable))
+            actions.add(AttemptCommands.Type.NAVIGATE_TO_ITEM);
         return new ParticipantAttemptView(ParticipantAttemptView.Representation.POLICY_DRIVEN, 1, attemptId,
                 granted.quizId(), granted.quizRevisionId(), granted.formId(), granted.stateVersion(), saved.policy().schemaVersion(),
                 lifecycle.state().execution(), lifecycle.state().answers(), lifecycle.startedAt(), lifecycle.submittedAt(),
-                ParticipantAttemptView.Timing.UNTIMED, visibility, items, AttemptCommands.allowedActions(context).actions(), disclosed.result());
+                ParticipantAttemptView.Timing.UNTIMED, visibility, items, actions, disclosed.result(), NavigationPosition.from(saved.navigation().cursor()));
     }
 
     @Override public AttemptReviewResponse review(UUID attemptId, boolean includeUserAnswers,
@@ -137,6 +142,6 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
         return new ParticipantAttemptView(view.representation(), view.schemaVersion(), view.attemptId(), view.quizId(), view.quizRevisionId(),
                 view.formId(), view.stateVersion(), view.policyVersion(), view.execution(), view.answerCollection(), view.startedAt(),
                 view.submittedAt(), view.timing(), view.contentVisibility(), includeQuestionContext ? view.items() : null,
-                view.allowedActions(), filtered);
+                view.allowedActions(), filtered, view.navigation());
     }
 }
