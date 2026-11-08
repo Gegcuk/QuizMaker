@@ -13,11 +13,17 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
  * Sanitized database conflicts reach the caller, which owns its outward command or read error contract.
  */
 public interface AttemptReadFactsService {
-    enum Purpose { ACTIVE_DELIVERY, PARTICIPANT_VIEW, ACCEPT_RESPONSE, SUBMIT_ATTEMPT, DRAFT_COMMAND }
+    enum Purpose { ACTIVE_DELIVERY, PARTICIPANT_VIEW, ACCEPT_RESPONSE, SUBMIT_ATTEMPT, DRAFT_COMMAND, NAVIGATION }
     Facts read(UUID attemptId, Purpose purpose);
 
     record Facts(AttemptAccessService.Access access, ResolvedAttemptPolicy policy, FixedForm form,
-                 FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts, String policyHash) {
+                 FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts, String policyHash, uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Context navigation) {
+        public Facts(AttemptAccessService.Access access, ResolvedAttemptPolicy policy, FixedForm form,
+                     FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts, String policyHash) {
+            this(access, policy, form, order, revision, contracts, policyHash,
+                    new uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Context(
+                            policy.navigation(), form.id(), form.items().stream().map(FixedForm.Item::id).toList(), java.util.Set.of(), null));
+        }
         public Facts { contracts = Map.copyOf(contracts); }
         public Facts(AttemptAccessService.Access access, ResolvedAttemptPolicy policy, FixedForm form,
                      FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts) {

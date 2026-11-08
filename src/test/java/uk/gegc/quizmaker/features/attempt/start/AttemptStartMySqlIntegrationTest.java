@@ -87,7 +87,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStart
 @TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=none", "spring.flyway.enabled=true"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-@Import({QuizRevisionPublicationServiceImpl.class, JdbcQuizPublicationRepository.class, JdbcQuizRevisionRepository.class,
+@Import({uk.gegc.quizmaker.features.attempt.infra.repository.JdbcNavigationRepository.class, QuizRevisionPublicationServiceImpl.class, JdbcQuizPublicationRepository.class, JdbcQuizRevisionRepository.class,
         JdbcQuestionSourceScopeRepository.class, PublicationContent.class, RetainedImageServiceImpl.class,
         AppPermissionEvaluator.class, QuestionHandlerFactory.class,
         McqSingleHandler.class, McqMultiHandler.class, TrueFalseHandler.class, FillGapHandler.class, OrderingHandler.class,
@@ -763,7 +763,7 @@ class AttemptStartMySqlIntegrationTest {
     private AttemptStartService restarted() {
         var receipt = new CommandReceiptServiceImpl(new JdbcCommandReceiptRepository(new NamedParameterJdbcTemplate(source)), manager, clock, metrics);
         return new AttemptStartServiceImpl(identity, sources, presets, policies, snapshots, contracts, selector, materializer,
-                subjects, lifecycle, trace, receipt, metrics);
+                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)));
     }
     private Object raced(AttemptStartService.Command command, int isolation) {
         authenticate(username);

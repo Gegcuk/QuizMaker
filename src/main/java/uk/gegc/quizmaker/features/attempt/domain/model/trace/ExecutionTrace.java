@@ -23,10 +23,10 @@ public final class ExecutionTrace {
     /** Initial untimed walking-skeleton evidence only; future producers need explicit contracts. */
     public enum Type {
         ATTEMPT_STARTED, FORM_CREATED, QUESTION_DELIVERED, ANSWER_SUBMITTED,
-        ANSWER_LOCKED, ATTEMPT_SUBMITTED, AUTOMATIC_GRADE_PRODUCED, RESULT_RELEASED, DRAFT_SAVED, DRAFT_DELETED
+        ANSWER_LOCKED, ATTEMPT_SUBMITTED, AUTOMATIC_GRADE_PRODUCED, RESULT_RELEASED, DRAFT_SAVED, DRAFT_DELETED, ITEM_NAVIGATED
     }
     public enum Actor { PARTICIPANT, SYSTEM }
-    public enum ReasonCode { ACCEPTED, MATERIALIZED, DELIVERED, LOCKED, SUBMITTED, GRADED, RELEASED, SAVED, DELETED }
+    public enum ReasonCode { ACCEPTED, MATERIALIZED, DELIVERED, LOCKED, SUBMITTED, GRADED, RELEASED, SAVED, DELETED, NAVIGATED }
 
     /** Subject reference is the existing attempt-subject binding, never a copied user/contact ID. */
     public record Scope(UUID attemptId, UUID policySnapshotId, UUID formId) {

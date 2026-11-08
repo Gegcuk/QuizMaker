@@ -178,7 +178,9 @@ class PolicyValidationTest {
         for (Object record : records) {
             var components = record.getClass().getRecordComponents();
             for (int index = 0; index < components.length; index++) {
-                if (!components[index].getType().isPrimitive()) {
+                // Only the historical FREE representation omits navigation rules.
+                if (!components[index].getType().isPrimitive()
+                        && !(record instanceof NavigationPolicy && components[index].getName().equals("rules"))) {
                     arguments.add(Arguments.of(record, index, record.getClass().getSimpleName() + "." + components[index].getName()));
                 }
             }

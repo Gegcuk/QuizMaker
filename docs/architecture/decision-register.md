@@ -242,6 +242,16 @@ For the legacy `TIMED` refinement, cover disabled quiz timing with an unambiguou
 - Active-account, non-deleted-resource and current-permission checks are repeated per operation. Unknown/missing target evidence fails closed without inferring identity from legacy rows. Current author edits or a later publication do not replace the attempt's saved revision.
 - This scope does not add role grants, an endpoint, new start restrictions, guest/assignment access, release decisions or target activation. Creator-authorized take-only paths remain their separately owned integration. Existing legacy routes retain their behavior.
 
+<a id="flat-navigation-access"></a>
+## Flat navigation implementation boundary — DECIDED
+
+**Decision date/source:** 8 November 2026, repository owner confirmed #525 with options A/A.
+
+- Flat navigation requires `ATTEMPT_READ`, the immutable participant binding and the same current quiz ownership/full-content-editor authority as #537 VIEW. It does not grant `ATTEMPT_CREATE`, answer acceptance or editing. A read-only participant can navigate but cannot answer; every replay rechecks current read authority.
+- #525 includes the minimal typed, server-authorized internal-start configuration and initial sequential position needed to exercise the real command. Existing callers still create `FREE`; no public launch selection or legacy mode mapping changes here.
+- Position has its own optimistic version. A navigation command checks both the captured attempt-state version and, for `SEQUENTIAL`, the position version. Moving does not update answer collection, accept a response or change grading. `ALL_AT_ONCE/FREE` needs no authoritative cursor.
+- Sequential movement visits the next item after acceptance by default. Explicit skip/return permits next without acceptance and return to earlier unanswered items; accepted-item revisit is independently controlled. Revisit never unlocks accepted evidence. The existing one-at-a-time, section and editable-finalization integration owners retain their gates.
+
 <a id="one-by-one-navigation"></a>
 ## ONE_BY_ONE sequential default and configurable skip/return — DECIDED
 

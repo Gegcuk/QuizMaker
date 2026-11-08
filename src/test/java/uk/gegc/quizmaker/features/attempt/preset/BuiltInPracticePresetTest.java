@@ -34,7 +34,8 @@ class BuiltInPracticePresetTest {
     @Test
     void approvedTupleAndIndependentGoldenHashRemainStableAfterSerialization() throws Exception {
         // A fixture-only sorted JSON codec. #517 owns the production canonical policy format/hash.
-        var codec = JsonMapper.builder().enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY).build();
+        var codec = JsonMapper.builder().enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
+                .serializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL).build();
         var captured = new CapturedPreset(presets.load(V1).reference(), presets.load(V1).bindContent(content(42)));
         byte[] actual = codec.writeValueAsBytes(captured);
         try (var fixture = getClass().getResourceAsStream("/attempt-presets/free-practice-v1.json")) {

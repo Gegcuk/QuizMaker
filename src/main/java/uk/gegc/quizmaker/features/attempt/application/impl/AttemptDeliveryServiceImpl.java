@@ -53,6 +53,8 @@ public class AttemptDeliveryServiceImpl implements AttemptDeliveryService {
         var state = granted.lifecycle().state();
         if (state.execution() != AttemptLifecycle.Execution.IN_PROGRESS) throw new AttemptDeliveryException(INACTIVE);
         var participant = ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
+        participant = new uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm(participant.id(), participant.schemaVersion(),
+                participant.items().stream().filter(i -> saved.navigation().readable(i.id())).toList());
         // Missing response/completion facts remain unknown. No new command is advertised by a read.
         var context = new AttemptCommands.Context(AttemptCommands.Access.VERIFIED, saved.policy(), state,
                 granted.stateVersion(), null, null);

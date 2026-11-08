@@ -72,7 +72,8 @@ class AttemptPolicyResolverTest {
         assertThat(result.canonicalVersion()).isEqualTo(1);
         assertThat(result.hashAlgorithm()).isEqualTo("SHA-256");
         var paths = new HashSet<String>();
-        collectPaths(JsonMapper.builder().build().valueToTree(result.policy()), "", paths);
+        collectPaths(JsonMapper.builder().serializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                .build().valueToTree(result.policy()), "", paths);
         assertThat(result.provenance().keySet()).containsExactlyInAnyOrderElementsOf(paths);
         result.provenance().forEach((path, source) -> {
             var expected = path.startsWith("content.") ? REVISION

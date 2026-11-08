@@ -101,6 +101,7 @@ public class DraftCommandServiceImpl implements DraftCommandService {
         ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
         var item = saved.form().items().stream().filter(i -> i.id().equals(c.formItemId())).findFirst()
                 .orElseThrow(() -> new DraftCommandException(Reason.NOT_FOUND));
+        require(saved.navigation().answerable(item.id()), Reason.CONFLICT);
         var question = saved.revision().items().stream().filter(i -> i.id().equals(item.sourceItemId())).findFirst()
                 .orElseThrow(() -> new DraftCommandException(Reason.CORRUPT)).question();
         var contract = saved.contracts().get(question.id());
@@ -109,7 +110,7 @@ public class DraftCommandServiceImpl implements DraftCommandService {
         var state = saved.access().lifecycle();
         var context = new AttemptCommands.Context(AttemptCommands.Access.VERIFIED, saved.policy(), state.state(), state.rowVersion(),
                 new AttemptCommands.ItemFacts(true, true, binding.accepted(ref)
-                        ? CompletionFacts.ResponseState.ACCEPTED : CompletionFacts.ResponseState.EMPTY), null);
+                        ? CompletionFacts.ResponseState.ACCEPTED : CompletionFacts.ResponseState.EMPTY, item.id(), saved.navigation()), null);
         var decision = AttemptCommands.evaluate(new AttemptCommands.Command(1, c.operation()), context,
                 new AttemptCommands.Metadata(c.expectedStateVersion(), commandId, AttemptLifecycle.CommandIdentity.FRESH));
         require(decision.outcome() != AttemptCommands.Outcome.STALE, Reason.STALE);

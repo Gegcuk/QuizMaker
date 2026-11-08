@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.attempt.domain.model.resolution;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.AnswerOrder;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.ContentPolicy;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.HintMode;
+import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.NavigationPolicy;
 import uk.gegc.quizmaker.features.attempt.domain.model.preset.PresetReference;
 
 import java.util.List;
@@ -32,10 +33,10 @@ public record PolicyResolutionRequest(
     }
 
     public enum OverrideSource { AUTHOR, PARTICIPANT }
-    public enum Setting { ANSWER_ORDER, HINTS, DRAFTS }
+    public enum Setting { ANSWER_ORDER, HINTS, DRAFTS, NAVIGATION }
 
     /** Only explicit supported choices are representable, never arbitrary policy paths. */
-    public sealed interface Choice permits AnswerOrderChoice, HintChoice, DraftsChoice {
+    public sealed interface Choice permits AnswerOrderChoice, HintChoice, DraftsChoice, NavigationChoice {
         Setting setting();
     }
 
@@ -54,18 +55,27 @@ public record PolicyResolutionRequest(
         @Override public Setting setting() { return Setting.DRAFTS; }
     }
 
+    public record NavigationChoice(NavigationPolicy value) implements Choice {
+        public NavigationChoice { require(value != null, INVALID_INPUT); }
+        @Override public Setting setting() { return Setting.NAVIGATION; }
+    }
+
     /** Exact allowed values, not an implicit permission to enable every supported value. */
-    public record AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts) {
+    public record AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts, Set<NavigationPolicy> navigation) {
+        public AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts) {
+            this(answerOrders, hintModes, drafts, Set.of());
+        }
         public AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes) {
-            this(answerOrders, hintModes, Set.of());
+            this(answerOrders, hintModes, Set.of(), Set.of());
         }
         public AllowedChoices {
-            require(answerOrders != null && hintModes != null && drafts != null, INVALID_INPUT);
+            require(answerOrders != null && hintModes != null && drafts != null && navigation != null, INVALID_INPUT);
             require(answerOrders.stream().allMatch(v -> v != null) && hintModes.stream().allMatch(v -> v != null)
-                    && drafts.stream().allMatch(v -> v != null), INVALID_INPUT);
+                    && drafts.stream().allMatch(v -> v != null) && navigation.stream().allMatch(v -> v != null), INVALID_INPUT);
             answerOrders = Set.copyOf(answerOrders);
             hintModes = Set.copyOf(hintModes);
             drafts = Set.copyOf(drafts);
+            navigation = Set.copyOf(navigation);
         }
     }
 
