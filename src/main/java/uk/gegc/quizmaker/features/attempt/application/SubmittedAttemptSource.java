@@ -16,6 +16,8 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
  */
 public interface SubmittedAttemptSource {
     Facts lock(UUID submissionId);
+    /** Read-only current response evidence. Does not lock/claim a finalization intent. */
+    List<AcceptedResponseRepository.Value> responses(UUID attemptId);
 
     record Facts(Submission submission, PolicySnapshot snapshot, FixedForm form, QuizRevision revision,
                  Map<UUID, ResolvedQuestionContracts> contracts, List<AcceptedResponseRepository.Value> responses) {
@@ -24,7 +26,7 @@ public interface SubmittedAttemptSource {
     }
 
     final class Failure extends RuntimeException {
-        public enum Reason { INVALID_INPUT, NOT_FOUND, UNSUPPORTED, CORRUPT }
+        public enum Reason { INVALID_INPUT, NOT_FOUND, UNSUPPORTED, CORRUPT, UNAVAILABLE }
         private final Reason reason;
         public Failure(Reason reason) { super("Submitted attempt: " + reason, null, false, true); this.reason = reason; }
         public Reason reason() { return reason; }

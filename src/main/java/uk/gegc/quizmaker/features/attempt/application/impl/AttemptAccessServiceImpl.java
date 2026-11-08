@@ -43,7 +43,11 @@ public class AttemptAccessServiceImpl implements AttemptAccessService {
         String outcome = "unavailable";
         try {
             if (attemptId == null || operation == null) throw new AttemptAccessException(DENIED);
-            var access = transaction.execute(status -> authorize(attemptId, operation));
+            var access = transaction.execute(status -> {
+                try { return authorize(attemptId, operation); }
+                // A participating template can log a failure before the result-read boundary sees it.
+                catch (RuntimeException failure) { throw translate(failure); }
+            });
             outcome = "allowed";
             return access;
         } catch (RuntimeException failure) {
@@ -74,7 +78,7 @@ public class AttemptAccessServiceImpl implements AttemptAccessService {
     }
 
     private static AttemptAccessException translate(RuntimeException failure) {
-        if (failure instanceof AttemptAccessException access) return access;
+        if (failure instanceof AttemptAccessException access) return new AttemptAccessException(access.reason());
         if (failure instanceof SubjectResolutionException identity) {
             return new AttemptAccessException(switch (identity.reason()) {
                 case UNAUTHENTICATED -> UNAUTHENTICATED;

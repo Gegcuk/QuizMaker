@@ -4120,6 +4120,72 @@ The [22 October unknown-outcome decision](./decision-register.md#unknown-notific
 
 The [22 October first-stage notification batch](./decision-register.md#notification-first-stage-batch) approves in-app notices for first result availability, certificate issuance/replacement and visible validity/pass-fail changes, without new email categories. Ordinary expiry only changes displayed validity. Existing scoped correction/revocation actors may correct a published reason through a new audited version and the existing clarification-notice scheme. Permanent email failure ends that delivery; access loss cancels unsent work without restoration on access return; enabling email sends no historical backfill. Existing operator diagnostics suffice, without a new incident workflow/digest/SLA. Preserve all earlier score/revocation channel, cancellation, unknown-outcome, immutable-history and access contracts. Q12 now supplies the shared retention periods; class/cleanup mapping remains in R03 and delivery evidence in R05.
 
+### Immediate practice release (#556)
+
+`ImmediateResultReleaseService.release(submissionId)` is an internal command for an already
+committed #603 automatic result under `FREE_PRACTICE/v1`. It neither grades an attempt nor
+selects a retry budget, schedules work or exposes a release endpoint. The retained finalization
+intent serializes this command with finalization and other identical release requests.
+The command verifies the captured submission, form, revision, policy hash and result binding.
+Missing result facts remain `NOT_READY`; unsupported or inconsistent facts fail closed.
+
+Only this `REQUIRES_NEW` publication transaction explicitly uses `READ_COMMITTED`. Two different
+results may both be absent from the release index; their locking reads must not acquire shared
+`REPEATABLE_READ` gap locks that deadlock at insertion. The retained intent still serializes
+requests for the same submission. Server defaults, the suspended caller and participant reads
+keep their configured isolation. Regression coverage synchronizes different submissions after
+their missing-row reads, requires both publications and exactly one event per result, and checks
+that an older RR caller retains its snapshot while reading committed publication evidence.
+
+One insert-only `attempt_result_release` row and one `RESULT_RELEASED` trace event commit in
+the same transaction. The unique result binding is the durable receipt; it does not depend
+on expiring client-command receipts. Its schema version is `1`, and its timestamp uses the
+injected clock and database microsecond precision. Concurrent callers converge on the same
+identity. After an uncertain commit response, retry the same submission ID to reconcile the
+stored outcome. No automatic retry count or recovery policy is introduced. The release row
+references its result and trace evidence; future governance cleanup must account for those
+references within #699's record-family implementation. This increment adds no cleanup or
+retention policy and does not backfill legacy attempts.
+
+`ParticipantResultService` rechecks current `RESULT` access inside the participant projection
+transaction, then uses #555 with matching committed release evidence. A submitted status or
+calculated grade alone grants no protected category. `ParticipantAttemptView.result` is absent
+until publication commits. Once released, each nested field is independently omitted unless
+authorized. Practice exposes its captured total, item scores, correctness, submitted answers,
+answer key, authored explanations and review availability; it does not infer `PASS_FAIL` or
+a separate `FEEDBACK` payload. Missing explanations stay absent. An unanswered item has
+`responseState=UNANSWERED`, no submitted answer and no correctness boolean, while its zero
+points retain #603's denominator semantics.
+
+Released answer payloads are named typed unions: `OPTIONS`, `ORDERED_ITEMS`, `BOOLEAN` and
+`GAPS`. Option/item UUIDs come from the original frozen revision, matching the saved form's
+display identifiers. Authoring source keys and display indexes are not response authority.
+No current mutable authoring content or scoring recalculation is used by the projection.
+
+With the existing participant-view adapter enabled, `GET /api/v1/attempts/{attemptId}/review`
+and `/answer-key` return the target `ParticipantAttemptView` through `AttemptReviewResponse`.
+The legacy `AttemptReviewDto` envelope and its legacy error behavior remain available for
+owned legacy-only roots; a missing or broken target never falls back to legacy. Review flags
+only narrow authorized categories; canonical detail flags grant nothing. Answer-key reads
+exclude submitted responses. The `attempts` OpenAPI group and API summary expose the named
+schemas and examples, authentication and `ProblemDetail` errors. Target responses use
+`Cache-Control: no-store`. Publication is online-only; no offline access grant is created.
+
+Public start/answer/complete activation remains #609. Manual/scheduled release, corrections,
+certificates, #837 notification events and #800 delivery remain separate integrations. This
+command's trace event is not proof of notification production or delivery. Real media adapters
+remain required before media-dependent target paths activate; this increment does not turn
+the existing text-only adapter into evidence of image availability or temporary storage loss.
+
+`ImmediateResultReleaseMySqlIntegrationTest` composes real publication, contract binding,
+start, accepted responses, terminal submission, grading, release and HTTP participant reads.
+Only external image storage and the unused legacy fallback collaborator are test doubles.
+It checks concurrent successes, reached-write rollback, lost acknowledgement/recreation,
+read-versus-commit/rollback, authorization, include flags and bounded SQL through serialization.
+The three-parent fixture uses 102 queries for both 1 and 20 items per attempt. The local
+`PracticeReviewProjectorTest` separately composes #555's real decision table and the projector
+for category isolation; its decision fixtures do not prove a future runtime policy writer.
+
 ### Result visibility
 
 Candidate scopes:

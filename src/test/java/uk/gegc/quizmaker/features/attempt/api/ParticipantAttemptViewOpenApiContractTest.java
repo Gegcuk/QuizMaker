@@ -125,7 +125,7 @@ class ParticipantAttemptViewOpenApiContractTest {
                 assertThat(op.path("responses").path(code).findValuesAsText("$ref")).contains("#/components/schemas/ProblemDetail");
             for (String name : List.of("ParticipantAttemptView", "ParticipantAttemptItem", "ParticipantAttemptImage", "AttemptFormContent",
                     "AttemptFormChoices", "AttemptFormTrueFalse", "AttemptFormFillGap", "AttemptFormOrdering")) assertThat(schemas.has(name)).as(name).isTrue();
-            var examples = op.at("/responses/200/content/application~1json/examples"); assertThat(examples).hasSize(2);
+            var examples = op.at("/responses/200/content/application~1json/examples"); assertThat(examples).hasSize(3);
             for (var example : examples) assertThat(matchesFormSchema(spec, schemas.path("AttemptDetailsResponse"), example.path("value"), 0)).as("Example %s", example).isTrue();
             var value = json.valueToTree(fixture());
             assertThat(matchesFormSchema(spec, schemas.path("AttemptDetailsResponse"), value, 0)).isTrue();
@@ -140,6 +140,63 @@ class ParticipantAttemptViewOpenApiContractTest {
                 .map(org.springdoc.core.models.GroupedOpenApi::getGroup)).containsExactly("attempts");
         var summary = json.readTree(mvc.perform(get("/api/v1/api-summary")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(summary.path("groups").findValuesAsText("specUrl")).contains("/v3/api-docs/attempts");
+    }
+
+    @Test @WithMockUser void releasedSchemasReviewRoutesAndExamplesHaveUnambiguousTypedContracts() throws Exception {
+        var matcher = new org.springframework.util.AntPathMatcher();
+        for (String specPath : List.of("/v3/api-docs", "/v3/api-docs/attempts")) {
+            var spec = json.readTree(mvc.perform(get(specPath)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            var schemas = spec.path("components").path("schemas");
+            for (String name : List.of("ParticipantResultView", "ReleasedPracticeScore", "ReleasedPracticeItem", "ReleasedPracticeAnswer",
+                    "ReleasedPracticeOptions", "ReleasedPracticeOrderedItems", "ReleasedPracticeBoolean", "ReleasedPracticeGaps", "ReleasedPracticeGap"))
+                assertThat(schemas.has(name)).as(name).isTrue();
+            assertThat(schemas.path("ParticipantResultView").path("properties").path("items").path("items").path("$ref").asText())
+                    .isEqualTo("#/components/schemas/ReleasedPracticeItem");
+            var value = json.valueToTree(releasedFixture());
+            assertThat(matchesFormSchema(spec, schemas.path("AttemptDetailsResponse"), value, 0)).isTrue();
+            assertThat(matchesFormSchema(spec, schemas.path("AttemptReviewResponse"), value, 0)).isTrue();
+            var invalid = (com.fasterxml.jackson.databind.node.ObjectNode) value.deepCopy();
+            ((com.fasterxml.jackson.databind.node.ObjectNode) invalid.at("/result/items/0/correctAnswer")).put("kind", "UNKNOWN");
+            assertThat(matchesFormSchema(spec, schemas.path("AttemptReviewResponse"), invalid, 0)).isFalse();
+            var legacy = json.valueToTree(new AttemptReviewDto(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                    java.time.Instant.EPOCH, java.time.Instant.EPOCH, 1.0, 1, 1, List.of()));
+            assertThat(matchesFormSchema(spec, schemas.path("AttemptReviewResponse"), legacy, 0)).isTrue();
+            for (String suffix : List.of("/review", "/answer-key")) {
+                String path = PATH + suffix;
+                var op = spec.path("paths").path(path).path("get");
+                assertThat(op.path("security").get(0).has("bearerAuth")).isTrue();
+                assertThat(op.at("/responses/200/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/AttemptReviewResponse");
+                for (String code : List.of("401", "403", "404", "409", "422", "500", "503"))
+                    assertThat(op.path("responses").path(code).findValuesAsText("$ref")).contains("#/components/schemas/ProblemDetail");
+                for (var example : op.at("/responses/200/content/application~1json/examples"))
+                    assertThat(matchesFormSchema(spec, schemas.path("AttemptReviewResponse"), example.path("value"), 0)).as(path).isTrue();
+                assertThat(groups.stream().filter(g -> g.getPathsToMatch().stream().anyMatch(p -> matcher.match(p, path)))
+                        .map(org.springdoc.core.models.GroupedOpenApi::getGroup)).containsExactly("attempts");
+            }
+        }
+    }
+
+    static ParticipantAttemptView releasedFixture() {
+        var base = fixture();
+        var answers = base.items().stream().map(item -> {
+            uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView.Answer answer = switch (item.type()) {
+                case MCQ_SINGLE, MCQ_MULTI -> new uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView.Options(
+                        List.of(((AttemptFormResponse.Choices) item.content()).options().get(0).id()));
+                case ORDERING -> new uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView.OrderedItems(
+                        ((AttemptFormResponse.Ordering) item.content()).items().stream().map(AttemptFormResponse.Option::id).toList());
+                case TRUE_FALSE -> new uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView.BooleanAnswer(true);
+                case FILL_GAP -> new uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView.Gaps(List.of(
+                        new uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView.Gap(1, "Paris")));
+                default -> throw new AssertionError(item.type());
+            };
+            return new uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView.Item(item.id(), 1, true,
+                    uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView.ResponseState.ACCEPTED, answer, answer, "Explanation");
+        }).toList();
+        return new ParticipantAttemptView(base.representation(), 1, base.attemptId(), base.quizId(), base.quizRevisionId(), base.formId(),
+                7, 1, AttemptLifecycle.Execution.SUBMITTED, AttemptLifecycle.AnswerCollection.COMPLETE, base.startedAt(), base.startedAt(),
+                base.timing(), base.contentVisibility(), base.items(), base.allowedActions(),
+                new uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView(1, base.startedAt(),
+                        new uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView.Score(5, 5, 10000), true, answers));
     }
 
     static ParticipantAttemptView fixture() {
@@ -169,6 +226,8 @@ class ParticipantAttemptViewOpenApiContractTest {
             case "array" -> value.isArray();
             case "string" -> value.isTextual();
             case "integer" -> value.isIntegralNumber();
+            case "number" -> value.isNumber();
+            case "boolean" -> value.isBoolean();
             default -> throw new AssertionError("Add validation for the new response schema type");
         }) return false;
         if (schema.has("enum")) {

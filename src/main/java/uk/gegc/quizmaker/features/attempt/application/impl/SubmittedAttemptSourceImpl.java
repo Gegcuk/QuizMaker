@@ -63,4 +63,15 @@ public class SubmittedAttemptSourceImpl implements SubmittedAttemptSource {
         return new Facts(s,snapshot,fixed,revision,resolved,responses);
     }
     private static void check(boolean value, Failure.Reason reason) { if(!value) throw new Failure(reason); }
+
+    @Override public List<AcceptedResponseRepository.Value> responses(UUID attemptId) {
+        check(attemptId != null, INVALID_INPUT);
+        try { return List.copyOf(repository.responses(attemptId)); }
+        catch (RuntimeException failure) {
+            var conflict = uk.gegc.quizmaker.shared.exception.DatabaseConflictException.from(failure);
+            if (conflict.isPresent()) throw conflict.get();
+            if (failure instanceof Failure known) throw new Failure(known.reason());
+            throw new Failure(UNAVAILABLE);
+        }
+    }
 }

@@ -42,7 +42,8 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
                     != uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycle.Execution.IN_PROGRESS)
                 throw new AttemptDeliveryException(INACTIVE);
             var owner = granted.contentOwnerId();
-            var policy = snapshots.readCurrent(owner, granted.policySnapshotId()).resolution().policy();
+            var snapshot = snapshots.readCurrent(owner, granted.policySnapshotId());
+            var policy = snapshot.resolution().policy();
             if (policy.schemaVersion() != 1 || policy.delivery().mode() != DeliveryMode.ALL_AT_ONCE
                     || policy.content().formMode() != FormMode.PRECOMPUTED
                     || policy.content().sections() != SectionMode.IMPLICIT_FLAT)
@@ -56,7 +57,7 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
                 throw new AttemptDeliveryException(CORRUPT);
             var revision = revisions.findByIdForShare(owner, granted.quizRevisionId())
                     .orElseThrow(() -> new AttemptDeliveryException(CORRUPT));
-            return new Facts(granted, policy, form.get(0), order.get(0), revision, contracts.resolve(owner, revision.id()));
+            return new Facts(granted, policy, form.get(0), order.get(0), revision, contracts.resolve(owner, revision.id()), snapshot.resolution().hash());
         } catch (RuntimeException failure) {
             // Preserve the sanitized conflict until the caller chooses its command/read error contract.
             var conflict = DatabaseConflictException.from(failure);
