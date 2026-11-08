@@ -3084,8 +3084,8 @@ A draft:
 #### Implemented private draft storage (#541)
 
 `AnswerDraftStore` is an internal persistence boundary, separate from draft commands and
-immutable accepted answers. V99 adds `attempt_answer_draft`; no public route, policy
-capability, autosave, cleanup or historical backfill is enabled. It reuses the delivered
+immutable accepted answers. V99 introduced `attempt_answer_draft` without public commands,
+autosave, cleanup or historical backfill. The opt-in #542 commands are described below. It reuses the delivered
 canonical start's authenticated subject, lifecycle and trace/form binding, and the
 materialized item's exact question/response-contract version. Current ownership of a
 quiz does not grant access to another participant's draft.
@@ -3113,6 +3113,66 @@ calling this internal store under an allowed-state fixture do not activate those
 or prove their integration. In particular, a stored value neither advances lifecycle nor
 creates acceptance, grading, terminal receipts or results. The default immediate-acceptance
 practice path continues to use its existing writer and feedback rules.
+
+#### Canonical online draft commands (#542)
+
+`DraftCommandService` owns save/delete for authenticated, untimed, flat `ALL_AT_ONCE`
+attempts. The internal `AttemptStartService.Command` has an explicit `draftsEnabled` choice;
+its old constructor still means false. After current owner/full-content-editor authorization,
+start captures the choice through an AUTHOR-only typed resolver override. Participant overrides
+cannot enable it. Existing preset values, disabled-start fingerprints, historical snapshots and
+active attempts remain unchanged. Automatic client autosave scheduling remains disabled.
+
+The additive HTTP contract is `PUT`/`DELETE /api/v1/attempts/{attemptId}/drafts/{formItemId}`,
+registered only with `quizmaker.attempts.draft-commands-enabled=true` (default false).
+The registration flag never grants draft permission to an existing policy. Both commands
+require `Idempotency-Key`, expected attempt version and expected draft version. PUT carries
+the versions and a named five-family response union in JSON; DELETE uses required
+`expectedStateVersion`/`expectedDraftVersion` query parameters and no request body.
+Stable option UUIDs are normalized through the same saved response contracts as acceptance.
+
+Every request, including replay, checks the current participant, `ATTEMPT_CREATE`, resource
+authority and immutable target binding. Fresh commands additionally check saved draft policy,
+active lifecycle, delivered form membership, accepted-answer lock and both versions. The attempt
+version/lifecycle do not advance. Saving a draft never accepts, grades or releases its value.
+The default immediate-lock acceptance and feedback behavior is unchanged.
+
+Draft mutation, content-free `DRAFT_SAVED`/`DRAFT_DELETED` trace and command receipt/result
+commit together. V100 expands existing command/event allow-lists and adds the immutable
+`attempt_draft_command_result` receipt extension containing only references, draft version and
+PRESENT/DELETED status. It follows receipt deletion via its foreign key; no new retention job
+or answer-history deletion is introduced. Replay returns the original acknowledgement metadata,
+not a newer draft's version or value. Unknown commit outcomes require the exact same key/request;
+no automatic retries, alternative writer or inferred absence is allowed.
+
+Each successful new save/delete increments the draft version. Deleting a never-saved item
+with expected version zero creates DELETED version one, blocking delayed first saves at zero.
+A repeated identical command replays; a new command key must carry the current version even
+when the current value is a tombstone. For example, deletion at zero wins over a delayed first
+save, while an intentional later save using version one can create version two.
+
+The acknowledgement contains attempt/item references, original attempt/draft versions, status
+and replay flag, without response content. Expected failures use RFC 7807: 400 malformed input,
+401 unauthenticated, non-enumerating 404, 409 conflict/stale/inactive, 422 invalid/unsupported,
+500 inconsistent evidence, and 503 unavailable/retryable/unknown outcome. Responses are no-store.
+Both operations belong only to the `attempts` OpenAPI group and API summary discovery.
+Bounded command outcome metrics and sanitized exceptions omit values and idempotency keys.
+
+The real MySQL/HTTP command tests use authorized publication and opt-in start, not fabricated
+policy rows or a fake finalizer. They cover stable replay after later changes/completion,
+save/delete and identical-command races, reached rollback checkpoints, lost commit acknowledgement,
+fresh service instances, current-access denials, five response families and bounded SQL.
+MVC/OpenAPI tests separately cover the security chain, strict payload parsing and full/grouped
+schemas/examples. #834 retains editable-response/proposal conversion and edit-versus-close
+conformance; #628 cleanup, #581 offline replay, #526 presentation and production activation
+remain their own capabilities.
+
+Apply V100 before enabling this capability. Older binaries cannot interpret its new command/event
+vocabulary; after target writes, preserve the additive schema/evidence and use a forward fix.
+
+The multi-parent SQL fixture measures three attempts with one versus twenty questions per
+form: save executes 120/120 SELECTs and delete 123/123, including authorization and receipt
+reads. No new JPA relationship traversal is introduced by receipt metadata persistence.
 
 ### Provisional responses and pending confirmation
 

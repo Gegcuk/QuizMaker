@@ -52,7 +52,8 @@ public record ResolvedAttemptPolicy(
                 INVALID_COMBINATION);
         require(answerChange.mode() == AnswerChangeMode.LOCK_ON_ACCEPTANCE, UNSUPPORTED_CAPABILITY);
         require(!submission.autosaveEnabled() || submission.draftsEnabled(), INVALID_COMBINATION);
-        require(!submission.draftsEnabled() && !submission.autosaveEnabled(), UNSUPPORTED_CAPABILITY);
+        // #542 supports explicit private drafts; automatic client scheduling remains deferred.
+        require(!submission.autosaveEnabled(), UNSUPPORTED_CAPABILITY);
         require(submission.completionConfirmationRequired(), UNSUPPORTED_COMBINATION);
         for (DisclosureRule rule : disclosure.rules()) {
             ReleaseMoment expected = switch (rule.category()) {

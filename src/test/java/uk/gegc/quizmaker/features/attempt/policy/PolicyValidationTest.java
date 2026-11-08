@@ -102,7 +102,7 @@ class PolicyValidationTest {
         input.submission = submission(false, true, false, true);
         rejected(input::build, INVALID_COMBINATION);
         input.submission = submission(true, false, false, true);
-        rejected(input::build, UNSUPPORTED_CAPABILITY);
+        assertThat(input.build().submission().draftsEnabled()).isTrue();
         input.submission = submission(true, true, false, true);
         rejected(input::build, UNSUPPORTED_CAPABILITY);
         input.submission = submission(false, false, false, true);

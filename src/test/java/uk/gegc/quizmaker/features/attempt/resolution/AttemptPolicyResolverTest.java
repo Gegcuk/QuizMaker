@@ -43,6 +43,27 @@ class AttemptPolicyResolverTest {
     private final AttemptPolicyResolver resolver = new AttemptPolicyResolverImpl(new AttemptPresetServiceImpl(), metrics);
 
     @Test
+    void draftsRequireAnExplicitAuthorGrantAndSurviveCanonicalSnapshotVerification() {
+        var grant = new AllowedChoices(Set.of(), Set.of(), Set.of(true));
+        var author = new SourceOverrides(OverrideSource.AUTHOR, 1, grant, List.of(new DraftsChoice(true)));
+        var enabled = resolver.resolve(request(author));
+        assertThat(enabled.policy().submission().draftsEnabled()).isTrue();
+        assertThat(enabled.policy().submission().autosaveEnabled()).isFalse();
+        assertThat(enabled.policy().answerChange().mode()).isEqualTo(AnswerChangeMode.LOCK_ON_ACCEPTANCE);
+        var format = new uk.gegc.quizmaker.features.attempt.infra.policy.CanonicalPolicyFormat();
+        assertThat(format.decode(enabled.canonicalJson(), enabled.hash())).isEqualTo(enabled);
+        assertThat(enabled.provenance().get("submission.draftsEnabled")).isEqualTo(new PolicyResolution.ValueSource(AUTHOR, 1));
+        rejected(() -> resolver.resolve(request(new SourceOverrides(OverrideSource.PARTICIPANT, 1, grant,
+                List.of(new DraftsChoice(true))))), FORBIDDEN_OVERRIDE);
+        rejected(() -> resolver.resolve(request(new SourceOverrides(OverrideSource.AUTHOR, 1, NO_CHOICES,
+                List.of(new DraftsChoice(true))))), FORBIDDEN_OVERRIDE);
+        assertThat(resolver.resolve(request()).policy().submission().draftsEnabled()).isFalse();
+        var forged = format.encode(enabled.preset(), enabled.policy(), java.util.Map.of());
+        assertThatThrownBy(() -> format.decode(forged.canonicalJson(), forged.hash()))
+                .isInstanceOf(uk.gegc.quizmaker.features.attempt.domain.model.snapshot.PolicySnapshotException.class);
+    }
+
+    @Test
     void defaultsRetainTheExactPresetAndAccountForEveryPolicyLeaf() throws Exception {
         var result = resolver.resolve(request());
         assertThat(result.policy()).isEqualTo(BuiltInPracticePreset.V1.bindContent(content(42)));

@@ -126,10 +126,13 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         var revision = sources.readRevision(access, command.content().quizRevisionId());
         require(revision.schemaVersion() == command.content().revisionSchemaVersion(), UNSUPPORTED_VERSION);
         contracts.resolve(access.ownerId(), revision.id());
-        var overrides = command.answerOrder() == AnswerOrder.AUTHORED ? List.<SourceOverrides>of()
+        var overrides = new ArrayList<SourceOverrides>(command.answerOrder() == AnswerOrder.AUTHORED ? List.<SourceOverrides>of()
                 : List.of(new SourceOverrides(OverrideSource.PARTICIPANT, 1,
                 new AllowedChoices(Set.of(AnswerOrder.AUTHORED, AnswerOrder.SHUFFLED_PER_ATTEMPT), Set.of()),
-                List.of(new AnswerOrderChoice(command.answerOrder()))));
+                List.of(new AnswerOrderChoice(command.answerOrder())))));
+        // lockAccess already proved current owner/full-editor authority. No participant grant is accepted.
+        if (command.draftsEnabled()) overrides.add(new SourceOverrides(OverrideSource.AUTHOR, 1,
+                new AllowedChoices(Set.of(), Set.of(), Set.of(true)), List.of(new DraftsChoice(true))));
         var resolution = policies.resolve(new PolicyResolutionRequest(1, 1, PolicyResolutionRequest.HASH_ALGORITHM,
                 command.preset(), command.content(), overrides));
         var snapshot = snapshots.createOrReplay(access.ownerId(), new PolicySnapshot(UUID.randomUUID(), resolution));
@@ -173,6 +176,8 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                 .put("sections", c.content().sections().name()).put("cases", c.content().cases().name())
                 .put("preset", c.preset().id()).put("presetVersion", c.preset().version())
                 .put("context", c.context().name()).put("legacyMode", c.legacyMode()).put("answerOrder", c.answerOrder().name());
+        // Preserve exact fingerprints for starts created before #542 with drafts disabled.
+        if (c.draftsEnabled()) json.put("draftsEnabled", true);
         return CanonicalCommandInput.fingerprint(1, json);
     }
 

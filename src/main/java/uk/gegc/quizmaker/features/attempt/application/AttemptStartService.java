@@ -12,7 +12,11 @@ import java.util.UUID;
 public interface AttemptStartService {
     /** Requested configuration is never authority; the server resolves user, access and publication. */
     record Command(int version, UUID quizId, ContentPolicy content, long publicationVersion, Key key,
-                   PresetReference preset, LaunchContext context, String legacyMode, AnswerOrder answerOrder) {
+                   PresetReference preset, LaunchContext context, String legacyMode, AnswerOrder answerOrder, boolean draftsEnabled) {
+        public Command(int version, UUID quizId, ContentPolicy content, long publicationVersion, Key key,
+                       PresetReference preset, LaunchContext context, String legacyMode, AnswerOrder answerOrder) {
+            this(version, quizId, content, publicationVersion, key, preset, context, legacyMode, answerOrder, false);
+        }
         @Override public String toString() { return "AttemptStartCommand[redacted]"; }
     }
 

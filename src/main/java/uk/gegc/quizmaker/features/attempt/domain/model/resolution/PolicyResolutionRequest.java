@@ -32,10 +32,10 @@ public record PolicyResolutionRequest(
     }
 
     public enum OverrideSource { AUTHOR, PARTICIPANT }
-    public enum Setting { ANSWER_ORDER, HINTS }
+    public enum Setting { ANSWER_ORDER, HINTS, DRAFTS }
 
-    /** Only the two supported R01/A03/A04 choices are representable, never arbitrary policy paths. */
-    public sealed interface Choice permits AnswerOrderChoice, HintChoice {
+    /** Only explicit supported choices are representable, never arbitrary policy paths. */
+    public sealed interface Choice permits AnswerOrderChoice, HintChoice, DraftsChoice {
         Setting setting();
     }
 
@@ -49,13 +49,23 @@ public record PolicyResolutionRequest(
         @Override public Setting setting() { return Setting.HINTS; }
     }
 
+    /** Server-authorized at start; participants cannot grant themselves draft support. */
+    public record DraftsChoice(boolean enabled) implements Choice {
+        @Override public Setting setting() { return Setting.DRAFTS; }
+    }
+
     /** Exact allowed values, not an implicit permission to enable every supported value. */
-    public record AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes) {
+    public record AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts) {
+        public AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes) {
+            this(answerOrders, hintModes, Set.of());
+        }
         public AllowedChoices {
-            require(answerOrders != null && hintModes != null, INVALID_INPUT);
-            require(answerOrders.stream().allMatch(v -> v != null) && hintModes.stream().allMatch(v -> v != null), INVALID_INPUT);
+            require(answerOrders != null && hintModes != null && drafts != null, INVALID_INPUT);
+            require(answerOrders.stream().allMatch(v -> v != null) && hintModes.stream().allMatch(v -> v != null)
+                    && drafts.stream().allMatch(v -> v != null), INVALID_INPUT);
             answerOrders = Set.copyOf(answerOrders);
             hintModes = Set.copyOf(hintModes);
+            drafts = Set.copyOf(drafts);
         }
     }
 
