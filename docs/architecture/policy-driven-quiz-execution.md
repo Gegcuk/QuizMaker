@@ -4021,6 +4021,57 @@ It may include:
 
 A result must not be treated as automatically participant-visible.
 
+### Terminal disclosure decision contract (#555)
+
+`ResultDisclosureService` exposes the pure, versioned `ResultDisclosure` decision table.
+Its trusted internal inputs describe current self-participant access, the captured category
+allow-list, lifecycle, immutable result and committed release facts, review access and available
+content. `Binding` compares bounded attempt/form/policy-snapshot/revision IDs and the already
+verified policy hash; it never reads or hashes document content. The consumer must obtain
+current `RESULT` access through #537 and read these facts in its own consistent transaction.
+An `Access.VERIFIED` input is not a capability or an alternative authentication mechanism.
+
+Every known category receives exactly one `ALLOW`, `DENY` or `PENDING` decision with a bounded
+reason. Missing/denied/wrong-subject access wins before protected-context diagnostics. Unknown
+context/policy/result/release versions, unknown category names, missing state and inconsistent
+bindings fail closed. A terminal status alone grants nothing: an eligible category is pending
+until its result and release are committed; revoked release denies it. Pending carries no data
+and is never permitted by the projection helper.
+
+`Policy.practice` adapts the existing saved #515/#516 policy without changing its schema or
+canonical snapshot. The supported final practice categories are total score, question score,
+correctness, correct answer, explanation, submitted answers and review. `PASS_FAIL` and a
+separate `FEEDBACK` payload have no saved practice disclosure rule and are not inferred from
+the existence of grading facts. R05's separate `Policy.formalDefault` permits only total score
+and pass/fail; it does not select a release trigger or activate formal execution. Explicit
+captured allow-lists are evaluated category by category. Permitting review never grants its
+protected fields implicitly, and permitting a total never grants item details.
+
+Current review-window/retention/revocation facts can withhold detailed review independently
+of a released total. Unavailable authored content, such as an absent explanation, is denied
+independently; it does not erase an otherwise permitted score. Personal-practice review has
+no age cutoff in this evaluator, following the approved retained-history rule. D03's active
+per-item feedback after immutable acceptance remains a separate #605 boundary; terminal
+review decisions must not replace that feedback policy.
+
+`Decisions.requested` is the contract adapter for legacy include flags and future projections:
+it intersects requested categories with `ALLOW` only. Flags may hide authorized fields but
+cannot reveal pending/denied ones. Later DTOs must omit disallowed fields structurally, rather
+than send hidden values with a visibility flag. Cached/offline representations may consume
+only already released categories and need their separately owned access/lifetime contracts;
+this evaluator issues no offline grant. Existing HTTP envelopes, OpenAPI groups, legacy reads
+and activation settings are unchanged.
+
+`quizmaker.result.disclosure` counts category/outcome with bounded contract-version labels
+(`1` or `unsupported`), never identities, content or input version values. Telemetry failure
+does not affect decisions. The model performs no I/O, transactions, time lookup or writes;
+there is no JPA relationship read or N+1 path. Unit evidence includes every explicit allow-list
+combination, include-filter combinations, successful/denied controls, identity/version/binding
+failures, pending/revoked release, current review restrictions and absent explanation. These
+are decision-contract fixtures, not proof of real release persistence. #556 owns the actual
+immediate-release transaction and participant/legacy-compatible projection; #633/#634 own
+manual/scheduled writers, and #609 owns public activation.
+
 The [22 October formal-assignment release decision](./decision-register.md#explicit-formal-result-release) requires an explicit supported release rule in the assignment's policy/settings before assignment publication. A rule already supplied by the selected policy needs no duplicate choice. If no valid unambiguous rule is resolved, require configuration before publication; do not silently choose manual release, a scheduled time, immediate release or the assignment close as a fallback. This is an assignment-publication requirement, not a new prerequisite for publishing ordinary quiz-content revisions.
 
 Manual release retains A24's dedicated scoped authority. Scheduled release retains D37's exact persisted instant, time-zone/DST evidence and idempotent manual/scheduler race behavior. Use the approved override authority, retain the effective rule and provenance, and version supported later changes rather than rewriting released results. Result readiness and disclosure gates still apply: formal defaults expose TOTAL_SCORE/PASS_FAIL only, with other categories requiring explicit saved allowance. Preserve practice feedback, D38's explicit fixture and existing clients/legacy behavior until compatible activation.
