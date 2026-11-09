@@ -42,6 +42,32 @@ public final class FlatNavigation {
             return item != null && positions.containsKey(item) && !accepted.contains(item)
                     && (cursor == null || cursor.currentFormItemId().equals(item));
         }
+        /** Select the next permitted stop without revealing a future item's identity to a caller. */
+        public UUID next() {
+            require(cursor != null, Reason.TRANSITION_DENIED);
+            int index = positions.get(cursor.currentFormItemId()) + 1;
+            while (index < items.size() && !readable(items.get(index))) index++;
+            require(index < items.size(), Reason.TRANSITION_DENIED);
+            UUID target = items.get(index);
+            check(target, cursor.version());
+            return target;
+        }
+        /** True for an actual move, including return when next is blocked. No-op is excluded. */
+        public boolean hasPermittedTransition() {
+            if (cursor == null) return false;
+            int from = positions.get(cursor.currentFormItemId());
+            for (int index = 0; index < from; index++) {
+                try { check(items.get(index), cursor.version()); return true; }
+                catch (NavigationException denied) {
+                    if (denied.reason() != Reason.NOT_FOUND && denied.reason() != Reason.TRANSITION_DENIED) throw denied;
+                }
+            }
+            try { next(); return true; }
+            catch (NavigationException denied) {
+                if (denied.reason() != Reason.ANSWER_REQUIRED && denied.reason() != Reason.TRANSITION_DENIED) throw denied;
+                return false;
+            }
+        }
         public void check(UUID target, Long expectedNavigationVersion) {
             require(readable(target), Reason.NOT_FOUND);
             if (cursor == null) { require(expectedNavigationVersion == null, Reason.INVALID_INPUT); return; }
@@ -49,13 +75,19 @@ public final class FlatNavigation {
             require(cursor.version() == expectedNavigationVersion, Reason.STALE);
             int from = positions.get(cursor.currentFormItemId()), to = positions.get(target);
             if (from == to) return;
+            // Return eligibility is independent of the current answer and next readable stop.
+            // Check it before scanning forward so all earlier-stop checks stay constant-time.
+            if (to < from) {
+                require(accepted.contains(target) ? policy.acceptedRevisit() : policy.skipAndReturn(), Reason.TRANSITION_DENIED);
+                return;
+            }
             int next = from + 1;
             while (next < items.size() && !readable(items.get(next))) next++;
             if (to == next) {
                 require(accepted.contains(cursor.currentFormItemId()) || policy.skipAndReturn(), Reason.ANSWER_REQUIRED);
                 return;
             }
-            require(to < from && (accepted.contains(target) ? policy.acceptedRevisit() : policy.skipAndReturn()), Reason.TRANSITION_DENIED);
+            throw new NavigationException(Reason.TRANSITION_DENIED);
         }
     }
 }

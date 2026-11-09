@@ -5,11 +5,14 @@ import java.util.UUID;
 import uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm;
 
-/** Authenticated, flat ALL_AT_ONCE read. Does not create delivery state or activate commands. */
+/** Authenticated flat delivery. Reads committed availability without moving the cursor or activating routes. */
 public interface AttemptDeliveryService {
     View read(UUID attemptId);
 
-    record View(UUID attemptId, long stateVersion, ParticipantForm form, List<AttemptCommands.Type> allowedActions) {
+    record View(UUID attemptId, long stateVersion, ParticipantForm form, List<AttemptCommands.Type> allowedActions, uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Cursor navigation) {
+        public View(UUID attemptId, long stateVersion, ParticipantForm form, List<AttemptCommands.Type> allowedActions) {
+            this(attemptId, stateVersion, form, allowedActions, null);
+        }
         public View { allowedActions = List.copyOf(allowedActions); }
         @Override public String toString() { return "AttemptDeliveryView"; }
     }

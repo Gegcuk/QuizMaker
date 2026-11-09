@@ -84,6 +84,9 @@ public final class CanonicalPolicyFormat {
             collect(mapper.valueToTree(envelope.policy()), "", defaults);
             var provenance = envelope.provenance();
             if (!defaults.keySet().equals(provenance.keySet())) throw new PolicySnapshotException(CORRUPT_SNAPSHOT);
+            if (envelope.policy().delivery().mode() == ResolvedAttemptPolicy.DeliveryMode.ONE_AT_A_TIME
+                    && !new ValueSource(AUTHOR, 1).equals(provenance.get("delivery.mode")))
+                throw new PolicySnapshotException(CORRUPT_SNAPSHOT);
             if (envelope.policy().submission().draftsEnabled()
                     && !new ValueSource(AUTHOR, 1).equals(provenance.get("submission.draftsEnabled")))
                 throw new PolicySnapshotException(CORRUPT_SNAPSHOT);
@@ -94,7 +97,7 @@ public final class CanonicalPolicyFormat {
             for (var entry : provenance.entrySet()) {
                 var source = entry.getValue();
                 boolean selectable = entry.getKey().equals("answerOrdering.mode") || entry.getKey().equals("hints.mode");
-                boolean draft = (entry.getKey().equals("submission.draftsEnabled") || entry.getKey().startsWith("navigation."))
+                boolean draft = (entry.getKey().equals("delivery.mode") || entry.getKey().equals("submission.draftsEnabled") || entry.getKey().startsWith("navigation."))
                         && source != null && source.source() == AUTHOR;
                 if (source == null || !(source.equals(defaults.get(entry.getKey())) || draft && source.version() == 1
                         || selectable && (source.source() == AUTHOR || source.source() == PARTICIPANT))) {

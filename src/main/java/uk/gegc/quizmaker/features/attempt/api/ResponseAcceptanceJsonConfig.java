@@ -18,6 +18,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import uk.gegc.quizmaker.features.attempt.api.dto.AcceptResponseRequest;
 import uk.gegc.quizmaker.features.attempt.api.dto.SaveDraftRequest;
 import uk.gegc.quizmaker.features.attempt.api.dto.NavigationRequest;
+import uk.gegc.quizmaker.features.attempt.api.dto.NextAttemptItemRequest;
 
 /** Strict parsing for this new contract only; legacy JSON coercion remains unchanged. */
 @Configuration(proxyBeanMethods = false)
@@ -55,10 +56,10 @@ public class ResponseAcceptanceJsonConfig implements WebMvcConfigurer {
             // Sanitize at the parser boundary, before HandlerMethod can log argument-resolution failures.
             converters.add(0, new MappingJackson2HttpMessageConverter(strict) {
                 @Override public boolean canRead(Class<?> type, MediaType media) {
-                    return (type == AcceptResponseRequest.class || type == SaveDraftRequest.class || type == NavigationRequest.class) && super.canRead(type, media);
+                    return (type == AcceptResponseRequest.class || type == SaveDraftRequest.class || type == NavigationRequest.class || type == NextAttemptItemRequest.class) && super.canRead(type, media);
                 }
                 @Override public boolean canRead(Type type, Class<?> context, MediaType media) {
-                    return (type == AcceptResponseRequest.class || type == SaveDraftRequest.class || type == NavigationRequest.class) && super.canRead(type, context, media);
+                    return (type == AcceptResponseRequest.class || type == SaveDraftRequest.class || type == NavigationRequest.class || type == NextAttemptItemRequest.class) && super.canRead(type, context, media);
                 }
                 @Override public boolean canWrite(Class<?> type, MediaType media) { return false; }
                 @Override public Object read(Type type, Class<?> context, HttpInputMessage input) throws IOException {

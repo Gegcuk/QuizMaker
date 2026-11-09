@@ -29,6 +29,9 @@ public interface AttemptReadFactsService {
                      FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts) {
             this(access, policy, form, order, revision, contracts, null);
         }
+        public boolean oneAtATime() { return policy.delivery().mode() == ResolvedAttemptPolicy.DeliveryMode.ONE_AT_A_TIME; }
+        public boolean current(UUID item) { return !oneAtATime() || navigation.cursor().currentFormItemId().equals(item); }
+        public boolean visible(UUID item) { return current(item) && navigation.readable(item); }
         @Override public String toString() { return "AttemptReadFacts"; }
     }
 }

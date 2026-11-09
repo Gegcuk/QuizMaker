@@ -4,6 +4,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPol
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.ContentPolicy;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.HintMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.NavigationPolicy;
+import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.DeliveryMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.preset.PresetReference;
 
 import java.util.List;
@@ -33,10 +34,10 @@ public record PolicyResolutionRequest(
     }
 
     public enum OverrideSource { AUTHOR, PARTICIPANT }
-    public enum Setting { ANSWER_ORDER, HINTS, DRAFTS, NAVIGATION }
+    public enum Setting { ANSWER_ORDER, HINTS, DRAFTS, NAVIGATION, DELIVERY }
 
     /** Only explicit supported choices are representable, never arbitrary policy paths. */
-    public sealed interface Choice permits AnswerOrderChoice, HintChoice, DraftsChoice, NavigationChoice {
+    public sealed interface Choice permits AnswerOrderChoice, HintChoice, DraftsChoice, NavigationChoice, DeliveryChoice {
         Setting setting();
     }
 
@@ -60,8 +61,16 @@ public record PolicyResolutionRequest(
         @Override public Setting setting() { return Setting.NAVIGATION; }
     }
 
+    public record DeliveryChoice(DeliveryMode value) implements Choice {
+        public DeliveryChoice { require(value != null, INVALID_INPUT); }
+        @Override public Setting setting() { return Setting.DELIVERY; }
+    }
+
     /** Exact allowed values, not an implicit permission to enable every supported value. */
-    public record AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts, Set<NavigationPolicy> navigation) {
+    public record AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts, Set<NavigationPolicy> navigation, Set<DeliveryMode> delivery) {
+        public AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts, Set<NavigationPolicy> navigation) {
+            this(answerOrders, hintModes, drafts, navigation, Set.of());
+        }
         public AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts) {
             this(answerOrders, hintModes, drafts, Set.of());
         }
@@ -69,13 +78,14 @@ public record PolicyResolutionRequest(
             this(answerOrders, hintModes, Set.of(), Set.of());
         }
         public AllowedChoices {
-            require(answerOrders != null && hintModes != null && drafts != null && navigation != null, INVALID_INPUT);
+            require(answerOrders != null && hintModes != null && drafts != null && navigation != null && delivery != null, INVALID_INPUT);
             require(answerOrders.stream().allMatch(v -> v != null) && hintModes.stream().allMatch(v -> v != null)
-                    && drafts.stream().allMatch(v -> v != null) && navigation.stream().allMatch(v -> v != null), INVALID_INPUT);
+                    && drafts.stream().allMatch(v -> v != null) && navigation.stream().allMatch(v -> v != null) && delivery.stream().allMatch(v -> v != null), INVALID_INPUT);
             answerOrders = Set.copyOf(answerOrders);
             hintModes = Set.copyOf(hintModes);
             drafts = Set.copyOf(drafts);
             navigation = Set.copyOf(navigation);
+            delivery = Set.copyOf(delivery);
         }
     }
 

@@ -74,6 +74,7 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
         var sources = saved.revision().items().stream().collect(Collectors.toMap(i -> i.id(), i -> i.question()));
         var references = new ArrayList<ParticipantViewMediaReader.Reference>();
         for (var item : saved.form().items()) {
+            if (saved.oneAtATime() && !lifecycle.state().terminal() && !saved.visible(item.id())) continue;
             var question = sources.get(item.sourceItemId());
             if (question == null) throw new AttemptDeliveryException(CORRUPT);
             if (question.attachmentAssetId() != null || question.attachmentUrl() != null) {
@@ -83,7 +84,10 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
         }
         var mediaIds = references.stream().map(ParticipantViewMediaReader.Reference::formItemId).collect(Collectors.toSet());
         // Validate the complete immutable form even when its content must be withheld.
-        var projected = ParticipantFormProjector.projectForView(saved.form(), saved.revision(), saved.order(), saved.contracts(), mediaIds);
+        var allMediaIds = saved.form().items().stream().filter(i -> {
+            var q = sources.get(i.sourceItemId()); return q != null && q.attachmentAssetId() != null;
+        }).map(uk.gegc.quizmaker.features.attempt.domain.model.form.FixedForm.Item::id).collect(Collectors.toSet());
+        var projected = ParticipantFormProjector.projectForView(saved.form(), saved.revision(), saved.order(), saved.contracts(), allMediaIds);
         var disclosed = disclosure.project(saved);
         var visibility = disclosed.visibility();
         if (visibility == null) throw new AttemptDeliveryException(CORRUPT);
@@ -97,7 +101,7 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
                     .anyMatch(image -> image.availability() != ParticipantViewMediaReader.Availability.AVAILABLE))
                 throw new AttemptDeliveryException(UNAVAILABLE);
             items = AttemptFormResponse.items(projected).stream()
-                    .filter(item -> lifecycle.state().terminal() || saved.navigation().readable(item.id())).map(item -> {
+                    .filter(item -> lifecycle.state().terminal() || saved.visible(item.id())).map(item -> {
                 var image = images.get(item.id());
                 return new ParticipantAttemptView.Item(item.id(), item.position(), item.type(), item.questionText(), item.content(),
                         image == null ? null : new ParticipantAttemptView.Image(image.availability(), image.url()));
@@ -109,6 +113,7 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
         if (!lifecycle.state().terminal() && saved.policy().navigation().rules() != null
                 && saved.navigation().items().stream().anyMatch(saved.navigation()::readable))
             actions.add(AttemptCommands.Type.NAVIGATE_TO_ITEM);
+        if (saved.oneAtATime()) actions = new ArrayList<>(CurrentItemDelivery.actions(saved));
         return new ParticipantAttemptView(ParticipantAttemptView.Representation.POLICY_DRIVEN, 1, attemptId,
                 granted.quizId(), granted.quizRevisionId(), granted.formId(), granted.stateVersion(), saved.policy().schemaVersion(),
                 lifecycle.state().execution(), lifecycle.state().answers(), lifecycle.startedAt(), lifecycle.submittedAt(),

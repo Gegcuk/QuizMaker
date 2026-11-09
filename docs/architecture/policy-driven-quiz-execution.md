@@ -5806,9 +5806,69 @@ unsupported contracts use 422. Malformed requests use 400, authentication 401, c
 The endpoint belongs only to OpenAPI group `attempts` and is discoverable through API summary.
 Metrics use bounded version/outcome labels without resource IDs, answers or keys.
 
-This boundary is online, flat and ALL_AT_ONCE. It does not implement one-at-a-time delivery,
-section locks, editable/proposal finalization or public rollout. #834 still owns its real composed
-response/navigation scenarios; #614/#616/#711/#668/#609 retain their respective activation gates.
+The initial #525 boundary is online, flat and ALL_AT_ONCE. #614 extends that same position and
+command boundary with the one-at-a-time contract below. Section locks, editable/proposal
+finalization and public rollout retain their own gates; #834 owns its real composed
+response/navigation scenarios and #616/#711/#668/#609 retain their activation responsibilities.
+
+### Current-item delivery boundary (#614)
+
+An explicitly author-authorized internal start may capture `ONE_AT_A_TIME` with `SEQUENTIAL`
+navigation. Existing constructors, ordinary starts and `FREE_PRACTICE/v1` still default to
+`ALL_AT_ONCE`; legacy mode mapping, historical canonical bytes/hashes and old start fingerprints
+are unchanged. The new delivery choice has AUTHOR provenance and cannot be granted by a
+participant override. No active snapshot is rewritten, and no additional table or migration is
+needed: `attempt_navigation` remains the sole current-position authority.
+
+Start atomically assigns the first current item with version 1 and a `QUESTION_DELIVERED`
+event. A successful move atomically updates that same position and stores its content-free
+result, receipt, navigation event and delivery event. Delivery evidence means the question was
+made available at the committed current position, not that a person saw an HTTP response.
+Reads/resume do not move the cursor or append another delivery event. An outer rollback or a
+failure after a real insert leaves no partial assignment, receipt or evidence. Unknown commit
+outcomes require the original request/key; there is no speculative legacy fallback.
+
+`GET /api/v1/attempts/{attemptId}/form` returns only the current readable item and an optional
+`navigation` position/version for this mode. Its existing ALL_AT_ONCE envelope is unchanged.
+The active participant view applies the same current-item filter, including media reads; future
+text, options and media URLs are absent. A current accepted item may remain unreadable under
+captured no-revisit rules; its position is still available for a permitted next command.
+Read/navigation actions do not imply permission to answer. Direct answer and draft commands
+reject a non-current item with the same non-enumerating 404 as an unknown item. Post-completion
+review remains governed by its separate persisted release and per-category disclosure checks.
+
+`POST /api/v1/attempts/{attemptId}/navigation/next` accepts the named `NextAttemptItemRequest`:
+`expectedStateVersion` and positive `expectedNavigationVersion`, plus `Idempotency-Key`.
+It returns `NavigateAttemptAcknowledgement`. The server selects the next permitted stop, so the
+client never needs a future item ID. Default answer-before-next, captured skip/return and
+independent accepted-revisit settings use the real #525 rules. A guessed explicit forward target
+through `/navigation` is unavailable; that endpoint can still revisit a permitted current/earlier
+stop. Repeated reads and concurrent commands cannot select a different second next item for the
+same expected version. Identical retries return original metadata even after later moves or
+completion; clients read the current form to reconcile it. At the last stop, next is a typed 409;
+submission remains a separate command.
+
+Both navigation routes use existing `ATTEMPT_READ`, immutable self binding and current
+ownership/full-content-editor checks, including on replay. Malformed input is 400,
+unauthenticated access 401, unavailable attempts/items 404, stale/answer-required/last-item or
+identity conflicts 409, unsupported contracts 422, inconsistent evidence 500 and transient or
+unknown storage outcomes 503. Responses are `no-store`; errors contain no content or driver
+causes. The endpoint belongs only to `attempts`, with named request/response schemas, examples
+and `/api/v1/api-summary` discovery. It uses the existing disabled-by-default navigation gate;
+no public start selection or rollout is activated by this increment.
+
+Existing delivery-duration, navigation outcome and typed trace metrics remain bounded.
+`quizmaker.attempt.delivery.active.age` samples seconds since the authorized IN_PROGRESS
+attempt started, using an injected clock; it is not time spent on the current question, a
+deadline or a learning allowance. Telemetry failures cannot change access or command outcomes.
+No participant IDs, keys, answers or source text are metric labels.
+
+`NavigationMySqlIntegrationTest` exercises real start/access/receipt/trace/answer/submission
+boundaries, both transaction isolation levels, concurrent next and resume, reached-write
+rollback, unknown commits, independent app-context recovery and multi-parent SQL counts.
+`AttemptDeliveryMySqlIntegrationTest` and the MVC/OpenAPI contracts protect existing flat
+behavior. These local checks do not prove timed D38, section delivery or public activation;
+#668/#711/#609 retain their actual composition and rollout gates.
 
 D38 selection is RANDOM_COUNT through actual #545/#547, with a fixed bank and server-controlled fixture seed yielding the approved five-family composition; it is not stratification by family/topic/difficulty quotas. #545 requires #544's strategy contract. #547 requires #600, which supplies #522/#544 transitively; a typed selector double can prove only this extension's real persistence transaction, while D38 uses the actual #545 algorithm. #604 separately requires #547 for real stratified start integration and retains its own structured/topic inputs. It is not a prerequisite of #668, #545 or the generic #547 extension. Readiness checks must inspect each producer's own ancestor closure, not rely on a common downstream conformance issue to provide implementation order.
 

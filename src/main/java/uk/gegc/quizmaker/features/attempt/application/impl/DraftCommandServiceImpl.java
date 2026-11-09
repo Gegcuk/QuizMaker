@@ -101,6 +101,7 @@ public class DraftCommandServiceImpl implements DraftCommandService {
         ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
         var item = saved.form().items().stream().filter(i -> i.id().equals(c.formItemId())).findFirst()
                 .orElseThrow(() -> new DraftCommandException(Reason.NOT_FOUND));
+        require(saved.current(item.id()), Reason.NOT_FOUND);
         require(saved.navigation().answerable(item.id()), Reason.CONFLICT);
         var question = saved.revision().items().stream().filter(i -> i.id().equals(item.sourceItemId())).findFirst()
                 .orElseThrow(() -> new DraftCommandException(Reason.CORRUPT)).question();

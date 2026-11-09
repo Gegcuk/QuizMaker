@@ -20,6 +20,7 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -215,12 +216,20 @@ class NavigationMySqlIntegrationTest {
     }
     private Fixture fixture(NavigationPolicy policy, int count) { return fixture(policy, count, QuestionType.TRUE_FALSE); }
     private Fixture fixture(NavigationPolicy policy, int count, QuestionType type) {
+        return fixture(policy, count, type, DeliveryMode.ALL_AT_ONCE);
+    }
+    private Fixture fixture(NavigationPolicy policy, int count, QuestionType type, DeliveryMode mode) {
         var revision = publish(0, IntStream.range(0, count).mapToObj(i -> draft(type)).toList());
         binding.bind(quizId, revision);
         var started = starts.start(new AttemptStartService.Command(1, quizId, content(revision), 1,
                 CommandReceipt.Key.from("start-" + quizId), BuiltInPracticePreset.REFERENCE,
-                LegacyPracticeRequest.LaunchContext.ORDINARY, "ALL_AT_ONCE", AnswerOrder.AUTHORED, true, policy));
-        return new Fixture(started, delivery.read(started.attemptId()).form().items());
+                LegacyPracticeRequest.LaunchContext.ORDINARY, "ALL_AT_ONCE", AnswerOrder.AUTHORED, true, policy, mode));
+        // Author-side fixture identity is not participant disclosure. Exercise actual public reads below.
+        var items = tx.execute(status -> {
+            var facts = context.getBean(AttemptReadFactsService.class).read(started.attemptId(), AttemptReadFactsService.Purpose.ACTIVE_DELIVERY);
+            return ParticipantFormProjector.project(facts.form(), facts.revision(), facts.order(), facts.contracts()).items();
+        });
+        return new Fixture(started, items);
     }
     private Fixture sequential(boolean skip, boolean revisit) {
         return fixture(new NavigationPolicy(NavigationMode.SEQUENTIAL, new NavigationRules(1, skip, revisit)), 3);
@@ -587,7 +596,7 @@ class NavigationMySqlIntegrationTest {
     }
     private UUID draft(QuestionType type) {
         return tx.execute(s -> {
-            var q = new Question(); q.setType(type); q.setDifficulty(Difficulty.EASY); q.setQuestionText("Frozen " + type);
+            var q = new Question(); q.setType(type); q.setDifficulty(Difficulty.EASY); q.setQuestionText("Frozen " + type + " " + UUID.randomUUID());
             var content = (ObjectNode) QuestionContracts.example(type, QuestionContracts.View.AUTHOR);
             if (type == QuestionType.FILL_GAP)
                 content.putArray("options").add("Paris").add("Rome").add("London").add("Berlin").add("Madrid").add("Lisbon").add("Vienna");
@@ -635,6 +644,361 @@ class NavigationMySqlIntegrationTest {
             for (String name : names) assertThat(sql.update("INSERT INTO role_permissions(role_id,permission_id) SELECT r.role_id,p.permission_id FROM roles r CROSS JOIN permissions p WHERE r.role_name=? AND p.permission_name=?", role, name)).isEqualTo(1);
             sql.update("INSERT INTO user_roles(user_id,role_id) SELECT UUID_TO_BIN(?),role_id FROM roles WHERE role_name=?", userId.toString(), role);
         });
+    }
+
+    private Fixture oneAtATime(boolean skip, boolean revisit, int size) {
+        return fixture(new NavigationPolicy(NavigationMode.SEQUENTIAL, new NavigationRules(1, skip, revisit)), size,
+                QuestionType.TRUE_FALSE, DeliveryMode.ONE_AT_A_TIME);
+    }
+    private NavigationService.NextCommand next(Fixture f, long state, long position, String key) {
+        return new NavigationService.NextCommand(f.start().attemptId(), state, position, CommandReceipt.Key.from(key));
+    }
+    private void current(Fixture f, int index, long version) throws Exception {
+        var form = delivery.read(f.start().attemptId());
+        assertThat(form.navigation().currentFormItemId()).isEqualTo(f.id(index));
+        assertThat(form.navigation().version()).isEqualTo(version);
+        assertThat(form.form().items()).containsExactly(f.items().get(index));
+        assertThat(view(f).items()).extracting(ParticipantAttemptView.Item::id).containsExactly(f.id(index));
+        String serialized = json.writeValueAsString(uk.gegc.quizmaker.features.attempt.api.dto.AttemptFormResponse.from(form))
+                + json.writeValueAsString(view(f));
+        for (int n = 0; n < f.items().size(); n++) if (n != index) assertThat(serialized).doesNotContain(f.id(n).toString(), f.items().get(n).questionText());
+        assertThat(serialized).doesNotContain("protected-explanation", "correctAnswer", "submittedAnswer");
+    }
+    private long deliveredEvents() {
+        return sql.queryForObject("SELECT COUNT(*) FROM attempt_trace_event WHERE event_type='QUESTION_DELIVERED'", Long.class);
+    }
+
+    @Test void oneAtATimeDefaultHttpTransitionHasARealAnswerControlAndNoFutureProbes() throws Exception {
+        var f = oneAtATime(false, true, 3); var before = snapshot();
+        current(f, 0, 1); current(f, 0, 1);
+        assertThat(snapshot()).isEqualTo(before); assertThat(deliveredEvents()).isEqualTo(1);
+        assertThat(delivery.read(f.start().attemptId()).allowedActions()).containsExactly(uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands.Type.VIEW_ATTEMPT);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new NavigationController(navigation), new AttemptFormController(delivery))
+                .setControllerAdvice(new NavigationErrorHandler(), new AttemptDeliveryErrorHandler()).build();
+        for (UUID id : List.of(f.id(1), f.id(2), UUID.randomUUID())) {
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/attempts/{id}/navigation", f.start().attemptId())
+                            .header("Idempotency-Key", "probe-" + id).contentType("application/json")
+                            .content(json.writeValueAsString(new uk.gegc.quizmaker.features.attempt.api.dto.NavigationRequest(id, 1L, 1L))))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("NAVIGATION_NOT_FOUND"));
+        }
+        assertThatThrownBy(() -> answer(f, 1, 1, "future-answer")).isInstanceOfSatisfying(
+                uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException.class,
+                e -> assertThat(e.reason()).isEqualTo(uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException.Reason.NOT_FOUND));
+        assertThatThrownBy(() -> commands.execute(new DraftCommandService.Command(
+                uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands.Type.SAVE_DRAFT, f.start().attemptId(), f.id(1),
+                1, 0, CommandReceipt.Key.from("future-draft"), QuestionType.TRUE_FALSE, json.createObjectNode().put("answer", true))))
+                .isInstanceOfSatisfying(DraftCommandException.class, e -> assertThat(e.reason()).isEqualTo(DraftCommandException.Reason.NOT_FOUND));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/attempts/{id}/navigation/next", f.start().attemptId())
+                        .header("Idempotency-Key", "next").contentType("application/json").content("{\"expectedStateVersion\":1,\"expectedNavigationVersion\":1}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isConflict())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("NAVIGATION_ANSWER_REQUIRED"));
+        assertThat(snapshot()).isEqualTo(before);
+        answer(f, 0, 1, "answer-a");
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/attempts/{id}/navigation/next", f.start().attemptId())
+                        .header("Idempotency-Key", "next").contentType("application/json").content("{\"expectedStateVersion\":2,\"expectedNavigationVersion\":1}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.formItemId").value(f.id(1).toString()));
+        current(f, 1, 2); assertThat(deliveredEvents()).isEqualTo(2);
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/attempts/{id}/form", f.start().attemptId()))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.items.length()").value(1))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.navigation.version").value(2));
+        assertThat(count("attempt_accepted_response")).isEqualTo(1);
+        assertThat(count("attempt_answer_draft")).isZero();
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void oneAtATimeSkipReturnAndAcceptedReadbackPreserveTheSameCursor(boolean revisit) throws Exception {
+        var f = oneAtATime(true, revisit, 4);
+        navigation.next(next(f, 1, 1, "skip-a")); answer(f, 1, 1, "answer-b");
+        navigation.navigate(move(f, 0, 2, 2L, "return-a")); current(f, 0, 3);
+        answer(f, 0, 2, "answer-a");
+        var result = navigation.next(next(f, 3, 3, "continue"));
+        assertThat(result.formItemId()).isEqualTo(f.id(revisit ? 1 : 2));
+        if (revisit) navigation.next(next(f, 3, 4, "continue-past-b"));
+        current(f, 2, revisit ? 5 : 4);
+        answer(f, 2, 3, "answer-c"); navigation.next(next(f, 4, revisit ? 5 : 4, "next-d"));
+        current(f, 3, revisit ? 6 : 5); answer(f, 3, 4, "answer-d");
+        rejected(() -> navigation.next(next(f, 5, revisit ? 6 : 5, "past-end")), NavigationException.Reason.TRANSITION_DENIED);
+        var replay = restarted().next(next(f, 1, 1, "skip-a"));
+        assertThat(replay.replayed()).isTrue(); assertThat(replay.formItemId()).isEqualTo(f.id(1));
+        assertThat(view(f).navigation().currentFormItemId()).isEqualTo(f.id(3));
+        submissions.submit(new AttemptSubmissionService.Command(f.start().attemptId(), 5, true, CommandReceipt.Key.from("finish")));
+        assertThat(count("attempt_accepted_response")).isEqualTo(4); assertThat(count("attempt_submission")).isEqualTo(1);
+    }
+
+    @ParameterizedTest @CsvSource({"2,false", "4,false", "2,true", "4,true"})
+    void oneAtATimeConcurrentNextCannotSkipAndReadersReconcile(int isolation, boolean identical) throws Exception {
+        var f = oneAtATime(true, true, 3); var barrier = new CyclicBarrier(2); var pool = Executors.newFixedThreadPool(2);
+        try {
+            var jobs = new ArrayList<Future<Object>>();
+            for (int n = 0; n < 2; n++) { final int index = n; jobs.add(pool.submit(() -> {
+                authenticate(username); var transaction = new TransactionTemplate(manager); transaction.setIsolationLevel(isolation);
+                try { return transaction.execute(status -> {
+                    try { barrier.await(10, TimeUnit.SECONDS); } catch (Exception e) { throw new AssertionError(e); }
+                    return navigation.next(next(f, 1, 1, identical ? "same-next" : "next-" + index));
+                }); } catch (NavigationException denied) { return denied.reason(); }
+                finally { SecurityContextHolder.clearContext(); }
+            })); }
+            var results = List.of(jobs.get(0).get(30, TimeUnit.SECONDS), jobs.get(1).get(30, TimeUnit.SECONDS));
+            assertThat(results.stream().filter(NavigationService.Result.class::isInstance)).hasSize(identical ? 2 : 1);
+            if (identical) assertThat(results.stream().map(NavigationService.Result.class::cast).filter(NavigationService.Result::replayed)).hasSize(1);
+            else assertThat(results.stream().filter(NavigationException.Reason.STALE::equals)).hasSize(1);
+            current(f, 1, 2); assertThat(deliveredEvents()).isEqualTo(2); assertThat(count("attempt_navigation_result")).isEqualTo(1);
+            assertThat(count("attempt_accepted_response")).isZero();
+            rejected(() -> navigation.next(next(f, 1, 1, "stale")), NavigationException.Reason.STALE);
+        } finally { pool.shutdownNow(); }
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"UPDATE attempt_navigation", "INTO attempt_navigation_result", "INTO attempt_trace_event", "UPDATE attempt_command_receipt"})
+    void oneAtATimeReachedWriteFailuresRollBackDeliveryAndRetryExactlyOnce(String checkpoint) throws Exception {
+        var f = oneAtATime(true, true, 3); var before = snapshot(); var reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> { if (statement.contains(checkpoint)) { reached.set(true); throw new SQLException("private-delivery-marker", "08006"); }};
+        var command = next(f, 1, 1, "retry-after-fault");
+        rejected(() -> navigation.next(command), NavigationException.Reason.UNAVAILABLE);
+        observer().reset(); assertThat(reached).isTrue(); assertThat(snapshot()).isEqualTo(before); current(f, 0, 1);
+        assertThat(restarted().next(command).replayed()).isFalse(); assertThat(restarted().next(command).replayed()).isTrue();
+        current(f, 1, 2); assertThat(deliveredEvents()).isEqualTo(2);
+    }
+
+    @Test void oneAtATimeReplayRechecksReadAuthorityAndDoesNotGrantAnswerPermission() throws Exception {
+        var f = oneAtATime(true, true, 3); var command = next(f, 1, 1, "read-only"); revoke("ATTEMPT_CREATE");
+        assertThat(navigation.next(command).replayed()).isFalse(); current(f, 1, 2);
+        assertThat(delivery.read(f.start().attemptId()).allowedActions()).doesNotContain(
+                uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands.Type.SUBMIT_ANSWER);
+        assertThatThrownBy(() -> answer(f, 1, 1, "denied-answer")).isInstanceOf(uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException.class);
+        revoke("ATTEMPT_READ"); rejected(() -> restarted().next(command), NavigationException.Reason.NOT_FOUND);
+        grant(ownerId, "ATTEMPT_READ");
+        authenticate("missing-user"); rejected(() -> navigation.next(command), NavigationException.Reason.NOT_FOUND);
+        String other = "other-current-" + UUID.randomUUID(); var otherId = user(other, true); grant(otherId, "ATTEMPT_READ", "ATTEMPT_CREATE");
+        authenticate(other); rejected(() -> navigation.next(command), NavigationException.Reason.NOT_FOUND);
+        SecurityContextHolder.clearContext(); rejected(() -> navigation.next(command), NavigationException.Reason.UNAUTHENTICATED);
+        authenticate(username); assertThat(navigation.next(command).replayed()).isTrue();
+        assertThat(count("attempt_accepted_response")).isZero(); assertThat(deliveredEvents()).isEqualTo(2);
+    }
+
+    @Test void oneAtATimeMultiParentSerializedReadsAndNextHaveBoundedQueries() throws Exception {
+        var totals = new ArrayList<Integer>(); var jpa = new ArrayList<Long>(); var stats = emf.unwrap(org.hibernate.SessionFactory.class).getStatistics();
+        for (int size : List.of(2, 20)) {
+            var fixtures = new ArrayList<Fixture>();
+            for (int parent = 0; parent < 3; parent++) { quizId = newQuiz(); fixtures.add(oneAtATime(true, true, size)); }
+            observer().reset(); stats.clear();
+            for (int n = 0; n < fixtures.size(); n++) {
+                var f = fixtures.get(n); navigation.next(next(f, 1, 1, "bounded-" + size + "-" + n));
+                current(f, 1, 2);
+            }
+            totals.add(observer().selects.size()); jpa.add(stats.getPrepareStatementCount());
+        }
+        assertThat(totals.get(0)).isPositive(); assertThat(totals.get(1)).isEqualTo(totals.get(0)); assertThat(jpa.get(1)).isEqualTo(jpa.get(0));
+        System.out.println("ONE_AT_A_TIME next + serialized reads for 3 parents, 2/20 items: JDBC=" + totals + ", JPA=" + jpa);
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    @org.springframework.boot.autoconfigure.domain.EntityScan("uk.gegc.quizmaker")
+    @org.springframework.data.jpa.repository.config.EnableJpaRepositories("uk.gegc.quizmaker")
+    static class RestartJpa { }
+
+    @Test void oneAtATimeRecreatedApplicationContextRecoversCommittedIdentityAndCurrentItem() throws Exception {
+        var f = oneAtATime(true, true, 3); var first = next(f, 1, 1, "durable-next"); navigation.next(first);
+        String url;
+        try (var connection = source.getConnection()) { url = connection.getMetaData().getURL(); }
+        var runner = new org.springframework.boot.test.context.runner.ApplicationContextRunner()
+                .withConfiguration(org.springframework.boot.autoconfigure.AutoConfigurations.of(
+                        org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration.class,
+                        org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration.class,
+                        org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration.class,
+                        org.springframework.boot.autoconfigure.transaction.TransactionAutoConfiguration.class))
+                .withUserConfiguration(RestartJpa.class)
+                .withUserConfiguration(NavigationMySqlIntegrationTest.class.getAnnotation(Import.class).value())
+                .withBean(AttemptService.class, () -> org.mockito.Mockito.mock(AttemptService.class))
+                .withPropertyValues("spring.datasource.url=" + url,
+                        "spring.datasource.username=" + System.getenv().getOrDefault("TEST_MYSQL_ADMIN_USERNAME", "root"),
+                        "spring.datasource.password=" + System.getenv().getOrDefault("TEST_MYSQL_ADMIN_PASSWORD", "root"),
+                        "spring.jpa.hibernate.ddl-auto=none", "spring.flyway.enabled=false",
+                        "quizmaker.attempts.participant-view-enabled=true");
+        runner.run(recreated -> {
+            assertThat(recreated).hasNotFailed();
+            assertThat(recreated.getBean(DataSource.class)).isNotSameAs(source);
+            assertThat(recreated.getBean(jakarta.persistence.EntityManagerFactory.class)).isNotSameAs(emf);
+            var resumed = recreated.getBean(AttemptDeliveryService.class).read(f.start().attemptId());
+            assertThat(resumed.form().items()).extracting(ParticipantForm.Item::id).containsExactly(f.id(1));
+            assertThat(resumed.navigation().version()).isEqualTo(2);
+            var commands = recreated.getBean(NavigationService.class);
+            assertThat(commands.next(first).replayed()).isTrue();
+            assertThat(commands.next(next(f, 1, 2, "next-after-restart")).formItemId()).isEqualTo(f.id(2));
+            assertThat(commands.next(first).replayed()).isTrue();
+            assertThat(recreated.getBean(AttemptDeliveryService.class).read(f.start().attemptId()).navigation().version()).isEqualTo(3);
+        });
+        current(f, 2, 3); assertThat(count("attempt_navigation_result")).isEqualTo(2); assertThat(deliveredEvents()).isEqualTo(3);
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void oneAtATimeUnknownCommitRecoversWithoutSkippingOrDuplicatingDelivery(boolean committed) throws Exception {
+        var f = oneAtATime(true, true, 3); var reached = new AtomicBoolean(); var command = next(f, 1, 1, "unknown-next");
+        observer().afterSql = (statement, connection) -> {
+            if (statement.contains("INTO attempt_navigation_result") && reached.compareAndSet(false, true)) {
+                if (committed) observer().failAfterCommit.set(true); else observer().failBeforeCommit.set(true);
+            }
+        };
+        rejected(() -> navigation.next(command), NavigationException.Reason.UNKNOWN_OUTCOME);
+        observer().reset(); assertThat(reached).isTrue(); current(f, committed ? 1 : 0, committed ? 2 : 1);
+        assertThat(restarted().next(command).replayed()).isEqualTo(committed);
+        assertThat(restarted().next(command).replayed()).isTrue(); current(f, 1, 2); assertThat(deliveredEvents()).isEqualTo(2);
+    }
+
+    @Test void oneAtATimeResumeDuringAdvanceReadsOneCommittedPositionAndItsContent() throws Exception {
+        var f = oneAtATime(true, true, 3); var reached = new CountDownLatch(1); var release = new CountDownLatch(1);
+        var reading = new CountDownLatch(1); var stopped = new AtomicBoolean();
+        observer().beforeSql = (statement, connection) -> {
+            if (Thread.currentThread().getName().equals("current-item-reader") && statement.contains("attempt_lifecycle_state")) reading.countDown();
+        };
+        observer().afterSql = (statement, connection) -> {
+            if (statement.contains("UPDATE attempt_navigation") && stopped.compareAndSet(false, true)) {
+                reached.countDown(); try { if (!release.await(10, TimeUnit.SECONDS)) throw new AssertionError("Advance timeout"); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new AssertionError(e); }
+            }
+        };
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var writer = pool.submit(() -> { authenticate(username); try { return navigation.next(next(f, 1, 1, "concurrent-next")); }
+                finally { SecurityContextHolder.clearContext(); } });
+            assertThat(reached.await(10, TimeUnit.SECONDS)).isTrue();
+            var reader = pool.submit(() -> { Thread.currentThread().setName("current-item-reader"); authenticate(username);
+                try { return delivery.read(f.start().attemptId()); } finally { SecurityContextHolder.clearContext(); } });
+            assertThat(reading.await(10, TimeUnit.SECONDS)).isTrue(); release.countDown();
+            assertThat(writer.get(30, TimeUnit.SECONDS).formItemId()).isEqualTo(f.id(1));
+            var resumed = reader.get(30, TimeUnit.SECONDS); assertThat(resumed.navigation().version()).isEqualTo(2);
+            assertThat(resumed.form().items()).extracting(ParticipantForm.Item::id).containsExactly(f.id(1));
+        } finally { release.countDown(); observer().reset(); pool.shutdownNow(); }
+    }
+
+    @Test void firstCurrentAssignmentAndDeliveryEvidenceRollBackWithTheStartReceipt() {
+        var revision = publish(0, List.of(draft(QuestionType.TRUE_FALSE), draft(QuestionType.TRUE_FALSE))); binding.bind(quizId, revision);
+        var command = new AttemptStartService.Command(1, quizId, content(revision), 1, CommandReceipt.Key.from("first-current"),
+                BuiltInPracticePreset.REFERENCE, LegacyPracticeRequest.LaunchContext.ORDINARY, "ALL_AT_ONCE", AnswerOrder.AUTHORED,
+                true, new NavigationPolicy(NavigationMode.SEQUENTIAL, new NavigationRules(1, true, true)), DeliveryMode.ONE_AT_A_TIME);
+        var before = snapshot(); var inserts = new AtomicInteger(); var reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.contains("INTO attempt_trace_event") && inserts.incrementAndGet() == 3) {
+                reached.set(true); throw new SQLException("private-first-delivery-marker", "08006");
+            }
+        };
+        assertThatThrownBy(() -> starts.start(command)).isInstanceOf(uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStartException.class);
+        observer().reset(); assertThat(reached).isTrue(); assertThat(snapshot()).isEqualTo(before);
+        var created = starts.start(command); assertThat(created.replayed()).isFalse(); assertThat(starts.start(command).replayed()).isTrue();
+        assertThat(delivery.read(created.attemptId()).navigation().version()).isEqualTo(1);
+        assertThat(count("attempt_navigation")).isEqualTo(1); assertThat(deliveredEvents()).isEqualTo(1);
+    }
+
+    @Test void nextReplayRejectsChangedVersionsOrTargetAndStartReplayCannotChangeDelivery() throws Exception {
+        var f = oneAtATime(true, true, 3); var command = next(f, 1, 1, "stable-next"); navigation.next(command);
+        var before = snapshot();
+        rejected(() -> navigation.next(next(f, 1, 2, "stable-next")), NavigationException.Reason.CONFLICT);
+        rejected(() -> navigation.navigate(move(f, 1, 1, 1L, "stable-next")), NavigationException.Reason.CONFLICT);
+        var changed = new AttemptStartService.Command(1, quizId, content(f.start().quizRevisionId()), 1,
+                CommandReceipt.Key.from("start-" + quizId), BuiltInPracticePreset.REFERENCE, LegacyPracticeRequest.LaunchContext.ORDINARY,
+                "ALL_AT_ONCE", AnswerOrder.AUTHORED, true, new NavigationPolicy(NavigationMode.SEQUENTIAL, new NavigationRules(1, true, true)));
+        assertThatThrownBy(() -> starts.start(changed)).isInstanceOfSatisfying(
+                uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStartException.class,
+                e -> assertThat(e.reason()).isEqualTo(uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStartException.Reason.CONFLICT));
+        assertThat(snapshot()).isEqualTo(before); current(f, 1, 2);
+        var aged = new AttemptDeliveryServiceImpl(context.getBean(AttemptReadFactsService.class), manager, metrics,
+                Clock.offset(context.getBean(Clock.class), Duration.ofSeconds(60)));
+        assertThat(aged.read(f.start().attemptId()).navigation().version()).isEqualTo(2);
+        assertThat(metrics.get("quizmaker.attempt.delivery.active.age").summary().max()).isGreaterThanOrEqualTo(60);
+    }
+
+    @ParameterizedTest @EnumSource(value = QuestionType.class, names = {"MCQ_SINGLE", "MCQ_MULTI", "TRUE_FALSE", "FILL_GAP", "ORDERING"})
+    void allBaselineFamiliesExposeExactlyTheirCurrentFrozenContent(QuestionType type) throws Exception {
+        var f = fixture(new NavigationPolicy(NavigationMode.SEQUENTIAL, new NavigationRules(1, true, true)), 3, type, DeliveryMode.ONE_AT_A_TIME);
+        current(f, 0, 1); navigation.next(next(f, 1, 1, "next-family")); current(f, 1, 2);
+        assertThat(deliveredEvents()).isEqualTo(2);
+    }
+
+    @Test void nextRejectsAllAtOnceWithoutChangingItsExistingEnvelopeOrState() throws Exception {
+        var f = sequential(true, true); var before = snapshot();
+        rejected(() -> navigation.next(next(f, 1, 1, "unsupported-next")), NavigationException.Reason.UNSUPPORTED);
+        var form = uk.gegc.quizmaker.features.attempt.api.dto.AttemptFormResponse.from(delivery.read(f.start().attemptId()));
+        assertThat(json.writeValueAsString(form)).doesNotContain("navigation"); assertThat(form.items()).hasSize(3);
+        assertThat(snapshot()).isEqualTo(before);
+        assertThat(navigation.navigate(move(f, 1, 1, 1L, "supported-old-next")).formItemId()).isEqualTo(f.id(1));
+    }
+
+    @Test void oneAtATimeOlderRepeatableReadSnapshotUsesCurrentCommittedDelivery() throws Exception {
+        var f = oneAtATime(true, true, 3); var older = new TransactionTemplate(manager); older.setIsolationLevel(Connection.TRANSACTION_REPEATABLE_READ);
+        var pool = Executors.newSingleThreadExecutor();
+        try {
+            older.executeWithoutResult(status -> {
+                assertThat(sql.queryForObject("SELECT row_version FROM attempt_navigation WHERE attempt_id=UUID_TO_BIN(?)", Long.class, f.start().attemptId().toString())).isEqualTo(1);
+                try { pool.submit(() -> { authenticate(username); try { return navigation.next(next(f, 1, 1, "outside-current")); }
+                    finally { SecurityContextHolder.clearContext(); } }).get(20, TimeUnit.SECONDS); }
+                catch (Exception e) { throw new AssertionError(e); }
+                assertThat(sql.queryForObject("SELECT row_version FROM attempt_navigation WHERE attempt_id=UUID_TO_BIN(?)", Long.class, f.start().attemptId().toString())).isEqualTo(1);
+                var resumed = delivery.read(f.start().attemptId());
+                assertThat(resumed.navigation().version()).isEqualTo(2); assertThat(resumed.form().items()).containsExactly(f.items().get(1));
+            });
+            current(f, 1, 2);
+        } finally { pool.shutdownNow(); }
+    }
+
+    @Test void nextReplayRejectsCorruptOriginalPositionVersionInsteadOfReturningSuccess() {
+        var f = oneAtATime(true, true, 3); var command = next(f, 1, 1, "corrupt-next"); navigation.next(command);
+        assertThat(sql.update("UPDATE attempt_navigation_result SET row_version=1 WHERE attempt_id=UUID_TO_BIN(?)", f.start().attemptId().toString())).isEqualTo(1);
+        rejected(() -> restarted().next(command), NavigationException.Reason.CORRUPT);
+        assertThat(delivery.read(f.start().attemptId()).navigation().version()).isEqualTo(2);
+        assertThat(count("attempt_navigation_result")).isEqualTo(1); assertThat(deliveredEvents()).isEqualTo(2);
+    }
+
+    private org.springframework.test.web.servlet.MockMvc currentItemHttp() {
+        return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                        new AttemptFormController(delivery), new NavigationController(navigation),
+                        new AttemptController(context.getBean(AttemptService.class), context.getBeanProvider(ParticipantAttemptViewService.class)))
+                .setControllerAdvice(new AttemptDeliveryErrorHandler(), new NavigationErrorHandler()).build();
+    }
+
+    private void currentItemActions(Fixture f, boolean canNavigate) throws Exception {
+        var before = snapshot(); var mvc = currentItemHttp();
+        for (String suffix : List.of("/form", "")) {
+            var body = json.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                            .get("/api/v1/attempts/" + f.start().attemptId() + suffix)
+                            .principal(SecurityContextHolder.getContext().getAuthentication()))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Cache-Control", "no-store"))
+                    .andReturn().getResponse().getContentAsString());
+            var expected = canNavigate ? List.of("VIEW_ATTEMPT", "NAVIGATE_TO_ITEM") : List.of("VIEW_ATTEMPT");
+            var actual = new ArrayList<String>(); body.path("allowedActions").forEach(action -> actual.add(action.asText()));
+            assertThat(actual).as("allowedActions on %s", suffix.isEmpty() ? "participant view" : "/form").containsExactlyElementsOf(expected);
+            assertThat(body.at("/navigation/currentFormItemId").asText()).isEqualTo(f.id(1).toString());
+        }
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    @Test void skippedPreviousAtLastStopRemainsAdvertised() throws Exception {
+        var f = oneAtATime(true, false, 2); navigation.next(next(f, 1, 1, "skip-to-last"));
+        rejected(() -> navigation.next(next(f, 1, 2, "no-next-at-last")), NavigationException.Reason.TRANSITION_DENIED);
+        currentItemActions(f, true);
+        currentItemHttp().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/attempts/{id}/navigation", f.start().attemptId())
+                        .header("Idempotency-Key", "return-skipped").contentType("application/json")
+                        .content(json.writeValueAsString(new uk.gegc.quizmaker.features.attempt.api.dto.NavigationRequest(f.id(0), 1L, 2L))))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        current(f, 0, 3); assertThat(count("attempt_accepted_response")).isZero();
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void acceptedPreviousReturnIsAdvertisedBeforeCurrentAnswer(boolean revisit) throws Exception {
+        var f = oneAtATime(false, revisit, 3); answer(f, 0, 1, "accept-previous");
+        navigation.next(next(f, 2, 1, "open-unanswered-current"));
+        rejected(() -> navigation.next(next(f, 2, 2, "answer-required-before-next")), NavigationException.Reason.ANSWER_REQUIRED);
+        currentItemActions(f, revisit);
+        currentItemHttp().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/attempts/{id}/navigation", f.start().attemptId())
+                        .header("Idempotency-Key", "return-accepted").contentType("application/json")
+                        .content(json.writeValueAsString(new uk.gegc.quizmaker.features.attempt.api.dto.NavigationRequest(f.id(0), 2L, 2L))))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().is(revisit ? 200 : 404));
+        current(f, revisit ? 0 : 1, revisit ? 3 : 2);
+        assertThat(count("attempt_accepted_response")).isEqualTo(1);
     }
 
 }

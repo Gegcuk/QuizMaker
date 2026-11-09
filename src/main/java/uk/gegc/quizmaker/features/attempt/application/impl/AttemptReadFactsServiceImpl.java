@@ -50,8 +50,7 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
             var owner = granted.contentOwnerId();
             var snapshot = snapshots.readCurrent(owner, granted.policySnapshotId());
             var policy = snapshot.resolution().policy();
-            if (policy.schemaVersion() != 1 || policy.delivery().mode() != DeliveryMode.ALL_AT_ONCE
-                    || policy.content().formMode() != FormMode.PRECOMPUTED
+            if (policy.schemaVersion() != 1 || policy.content().formMode() != FormMode.PRECOMPUTED
                     || policy.content().sections() != SectionMode.IMPLICIT_FLAT)
                 throw new AttemptDeliveryException(UNSUPPORTED);
             if (!policy.content().quizRevisionId().equals(granted.quizRevisionId())) throw new AttemptDeliveryException(CORRUPT);

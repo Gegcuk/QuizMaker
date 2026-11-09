@@ -19,9 +19,10 @@ public class AttemptDeliveryServiceImpl implements AttemptDeliveryService {
     private final AttemptReadFactsService facts;
     private final TransactionTemplate transaction;
     private final MeterRegistry metrics;
+    private final java.time.Clock clock;
 
-    public AttemptDeliveryServiceImpl(AttemptReadFactsService facts, PlatformTransactionManager manager, MeterRegistry metrics) {
-        this.facts = facts; this.metrics = metrics;
+    public AttemptDeliveryServiceImpl(AttemptReadFactsService facts, PlatformTransactionManager manager, MeterRegistry metrics, java.time.Clock clock) {
+        this.facts = facts; this.metrics = metrics; this.clock = clock;
         this.transaction = new TransactionTemplate(manager);
         this.transaction.setReadOnly(true);
     }
@@ -54,10 +55,17 @@ public class AttemptDeliveryServiceImpl implements AttemptDeliveryService {
         if (state.execution() != AttemptLifecycle.Execution.IN_PROGRESS) throw new AttemptDeliveryException(INACTIVE);
         var participant = ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
         participant = new uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm(participant.id(), participant.schemaVersion(),
-                participant.items().stream().filter(i -> saved.navigation().readable(i.id())).toList());
-        // Missing response/completion facts remain unknown. No new command is advertised by a read.
+                participant.items().stream().filter(i -> saved.visible(i.id())).toList());
+        // Sample execution age only; this never establishes a per-question timer or write authority.
+        if (saved.oneAtATime()) try {
+            io.micrometer.core.instrument.DistributionSummary.builder("quizmaker.attempt.delivery.active.age")
+                    .baseUnit("seconds").tag("version", "1").register(metrics)
+                    .record(Math.max(0, java.time.Duration.between(granted.lifecycle().startedAt(), clock.instant()).toSeconds()));
+        } catch (RuntimeException ignored) { /* optional telemetry never changes disclosure */ }
         var context = new AttemptCommands.Context(AttemptCommands.Access.VERIFIED, saved.policy(), state,
                 granted.stateVersion(), null, null);
-        return new View(attemptId, granted.stateVersion(), participant, AttemptCommands.allowedActions(context).actions());
+        return new View(attemptId, granted.stateVersion(), participant, saved.oneAtATime()
+                ? CurrentItemDelivery.actions(saved) : AttemptCommands.allowedActions(context).actions(),
+                saved.oneAtATime() ? saved.navigation().cursor() : null);
     }
 }

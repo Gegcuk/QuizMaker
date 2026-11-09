@@ -137,9 +137,12 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         if (command.draftsEnabled()) authorChoices.add(new DraftsChoice(true));
         boolean configuredNavigation = !command.navigation().equals(new NavigationPolicy(NavigationMode.FREE));
         if (configuredNavigation) authorChoices.add(new NavigationChoice(command.navigation()));
+        boolean configuredDelivery = command.delivery() != DeliveryMode.ALL_AT_ONCE;
+        if (configuredDelivery) authorChoices.add(new DeliveryChoice(command.delivery()));
         if (!authorChoices.isEmpty()) overrides.add(new SourceOverrides(OverrideSource.AUTHOR, 1,
                 new AllowedChoices(Set.of(), Set.of(), command.draftsEnabled() ? Set.of(true) : Set.of(),
-                        configuredNavigation ? Set.of(command.navigation()) : Set.of()), authorChoices));
+                        configuredNavigation ? Set.of(command.navigation()) : Set.of(),
+                        configuredDelivery ? Set.of(command.delivery()) : Set.of()), authorChoices));
         var resolution = policies.resolve(new PolicyResolutionRequest(1, 1, PolicyResolutionRequest.HASH_ALGORITHM,
                 command.preset(), command.content(), overrides));
         var snapshot = snapshots.createOrReplay(access.ownerId(), new PolicySnapshot(UUID.randomUUID(), resolution));
@@ -169,6 +172,9 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                 ExecutionTrace.Actor.SYSTEM, new ExecutionTrace.Data(commandId, null, null, null, ExecutionTrace.ReasonCode.MATERIALIZED)));
         trace.append(scope, new ExecutionTrace.Event(1, UUID.randomUUID(), ExecutionTrace.Type.ATTEMPT_STARTED,
                 ExecutionTrace.Actor.PARTICIPANT, new ExecutionTrace.Data(commandId, null, initial.state(), started.state(), ExecutionTrace.ReasonCode.ACCEPTED)));
+        if (policy.delivery().mode() == DeliveryMode.ONE_AT_A_TIME)
+            trace.append(scope, new ExecutionTrace.Event(1, UUID.randomUUID(), ExecutionTrace.Type.QUESTION_DELIVERED,
+                    ExecutionTrace.Actor.PARTICIPANT, new ExecutionTrace.Data(commandId, form.items().get(0).id(), null, null, ExecutionTrace.ReasonCode.DELIVERED)));
         return new CommandReceipt.Acknowledgement(1, subject.attemptId(), form.id(), started.rowVersion());
     }
 
@@ -177,7 +183,7 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         require(c.version() == 1, UNSUPPORTED_VERSION);
         require(c.quizId() != null && c.content() != null && c.publicationVersion() > 0 && c.key() != null
                 && c.preset() != null && c.context() != null && c.legacyMode() != null && c.legacyMode().length() <= 32
-                && c.answerOrder() != null && c.navigation() != null, INVALID_INPUT);
+                && c.answerOrder() != null && c.navigation() != null && c.delivery() != null, INVALID_INPUT);
     }
 
     private static CommandReceipt.Fingerprint fingerprint(Command c) {
@@ -188,6 +194,7 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                 .put("sections", c.content().sections().name()).put("cases", c.content().cases().name())
                 .put("preset", c.preset().id()).put("presetVersion", c.preset().version())
                 .put("context", c.context().name()).put("legacyMode", c.legacyMode()).put("answerOrder", c.answerOrder().name());
+        if (c.delivery() != DeliveryMode.ALL_AT_ONCE) json.put("delivery", c.delivery().name());
         // Preserve exact fingerprints for starts created before #542 with drafts disabled.
         if (c.draftsEnabled()) json.put("draftsEnabled", true);
         if (!c.navigation().equals(new NavigationPolicy(NavigationMode.FREE))) {

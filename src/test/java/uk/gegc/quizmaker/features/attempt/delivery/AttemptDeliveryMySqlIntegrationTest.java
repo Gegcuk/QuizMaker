@@ -433,7 +433,7 @@ class AttemptDeliveryMySqlIntegrationTest {
     }
 
     private AttemptDeliveryService recreated() {
-        return new AttemptDeliveryServiceImpl(context.getBean(AttemptReadFactsService.class), manager, metrics);
+        return new AttemptDeliveryServiceImpl(context.getBean(AttemptReadFactsService.class), manager, metrics, context.getBean(Clock.class));
     }
     @Test void authorityRemainsLockedThroughActualContentProjection() throws Exception {
         var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "delivery"));
@@ -479,7 +479,7 @@ class AttemptDeliveryMySqlIntegrationTest {
         var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "delivery"));
         var broken = org.mockito.Mockito.mock(io.micrometer.core.instrument.MeterRegistry.class);
         org.mockito.Mockito.when(broken.config()).thenThrow(new IllegalStateException("synthetic metrics outage"));
-        var checked = new AttemptDeliveryServiceImpl(context.getBean(AttemptReadFactsService.class), manager, broken);
+        var checked = new AttemptDeliveryServiceImpl(context.getBean(AttemptReadFactsService.class), manager, broken, context.getBean(Clock.class));
         assertThat(checked.read(started.attemptId())).isEqualTo(delivery.read(started.attemptId()));
         revoke(ownerId, "ATTEMPT_READ");
         assertThatThrownBy(() -> checked.read(started.attemptId())).isInstanceOfSatisfying(
