@@ -141,7 +141,9 @@ class FixedFormMaterializerMySqlIntegrationTest {
     void allSelectionAndEmptyFormsAreRepresentableWithoutStartingAttempts() {
         var revision = saved(quiz("all", question("all-question", QuestionType.MCQ_SINGLE)));
         var original = command("all-form", revision, AUTHORED);
-        var selection = new QuestionSelectionServiceImpl().select(new QuestionSelection.Input(1, revision.id(), 1,
+        var selection = new QuestionSelectionServiceImpl(request -> {
+            throw new AssertionError("ALL materialization must not request a random seed");
+        }).select(new QuestionSelection.Input(1, revision.id(), 1,
                 QuestionSelection.Configuration.all(), revision.items().stream().map(i ->
                 new QuestionSelection.Item(i.id(), i.authoredPosition())).toList(), List.of()));
         assertThat(materializer.materialize(OWNER, new Command(original.form(), selection, original.questionOrder(), AUTHORED)).items()).hasSize(1);

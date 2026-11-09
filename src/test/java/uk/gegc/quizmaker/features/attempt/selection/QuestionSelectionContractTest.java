@@ -47,7 +47,7 @@ class QuestionSelectionContractTest {
 
     @ParameterizedTest
     @NullSource
-    @ValueSource(strings = {"", "all", "manual_set", " ALL", "ALL ", "RANDOM_COUNT", "MANUAL", "private-token\nprivate-answer"})
+    @ValueSource(strings = {"", "all", "manual_set", " ALL", "ALL ", "random_count", "MANUAL", "private-token\nprivate-answer"})
     void unknownStrategy_whenParsed_hasNoAliasFallbackOrInputEcho(String value) {
         rejected(() -> Strategy.parse(value), UNKNOWN_STRATEGY);
     }
@@ -56,6 +56,8 @@ class QuestionSelectionContractTest {
     void knownStrategy_whenParsed_acceptsOnlyTheExactStableIdentifier() {
         assertThat(Strategy.parse("ALL")).isEqualTo(Strategy.ALL);
         assertThat(Strategy.parse("MANUAL_SET")).isEqualTo(Strategy.MANUAL_SET);
+        assertThat(Strategy.parse("RANDOM_COUNT")).isEqualTo(Strategy.RANDOM_COUNT);
+        assertThat(Strategy.parse("RANDOM_PERCENTAGE")).isEqualTo(Strategy.RANDOM_PERCENTAGE);
         assertThatThrownBy(() -> Strategy.parse("secret".repeat(20_000)))
                 .hasMessage("Question selection rejected: UNKNOWN_STRATEGY");
     }

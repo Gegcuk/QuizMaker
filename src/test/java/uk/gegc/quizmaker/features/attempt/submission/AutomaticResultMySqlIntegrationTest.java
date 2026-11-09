@@ -119,6 +119,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
         AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
         JdbcPolicySnapshotRepository.class, QuestionSelectionServiceImpl.class,
+        uk.gegc.quizmaker.features.attempt.infra.selection.HmacSelectionSeedSource.class,
         AttemptSubjectServiceImpl.class, JdbcAttemptSubjectRepository.class,
         AttemptLifecycleServiceImpl.class, JdbcLifecycleStateRepository.class,
         ExecutionTraceServiceImpl.class, JdbcExecutionTraceRepository.class,

@@ -23,4 +23,10 @@ final class QuestionSelectionFixtures {
     }
 
     static AtomicGroup group(UUID... ids) { return new AtomicGroup(1, List.of(ids)); }
+
+    static uk.gegc.quizmaker.features.attempt.application.impl.QuestionSelectionServiceImpl legacyService() {
+        return new uk.gegc.quizmaker.features.attempt.application.impl.QuestionSelectionServiceImpl(request -> {
+            throw new AssertionError("Legacy selection must not request random seed material");
+        });
+    }
 }

@@ -215,7 +215,9 @@ class PublishedFamilyContractsMySqlIntegrationTest {
         UUID revisionId = publish(0, FAMILIES.stream().map(this::draft).toList());
         binding.bind(quizId, revisionId);
         var revision = publications.read(quizId, revisionId).content();
-        var selection = new QuestionSelectionServiceImpl().select(new QuestionSelection.Input(1, revisionId, 1,
+        var selection = new QuestionSelectionServiceImpl(request -> {
+            throw new AssertionError("ALL materialization must not request a random seed");
+        }).select(new QuestionSelection.Input(1, revisionId, 1,
                 QuestionSelection.Configuration.all(), revision.items().stream().map(item ->
                 new QuestionSelection.Item(item.id(), item.authoredPosition())).toList(), List.of()));
         var ordering = AuthoredQuestionOrder.order(new AuthoredQuestionOrder.Input(1, revisionId, 1,

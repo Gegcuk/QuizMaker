@@ -6,6 +6,17 @@ Synchronized: **23 October 2026**. This register summarizes approved issue claus
 
 Use [open questions](open-questions.md) for unresolved choices, conflicting clauses, engineering preparation, and ownership gaps. The [target architecture](policy-driven-quiz-execution.md) explains the model.
 
+<a id="random-percentage-selection-ceiling"></a>
+## Random-percentage selection size — DECIDED
+
+**Decision date/source:** 9 November 2026, explicit repository-owner confirmation of #545 in the implementation chat; option A, round upward.
+
+- `RANDOM_PERCENTAGE` selects `ceil(eligible item count × percentage / 100)`. For example, 33% of ten selects four; 50% of three selects two; 0% selects zero and 100% selects the entire eligible bank.
+- The internal fixed-precision configuration expresses percentages in basis points (`3300 = 33.00%`, `1 = 0.01%`, `10000 = 100%`). Integer arithmetic preserves the ceiling without floating-point drift.
+- An empty bank remains an empty selection; this does not authorize starting an empty attempt. `RANDOM_COUNT` rejects a requested count greater than the eligible bank without partial selection or fallback.
+- A13's largest-remainder allocation across groups remains unchanged. This rule determines the total random selection size, not stratified quotas, family proportions, or a new minimum-one constraint.
+- #545 owns the pure algorithm and bounded seed evidence; #547 owns actual start/form persistence and #668 owns the real randomized formal scenario. No public capability is activated by this decision.
+
 ## Reading order and document status
 
 | Source | Role |

@@ -2,7 +2,6 @@ package uk.gegc.quizmaker.features.attempt.selection;
 
 import org.junit.jupiter.api.Test;
 import uk.gegc.quizmaker.features.attempt.application.QuestionSelectionService;
-import uk.gegc.quizmaker.features.attempt.application.impl.QuestionSelectionServiceImpl;
 import uk.gegc.quizmaker.features.attempt.domain.model.ordering.AuthoredQuestionOrder;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.*;
@@ -25,7 +24,7 @@ import static uk.gegc.quizmaker.features.attempt.selection.QuestionSelectionFixt
 class QuestionSelectionCompositionTest {
     private static final UUID QUESTION_REVISION = new UUID(0, 70);
     private static final UUID MUTABLE_QUESTION = new UUID(0, 80);
-    private final QuestionSelectionService service = new QuestionSelectionServiceImpl();
+    private final QuestionSelectionService service = legacyService();
 
     @Test
     void allFromRealRevisionAndPolicy_whenSelected_preservesOccurrenceIdentityWithoutCopyingProtectedContent() {

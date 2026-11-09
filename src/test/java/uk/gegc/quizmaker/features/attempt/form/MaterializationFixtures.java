@@ -60,7 +60,9 @@ final class MaterializationFixtures {
     static Command command(String key, QuizRevision revision, AnswerOrderingPolicy policy, List<UUID> selected) {
         var input = new QuestionSelection.Input(1, revision.id(), 1, QuestionSelection.Configuration.manualSet(selected),
                 revision.items().stream().map(item -> new QuestionSelection.Item(item.id(), item.authoredPosition())).toList(), List.of());
-        var selection = new QuestionSelectionServiceImpl().select(input);
+        var selection = new QuestionSelectionServiceImpl(request -> {
+            throw new AssertionError("Manual materialization must not request a random seed");
+        }).select(input);
         var ordering = AuthoredQuestionOrder.order(new AuthoredQuestionOrder.Input(1, revision.id(), 1,
                 QUESTION_ORDER, revision.items().stream().map(item -> new AuthoredQuestionOrder.Item(item.id(), item.authoredPosition())).toList(),
                 selection.itemIds()));
