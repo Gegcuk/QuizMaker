@@ -1,5 +1,11 @@
 package uk.gegc.quizmaker.features.attempt.start;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
+import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -832,6 +838,63 @@ class AttemptStartMySqlIntegrationTest {
         denied(() -> randomStarts().start(command), PERSISTENCE_UNAVAILABLE);
         observer().reset(); assertThat(reached).isTrue(); assertNoTargetRows();
         assertCoherent(randomStarts().start(command), 2);
+    }
+
+    @ParameterizedTest @CsvSource({"0,ALL", "1213,ALL", "1205,ALL", "0,RANDOM_COUNT", "1213,RANDOM_COUNT", "1205,RANDOM_COUNT"})
+    void selectedSqlFailuresAreSanitizedBeforeTransactionLoggingAndKeepRollbackAndRetry(int code, SelectionMode mode) {
+        var config = mode == SelectionMode.ALL ? Configuration.all() : Configuration.randomCount(2);
+        var command = selected(command(prepared(), AnswerOrder.AUTHORED, "selection-log-failure"), config);
+        String marker = "selection-private-driver-marker";
+        var reached = new AtomicBoolean();
+        var logger = (Logger) LoggerFactory.getLogger(TransactionTemplate.class);
+        Level previous = logger.getLevel(); Thread requestThread = Thread.currentThread();
+        var captured = new ListAppender<ILoggingEvent>() {
+            @Override protected void append(ILoggingEvent event) {
+                if (Thread.currentThread() == requestThread) {
+                    event.prepareForDeferredProcessing(); super.append(event);
+                }
+            }
+        };
+        captured.setContext(logger.getLoggerContext()); captured.start();
+        logger.addAppender(captured); logger.setLevel(Level.DEBUG);
+        observer().afterSql = (statement, connection) -> {
+            if (statement.stripLeading().startsWith("INSERT INTO attempt_form_selection") && reached.compareAndSet(false, true)) {
+                // Same transaction: prove that the actual INSERT reached its write before failing.
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form_selection", Integer.class)).isEqualTo(1);
+                var failure = new SQLException(marker, code == 1213 ? "40001" : code == 1205 ? "HY000" : "08006", code);
+                failure.initCause(new IllegalArgumentException(marker + "-cause"));
+                failure.addSuppressed(new IllegalStateException(marker + "-suppressed"));
+                failure.setNextException(new SQLException(marker + "-next"));
+                throw failure;
+            }
+        };
+        try {
+            var expected = code == 1213 ? RETRYABLE : code == 1205 ? IN_PROGRESS : PERSISTENCE_UNAVAILABLE;
+            denied(() -> randomStarts().start(command), expected);
+            assertThat(reached).isTrue(); observer().reset();
+            assertNoTargetRows(); // Fresh transactions, after the real receipt transaction rolled back.
+            var retry = randomStarts().start(command);
+            assertCoherent(retry, mode == SelectionMode.ALL ? 5 : 2);
+            assertThat(restarted().start(command).attemptId()).isEqualTo(retry.attemptId());
+            var throwableEvents = captured.list.stream().filter(event -> event.getThrowableProxy() != null).toList();
+            assertThat(throwableEvents).isNotEmpty();
+            for (var event : captured.list) {
+                assertThat(event.getFormattedMessage()).doesNotContain(marker);
+                var throwable = event.getThrowableProxy();
+                if (throwable != null) {
+                    assertThat(ThrowableProxyUtil.asString(throwable)).doesNotContain(marker);
+                    assertThat(throwable.getCause()).isNull();
+                    assertThat(throwable.getSuppressed()).isNullOrEmpty();
+                }
+            }
+            assertThat(throwableEvents).anySatisfy(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.DEBUG);
+                assertThat(event.getThrowableProxy().getMessage()).contains(code == 0
+                        ? "PERSISTENCE_UNAVAILABLE" : code == 1213 ? "DEADLOCK" : "LOCK_TIMEOUT");
+            });
+        } finally {
+            observer().reset(); logger.detachAppender(captured); logger.setLevel(previous); captured.stop();
+        }
     }
 
     @Test void strategyFailureInsufficiencyEmptySelectionAndUnavailableSeedLeaveNoAuthoritativeWrites() {

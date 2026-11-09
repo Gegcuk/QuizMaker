@@ -65,26 +65,31 @@ public class FixedFormMaterializerImpl implements FixedFormMaterializer {
         String outcome = "rejected";
         try {
             var result = transaction.execute(status -> {
-                require(ownerId != null, REVISION_UNAVAILABLE);
-                require(command != null && command.form() != null && command.selection() != null
-                        && command.questionOrder() != null && command.answerOrdering() != null, INVALID_INPUT);
-                if (standalone) {
-                    try { contracts.declareScope(ownerId, Set.of(command.form().quizRevisionId())); }
-                    catch (ContractResolutionException failure) {
-                        // Scope discovery now precedes content loading; preserve this boundary's
-                        // existing unavailable-revision error without revealing contract metadata.
-                        if (failure.reason() == ContractResolutionException.Reason.REVISION_UNAVAILABLE)
-                            throw new FormMaterializationException(REVISION_UNAVAILABLE);
-                        throw failure;
+                try {
+                    require(ownerId != null, REVISION_UNAVAILABLE);
+                    require(command != null && command.form() != null && command.selection() != null
+                            && command.questionOrder() != null && command.answerOrdering() != null, INVALID_INPUT);
+                    if (standalone) {
+                        try { contracts.declareScope(ownerId, Set.of(command.form().quizRevisionId())); }
+                        catch (ContractResolutionException failure) {
+                            // Scope discovery now precedes content loading; preserve this boundary's
+                            // existing unavailable-revision error without revealing contract metadata.
+                            if (failure.reason() == ContractResolutionException.Reason.REVISION_UNAVAILABLE)
+                                throw new FormMaterializationException(REVISION_UNAVAILABLE);
+                            throw failure;
+                        }
                     }
+                    var revision = revisions.findByIdForShare(ownerId, command.form().quizRevisionId())
+                            .orElseThrow(() -> new FormMaterializationException(REVISION_UNAVAILABLE));
+                    validate(command, revision);
+                    var resolved = contracts.resolve(ownerId, revision.id());
+                    var order = orders.createOrReplay(ownerId, command.form(), command.answerOrdering());
+                    if (persistSelection) forms.createSelectionOrReplay(ownerId, command.form(), command.selection());
+                    return ParticipantFormProjector.project(command.form(), revision, order, resolved);
+                } catch (DataAccessException | TransactionException failure) {
+                    // TransactionTemplate logs callback failures before its caller can translate them.
+                    throw persistenceFailure(failure);
                 }
-                var revision = revisions.findByIdForShare(ownerId, command.form().quizRevisionId())
-                        .orElseThrow(() -> new FormMaterializationException(REVISION_UNAVAILABLE));
-                validate(command, revision);
-                var resolved = contracts.resolve(ownerId, revision.id());
-                var order = orders.createOrReplay(ownerId, command.form(), command.answerOrdering());
-                if (persistSelection) forms.createSelectionOrReplay(ownerId, command.form(), command.selection());
-                return ParticipantFormProjector.project(command.form(), revision, order, resolved);
             });
             outcome = "success";
             return result;
@@ -105,19 +110,21 @@ public class FixedFormMaterializerImpl implements FixedFormMaterializer {
             if (failure.reason() == ContractResolutionException.Reason.PERSISTENCE_UNAVAILABLE) outcome = "persistence_unavailable";
             throw failure;
         } catch (DataAccessException | TransactionException failure) {
-            var conflict = DatabaseConflictException.from(failure);
-            if (conflict.isPresent()) {
-                outcome = conflict.get().outcome();
-                throw conflict.get();
-            }
-            outcome = "persistence_unavailable";
-            throw new FormMaterializationException(PERSISTENCE_UNAVAILABLE);
+            var safe = persistenceFailure(failure);
+            outcome = safe instanceof DatabaseConflictException conflict ? conflict.outcome() : "persistence_unavailable";
+            throw safe;
         } finally {
             try {
                 if (sample != null) sample.stop(Timer.builder("quizmaker.attempt.form.materialization")
                         .tags("format", "1", "outcome", outcome).register(metrics));
             } catch (RuntimeException ignored) { /* best-effort telemetry must not change the result */ }
         }
+    }
+
+    /** Retain only the bounded conflict kind/reason, never driver causes or suppressed diagnostics. */
+    private static RuntimeException persistenceFailure(RuntimeException failure) {
+        var conflict = DatabaseConflictException.from(failure);
+        return conflict.isPresent() ? conflict.get() : new FormMaterializationException(PERSISTENCE_UNAVAILABLE);
     }
 
     private static void validate(Command command, QuizRevision revision) {
