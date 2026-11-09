@@ -34,13 +34,16 @@ public class AttemptAllowanceServiceImpl implements AttemptAllowanceService {
             require(entry != null && entry.version() == 1 && entry.state() != null, ELIGIBILITY_UNAVAILABLE);
             var decision = eligibility.evaluate(new Context(1, scope, Access.VERIFIED, entry.state(),
                     new Policy(1, policy.maximumAttempts(), policy.cooldown()), repository.readCurrent(scope, policy)));
-            if (decision.outcome() == Outcome.DENY) throw new AttemptStartException(switch (decision.reason()) {
-                case ACTIVE_ATTEMPT -> ACTIVE_ATTEMPT;
-                case LIMIT_EXHAUSTED -> LIMIT_EXHAUSTED;
-                case COOLDOWN -> COOLDOWN;
-                case ENTRY_CLOSED -> ENTRY_CLOSED;
-                default -> ELIGIBILITY_UNAVAILABLE;
-            }, decision.nextEligibleAt());
+            if (decision.outcome() == Outcome.DENY) {
+                repository.verifyComplete(scope);
+                throw new AttemptStartException(switch (decision.reason()) {
+                    case ACTIVE_ATTEMPT -> ACTIVE_ATTEMPT;
+                    case LIMIT_EXHAUSTED -> LIMIT_EXHAUSTED;
+                    case COOLDOWN -> COOLDOWN;
+                    case ENTRY_CLOSED -> ENTRY_CLOSED;
+                    default -> ELIGIBILITY_UNAVAILABLE;
+                }, decision.nextEligibleAt());
+            }
         } catch (DataAccessException failure) { throw storage(failure); }
     }
 

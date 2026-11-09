@@ -1263,6 +1263,124 @@ class AttemptStartMySqlIntegrationTest {
         reporter.publishEntry("startSelectCountsFor1_3_5HistoricalStarts", reads.toString());
     }
 
+    @ParameterizedTest @org.junit.jupiter.params.provider.MethodSource("allowanceLogFailureBoundaries")
+    void allowanceSqlDiagnosticsCannotEscapeFirstTransactionalProxy(String checkpoint, int code) {
+        var firstCommand = limited(command(prepared(), AnswerOrder.AUTHORED, "log-first"), 3L, Duration.ZERO);
+        var first = starts.start(firstCommand); finish(first.attemptId());
+        var next = limited(command(firstCommand.content().quizRevisionId(), AnswerOrder.AUTHORED, "log-next"), 3L, Duration.ZERO);
+        var before = targetSnapshot();
+        String marker = "allowance-private-driver-marker";
+        var reached = new AtomicBoolean();
+        var logger = (Logger) LoggerFactory.getLogger(org.springframework.transaction.interceptor.TransactionInterceptor.class);
+        Level previous = logger.getLevel(); Thread requestThread = Thread.currentThread();
+        var captured = new ListAppender<ILoggingEvent>() {
+            @Override protected void append(ILoggingEvent event) {
+                if (Thread.currentThread() == requestThread) { event.prepareForDeferredProcessing(); super.append(event); }
+            }
+        };
+        captured.setContext(logger.getLoggerContext()); captured.start(); logger.addAppender(captured); logger.setLevel(Level.TRACE);
+        observer().afterSql = (statement, connection) -> {
+            if (statement.contains(checkpoint) && reached.compareAndSet(false, true)) {
+                var failure = new SQLException(marker, code == 1213 ? "40001" : code == 1205 ? "HY000" : "08006", code);
+                failure.initCause(new IllegalArgumentException(marker + "-cause"));
+                failure.addSuppressed(new IllegalStateException(marker + "-suppressed"));
+                failure.setNextException(new SQLException(marker + "-next"));
+                throw failure;
+            }
+        };
+        try {
+            denied(() -> starts.start(next), code == 1213 ? RETRYABLE : code == 1205 ? IN_PROGRESS : PERSISTENCE_UNAVAILABLE);
+            assertThat(reached).isTrue(); observer().reset();
+            assertThat(targetSnapshot()).isEqualTo(before);
+            assertThat(captured.list).anySatisfy(event -> assertThat(event.getFormattedMessage())
+                    .contains("AttemptAllowanceServiceImpl.", "after exception:"));
+            for (var event : captured.list) {
+                assertThat(event.getFormattedMessage()).doesNotContain(marker);
+                if (event.getThrowableProxy() != null) assertThat(ThrowableProxyUtil.asString(event.getThrowableProxy())).doesNotContain(marker);
+            }
+            assertThat(captured.list).noneSatisfy(event -> assertThat(event.getFormattedMessage())
+                    .contains("JdbcAttemptAllowanceRepository."));
+            var retry = restarted().start(next); assertThat(retry.attemptId()).isNotEqualTo(first.attemptId());
+            assertThat(restarted().start(next).attemptId()).isEqualTo(retry.attemptId());
+            assertThat(count("attempt_start_binding")).isEqualTo(2);
+        } finally { observer().reset(); logger.detachAppender(captured); logger.setLevel(previous); captured.stop(); }
+    }
+
+    static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> allowanceLogFailureBoundaries() {
+        return java.util.stream.Stream.of("INSERT INTO attempt_allowance_scope", "FROM attempt_start_binding b FORCE INDEX",
+                "INSERT INTO attempt_start_binding", "UPDATE attempt_allowance_scope SET", "SELECT COUNT(*) FROM attempt_start_binding")
+                .flatMap(checkpoint -> java.util.stream.Stream.of(0, 1213, 1205)
+                        .map(code -> org.junit.jupiter.params.provider.Arguments.of(checkpoint, code)));
+    }
+
+    @ParameterizedTest @CsvSource({"2,1,EMPTY", "4,1,EMPTY", "2,2,FIRST", "4,2,FIRST", "2,2,LAST", "4,2,LAST",
+            "2,-1,EMPTY", "4,-1,EMPTY", "2,-1,FIRST", "4,-1,FIRST", "2,-1,LAST", "4,-1,LAST"})
+    void incompleteDirectoryCannotHideAuthoritativeBindings(int isolation, long maximum, String loss) {
+        Long limit = maximum < 0 ? null : maximum;
+        UUID revision = prepared();
+        var first = starts.start(limited(command(revision, AnswerOrder.AUTHORED, "drift-first"), limit, Duration.ZERO));
+        UUID active = first.attemptId(); int expected = 1;
+        if (!loss.equals("EMPTY")) {
+            finish(first.attemptId());
+            active = starts.start(limited(command(revision, AnswerOrder.AUTHORED, "drift-second"), limit, Duration.ZERO)).attemptId();
+            expected = 2;
+        }
+        String original = sql.queryForObject("SELECT CAST(start_ids AS CHAR) FROM attempt_allowance_scope", String.class);
+        tx.executeWithoutResult(status -> sql.update(loss.equals("EMPTY") ? "UPDATE attempt_allowance_scope SET start_ids=JSON_ARRAY()"
+                : loss.equals("FIRST") ? "UPDATE attempt_allowance_scope SET start_ids=JSON_REMOVE(start_ids,'$[0]')"
+                : "UPDATE attempt_allowance_scope SET start_ids=JSON_REMOVE(start_ids,'$[last]')"));
+        var before = targetSnapshot();
+        var next = limited(command(revision, AnswerOrder.AUTHORED, "drift-next"), limit, Duration.ZERO);
+        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(isolation);
+        denied(() -> outer.execute(status -> starts.start(next)), ELIGIBILITY_UNAVAILABLE);
+        assertThat(targetSnapshot()).isEqualTo(before);
+        assertThat(count("attempt_start_binding")).isEqualTo(expected);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_lifecycle_state WHERE execution_state='IN_PROGRESS'", Integer.class)).isEqualTo(1);
+        // A read denial must not silently repair or erase either source of evidence.
+        tx.executeWithoutResult(status -> sql.update("UPDATE attempt_allowance_scope SET start_ids=CAST(? AS JSON)", original));
+        denied(() -> starts.start(next), ACTIVE_ATTEMPT);
+        finish(active);
+        if (limit != null) denied(() -> starts.start(next), LIMIT_EXHAUSTED);
+        else assertThat(restarted().start(next).attemptId()).isNotEqualTo(active);
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {true, false})
+    void incompleteDirectoryCannotHideAStartCommittedAfterAnOlderRepeatableReadSnapshot(boolean finite) throws Exception {
+        Long limit = finite ? 2L : null;
+        UUID revision = prepared();
+        var first = starts.start(limited(command(revision, AnswerOrder.AUTHORED, "old-drift-first"), limit, Duration.ZERO));
+        finish(first.attemptId());
+        var next = limited(command(revision, AnswerOrder.AUTHORED, "old-drift-next"), limit, Duration.ZERO);
+        var expected = new AtomicReference<Map<String, List<String>>>();
+        var original = new AtomicReference<String>(); var active = new AtomicReference<UUID>();
+        var pool = Executors.newSingleThreadExecutor();
+        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        try {
+            denied(() -> outer.execute(status -> {
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_start_binding", Integer.class)).isEqualTo(1);
+                try {
+                    pool.submit(() -> {
+                        authenticate(username);
+                        try {
+                            active.set(starts.start(limited(command(revision, AnswerOrder.AUTHORED, "old-drift-second"), limit, Duration.ZERO)).attemptId());
+                            original.set(sql.queryForObject("SELECT CAST(start_ids AS CHAR) FROM attempt_allowance_scope", String.class));
+                            tx.executeWithoutResult(s -> sql.update("UPDATE attempt_allowance_scope SET start_ids=JSON_REMOVE(start_ids,'$[last]')"));
+                            expected.set(targetSnapshot());
+                        } finally { SecurityContextHolder.clearContext(); }
+                    }).get(15, TimeUnit.SECONDS);
+                } catch (Exception e) { throw new AssertionError(e); }
+                return starts.start(next);
+            }), ELIGIBILITY_UNAVAILABLE);
+            assertThat(targetSnapshot()).isEqualTo(expected.get());
+            assertThat(count("attempt_start_binding")).isEqualTo(2);
+            tx.executeWithoutResult(status -> sql.update("UPDATE attempt_allowance_scope SET start_ids=CAST(? AS JSON)", original.get()));
+            denied(() -> starts.start(next), ACTIVE_ATTEMPT);
+            finish(active.get());
+            if (finite) denied(() -> starts.start(next), LIMIT_EXHAUSTED);
+            else assertThat(restarted().start(next).replayed()).isFalse();
+        } finally { pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
     private void finish(UUID attemptId) {
         // Actual #528 terminal writer, not a fake eligibility history. Full submit is tested in #529's fixture.
         tx.executeWithoutResult(s -> {

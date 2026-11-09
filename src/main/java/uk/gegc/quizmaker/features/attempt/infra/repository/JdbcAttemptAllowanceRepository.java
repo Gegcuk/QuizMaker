@@ -6,7 +6,7 @@ import java.time.*;
 import java.util.*;
 import org.springframework.jdbc.core.namedparam.*;
 import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.*;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycle;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.retake.RetakeEligibility.*;
@@ -17,7 +17,6 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStart
 import static uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStartException.require;
 
 @Repository
-@Transactional(propagation = Propagation.MANDATORY)
 public class JdbcAttemptAllowanceRepository implements AttemptAllowanceRepository {
     private final NamedParameterJdbcTemplate sql;
     private static final int READ_BATCH = 512; // SQL bind batch size, never a limit on attempts.
@@ -26,6 +25,7 @@ public class JdbcAttemptAllowanceRepository implements AttemptAllowanceRepositor
     public JdbcAttemptAllowanceRepository(NamedParameterJdbcTemplate sql) { this.sql = sql; }
 
     @Override public void lock(Scope scope, AttemptLimitPolicy policy) {
+        transaction();
         var args = parameters(scope).addValue("maximum", policy.maximumAttempts())
                 .addValue("seconds", policy.cooldown().getSeconds()).addValue("nanos", policy.cooldown().getNano());
         // Insert before lookup avoids absent-key shared gap locks. Only this subject/context contends.
@@ -48,6 +48,7 @@ public class JdbcAttemptAllowanceRepository implements AttemptAllowanceRepositor
     }
 
     @Override public Facts readCurrent(Scope scope, AttemptLimitPolicy policy) {
+        transaction();
         var args = parameters(scope);
         // A pre-extension target without durable publication-version evidence is unknown, not empty.
         var unknown = sql.query("""
@@ -55,8 +56,9 @@ public class JdbcAttemptAllowanceRepository implements AttemptAllowanceRepositor
                 WHERE user_id=:user AND revision_id=:revision FOR SHARE
                 """, args, (r, i) -> r.getBytes(1));
         if (!unknown.isEmpty()) return new Facts(1, scope, Knowledge.LEGACY_UNCLASSIFIED, List.of(), List.of());
-        // The locked directory provides a current complete key set, including in an older RR
-        // snapshot. Point reads avoid range/gap locks on another publication's future inserts.
+        // The directory supplies current point-read keys, including in an older RR snapshot.
+        // It is an index, not completeness evidence: verifyComplete must also compare the
+        // authoritative binding census before a denial or before the new start can commit.
         String directory = sql.queryForObject("SELECT CAST(start_ids AS CHAR) FROM attempt_allowance_scope "
                 + "WHERE user_id=:user AND revision_id=:revision AND publication_version=:publication FOR UPDATE", args, String.class);
         List<byte[]> ids = new ArrayList<>();
@@ -109,6 +111,7 @@ public class JdbcAttemptAllowanceRepository implements AttemptAllowanceRepositor
     }
 
     @Override public void bind(Scope scope, UUID attemptId, UUID startEventId) {
+        transaction();
         require(sql.update("""
                 INSERT INTO attempt_start_binding (attempt_id,start_event_id,user_id,revision_id,publication_version,schema_version)
                 SELECT :attempt,:event,:user,:revision,:publication,1 FROM attempt_trace_stream t
@@ -122,6 +125,32 @@ public class JdbcAttemptAllowanceRepository implements AttemptAllowanceRepositor
                 UPDATE attempt_allowance_scope SET start_ids=JSON_ARRAY_APPEND(start_ids,'$',:id)
                 WHERE user_id=:user AND revision_id=:revision AND publication_version=:publication
                 """, parameters(scope).addValue("id", attemptId.toString())) == 1, ELIGIBILITY_UNAVAILABLE);
+        verifyComplete(scope);
+    }
+
+    @Override public void verifyComplete(Scope scope) {
+        transaction();
+        var args = parameters(scope);
+        Long indexed = sql.queryForObject("""
+                SELECT JSON_LENGTH(start_ids) FROM attempt_allowance_scope
+                WHERE user_id=:user AND revision_id=:revision AND publication_version=:publication FOR UPDATE
+                """, args, Long.class);
+        // A locking census sees committed/own writes even inside a stale RR snapshot. On the
+        // allowed path it runs AFTER inserting our binding: no empty-range shared gap lock can
+        // deadlock independent first inserts. After this check the command only completes its
+        // receipt/commit; a rejecting check always rolls back. The scoped covering index avoids
+        // scanning/locking other subjects' histories. No counter or guessed history is used.
+        Long actual = sql.queryForObject("""
+                SELECT COUNT(*) FROM attempt_start_binding FORCE INDEX (ix_start_binding_scope)
+                WHERE user_id=:user AND revision_id=:revision AND publication_version=:publication FOR SHARE
+                """, args, Long.class);
+        require(indexed != null && indexed.equals(actual), ELIGIBILITY_UNAVAILABLE);
+    }
+
+    private static void transaction() {
+        // No repository transaction interceptor: the owning service sanitizes SQL diagnostics
+        // before the first transactional proxy can log them. Never allow autonomous JDBC writes.
+        require(TransactionSynchronizationManager.isActualTransactionActive(), PERSISTENCE_UNAVAILABLE);
     }
 
     private static MapSqlParameterSource parameters(Scope scope) {

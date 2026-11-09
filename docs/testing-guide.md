@@ -465,5 +465,18 @@ and without prior history. Historical 1/3/5-start fixtures independently measure
 reads. Old-snapshot fixtures verify current terminal/count evidence at both isolation levels.
 `AttemptLimitContractTest` plus existing policy golden fixtures check the original unlimited
 canonical bytes/hash, exact finite/duration round trips and forbidden participant overrides.
+The allowance review regressions also cover empty and partially missing directories with real
+retained bindings/lifecycle, finite and unlimited policies, both isolation levels and commits
+newer than an outer RR snapshot. A cardinality mismatch must return ELIGIBILITY_UNAVAILABLE
+without a second committed attempt or automatic repair. Restoring the fixture's directory must
+restore ordinary active/limit denial or permit a genuinely eligible unlimited start.
+
+TRACE capture targets the actual TransactionInterceptor logger. Faults at scope creation,
+history reads, binding insert, directory update and the authoritative census include private
+markers in the SQL exception/cause/suppressed/next-exception chain. Tests require a reached fault,
+safe timeout/deadlock/storage classification, no marker in transaction messages/throwables,
+fresh-transaction rollback assertions and successful retry. A plain unit test separately proves
+that removing the repository's transactional proxy cannot permit autonomous JDBC access.
+
 No public canonical-start endpoint is added; the full verification suite retains legacy HTTP,
 participant-view, security and OpenAPI compatibility coverage. Run `./mvnw verify` before handoff.

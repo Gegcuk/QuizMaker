@@ -4171,9 +4171,18 @@ publication version until the shared transaction completes. It freezes that scop
 limit/cooldown. A fresh key or different proposed configuration cannot raise the limit or remove
 cooldown within that context. The row is a serialization/configuration guard, not a consumed-count
 projection; unlimited has no separate counter. Its start-ID directory is updated atomically with
-binding/trace/receipt writes. Current bulk point reads use that complete key set, avoiding the
-REPEATABLE_READ range/gap locks that could deadlock independent contexts. SQL parameters are
-batched without imposing an attempt quota. Different publication scopes need no shared guard.
+binding/trace/receipt writes. Current bulk point reads use the directory as an index, not as
+proof of complete history. After validating the listed binding identities, a current authoritative
+binding census must equal the directory length, including when the directory is empty. Missing
+entries return ELIGIBILITY_UNAVAILABLE; the transaction does not repair either source of evidence.
+
+The locking census runs before a rejecting decision, or after this command's binding/directory
+writes and before receipt completion/commit. On that successful path no binding insert follows
+the census: it cannot take a shared empty-range gap lock before independent first inserts in
+REPEATABLE_READ. A mismatch rolls back every tentative start write, leaving the original binding,
+lifecycle and malformed directory unchanged. A nonlocking count from an old RR snapshot is not
+completeness evidence. SQL parameters remain batched without imposing an attempt quota; measured
+multi-parent/history fixtures and independent-scope races cover the added census.
 
 Current reads join durable `attempt_start_binding`, actual lifecycle, immutable policy and start
 trace evidence in bulk. A committed start consumes one allowance even before grading. A real
@@ -4201,7 +4210,10 @@ canonical HTTP adapter must document and test its 409 conflict/eligibility, 429 
 invalid-configuration mappings, authentication/non-enumeration and RFC7807 schemas before exposure;
 this increment adds no route and does not claim those future HTTP responses are activated.
 Lock timeout remains IN_PROGRESS, deadlock RETRYABLE, and other storage failure is bounded and
-sanitized. There is no hidden retry schedule. Existing bounded start/eligibility metrics contain
+sanitized. The allowance repository requires an active caller transaction explicitly and has no
+transactional interceptor of its own. The owning service sanitizes JDBC failures before the first
+transactional proxy can log them, including TRACE message text and nested exception diagnostics.
+There is no hidden retry schedule. Existing bounded start/eligibility metrics contain
 only version, strategy, outcome and reason values; identity and protected content are excluded.
 
 The versioned `AttemptEntryReader` supplies current entry facts. Its publication implementation

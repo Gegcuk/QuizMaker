@@ -54,4 +54,17 @@ class AttemptStartValidationTest {
                 .isInstanceOfSatisfying(AttemptStartException.class, e -> assertThat(e.reason()).isEqualTo(UNSUPPORTED_VERSION));
         verifyNoInteractions(identity, sources, receipts);
     }
+    @Test void allowanceRepositoryCannotReadOrWriteOutsideTheSharedStartTransaction() {
+        var sql = mock(org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate.class);
+        var repository = new uk.gegc.quizmaker.features.attempt.infra.repository.JdbcAttemptAllowanceRepository(sql);
+        var scope = new uk.gegc.quizmaker.features.attempt.domain.model.retake.RetakeEligibility.Scope(UUID.randomUUID(),
+                uk.gegc.quizmaker.features.attempt.domain.model.retake.RetakeEligibility.ContextKind.PUBLICATION, UUID.randomUUID(), 1);
+        var policy = new AttemptLimitPolicy(AttemptLimitMode.UNLIMITED);
+        List<Runnable> operations = List.of(() -> repository.lock(scope, policy), () -> repository.readCurrent(scope, policy),
+                () -> repository.verifyComplete(scope), () -> repository.bind(scope, UUID.randomUUID(), UUID.randomUUID()));
+        for (var operation : operations) assertThatThrownBy(operation::run).isInstanceOfSatisfying(AttemptStartException.class,
+                e -> assertThat(e.reason()).isEqualTo(PERSISTENCE_UNAVAILABLE)).hasNoCause();
+        verifyNoInteractions(sql);
+    }
+
 }
