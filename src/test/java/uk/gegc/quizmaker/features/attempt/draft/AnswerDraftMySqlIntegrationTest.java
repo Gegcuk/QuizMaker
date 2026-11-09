@@ -91,7 +91,7 @@ import static org.assertj.core.api.Assertions.*;
         ResponseAcceptanceServiceImpl.class, JdbcAcceptedResponseRepository.class,
         AnswerDraftStoreImpl.class, JdbcAnswerDraftRepository.class,
         AttemptSubmissionServiceImpl.class, AttemptTerminalSubmissionImpl.class, AcceptedSubmissionResponseFinalizer.class, JdbcAttemptSubmissionRepository.class,
-        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
+        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
         AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
         JdbcPolicySnapshotRepository.class, QuestionSelectionServiceImpl.class,
@@ -162,7 +162,7 @@ class AnswerDraftMySqlIntegrationTest {
     @Autowired SimpleMeterRegistry metrics;
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
-    static final List<String> TARGET_TABLES = List.of("attempt_answer_draft", "attempt_result_release", "attempt_result_created", "attempt_automatic_grade", "attempt_automatic_result", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
+    static final List<String> TARGET_TABLES = List.of("attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_answer_draft", "attempt_result_release", "attempt_result_created", "attempt_automatic_grade", "attempt_automatic_result", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     DraftDataSource observer() { return (DraftDataSource) source; }
@@ -552,7 +552,8 @@ class AnswerDraftMySqlIntegrationTest {
     @ParameterizedTest @ValueSource(ints = {2, 4})
     void firstDraftsInDifferentAttemptsDoNotDeadlockOnMissingKeyGaps(int isolation) throws Exception {
         var first = fixture();
-        var second = starts.start(command(first.start().quizRevisionId(), AnswerOrder.AUTHORED, "independent-start"));
+        quizId = newQuiz();
+        var second = starts.start(command(prepared(), AnswerOrder.AUTHORED, "independent-start"));
         var secondRef = reference(second, delivery.read(second.attemptId()).form().items().get(2));
         var refs = List.of(first.reference(), secondRef); var gate = new CyclicBarrier(2);
         observer().beforeSql = (statement, connection) -> {

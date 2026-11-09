@@ -91,7 +91,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
         ResponseAcceptanceServiceImpl.class, JdbcAcceptedResponseRepository.class,
-        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
+        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
         AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
         JdbcPolicySnapshotRepository.class, QuestionSelectionServiceImpl.class,
@@ -160,7 +160,7 @@ class ResponseAcceptanceMySqlIntegrationTest {
     @Autowired SimpleMeterRegistry metrics;
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
-    static final List<String> TARGET_TABLES = List.of("attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
+    static final List<String> TARGET_TABLES = List.of("attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     AcceptanceDataSource observer() { return (AcceptanceDataSource) source; }
@@ -579,9 +579,20 @@ class ResponseAcceptanceMySqlIntegrationTest {
     @Test void itemFromAnotherRealFormAndReusedStartKeyAreRejectedWithoutWrites() {
         UUID revision = prepared();
         var one = starts.start(command(revision, AnswerOrder.AUTHORED, "first-start"));
+        // Another authorized subject may start the same publication. Keep identical question
+        // revisions so the negative case proves form identity, not merely a different question.
+        String editorName = "form-editor-" + UUID.randomUUID().toString().substring(0, 10);
+        UUID editor = user(editorName, false);
+        grant(editor, "QUESTION_UPDATE", "QUIZ_MODERATE", "ATTEMPT_READ");
+        authenticate(editorName);
         var two = starts.start(command(revision, AnswerOrder.AUTHORED, "second-start"));
         var other = delivery.read(two.attemptId()).form().items().get(2);
+        authenticate(username);
         var own = delivery.read(one.attemptId()).form().items().get(2);
+        String sourceIdentity = "SELECT BIN_TO_UUID(source_item_id) FROM attempt_form_item WHERE form_id=UUID_TO_BIN(?) AND id=UUID_TO_BIN(?)";
+        assertThat(sql.queryForObject(sourceIdentity, String.class, two.formId().toString(), other.id().toString()))
+                .isEqualTo(sql.queryForObject(sourceIdentity, String.class, one.formId().toString(), own.id().toString()));
+        assertThat(other.id()).isNotEqualTo(own.id());
         var before = targetSnapshot();
         rejected(answer(one.attemptId(), other, 1, "answer"), "NOT_FOUND");
         rejected(answer(one.attemptId(), own, 1, "first-start"), "CONFLICT");

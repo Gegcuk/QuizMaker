@@ -101,7 +101,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
         ResponseAcceptanceServiceImpl.class, JdbcAcceptedResponseRepository.class,
         AttemptSubmissionServiceImpl.class, AttemptTerminalSubmissionImpl.class, AcceptedSubmissionResponseFinalizer.class, JdbcAttemptSubmissionRepository.class,
-        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
+        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
         AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
         JdbcPolicySnapshotRepository.class, QuestionSelectionServiceImpl.class,
@@ -174,7 +174,7 @@ class AttemptSubmissionMySqlIntegrationTest {
     @Autowired SimpleMeterRegistry metrics;
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
-    static final List<String> TARGET_TABLES = List.of("attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
+    static final List<String> TARGET_TABLES = List.of("attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     SubmissionDataSource observer() { return (SubmissionDataSource) source; }
@@ -269,6 +269,36 @@ class AttemptSubmissionMySqlIntegrationTest {
         assertThatThrownBy(() -> service.submit(c)).isInstanceOfSatisfying(
                 AttemptSubmissionException.class,
                 failure -> { assertThat(failure.reason().name()).isEqualTo(reason); assertThat(failure.getSuppressed()).isEmpty(); }).hasNoCause();
+    }
+
+    @ParameterizedTest @ValueSource(longs = {1, 2, -1})
+    void realCanonicalSubmissionReleasesActiveGateButNeverRefundsConsumedStart(long maximum) {
+        var original = command(prepared(), AnswerOrder.AUTHORED, "allowance-A");
+        var limits = new AttemptLimitPolicy(maximum < 0 ? AttemptLimitMode.UNLIMITED : AttemptLimitMode.FIXED_COUNT,
+                maximum < 0 ? null : maximum, java.time.Duration.ZERO);
+        var firstCommand = new AttemptStartService.Command(original.version(), original.quizId(), original.content(), original.publicationVersion(),
+                original.key(), original.preset(), original.context(), original.legacyMode(), original.answerOrder(), original.draftsEnabled(),
+                original.navigation(), original.delivery(), original.selection(), limits);
+        var nextCommand = new AttemptStartService.Command(firstCommand.version(), firstCommand.quizId(), firstCommand.content(), firstCommand.publicationVersion(),
+                CommandReceipt.Key.from("allowance-B"), firstCommand.preset(), firstCommand.context(), firstCommand.legacyMode(), firstCommand.answerOrder(),
+                firstCommand.draftsEnabled(), firstCommand.navigation(), firstCommand.delivery(), firstCommand.selection(), limits);
+        var first = starts.start(firstCommand);
+        assertThatThrownBy(() -> starts.start(nextCommand)).isInstanceOfSatisfying(
+                uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStartException.class,
+                e -> assertThat(e.reason().name()).isEqualTo("ACTIVE_ATTEMPT"));
+        var submit = new AttemptSubmissionService.Command(first.attemptId(), first.stateVersion(), true, CommandReceipt.Key.from("allowance-submit"));
+        var terminalResult = submissions.submit(submit);
+        assertThat(recreated().submit(submit).submissionId()).isEqualTo(terminalResult.submissionId());
+        assertThat(count("attempt_start_binding")).isEqualTo(1);
+        if (maximum == 1) {
+            assertThatThrownBy(() -> starts.start(nextCommand)).isInstanceOfSatisfying(
+                    uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStartException.class,
+                    e -> assertThat(e.reason().name()).isEqualTo("LIMIT_EXHAUSTED"));
+            assertThat(count("attempt_start_binding")).isEqualTo(1);
+        } else {
+            assertThat(starts.start(nextCommand).attemptId()).isNotEqualTo(first.attemptId());
+            assertThat(count("attempt_start_binding")).isEqualTo(2);
+        }
     }
 
     @ParameterizedTest @CsvSource({"false,0", "false,8", "false,10", "true,10"})

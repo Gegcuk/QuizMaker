@@ -111,7 +111,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStart
         PublishedQuestionContractServiceImpl.class, BaselineQuestionContractConfig.class,
         FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
-        AttemptStartServiceImpl.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
+        AttemptStartServiceImpl.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
         AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
         JdbcPolicySnapshotRepository.class, QuestionSelectionServiceImpl.class,
@@ -176,6 +176,7 @@ class AttemptStartMySqlIntegrationTest {
     @Autowired DataSource source;
     @Autowired PlatformTransactionManager manager;
     @Autowired AttemptStartService starts;
+    @Autowired AttemptAllowanceService allowance;
     @Autowired AuthenticatedSubjectResolver identity;
     @Autowired QuizPracticeSourceService sources;
     @Autowired AttemptPresetService presets;
@@ -190,7 +191,7 @@ class AttemptStartMySqlIntegrationTest {
     static final ObjectMapper JSON = new ObjectMapper();
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
-    static final List<String> TARGET_TABLES = List.of("attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
+    static final List<String> TARGET_TABLES = List.of("attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     StartDataSource observer() { return (StartDataSource) source; }
@@ -255,18 +256,18 @@ class AttemptStartMySqlIntegrationTest {
         assertThat(revisions.findById(ownerId, oldRevision).orElseThrow().items().get(0).question().questionText()).isEqualTo("Frozen TRUE_FALSE");
     }
 
-    @Test void keyConflictsDoNotCreateAnotherAttemptAndDifferentKeysRemainIndependent() {
+    @Test void keyConflictsAndFreshKeysCannotCreateAnotherActiveAttempt() {
         var original = command(prepared(), AnswerOrder.AUTHORED, "shared-key");
         starts.start(original);
         denied(() -> starts.start(command(original.content().quizRevisionId(), AnswerOrder.SHUFFLED_PER_ATTEMPT, "shared-key")), CONFLICT);
         assertThat(count("attempt_lifecycle_state")).isEqualTo(1);
-        starts.start(command(original.content().quizRevisionId(), AnswerOrder.AUTHORED, "different-key"));
-        assertThat(count("attempt_lifecycle_state")).isEqualTo(2);
+        denied(() -> starts.start(command(original.content().quizRevisionId(), AnswerOrder.AUTHORED, "different-key")), ACTIVE_ATTEMPT);
+        assertThat(count("attempt_lifecycle_state")).isEqualTo(1);
     }
 
     @ParameterizedTest @ValueSource(strings = {"INSERT INTO attempt_policy_snapshot", "INSERT INTO attempt_form (",
             "INSERT INTO attempt_participant_subject", "INSERT INTO attempt_lifecycle_state", "UPDATE attempt_lifecycle_state",
-            "INSERT INTO attempt_trace_event", "UPDATE attempt_command_receipt SET"})
+            "INSERT INTO attempt_trace_event", "INSERT INTO attempt_allowance_scope", "INSERT INTO attempt_start_binding", "UPDATE attempt_allowance_scope SET", "UPDATE attempt_command_receipt SET"})
     void reachedFailureRollsBackEveryStartWriteThenFreshRetrySucceeds(String checkpoint) {
         var command = command(prepared(), AnswerOrder.AUTHORED, "fault");
         var reached = new AtomicBoolean();
@@ -540,7 +541,7 @@ class AttemptStartMySqlIntegrationTest {
     }
 
     @ParameterizedTest @ValueSource(ints = {2, 4})
-    void differentKeysConcurrentStartBothCommit(int isolation) throws Exception {
+    void differentKeysConcurrentStartHaveOneActiveWinner(int isolation) throws Exception {
         UUID revision = prepared();
         var a = command(revision, AnswerOrder.AUTHORED, "independent-A");
         var b = command(revision, AnswerOrder.AUTHORED, "independent-B");
@@ -555,13 +556,13 @@ class AttemptStartMySqlIntegrationTest {
         try {
             var first = pool.submit(() -> raced(a, isolation)); var second = pool.submit(() -> raced(b, isolation));
             var outcomes = List.of(first.get(25, TimeUnit.SECONDS), second.get(25, TimeUnit.SECONDS));
-            assertThat(outcomes).allSatisfy(o -> assertThat(o).isInstanceOf(AttemptStartService.Result.class));
+            assertThat(outcomes.stream().filter(AttemptStartService.Result.class::isInstance)).hasSize(1);
+            assertThat(outcomes).contains(ACTIVE_ATTEMPT);
             assertThat(observer().sqlErrorCodes).isEmpty();
-            assertThat(((AttemptStartService.Result) outcomes.get(0)).attemptId())
-                    .isNotEqualTo(((AttemptStartService.Result) outcomes.get(1)).attemptId());
-            assertThat(count("attempt_lifecycle_state")).isEqualTo(2);
-            assertThat(count("attempt_command_receipt")).isEqualTo(2);
-            assertThat(count("attempt_trace_event")).isEqualTo(4);
+            assertThat(count("attempt_lifecycle_state")).isEqualTo(1);
+            assertThat(count("attempt_command_receipt")).isEqualTo(1);
+            assertThat(count("attempt_start_binding")).isEqualTo(1);
+            assertThat(count("attempt_trace_event")).isEqualTo(2);
         } finally { observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
     }
 
@@ -1032,6 +1033,260 @@ class AttemptStartMySqlIntegrationTest {
         reporter.publishEntry("selectedStartSelectCountsFor5_10_20Items", counts.toString());
     }
 
+    @ParameterizedTest @CsvSource({"2,false", "4,false", "2,true", "4,true"})
+    void finiteLastAllowanceRaceCommitsOnceAndSameKeyReplays(int isolation, boolean identical) throws Exception {
+        var base = limited(command(prepared(), AnswerOrder.AUTHORED, "last-A"), 1L, Duration.ZERO);
+        var other = identical ? base : limited(command(base.content().quizRevisionId(), AnswerOrder.AUTHORED, "last-B"), 1L, Duration.ZERO);
+        var barrier = new CyclicBarrier(2);
+        observer().beforeSql = (statement, connection) -> {
+            if (statement.contains("INSERT INTO attempt_command_receipt")) try { barrier.await(10, TimeUnit.SECONDS); }
+            catch (Exception e) { throw new SQLException("Allowance barrier failed", e); }
+        };
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var a = pool.submit(() -> raced(base, isolation)); var b = pool.submit(() -> raced(other, isolation));
+            var outcomes = List.of(a.get(25, TimeUnit.SECONDS), b.get(25, TimeUnit.SECONDS));
+            assertThat(outcomes.stream().filter(AttemptStartService.Result.class::isInstance)).hasSize(identical ? 2 : 1);
+            if (!identical) assertThat(outcomes).contains(ACTIVE_ATTEMPT);
+            else assertThat(((AttemptStartService.Result) outcomes.get(0)).attemptId())
+                    .isEqualTo(((AttemptStartService.Result) outcomes.get(1)).attemptId());
+            observer().reset();
+            var winner = outcomes.get(0) instanceof AttemptStartService.Result ? base : other;
+            var loser = limited(command(base.content().quizRevisionId(), AnswerOrder.AUTHORED, "after-last"), 1L, Duration.ZERO);
+            var result = restarted().start(winner); assertThat(result.replayed()).isTrue();
+            assertThat(count("attempt_start_binding")).isEqualTo(1);
+            finish(result.attemptId());
+            denied(() -> restarted().start(loser), LIMIT_EXHAUSTED);
+            assertThat(restarted().start(winner).attemptId()).isEqualTo(result.attemptId());
+            assertThat(count("attempt_start_binding")).isEqualTo(1);
+        } finally { observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @Test void limitsAreImmutablePerContextAndReceiptCleanupDoesNotRestoreAllowance() {
+        var command = limited(command(prepared(), AnswerOrder.AUTHORED, "finite"), 1L, Duration.ZERO);
+        var result = starts.start(command); finish(result.attemptId());
+        var changed = limited(command(command.content().quizRevisionId(), AnswerOrder.AUTHORED, "raised-limit"), 2L, Duration.ZERO);
+        denied(() -> starts.start(changed), ALLOWANCE_CONFLICT);
+        denied(() -> starts.start(limited(command, 2L, Duration.ZERO)), CONFLICT);
+        tx.executeWithoutResult(s -> sql.update("DELETE FROM attempt_command_receipt WHERE attempt_id=UUID_TO_BIN(?)", result.attemptId().toString()));
+        denied(() -> restarted().start(command), LIMIT_EXHAUSTED);
+        assertThat(count("attempt_start_binding")).isEqualTo(1);
+        assertThat(count("attempt_lifecycle_state")).isEqualTo(1);
+    }
+
+    @Test void cooldownUsesActualTerminalTimeAndExactBoundaryAfterReload() {
+        var command = limited(command(prepared(), AnswerOrder.AUTHORED, "cooldown-A"), 3L, Duration.ofSeconds(60));
+        var result = starts.start(command); finish(result.attemptId());
+        var next = limited(command(command.content().quizRevisionId(), AnswerOrder.AUTHORED, "cooldown-B"), 3L, Duration.ofSeconds(60));
+        var at59 = serviceWithClock(Clock.offset(clock, Duration.ofSeconds(59)));
+        assertThatThrownBy(() -> at59.start(next)).isInstanceOfSatisfying(AttemptStartException.class, e -> {
+            assertThat(e.reason()).isEqualTo(COOLDOWN);
+            assertThat(e.nextEligibleAt()).isEqualTo(clock.instant().plusSeconds(60));
+        });
+        assertThat(count("attempt_start_binding")).isEqualTo(1);
+        assertThat(serviceWithClock(Clock.offset(clock, Duration.ofSeconds(60))).start(next).replayed()).isFalse();
+        assertThat(count("attempt_start_binding")).isEqualTo(2);
+    }
+
+    @Test void unlimitedCreatesNoCounterAndAllowsNextStartOnlyAfterTerminalState() {
+        var command = command(prepared(), AnswerOrder.AUTHORED, "unlimited-A");
+        var first = starts.start(command);
+        var next = command(command.content().quizRevisionId(), AnswerOrder.AUTHORED, "unlimited-B");
+        denied(() -> starts.start(next), ACTIVE_ATTEMPT);
+        assertThat(sql.queryForObject("SELECT maximum_attempts IS NULL FROM attempt_allowance_scope", Boolean.class)).isTrue();
+        finish(first.attemptId()); assertThat(starts.start(next).attemptId()).isNotEqualTo(first.attemptId());
+        assertThat(count("attempt_start_binding")).isEqualTo(2);
+        assertThat(count("attempt_allowance_scope")).isEqualTo(1);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"INSERT INTO attempt_allowance_scope", "INSERT INTO attempt_start_binding", "UPDATE attempt_allowance_scope SET", "UPDATE attempt_command_receipt SET"})
+    void finiteReachedWriteFailureConsumesNothingAndRetrySucceeds(String checkpoint) {
+        var command = limited(command(prepared(), AnswerOrder.AUTHORED, "finite-failure"), 1L, Duration.ZERO);
+        var reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.contains(checkpoint) && reached.compareAndSet(false, true)) throw new SQLException("Reached finite write failure", "08006");
+        };
+        denied(() -> starts.start(command), PERSISTENCE_UNAVAILABLE);
+        assertThat(reached).isTrue(); observer().reset(); assertNoTargetRows();
+        var winner = restarted().start(command); assertCoherent(winner, 5);
+        assertThat(restarted().start(command).attemptId()).isEqualTo(winner.attemptId());
+        assertThat(count("attempt_start_binding")).isEqualTo(1);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"CLOSED", "UNKNOWN", "VERSION", "MISSING"})
+    void versionedEntryFactsDenyWithoutWritesAndPermittedControlUsesRealStart(String state) {
+        var command = limited(command(prepared(), AnswerOrder.AUTHORED, "entry"), 1L, Duration.ZERO);
+        AttemptEntryReader reader = scope -> state.equals("MISSING") ? null : new AttemptEntryReader.Entry(
+                state.equals("VERSION") ? 2 : 1,
+                state.equals("CLOSED") ? uk.gegc.quizmaker.features.attempt.domain.model.retake.RetakeEligibility.Entry.CLOSED
+                        : uk.gegc.quizmaker.features.attempt.domain.model.retake.RetakeEligibility.Entry.UNKNOWN);
+        denied(() -> withGate(new AttemptAllowanceServiceImpl(new JdbcAttemptAllowanceRepository(new NamedParameterJdbcTemplate(source)),
+                        new RetakeEligibilityServiceImpl(clock, metrics), reader), clock).start(command),
+                state.equals("CLOSED") ? ENTRY_CLOSED : ELIGIBILITY_UNAVAILABLE);
+        assertNoTargetRows();
+        assertCoherent(starts.start(command), 5); assertThat(count("attempt_start_binding")).isEqualTo(1);
+    }
+
+    @Test void missingDurableContextIsNotGuessedFromCurrentPublication() {
+        var command = command(prepared(), AnswerOrder.AUTHORED, "unclassified"); var first = starts.start(command);
+        finish(first.attemptId());
+        tx.executeWithoutResult(s -> sql.update("DELETE FROM attempt_start_binding"));
+        denied(() -> starts.start(command(command.content().quizRevisionId(), AnswerOrder.AUTHORED, "new")), ELIGIBILITY_UNAVAILABLE);
+        assertThat(count("attempt_lifecycle_state")).isEqualTo(1);
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {true, false})
+    void migrationCopiesExactPreExtensionStartContextAndLeavesUnknownRootsUnclassified(boolean retainedReceipt) {
+        var command = command(prepared(), AnswerOrder.AUTHORED, "pre-extension"); var first = starts.start(command);
+        if (!retainedReceipt) tx.executeWithoutResult(s -> sql.update("DELETE FROM attempt_command_receipt"));
+        // Real canonical writes form the pre-extension fixture; only V103's new tables are removed.
+        sql.execute("DROP TABLE attempt_start_binding"); sql.execute("DROP TABLE attempt_allowance_scope"); sql.execute("DROP TABLE attempt_unclassified_publication");
+        new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
+                new org.springframework.core.io.ClassPathResource("db/migration/V103__serialize_canonical_attempt_allowances.sql")).execute(source);
+        assertThat(count("attempt_start_binding")).isEqualTo(retainedReceipt ? 1 : 0);
+        assertThat(count("attempt_unclassified_publication")).isEqualTo(retainedReceipt ? 0 : 1);
+        if (retainedReceipt) {
+            assertThat(sql.queryForObject("SELECT publication_version FROM attempt_start_binding", Long.class)).isEqualTo(1);
+            denied(() -> starts.start(command(command.content().quizRevisionId(), AnswerOrder.AUTHORED, "after-upgrade")), ACTIVE_ATTEMPT);
+            assertThat(starts.start(command).attemptId()).isEqualTo(first.attemptId());
+        } else {
+            denied(() -> starts.start(command(command.content().quizRevisionId(), AnswerOrder.AUTHORED, "after-upgrade")), ELIGIBILITY_UNAVAILABLE);
+            assertThat(count("attempt_lifecycle_state")).isEqualTo(1);
+        }
+    }
+
+    @ParameterizedTest @ValueSource(ints = {2, 4})
+    void realScopeLockTimeoutDoesNotRetryOrConsumeAndExplicitRetrySucceeds(int isolation) throws Exception {
+        var firstCommand = limited(command(prepared(), AnswerOrder.AUTHORED, "scope-first"), 2L, Duration.ZERO);
+        var first = starts.start(firstCommand); finish(first.attemptId());
+        var next = limited(command(firstCommand.content().quizRevisionId(), AnswerOrder.AUTHORED, "scope-next"), 2L, Duration.ZERO);
+        var locked = new CountDownLatch(1); var release = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var holder = pool.submit(() -> tx.execute(status -> {
+                sql.queryForList("SELECT * FROM attempt_allowance_scope FOR UPDATE"); locked.countDown();
+                try { assertThat(release.await(15, TimeUnit.SECONDS)).isTrue(); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new AssertionError(e); }
+                return null;
+            }));
+            assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+            var contender = pool.submit(() -> {
+                authenticate(username);
+                var outer = new TransactionTemplate(manager); outer.setIsolationLevel(isolation);
+                try { return outer.execute(status -> { sql.execute("SET SESSION innodb_lock_wait_timeout=1"); return (Object) starts.start(next); }); }
+                catch (AttemptStartException failure) { return (Object) failure.reason(); }
+                finally { SecurityContextHolder.clearContext(); }
+            });
+            assertThat(contender.get(10, TimeUnit.SECONDS)).isEqualTo(IN_PROGRESS);
+            assertThat(observer().sqlErrorCodes).contains(1205);
+            release.countDown(); holder.get(10, TimeUnit.SECONDS);
+            assertThat(count("attempt_start_binding")).isEqualTo(1);
+            observer().reset(); assertThat(restarted().start(next).attemptId()).isNotEqualTo(first.attemptId());
+            assertThat(count("attempt_start_binding")).isEqualTo(2);
+        } finally { release.countDown(); observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @ParameterizedTest @CsvSource({"1213,RETRYABLE", "1205,IN_PROGRESS", "0,PERSISTENCE_UNAVAILABLE"})
+    void allowanceStorageFailuresKeepBoundedReasonsAndNoPartialState(int code, String reason) {
+        var command = limited(command(prepared(), AnswerOrder.AUTHORED, "scope-storage"), 1L, Duration.ZERO);
+        var reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.contains("INSERT INTO attempt_allowance_scope") && reached.compareAndSet(false, true))
+                throw new SQLException("Synthetic private SQL payload must not escape", code == 1213 ? "40001" : "HY000", code);
+        };
+        denied(() -> starts.start(command), AttemptStartException.Reason.valueOf(reason));
+        assertThat(reached).isTrue(); observer().reset(); assertNoTargetRows();
+        assertCoherent(restarted().start(command), 5);
+    }
+
+    @ParameterizedTest @CsvSource({"2,false", "4,false", "2,true", "4,true"})
+    void distinctPublicationScopesCanReachTheirGuardsTogetherAndBothCommit(int isolation, boolean history) throws Exception {
+        UUID firstRevision = prepared();
+        if (history) finish(starts.start(command(firstRevision, AnswerOrder.AUTHORED, "scope-A-history")).attemptId());
+        var first = command(firstRevision, AnswerOrder.AUTHORED, "scope-A");
+        quizId = newQuiz(); UUID secondRevision = prepared();
+        if (history) finish(starts.start(command(secondRevision, AnswerOrder.AUTHORED, "scope-B-history")).attemptId());
+        var second = command(secondRevision, AnswerOrder.AUTHORED, "scope-B");
+        var barrier = new CyclicBarrier(2); var reached = new AtomicInteger();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.contains("INSERT INTO attempt_allowance_scope")) {
+                reached.incrementAndGet();
+                try { barrier.await(10, TimeUnit.SECONDS); }
+                catch (Exception e) { throw new SQLException("Independent scope barrier failed", e); }
+            }
+        };
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var a = pool.submit(() -> raced(first, isolation)); var b = pool.submit(() -> raced(second, isolation));
+            assertThat(List.of(a.get(25, TimeUnit.SECONDS), b.get(25, TimeUnit.SECONDS)))
+                    .allSatisfy(result -> assertThat(result).isInstanceOf(AttemptStartService.Result.class));
+            assertThat(reached).hasValue(2);
+            assertThat(count("attempt_start_binding")).isEqualTo(history ? 4 : 2);
+            assertThat(count("attempt_allowance_scope")).isEqualTo(2);
+        } finally { observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @ParameterizedTest @CsvSource({"2,1", "4,1", "2,2", "4,2"})
+    void allowanceReadsCurrentDirectoryAndTerminalFactsInsideAnOlderSnapshot(int isolation, long maximum) throws Exception {
+        var first = limited(command(prepared(), AnswerOrder.AUTHORED, "snapshot-A"), maximum, Duration.ZERO);
+        var next = limited(command(first.content().quizRevisionId(), AnswerOrder.AUTHORED, "snapshot-B"), maximum, Duration.ZERO);
+        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(isolation);
+        var pool = Executors.newSingleThreadExecutor();
+        java.util.function.Supplier<AttemptStartService.Result> action = () -> outer.execute(status -> {
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_start_binding", Integer.class)).isZero();
+            try {
+                pool.submit(() -> {
+                    authenticate(username);
+                    try { var committed = starts.start(first); finish(committed.attemptId()); }
+                    finally { SecurityContextHolder.clearContext(); }
+                }).get(15, TimeUnit.SECONDS);
+            } catch (Exception e) { throw new AssertionError(e); }
+            return starts.start(next);
+        });
+        try {
+            if (maximum == 1) denied(action::get, LIMIT_EXHAUSTED);
+            else assertThat(action.get().replayed()).isFalse();
+            assertThat(count("attempt_start_binding")).isEqualTo(maximum);
+        } finally { pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @Test void historicalAllowanceReadsUseBoundedSqlAcrossSeveralParentPublications(TestReporter reporter) {
+        var reads = new ArrayList<Integer>();
+        for (int historySize : List.of(1, 3, 5)) {
+            quizId = newQuiz(); UUID revision = prepared();
+            for (int n = 0; n < historySize; n++) finish(starts.start(command(revision, AnswerOrder.AUTHORED, "history-" + historySize + "-" + n)).attemptId());
+            observer().selects.clear();
+            starts.start(command(revision, AnswerOrder.AUTHORED, "history-next-" + historySize));
+            reads.add(observer().selects.size());
+        }
+        assertThat(reads.get(0)).isPositive(); assertThat(reads).allMatch(n -> n.equals(reads.get(0)));
+        reporter.publishEntry("startSelectCountsFor1_3_5HistoricalStarts", reads.toString());
+    }
+
+    private void finish(UUID attemptId) {
+        // Actual #528 terminal writer, not a fake eligibility history. Full submit is tested in #529's fixture.
+        tx.executeWithoutResult(s -> {
+            var current = lifecycle.lock(attemptId);
+            lifecycle.save(attemptId, current.rowVersion(), new uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycle.State(1,
+                    uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycle.Execution.SUBMITTED,
+                    uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycle.AnswerCollection.COMPLETE));
+        });
+    }
+    private static AttemptStartService.Command limited(AttemptStartService.Command c, Long maximum, Duration cooldown) {
+        return new AttemptStartService.Command(c.version(), c.quizId(), c.content(), c.publicationVersion(), c.key(), c.preset(), c.context(),
+                c.legacyMode(), c.answerOrder(), c.draftsEnabled(), c.navigation(), c.delivery(), c.selection(),
+                new AttemptLimitPolicy(maximum == null ? AttemptLimitMode.UNLIMITED : AttemptLimitMode.FIXED_COUNT, maximum, cooldown));
+    }
+    private AttemptStartService serviceWithClock(Clock at) {
+        return withGate(new AttemptAllowanceServiceImpl(new JdbcAttemptAllowanceRepository(new NamedParameterJdbcTemplate(source)),
+                new RetakeEligibilityServiceImpl(at, metrics), new PublicationAttemptEntryReader()), at);
+    }
+    private AttemptStartService withGate(AttemptAllowanceService gate, Clock at) {
+        return new AttemptStartServiceImpl(identity, sources, presets, policies, snapshots, contracts, selector, materializer, subjects, lifecycle, trace,
+                new CommandReceiptServiceImpl(new JdbcCommandReceiptRepository(new NamedParameterJdbcTemplate(source)), manager, at, metrics),
+                metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), gate);
+    }
+
     private AttemptStartService randomStarts() {
         byte[] testKey = new byte[32]; Arrays.fill(testKey, (byte) 19);
         return withSelector(new QuestionSelectionServiceImpl(new HmacSelectionSeedSource("7", Base64.getEncoder().encodeToString(testKey))));
@@ -1039,7 +1294,7 @@ class AttemptStartMySqlIntegrationTest {
     private AttemptStartService withSelector(QuestionSelectionService configured) {
         var receipt = new CommandReceiptServiceImpl(new JdbcCommandReceiptRepository(new NamedParameterJdbcTemplate(source)), manager, clock, metrics);
         return new AttemptStartServiceImpl(identity, sources, presets, policies, snapshots, contracts, configured, materializer,
-                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)));
+                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), allowance);
     }
     private static AttemptStartService.Command selected(AttemptStartService.Command c, Configuration selection) {
         return new AttemptStartService.Command(c.version(), c.quizId(), c.content(), c.publicationVersion(), c.key(), c.preset(),
@@ -1055,7 +1310,7 @@ class AttemptStartMySqlIntegrationTest {
     private AttemptStartService restarted() {
         var receipt = new CommandReceiptServiceImpl(new JdbcCommandReceiptRepository(new NamedParameterJdbcTemplate(source)), manager, clock, metrics);
         return new AttemptStartServiceImpl(identity, sources, presets, policies, snapshots, contracts, selector, materializer,
-                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)));
+                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), allowance);
     }
     private Object raced(AttemptStartService.Command command, int isolation) {
         authenticate(username);

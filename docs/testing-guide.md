@@ -434,3 +434,36 @@ Run the Maven command from the repository root. Use the live-provider profile on
 Never use production Stripe credentials, production OpenAI data, or a production database for these smoke tests. Without `-Plive-provider-tests`, provider suites must be excluded rather than reported as skipped.
 
 Report what ran, what did not run, and any residual risk. A passing test that asserts the wrong thing is not useful coverage.
+
+### Atomic canonical-start allowance (#549)
+
+With JDK 17 and the existing local test MySQL configuration, run:
+
+```bash
+./mvnw test -Dtest=AttemptLimitContractTest,AttemptStartMySqlIntegrationTest,AttemptSubmissionMySqlIntegrationTest
+```
+
+The start suite uses its exclusive generated catalog and actual canonical publication, receipt,
+form, policy, subject, lifecycle, trace and allowance writers. It checks identical/different-key
+races at both supported isolation levels, terminal counting, immutable limits, exact cooldown,
+real InnoDB lock timeout, classified storage faults, reached-write rollback, restart/commit
+reconciliation and receipt-cleanup independence. The submission suite composes the real #529
+submission command with the gate: terminal submission permits a subsequent unlimited/remaining
+start, while an exhausted finite allowance remains exhausted. Start-only terminal fixtures use
+the real lifecycle writer and do not claim full submission integration on their own.
+
+The V103 SQL fixture recreates only the new tables in its exclusive test catalog after producing
+real canonical roots, then proves exact pre-extension binding migration. An unclassified root is
+separately denied without inventing publication-version history. Entry-reader doubles supply
+versioned permitted/closed/unknown facts only, with a successful real-start control. They do not
+prove #836 examination finality or #534 formal assignment behavior.
+
+Existing multi-parent start fixtures measure SQL SELECT counts for 5/10/20-item banks and retained
+receipt replay, including new bulk allowance reads; counts must remain constant. Separate races
+require two distinct publication guards to be reached together and both starts to commit, with
+and without prior history. Historical 1/3/5-start fixtures independently measure bounded bulk
+reads. Old-snapshot fixtures verify current terminal/count evidence at both isolation levels.
+`AttemptLimitContractTest` plus existing policy golden fixtures check the original unlimited
+canonical bytes/hash, exact finite/duration round trips and forbidden participant overrides.
+No public canonical-start endpoint is added; the full verification suite retains legacy HTTP,
+participant-view, security and OpenAPI compatibility coverage. Run `./mvnw verify` before handoff.

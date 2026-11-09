@@ -36,6 +36,7 @@ class BuiltInPracticePresetTest {
         // A fixture-only sorted JSON codec. #517 owns the production canonical policy format/hash.
         var codec = JsonMapper.builder().enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
                 .addModule(uk.gegc.quizmaker.features.attempt.infra.policy.SelectionPolicyJson.module())
+                .addModule(uk.gegc.quizmaker.features.attempt.infra.policy.AttemptLimitPolicyJson.module())
                 .serializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL).build();
         var captured = new CapturedPreset(presets.load(V1).reference(), presets.load(V1).bindContent(content(42)));
         byte[] actual = codec.writeValueAsBytes(captured);

@@ -115,7 +115,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
         ResponseAcceptanceServiceImpl.class, JdbcAcceptedResponseRepository.class,
         AttemptSubmissionServiceImpl.class, AttemptTerminalSubmissionImpl.class, AcceptedSubmissionResponseFinalizer.class, JdbcAttemptSubmissionRepository.class,
-        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
+        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
         AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
         JdbcPolicySnapshotRepository.class, QuestionSelectionServiceImpl.class,
@@ -192,7 +192,7 @@ class AutomaticResultMySqlIntegrationTest {
     @Autowired SimpleMeterRegistry metrics;
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
-    static final List<String> TARGET_TABLES = List.of("attempt_result_created", "attempt_automatic_grade", "attempt_automatic_result", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
+    static final List<String> TARGET_TABLES = List.of("attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_result_created", "attempt_automatic_grade", "attempt_automatic_result", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     SubmissionDataSource observer() { return (SubmissionDataSource) source; }
@@ -289,6 +289,17 @@ class AutomaticResultMySqlIntegrationTest {
         assertThat(traces).isZero();
         assertThat(results.pending(100)).contains(f.submission());
     }
+    @Test void actualGradeDoesNotRefundAStartOrPreventAnOtherwiseEligibleUnlimitedRetake() {
+        var f = fixture(FAMILIES, 5, 5);
+        var result = results.finalizeSubmission(f.submission());
+        var revision = result.quizRevisionId();
+        var next = starts.start(command(revision, AnswerOrder.AUTHORED, "after-real-grade"));
+        assertThat(next.attemptId()).isNotEqualTo(f.attempt());
+        assertThat(count("attempt_start_binding")).isEqualTo(2);
+        assertThat(count("attempt_automatic_result")).isEqualTo(1);
+        assertThat(recreated().finalizeSubmission(f.submission()).id()).isEqualTo(result.id());
+    }
+
     @Test void realConnectionsUseTheRequestedIsolation() {
         String actual=tx.execute(s->sql.queryForObject("SELECT @@transaction_isolation",String.class));
         String expected=System.getProperty("result.test.isolation","TRANSACTION_REPEATABLE_READ")

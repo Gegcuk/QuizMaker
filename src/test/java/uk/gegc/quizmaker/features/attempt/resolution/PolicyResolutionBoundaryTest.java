@@ -25,8 +25,8 @@ import static uk.gegc.quizmaker.features.attempt.resolution.PolicyResolutionFixt
 class PolicyResolutionBoundaryTest {
     @Test
     void protectedSettingsAndCallerIdentityHaveNoGenericOverrideChannel() {
-        assertThat(Choice.class.getPermittedSubclasses()).containsExactlyInAnyOrder(AnswerOrderChoice.class, HintChoice.class, DraftsChoice.class, NavigationChoice.class, DeliveryChoice.class, SelectionChoice.class);
-        assertThat(Setting.values()).containsExactly(Setting.ANSWER_ORDER, Setting.HINTS, Setting.DRAFTS, Setting.NAVIGATION, Setting.DELIVERY, Setting.SELECTION);
+        assertThat(Choice.class.getPermittedSubclasses()).containsExactlyInAnyOrder(AnswerOrderChoice.class, HintChoice.class, DraftsChoice.class, NavigationChoice.class, DeliveryChoice.class, SelectionChoice.class, AttemptLimitChoice.class);
+        assertThat(Setting.values()).containsExactly(Setting.ANSWER_ORDER, Setting.HINTS, Setting.DRAFTS, Setting.NAVIGATION, Setting.DELIVERY, Setting.SELECTION, Setting.ATTEMPT_LIMIT);
         assertThat(PolicyResolutionRequest.class.getRecordComponents()).extracting(java.lang.reflect.RecordComponent::getName)
                 .containsExactly("resolverVersion", "canonicalVersion", "hashAlgorithm", "preset", "content", "overrides");
         assertThat(AttemptPolicyResolverImpl.class.getConstructors()).hasSize(1);
