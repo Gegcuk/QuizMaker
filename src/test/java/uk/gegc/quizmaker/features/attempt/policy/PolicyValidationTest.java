@@ -44,7 +44,7 @@ class PolicyValidationTest {
     @DisplayName("vocabulary: when deferred modes are requested then there is no implicit activation")
     void deferredModesAndInvalidParserArgumentsFailClosed() {
         rejected(() -> ResolvedAttemptPolicy.parseValue(SelectionMode.class, "RANDOM_COUNT"), UNKNOWN_VALUE);
-        rejected(() -> ResolvedAttemptPolicy.parseValue(DeliveryMode.class, "ONE_AT_A_TIME"), UNKNOWN_VALUE);
+        rejected(() -> ResolvedAttemptPolicy.parseValue(DeliveryMode.class, "NOT_IMPLEMENTED"), UNKNOWN_VALUE);
         rejected(() -> ResolvedAttemptPolicy.parseValue(TimingMode.class, "TOTAL_ATTEMPT"), UNKNOWN_VALUE);
         rejected(() -> ResolvedAttemptPolicy.parseValue(ParticipantMode.class, "GUEST"), UNKNOWN_VALUE);
         rejected(() -> ResolvedAttemptPolicy.parseValue(GradingMode.class, "PARTIAL_CREDIT"), UNKNOWN_VALUE);

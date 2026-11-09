@@ -99,6 +99,12 @@ class NavigationOpenApiTest {
             "CONFLICT,409", "INACTIVE,409", "ANSWER_REQUIRED,409", "TRANSITION_DENIED,409", "IN_PROGRESS,409", "EXPIRED,409",
             "CORRUPT,500", "RETRYABLE,503", "UNKNOWN_OUTCOME,503", "UNAVAILABLE,503"})
     @WithMockUser void failuresUseTypedContentFreeProblemDetail(String reason, int code) throws Exception {
+        when(navigation.next(any())).thenThrow(new uk.gegc.quizmaker.features.attempt.domain.model.navigation.NavigationException(
+                uk.gegc.quizmaker.features.attempt.domain.model.navigation.NavigationException.Reason.valueOf(reason)));
+        mvc.perform(post(PATH + "/next", ATTEMPT).header("Idempotency-Key", "key").contentType("application/json")
+                        .content("{\"expectedStateVersion\":1,\"expectedNavigationVersion\":1}"))
+                .andExpect(status().is(code)).andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                .andExpect(header().string("Cache-Control", "no-store")).andExpect(jsonPath("$.code").value("NAVIGATION_" + reason));
         when(navigation.navigate(any())).thenThrow(new uk.gegc.quizmaker.features.attempt.domain.model.navigation.NavigationException(
                 uk.gegc.quizmaker.features.attempt.domain.model.navigation.NavigationException.Reason.valueOf(reason)));
         mvc.perform(post(PATH, ATTEMPT).header("Idempotency-Key", "key").contentType("application/json").content(BODY))
@@ -129,10 +135,12 @@ class NavigationOpenApiTest {
     @Test @WithMockUser void fullAndGroupedOpenApiDiscoverNamedSchemasAndValidateExamples() throws Exception {
         for (String url : List.of("/v3/api-docs", "/v3/api-docs/attempts")) {
             var spec = json.readTree(mvc.perform(get(url)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-            var schemas = spec.at("/components/schemas"); var op = spec.path("paths").path(PATH).path("post");
-            assertThat(op.path("operationId").asText()).isEqualTo("navigateAttempt");
+            var schemas = spec.at("/components/schemas");
+            for (String path : List.of(PATH, PATH + "/next")) {
+            boolean next = path.endsWith("/next"); var op = spec.path("paths").path(path).path("post");
+            assertThat(op.path("operationId").asText()).isEqualTo(next ? "deliverNextAttemptItem" : "navigateAttempt");
             assertThat(op.path("security").get(0).has("bearerAuth")).isTrue();
-            assertThat(op.at("/requestBody/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/NavigateAttemptRequest");
+            assertThat(op.at("/requestBody/content/application~1json/schema/$ref").asText()).isEqualTo(next ? "#/components/schemas/NextAttemptItemRequest" : "#/components/schemas/NavigateAttemptRequest");
             assertThat(op.at("/responses/200/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/NavigateAttemptAcknowledgement");
             for (String code : List.of("400", "401", "404", "409", "422", "500", "503"))
                 assertThat(op.path("responses").path(code).findValuesAsText("$ref")).contains("#/components/schemas/ProblemDetail");
@@ -142,7 +150,8 @@ class NavigationOpenApiTest {
                 assertThat(matchesFormSchema(spec, media.path("schema"), example, 0)).isTrue();
             }
             assertThat(op.path("parameters").findValuesAsText("name")).contains("attemptId", "Idempotency-Key");
-            assertThat(op.path("description").asText()).contains("ATTEMPT_READ", "Online", "SEQUENTIAL", "FREE");
+            assertThat(op.path("description").asText()).contains("ATTEMPT_READ", "Online");
+            }
         }
         var matcher = new org.springframework.util.AntPathMatcher();
         assertThat(groups.stream().filter(g -> g.getPathsToMatch().stream().anyMatch(p -> matcher.match(p, PATH)))
@@ -190,6 +199,36 @@ class NavigationOpenApiTest {
         if (schema.has("items")) for (var item : value)
             if (!matchesFormSchema(spec, schema.path("items"), item, depth + 1)) return false;
         return true;
+    }
+
+    @Test @WithMockUser void nextUsesOnlyVersionsAndReturnsCommittedMetadata() throws Exception {
+        when(navigation.next(any())).thenReturn(new uk.gegc.quizmaker.features.attempt.application.NavigationService.Result(
+                ATTEMPT, ITEM, 2, new uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Cursor(UUID.randomUUID(), ITEM, 2), false));
+        mvc.perform(post(PATH + "/next", ATTEMPT).header("Idempotency-Key", "next-key").contentType("application/json")
+                        .content("{\"expectedStateVersion\":2,\"expectedNavigationVersion\":1}"))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.formItemId").value(ITEM.toString())).andExpect(jsonPath("$.navigation.version").value(2));
+        verify(navigation).next(argThat(c -> c.attemptId().equals(ATTEMPT) && c.expectedStateVersion() == 2 && c.expectedNavigationVersion() == 1));
+    }
+    @Test @WithMockUser void malformedNextNeverReachesApplication() throws Exception {
+        for (String body : List.of("{}", "null", "[]", "{\"expectedStateVersion\":1}",
+                "{\"expectedStateVersion\":1,\"expectedNavigationVersion\":0}",
+                "{\"expectedStateVersion\":1,\"expectedNavigationVersion\":null}",
+                "{\"expectedStateVersion\":1.5,\"expectedNavigationVersion\":1}",
+                "{\"expectedStateVersion\":\"1\",\"expectedNavigationVersion\":1}",
+                "{\"expectedStateVersion\":1,\"expectedNavigationVersion\":true}",
+                "{\"expectedStateVersion\":1,\"expectedNavigationVersion\":1,\"formItemId\":\"" + ITEM + "\"}",
+                "{\"expectedStateVersion\":1,\"expectedStateVersion\":2,\"expectedNavigationVersion\":1}"))
+            mvc.perform(post(PATH + "/next", ATTEMPT).header("Idempotency-Key", "key").contentType("application/json").content(body))
+                    .andExpect(status().isBadRequest());
+        mvc.perform(post(PATH + "/next", ATTEMPT).contentType("application/json")
+                .content("{\"expectedStateVersion\":1,\"expectedNavigationVersion\":1}")).andExpect(status().isBadRequest());
+        verifyNoInteractions(navigation);
+    }
+    @Test void anonymousNextIsRejectedBeforeApplication() throws Exception {
+        mvc.perform(post(PATH + "/next", ATTEMPT).header("Idempotency-Key", "key").contentType("application/json")
+                        .content("{\"expectedStateVersion\":1,\"expectedNavigationVersion\":1}"))
+                .andExpect(status().isUnauthorized()); verifyNoInteractions(navigation);
     }
 
 }

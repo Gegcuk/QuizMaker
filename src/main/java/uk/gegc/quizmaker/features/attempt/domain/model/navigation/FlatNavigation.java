@@ -42,6 +42,16 @@ public final class FlatNavigation {
             return item != null && positions.containsKey(item) && !accepted.contains(item)
                     && (cursor == null || cursor.currentFormItemId().equals(item));
         }
+        /** Select the next permitted stop without revealing a future item's identity to a caller. */
+        public UUID next() {
+            require(cursor != null, Reason.TRANSITION_DENIED);
+            int index = positions.get(cursor.currentFormItemId()) + 1;
+            while (index < items.size() && !readable(items.get(index))) index++;
+            require(index < items.size(), Reason.TRANSITION_DENIED);
+            UUID target = items.get(index);
+            check(target, cursor.version());
+            return target;
+        }
         public void check(UUID target, Long expectedNavigationVersion) {
             require(readable(target), Reason.NOT_FOUND);
             if (cursor == null) { require(expectedNavigationVersion == null, Reason.INVALID_INPUT); return; }

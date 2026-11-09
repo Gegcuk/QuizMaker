@@ -104,4 +104,28 @@ class NavigationPolicyTest {
                             uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands.Type.SUBMIT_ANSWER);
         }
     }
+    @Test void oneAtATimeRequiresAuthorGrantAndSequentialPolicyAndRetainsProvenance() {
+        var nav = new NavigationPolicy(NavigationMode.SEQUENTIAL, new NavigationRules(1, false, true));
+        var choices = List.<Choice>of(new NavigationChoice(nav), new DeliveryChoice(DeliveryMode.ONE_AT_A_TIME));
+        var allowed = new AllowedChoices(Set.of(), Set.of(), Set.of(), Set.of(nav), Set.of(DeliveryMode.ONE_AT_A_TIME));
+        var request = new PolicyResolutionRequest(1, 1, "SHA-256", BuiltInPracticePreset.REFERENCE, content,
+                List.of(new SourceOverrides(OverrideSource.AUTHOR, 1, allowed, choices)));
+        var saved = resolver.resolve(request); var format = new CanonicalPolicyFormat();
+        assertThat(saved.policy().delivery().mode()).isEqualTo(DeliveryMode.ONE_AT_A_TIME);
+        assertThat(format.decode(saved.canonicalJson(), saved.hash())).isEqualTo(saved);
+        assertThat(saved.provenance().get("delivery.mode")).isEqualTo(new PolicyResolution.ValueSource(PolicyResolution.Source.AUTHOR, 1));
+        var forged = new TreeMap<>(saved.provenance()); forged.put("delivery.mode", new PolicyResolution.ValueSource(PolicyResolution.Source.PRESET, 1));
+        var encoded = format.encode(saved.preset(), saved.policy(), forged);
+        assertThatThrownBy(() -> format.decode(encoded.canonicalJson(), encoded.hash())).isInstanceOf(PolicySnapshotException.class);
+        assertThatThrownBy(() -> resolver.resolve(new PolicyResolutionRequest(1, 1, "SHA-256", BuiltInPracticePreset.REFERENCE, content,
+                List.of(new SourceOverrides(OverrideSource.PARTICIPANT, 1, allowed, choices)))))
+                .isInstanceOf(PolicyResolutionException.class);
+        assertThatThrownBy(() -> resolver.resolve(new PolicyResolutionRequest(1, 1, "SHA-256", BuiltInPracticePreset.REFERENCE, content,
+                List.of(new SourceOverrides(OverrideSource.AUTHOR, 1, allowed, List.of(new DeliveryChoice(DeliveryMode.ONE_AT_A_TIME)))))))
+                .isInstanceOf(PolicyValidationException.class);
+        assertThatThrownBy(() -> resolver.resolve(new PolicyResolutionRequest(1, 1, "SHA-256", BuiltInPracticePreset.REFERENCE, content,
+                List.of(new SourceOverrides(OverrideSource.AUTHOR, 1, new AllowedChoices(Set.of(), Set.of()), choices)))))
+                .isInstanceOf(PolicyResolutionException.class);
+    }
+
 }

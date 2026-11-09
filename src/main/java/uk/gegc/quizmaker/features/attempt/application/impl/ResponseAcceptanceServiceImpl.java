@@ -85,6 +85,7 @@ public class ResponseAcceptanceServiceImpl implements ResponseAcceptanceService 
         ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
         var item = saved.form().items().stream().filter(i -> i.id().equals(c.formItemId())).findFirst()
                 .orElseThrow(() -> new ResponseAcceptanceException(NOT_FOUND));
+        require(saved.current(item.id()), NOT_FOUND);
         require(saved.navigation().answerable(item.id()), CONFLICT);
         var question = saved.revision().items().stream().filter(i -> i.id().equals(item.sourceItemId()))
                 .findFirst().orElseThrow(() -> new ResponseAcceptanceException(CORRUPT)).question();

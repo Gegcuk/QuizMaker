@@ -12,19 +12,24 @@ import uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ParticipantContent;
 
-@Schema(name = "AttemptFormResponse", description = "Complete saved flat form. No pagination; item and option order are authoritative. All fields are non-null.")
+@Schema(name = "AttemptFormResponse", description = "Saved permitted flat content: complete for ALL_AT_ONCE, current readable item for ONE_AT_A_TIME. No pagination; item and option order are authoritative.")
 public record AttemptFormResponse(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) UUID attemptId,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1", description = "Lifecycle storage version, not a timestamp.") long stateVersion,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) UUID formId,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1", maximum = "1") int schemaVersion,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<Item> items,
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Advisory server decisions from proven facts. This read-only increment reports VIEW_ATTEMPT; absent answer/completion facts never authorize writes.")
-        List<AttemptCommands.Type> allowedActions) {
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Advisory server decisions from proven facts. ONE_AT_A_TIME includes permitted read/navigation decisions from locked facts; every command reauthorizes.")
+        List<AttemptCommands.Type> allowedActions,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        @Schema(description = "Current item and optimistic position version for ONE_AT_A_TIME; absent for ALL_AT_ONCE.") NavigationPosition navigation) {
+    public AttemptFormResponse(UUID attemptId, long stateVersion, UUID formId, int schemaVersion, List<Item> items, List<AttemptCommands.Type> allowedActions) {
+        this(attemptId, stateVersion, formId, schemaVersion, items, allowedActions, null);
+    }
     public AttemptFormResponse { items = List.copyOf(items); allowedActions = List.copyOf(allowedActions); }
     public static AttemptFormResponse from(AttemptDeliveryService.View view) {
         return new AttemptFormResponse(view.attemptId(), view.stateVersion(), view.form().id(), view.form().schemaVersion(),
-                items(view.form()), view.allowedActions());
+                items(view.form()), view.allowedActions(), NavigationPosition.from(view.navigation()));
     }
     public static List<Item> items(uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm form) {
         return form.items().stream().map(item -> new Item(item.id(), item.position(), item.type(),

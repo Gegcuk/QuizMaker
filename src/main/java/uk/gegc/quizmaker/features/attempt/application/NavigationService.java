@@ -10,5 +10,9 @@ public interface NavigationService {
         @Override public String toString() { return "NavigationCommand[redacted]"; }
     }
     record Result(UUID attemptId, UUID formItemId, long stateVersion, Cursor cursor, boolean replayed) { }
+    record NextCommand(UUID attemptId, long expectedStateVersion, long expectedNavigationVersion, CommandReceipt.Key key) {
+        @Override public String toString() { return "NextItemCommand[redacted]"; }
+    }
     Result navigate(Command command);
+    Result next(NextCommand command);
 }

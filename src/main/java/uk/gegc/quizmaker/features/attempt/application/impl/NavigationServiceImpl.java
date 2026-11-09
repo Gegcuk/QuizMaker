@@ -38,16 +38,24 @@ public class NavigationServiceImpl implements NavigationService {
         this.read = new TransactionTemplate(manager); this.read.setReadOnly(true);
     }
 
-    @Override public Result navigate(Command c) {
+    @Override public Result navigate(Command c) { return execute(c, false); }
+
+    @Override public Result next(NextCommand c) {
+        require(c != null, Reason.INVALID_INPUT);
+        return execute(new Command(c.attemptId(), null, c.expectedStateVersion(), c.expectedNavigationVersion(), c.key()), true);
+    }
+
+    private Result execute(Command c, boolean next) {
         String outcome = "unavailable";
         try {
-            require(c != null && c.attemptId() != null && c.formItemId() != null && c.expectedStateVersion() >= 0
+            require(c != null && c.attemptId() != null && (next || c.formItemId() != null) && c.expectedStateVersion() >= 0
                     && c.key() != null && (c.expectedNavigationVersion() == null || c.expectedNavigationVersion() > 0), Reason.INVALID_INPUT);
             var subject = identity.resolve(c.attemptId());
             var input = JsonNodeFactory.instance.objectNode();
+            if (next) input.put("direction", "NEXT");
             if (c.expectedNavigationVersion() != null) input.put("expectedNavigationVersion", c.expectedNavigationVersion());
             var request = new CommandReceipt.Request(1, subject.userId(), c.attemptId(), AttemptCommands.Type.NAVIGATE_TO_ITEM,
-                    c.formItemId(), c.expectedStateVersion(), c.key(), CanonicalCommandInput.fingerprint(1, input));
+                    next ? c.attemptId() : c.formItemId(), c.expectedStateVersion(), c.key(), CanonicalCommandInput.fingerprint(1, input));
             class Invocation {
                 NavigationException failure;
                 <T> T checked(Supplier<T> action) {
@@ -61,7 +69,7 @@ public class NavigationServiceImpl implements NavigationService {
                     require(answers.lockOwnBinding(subject.userId(), c.attemptId()), Reason.NOT_FOUND);
                     lifecycle.lock(c.attemptId());
                     return access.requireAccess(c.attemptId(), AttemptAccessService.Operation.VIEW);
-                }), id -> call.checked(() -> move(c, id)));
+                }), id -> call.checked(() -> move(c, id, next)));
             } catch (ReceiptException failure) {
                 if (call.failure != null && (failure.reason() == ReceiptException.Reason.ACCESS_DENIED
                         || failure.reason() == ReceiptException.Reason.COMMAND_DENIED)) throw call.failure;
@@ -71,12 +79,12 @@ public class NavigationServiceImpl implements NavigationService {
             var result = read.execute(s -> call.checked(() -> navigation.result(ack.resultId())
                     .orElseThrow(() -> new NavigationException(Reason.CORRUPT))));
             require(result.commandId().equals(executed.receipt().id()) && result.attemptId().equals(c.attemptId())
-                    && result.targetFormItemId().equals(c.formItemId()) && ack.attemptId().equals(c.attemptId())
+                    && (next || result.targetFormItemId().equals(c.formItemId())) && ack.attemptId().equals(c.attemptId())
                     && ack.stateVersion() == c.expectedStateVersion(), Reason.CORRUPT);
             var cursor = result.cursor();
             require(cursor == null ? c.expectedNavigationVersion() == null
-                    : cursor.currentFormItemId().equals(c.formItemId()) && c.expectedNavigationVersion() != null
-                    && (cursor.version() == c.expectedNavigationVersion() || c.expectedNavigationVersion() < Long.MAX_VALUE
+                    : cursor.currentFormItemId().equals(result.targetFormItemId()) && c.expectedNavigationVersion() != null
+                    && ((!next && cursor.version() == c.expectedNavigationVersion()) || c.expectedNavigationVersion() < Long.MAX_VALUE
                         && cursor.version() == c.expectedNavigationVersion() + 1), Reason.CORRUPT);
             outcome = executed.replayed() ? "replayed" : "navigated";
             return new Result(result.attemptId(), result.targetFormItemId(), ack.stateVersion(), cursor, executed.replayed());
@@ -88,30 +96,44 @@ public class NavigationServiceImpl implements NavigationService {
         }
     }
 
-    private CommandReceipt.Acknowledgement move(Command c, UUID commandId) {
+    private CommandReceipt.Acknowledgement move(Command c, UUID commandId, boolean next) {
         var saved = facts.read(c.attemptId(), AttemptReadFactsService.Purpose.NAVIGATION);
         ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
         require(saved.access().stateVersion() == c.expectedStateVersion(), Reason.STALE);
-        saved.navigation().check(c.formItemId(), c.expectedNavigationVersion());
+        require(!next || saved.oneAtATime(), Reason.UNSUPPORTED);
+        var context = saved.navigation();
+        if (saved.oneAtATime()) {
+            require(c.expectedNavigationVersion() != null && c.expectedNavigationVersion() > 0, Reason.INVALID_INPUT);
+            require(context.cursor().version() == c.expectedNavigationVersion(), Reason.STALE);
+            // Forward delivery has no client target. Explicit navigation may only revisit a
+            // current/earlier stop; every such stop was made available by canonical advancement.
+            if (!next) require(context.items().indexOf(c.formItemId()) >= 0
+                    && context.items().indexOf(c.formItemId()) <= context.items().indexOf(context.cursor().currentFormItemId()), Reason.NOT_FOUND);
+        }
+        UUID target = next ? context.next() : c.formItemId();
+        context.check(target, c.expectedNavigationVersion());
         var state = saved.access().lifecycle();
         var decision = AttemptCommands.evaluate(new AttemptCommands.Command(1, AttemptCommands.Type.NAVIGATE_TO_ITEM),
                 new AttemptCommands.Context(AttemptCommands.Access.VERIFIED, saved.policy(), state.state(), state.rowVersion(),
-                        new AttemptCommands.ItemFacts(true, true, answers.exists(c.attemptId(), c.formItemId())
+                        new AttemptCommands.ItemFacts(true, true, answers.exists(c.attemptId(), target)
                                 ? uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.CompletionFacts.ResponseState.ACCEPTED
                                 : uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.CompletionFacts.ResponseState.EMPTY,
-                                c.formItemId(), saved.navigation()), null),
+                                target, saved.navigation()), null),
                 new AttemptCommands.Metadata(c.expectedStateVersion(), commandId,
                         uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycle.CommandIdentity.FRESH));
         require(decision.outcome() == AttemptCommands.Outcome.ALLOWED, Reason.CORRUPT);
         Cursor cursor = saved.navigation().cursor();
-        if (cursor != null && !cursor.currentFormItemId().equals(c.formItemId())) {
-            require(cursor.version() < Long.MAX_VALUE && navigation.move(c.attemptId(), cursor.version(), c.formItemId()), Reason.STALE);
-            cursor = new Cursor(cursor.formId(), c.formItemId(), cursor.version() + 1);
+        if (cursor != null && !cursor.currentFormItemId().equals(target)) {
+            require(cursor.version() < Long.MAX_VALUE && navigation.move(c.attemptId(), cursor.version(), target), Reason.STALE);
+            cursor = new Cursor(cursor.formId(), target, cursor.version() + 1);
+            if (saved.oneAtATime()) trace.append(new ExecutionTrace.Scope(c.attemptId(), saved.access().policySnapshotId(), saved.form().id()),
+                    new ExecutionTrace.Event(1, UUID.randomUUID(), ExecutionTrace.Type.QUESTION_DELIVERED, ExecutionTrace.Actor.PARTICIPANT,
+                            new ExecutionTrace.Data(commandId, target, null, null, ExecutionTrace.ReasonCode.DELIVERED)));
         }
-        navigation.record(new NavigationRepository.Result(commandId, c.attemptId(), c.formItemId(), cursor));
+        navigation.record(new NavigationRepository.Result(commandId, c.attemptId(), target, cursor));
         trace.append(new ExecutionTrace.Scope(c.attemptId(), saved.access().policySnapshotId(), saved.form().id()),
                 new ExecutionTrace.Event(1, UUID.randomUUID(), ExecutionTrace.Type.ITEM_NAVIGATED, ExecutionTrace.Actor.PARTICIPANT,
-                        new ExecutionTrace.Data(commandId, c.formItemId(), null, null, ExecutionTrace.ReasonCode.NAVIGATED)));
+                        new ExecutionTrace.Data(commandId, target, null, null, ExecutionTrace.ReasonCode.NAVIGATED)));
         return new CommandReceipt.Acknowledgement(1, c.attemptId(), commandId, saved.access().stateVersion());
     }
 

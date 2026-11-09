@@ -252,6 +252,20 @@ For the legacy `TIMED` refinement, cover disabled quiz timing with an unambiguou
 - Position has its own optimistic version. A navigation command checks both the captured attempt-state version and, for `SEQUENTIAL`, the position version. Moving does not update answer collection, accept a response or change grading. `ALL_AT_ONCE/FREE` needs no authoritative cursor.
 - Sequential movement visits the next item after acceptance by default. Explicit skip/return permits next without acceptance and return to earlier unanswered items; accepted-item revisit is independently controlled. Revisit never unlocks accepted evidence. The existing one-at-a-time, section and editable-finalization integration owners retain their gates.
 
+<a id="current-item-delivery-boundary"></a>
+## Current-item delivery implementation boundary — DECIDED
+
+**Decision date/source:** 8 November 2026, repository owner confirmed the #614 proposal and its compatible API extension.
+
+- Extend the real #525 position; no second delivery cursor. Explicit internal author-authorized start captures `ONE_AT_A_TIME` with sequential navigation. Existing starts retain `ALL_AT_ONCE` and their exact historical fingerprint/representation.
+- The server selects the next permitted item through `POST /api/v1/attempts/{attemptId}/navigation/next`, using current state/position versions and the existing command identity. No future item ID is required from the client. Existing default answer-before-next, explicit skip/return and independent accepted-revisit decisions stay in force.
+- Active form and participant views expose only the current permitted question; direct hidden-item answer/draft commands cannot bypass it. First assignment and subsequent transitions persist delivery evidence atomically with their owning start/navigation command; resume is read-only.
+- The compatible API addition remains behind the existing disabled navigation route gate. Legacy routes, ordinary launch, scoring/disclosure, section/timing/finalization and public activation retain their existing owners and gates.
+
+**Example:** after A → B commits, resume returns B. A lost response retried with the same command identity returns the original B acknowledgement, without advancing to C. An uncommitted transition leaves A current; retry can then make B current exactly once.
+
+**Implementation contract:** [current-item delivery](policy-driven-quiz-execution.md#current-item-delivery-boundary-614). #668 still owns actual timed formal composition; this decision does not activate that capability.
+
 <a id="one-by-one-navigation"></a>
 ## ONE_BY_ONE sequential default and configurable skip/return — DECIDED
 

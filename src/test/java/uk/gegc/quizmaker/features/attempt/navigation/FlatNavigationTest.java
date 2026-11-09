@@ -76,4 +76,12 @@ class FlatNavigationTest {
     private static void rejected(Runnable work, NavigationException.Reason reason) {
         assertThatThrownBy(work::run).isInstanceOfSatisfying(NavigationException.class, e -> assertThat(e.reason()).isEqualTo(reason)).hasNoCause();
     }
+    @Test void serverSelectedNextUsesTheSameAnswerAndSkipRulesWithoutDisclosingTargetsOnFailure() {
+        rejected(() -> context(false, true, 0, Set.of()).next(), ANSWER_REQUIRED);
+        assertThat(context(false, true, 0, Set.of(items.get(0))).next()).isEqualTo(items.get(1));
+        assertThat(context(true, true, 0, Set.of()).next()).isEqualTo(items.get(1));
+        assertThat(context(true, false, 0, Set.of(items.get(0), items.get(1))).next()).isEqualTo(items.get(2));
+        rejected(() -> context(true, true, 2, Set.of()).next(), TRANSITION_DENIED);
+    }
+
 }

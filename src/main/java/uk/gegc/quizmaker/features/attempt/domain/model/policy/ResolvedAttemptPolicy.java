@@ -45,6 +45,7 @@ public record ResolvedAttemptPolicy(
         present(content, questionSelection, questionOrdering, answerOrdering, delivery, navigation,
                 submission, answerChange, disclosure, hints, timing, pause, attempts, access,
                 grading, review, results, accessibility, integrity);
+        require(delivery.mode() != DeliveryMode.ONE_AT_A_TIME || navigation.mode() == NavigationMode.SEQUENTIAL, INVALID_COMBINATION);
         // Reject the answer-oracle combination even before reporting the deferred capability.
         boolean feedbackAfterAcceptance = disclosure.rules().stream()
                 .anyMatch(rule -> rule.when() == ReleaseMoment.AFTER_ACCEPTANCE);
@@ -206,7 +207,7 @@ public record ResolvedAttemptPolicy(
     public enum SelectionMode { ALL }
     public enum QuestionOrder { AUTHORED }
     public enum AnswerOrder { AUTHORED, SHUFFLED_PER_ATTEMPT }
-    public enum DeliveryMode { ALL_AT_ONCE }
+    public enum DeliveryMode { ALL_AT_ONCE, ONE_AT_A_TIME }
     public enum NavigationMode { FREE, SEQUENTIAL }
     public enum SubmissionMode { SINGLE_AND_ATOMIC_BATCH }
     public enum RetrySemantics { IDENTICAL_REPLAY_CHANGED_CONFLICT }
