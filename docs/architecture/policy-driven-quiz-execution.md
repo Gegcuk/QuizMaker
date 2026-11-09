@@ -4110,6 +4110,48 @@ Concurrent starts must not exceed the limit.
 
 [#683 D21/D22](https://github.com/Gegcuk/QuizMaker/issues/683) makes committed participant starts consume an allowance and permits at most one active attempt per participant subject and immutable assignment/publication context. Technical failure before commit consumes nothing. Resets create audited allowance adjustments rather than deleting attempts.
 
+### Internal retake eligibility calculation (#548)
+
+`RetakeEligibilityService` evaluates current server-verified immutable facts without reading or
+writing persistence. Its input port accepts an exact subject plus immutable assignment/publication
+identity/version, an explicitly saved unlimited/finite limit and non-negative cooldown, entry
+availability, complete start history and already authorized audited restoration facts. It accepts
+neither client time nor a claimed remaining/used count. The facade samples the injected `Clock`
+once; the pure domain calculation takes that instant and defensively copies evidence lists.
+
+Every committed participant start consumes one allowance, including active, completed, expired,
+abandoned and cancelled attempts. A classified technical failure before commit consumes none.
+Pending, available or invalidated results do not refund a start. `StartFact.of` projects the existing
+#527 lifecycle vocabulary: `SUBMITTED` is terminal before grading, while `CREATED` is not proof of
+a committed start. `ResultFact.of` projects a real #603 automatic-result value without copying
+scores or deciding the selected result. The wider terminal fact vocabulary does not implement or
+activate expiry/cancellation writers.
+
+The result contains only allow/deny, a bounded internal reason and, for cooldown denial only, the
+next eligible UTC instant. Cooldown starts at the latest actual terminal instant, not result creation
+or release; the exact deadline is eligible. For example, with three allowed starts, one committed
+completion at 14:00 and a saved one-hour cooldown, 14:59:59 is denied until 15:00 and 15:00 is
+allowed. An exhausted allowance does not promise future eligibility. A restoration reduces consumed
+allowance but neither closes an active attempt nor removes cooldown. Duplicate/audit-replayed,
+unscoped, future-dated or excessive restoration evidence is rejected, never silently clamped.
+
+Missing access, unavailable/incomplete history, unresolved legacy classification, unknown versions,
+unknown commit outcomes, contradictory scope/state/timestamps and arithmetic overflow fail closed.
+An unavailable history is not an empty history. Diagnostic representations omit identity/audit data;
+the outcome counter uses only bounded version/outcome/reason labels, and failed telemetry cannot
+change a decision. No runtime route, saved policy format, public DTO, migration, transaction,
+legacy writer or start orchestrator is changed. No JPA relationships are read, so this calculation
+has no N+1 path.
+
+`RetakeEligibilityTest`, `RetakeEligibilityBoundaryTest`, `RetakeEligibilityServiceTest` and
+`RetakeEligibilityCompositionTest` cover decision tables, immutable evidence, scope/authority
+negatives, server-clock boundaries, missing/unknown facts, restoration and telemetry failure.
+Composition fixtures use real lifecycle/result value contracts; they do not prove durable starts,
+concurrency, finality, issuance or a working facts reader. #549 owns actual transactional revalidation
+and consumption with #600; #836 supplies real examination-finality/relative-window facts, #550
+selected-result projection and #557 certificate issuance. Cached eligibility never grants online
+or offline start authority; current facts and access must be revalidated at the actual boundary.
+
 ---
 
 ## Grading
