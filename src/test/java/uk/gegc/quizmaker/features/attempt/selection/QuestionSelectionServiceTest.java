@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import uk.gegc.quizmaker.features.attempt.application.QuestionSelectionService;
-import uk.gegc.quizmaker.features.attempt.application.impl.QuestionSelectionServiceImpl;
 import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelection.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelectionException;
 
@@ -19,7 +18,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.selection.Question
 import static uk.gegc.quizmaker.features.attempt.selection.QuestionSelectionFixtures.*;
 
 class QuestionSelectionServiceTest {
-    private final QuestionSelectionService service = new QuestionSelectionServiceImpl();
+    private final QuestionSelectionService service = legacyService();
 
     @Test
     void all_whenMetadataIsUnordered_returnsEveryEligibleOccurrenceInAuthoredOrderWithExactEvidence() {
@@ -78,7 +77,7 @@ class QuestionSelectionServiceTest {
     }
 
     @ParameterizedTest
-    @EnumSource(Strategy.class)
+    @EnumSource(value = Strategy.class, names = {"ALL", "MANUAL_SET"})
     void emptyEligibleRevision_whenEmptySelectionRequested_returnsVersionedEmptyResult(Strategy strategy) {
         var configuration = new Configuration(1, strategy, 1, List.of());
         var result = service.select(new Input(1, REVISION, 1, configuration, List.of(), List.of()));
@@ -181,7 +180,7 @@ class QuestionSelectionServiceTest {
         assertThatThrownBy(() -> input(Configuration.manualSet(List.of(FOREIGN))))
                 .isInstanceOf(QuestionSelectionException.class);
 
-        assertThat(new QuestionSelectionServiceImpl().select(valid)).isEqualTo(expected);
+        assertThat(legacyService().select(valid)).isEqualTo(expected);
         assertThat(service.select(valid)).isEqualTo(expected);
         assertThat(valid.eligibleItems()).extracting(Item::id).containsExactlyElementsOf(ORDERED);
     }

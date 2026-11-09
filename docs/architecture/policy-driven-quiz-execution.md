@@ -2218,8 +2218,9 @@ Ordering answers:
 server callers. It selects immutable **item occurrence IDs**, not mutable question IDs or
 question-revision IDs. Repeated occurrences of the same question remain separate items.
 `QuestionSelection` defines version 1 of its input, configuration, output, evidence and supplied
-atomic-group metadata. Each strategy also has an explicit algorithm version; only version 1
-and the exact identifiers `ALL` and `MANUAL_SET` are supported.
+atomic-group metadata. Each strategy also has an explicit algorithm version. The #544 increment
+supports version 1 of the exact identifiers `ALL` and `MANUAL_SET`; #545 extends the internal
+boundary with the random strategies described below.
 
 The caller supplies the complete eligible metadata from one immutable revision. `ALL` selects
 each eligible item exactly once. `MANUAL_SET` selects exactly the configured IDs, bounded by
@@ -2256,11 +2257,80 @@ and the applicable conformance/activation gates remain separate. No content hash
 
 Unknown versions/strategies, malformed metadata, missing/ineligible IDs and invalid/partial groups
 fail through bounded `QuestionSelectionException` reasons without rejected values or causes.
-The input's diagnostic string includes counts only. No new log, metric label, transaction,
-repository, clock, random source, public endpoint, migration or offline package is introduced.
+The input's diagnostic string includes counts only. The #544 increment introduces no log, metric label, transaction,
+repository, clock, random source, public endpoint, migration or offline package.
 N+1 is inapplicable: the selector performs no storage/relationship reads. Plain tests cover
 golden results, permutations, empty/invalid inputs, defensive copies and real in-memory
 revision/policy/ordering composition; that composition is not persistence or start proof.
+
+### Pure deterministic random selection (#545)
+
+The same `QuestionSelectionService` accepts internal `RANDOM_COUNT` and `RANDOM_PERCENTAGE`
+configurations over immutable eligible occurrence IDs. Both remain dark: the resolved policy,
+public API, `FREE_PRACTICE/v1` and canonical ALL start remain unchanged. These are algorithms,
+not a second start service or evidence that formal assignments are available.
+
+The [9 November owner decision](decision-register.md#random-percentage-selection-ceiling)
+selects upward rounding for percentage size. Percentages use integer basis points from zero
+to 10000 inclusive. `ceil(candidateCount × percentageBasisPoints / 10000)` uses a long product,
+so 33% of ten gives four, 50% of three gives two, and even int-sized pool arithmetic does not
+overflow. Zero and empty selections remain valid at this pure boundary; the start consumer
+owns empty-attempt eligibility. Count exceeding eligible membership fails with
+`INSUFFICIENT_CANDIDATES`; there is no partial result, resampling or fallback.
+
+Random input additionally requires a versioned `SelectionContext` carrying a **server-owned**
+operation identity. The authorized consuming use case supplies the immutable revision,
+complete eligible metadata, configuration and operation identity. Neither this record nor its
+constructor is authorization evidence. No request accepts seed bytes, key material, a selected
+replacement result or a client-chosen authoritative operation identity. #547 must establish
+that authority at the actual start boundary; #545 does not claim integrated HTTP enforcement.
+
+`SelectionSeedSource` is the project-owned port. `HmacSelectionSeedSource` implements
+`selection-seed/v1` with HMAC-SHA-256 and separately configured secret material. The optional
+Spring properties are `quizmaker.attempt.selection.seed-key-version` (positive integer) and
+`quizmaker.attempt.selection.seed-key-base64` (canonical Base64 of a dedicated 32-byte key).
+Provision the dedicated key through the installation's secret configuration; never reuse an
+authentication/provider key or put it in source, logs, public DTOs or metric labels. Missing or
+malformed configuration yields `SEED_UNAVAILABLE` on random selection, while application
+startup and ALL/MANUAL_SET remain usable.
+
+The seed message is the ASCII domain `quizmaker/selection-seed/v1` followed by a zero byte;
+big-endian 32-bit input, revision-schema, configuration, algorithm, context and key versions;
+count and percentage (unused value `-1`); revision and operation UUIDs as two big-endian
+64-bit words each; then 32-bit strategy-name byte length and exact ASCII strategy name.
+Candidate order, mutable content and system time are absent. Reusing an operation identity
+under another revision/configuration/key version derives different seed evidence.
+
+`random-selection/v1` ranks each occurrence with HMAC-SHA-256 keyed by that derived seed.
+The message is ASCII `quizmaker/random-selection/v1`, a zero byte, and the occurrence UUID's
+two big-endian 64-bit words. Compare digest bytes unsigned, with canonical UUID-string order
+as the deterministic collision tie-break. Select the required prefix, then return IDs in
+authored revision order. Selection membership and question display ordering remain separate.
+The calculation uses O(n log n) time and O(n) extra space for n eligible items; no storage or
+network access occurs. Supplied atomic groups are explicitly unsupported for random strategies
+until #546; existing ALL/MANUAL_SET whole-group validation remains unchanged.
+
+Bounded `RandomEvidence` records algorithm/context versions, server operation identity, key
+version, a SHA-256 fingerprint of the **32-byte derived seed**, candidate count and exact
+selected count. It contains no key, raw seed, question content or unselected bank membership.
+Seed material uses defensive copies and redacted diagnostics. Request/seed diagnostics do
+not print operation/revision identities or secret material. The only digest inputs here are
+bounded metadata and seed bytes; documents are never read or hashed for selection/versioning.
+
+Repeat construction with the same key version, key material and context reproduces exact IDs
+and evidence after a new service/source instance. A key rotation is explicit new evidence;
+historical forms are never regenerated using the current key. #547 must persist final IDs,
+ordering and evidence atomically with start. #668 must use the real #545/#547 composition for
+start/resume before formal activation; #604 owns stratified quotas, not this algorithm.
+
+Tests use a public synthetic key and an independently calculated HMAC golden vector. The D38
+fixture has 40 fixed occurrences (16/8/8/4/4 by authored family), operation UUID integer 6 and
+key version 7; RANDOM_COUNT selects 20 exact golden IDs with composition 8/4/4/2/2. Family is
+not an algorithm input. This proves selection only, not grading, persistence or restart of an
+attempt. Property-style cases cover sizes, rounding, permutations, uniqueness and server
+contexts; negatives cover insufficient pools, malformed versions/metadata, unavailable seeds
+and unsupported constraints. New-instance, concurrent-call and Spring wiring tests use the
+real seed adapter. N+1 is inapplicable because this increment adds no JPA read path.
 
 ### Candidate selection strategies
 

@@ -6,6 +6,8 @@ import uk.gegc.quizmaker.features.attempt.application.QuestionSelectionService;
 import uk.gegc.quizmaker.features.attempt.application.impl.QuestionSelectionServiceImpl;
 import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelection;
 import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelectionException;
+import uk.gegc.quizmaker.features.attempt.domain.model.selection.RandomQuestionSelection;
+import uk.gegc.quizmaker.features.attempt.infra.selection.HmacSelectionSeedSource;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
@@ -17,7 +19,7 @@ import static uk.gegc.quizmaker.features.attempt.selection.QuestionSelectionFixt
 class QuestionSelectionBoundaryTest {
     @Test
     void serviceInterface_whenRegistered_resolvesWithoutPersistenceSecurityOrProviderInfrastructure() {
-        try (var context = new AnnotationConfigApplicationContext(QuestionSelectionServiceImpl.class)) {
+        try (var context = new AnnotationConfigApplicationContext(QuestionSelectionServiceImpl.class, HmacSelectionSeedSource.class)) {
             var service = context.getBean(QuestionSelectionService.class);
             assertThat(service.select(input(QuestionSelection.Configuration.all())).itemIds()).containsExactlyElementsOf(ORDERED);
         }
@@ -25,7 +27,7 @@ class QuestionSelectionBoundaryTest {
 
     @Test
     void compiledSelectionContract_whenInspected_hasNoIoPersistenceTransportOrMutableAuthoringDependency() throws Exception {
-        var pending = new ArrayDeque<>(List.of(QuestionSelection.class, QuestionSelectionException.class));
+        var pending = new ArrayDeque<>(List.of(QuestionSelection.class, QuestionSelectionException.class, RandomQuestionSelection.class));
         while (!pending.isEmpty()) {
             var type = pending.remove();
             pending.addAll(List.of(type.getDeclaredClasses()));

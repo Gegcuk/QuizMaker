@@ -14,15 +14,18 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.selection.Question
 /**
  * Transport-neutral, dark selection contracts. Item IDs identify immutable revision occurrences,
  * not mutable questions. Eligibility and authority are established by the trusted server caller.
- * Version 1 uses authored revision order for both strategies, independently of collection order.
+ * Version 1 returns authored revision order for every strategy, independently of collection order.
  */
 public final class QuestionSelection {
     public static final int VERSION = 1;
+    public static final int PERCENTAGE_SCALE = 10_000;
 
     private QuestionSelection() {}
 
     public enum Strategy {
-        ALL, MANUAL_SET;
+        ALL, MANUAL_SET, RANDOM_COUNT, RANDOM_PERCENTAGE;
+
+        public boolean random() { return this == RANDOM_COUNT || this == RANDOM_PERCENTAGE; }
 
         public static Strategy parse(String value) {
             for (Strategy strategy : values()) {
@@ -33,13 +36,21 @@ public final class QuestionSelection {
     }
 
     /** A set, not display order. Canonical IDs make equivalent configurations compare equally. */
-    public record Configuration(int version, Strategy strategy, int algorithmVersion, List<UUID> manualItemIds) {
+    public record Configuration(int version, Strategy strategy, int algorithmVersion, List<UUID> manualItemIds,
+                                Integer count, Integer percentageBasisPoints) {
+        public Configuration(int version, Strategy strategy, int algorithmVersion, List<UUID> manualItemIds) {
+            this(version, strategy, algorithmVersion, manualItemIds, null, null);
+        }
         public Configuration {
             requireVersion(version);
             require(strategy != null, INVALID_CONFIGURATION);
             require(algorithmVersion == VERSION, UNSUPPORTED_STRATEGY_VERSION);
             manualItemIds = canonicalIds(manualItemIds);
-            require(strategy != Strategy.ALL || manualItemIds.isEmpty(), INVALID_CONFIGURATION);
+            require(strategy == Strategy.MANUAL_SET || manualItemIds.isEmpty(), INVALID_CONFIGURATION);
+            require(strategy == Strategy.RANDOM_COUNT ? count != null && count >= 0 : count == null, INVALID_CONFIGURATION);
+            require(strategy == Strategy.RANDOM_PERCENTAGE
+                    ? percentageBasisPoints != null && percentageBasisPoints >= 0 && percentageBasisPoints <= PERCENTAGE_SCALE
+                    : percentageBasisPoints == null, INVALID_CONFIGURATION);
         }
 
         public static Configuration all() {
@@ -48,6 +59,73 @@ public final class QuestionSelection {
 
         public static Configuration manualSet(List<UUID> itemIds) {
             return new Configuration(VERSION, Strategy.MANUAL_SET, VERSION, itemIds);
+        }
+
+        public static Configuration randomCount(int count) {
+            return new Configuration(VERSION, Strategy.RANDOM_COUNT, VERSION, List.of(), count, null);
+        }
+
+        /** Fixed precision: 3300 means 33.00%, 1 means 0.01%, 10000 means 100%. */
+        public static Configuration randomPercentage(int percentageBasisPoints) {
+            return new Configuration(VERSION, Strategy.RANDOM_PERCENTAGE, VERSION, List.of(), null, percentageBasisPoints);
+        }
+
+        public int selectionSize(int candidateCount) {
+            require(candidateCount >= 0, INVALID_INPUT);
+            int size = switch (strategy) {
+                case ALL -> candidateCount;
+                case MANUAL_SET -> manualItemIds.size();
+                case RANDOM_COUNT -> count;
+                // Owner-approved ceiling. The long product cannot overflow for int-sized pools.
+                case RANDOM_PERCENTAGE -> (int) (((long) candidateCount * percentageBasisPoints + PERCENTAGE_SCALE - 1)
+                        / PERCENTAGE_SCALE);
+            };
+            require(size <= candidateCount, INSUFFICIENT_CANDIDATES);
+            return size;
+        }
+    }
+
+    /** Supplied only by an authorized server use case, never bound from an HTTP request or client seed. */
+    public record SelectionContext(int version, UUID operationId) {
+        public SelectionContext { requireVersion(version); require(operationId != null, INVALID_SEED_CONTEXT); }
+        @Override public String toString() { return "SelectionContext[version=" + version + "]"; }
+    }
+
+    /** Bounded seed derivation metadata; contains neither candidate membership nor question content. */
+    public record SeedRequest(int version, UUID quizRevisionId, int revisionSchemaVersion,
+                              Configuration configuration, SelectionContext context) {
+        public SeedRequest {
+            requireReference(version, quizRevisionId, revisionSchemaVersion);
+            require(configuration != null && configuration.strategy().random() && context != null, INVALID_SEED_CONTEXT);
+        }
+        @Override public String toString() { return "SeedRequest[version=" + version + "]"; }
+    }
+
+    /** Opaque project-owned seed-port output. Defensive copies and redacted diagnostics protect its material. */
+    public static final class SeedMaterial {
+        private final int keyVersion;
+        private final byte[] bytes;
+        public SeedMaterial(int keyVersion, byte[] bytes) {
+            require(keyVersion > 0 && bytes != null && bytes.length == 32, SEED_UNAVAILABLE);
+            this.keyVersion = keyVersion;
+            this.bytes = bytes.clone();
+        }
+        public int keyVersion() { return keyVersion; }
+        public byte[] bytes() { return bytes.clone(); }
+        @Override public String toString() { return "SeedMaterial[redacted]"; }
+    }
+
+    public record RandomEvidence(int version, SelectionContext context, int keyVersion, String seedFingerprint,
+                                 int candidateCount, int selectedCount) {
+        public RandomEvidence {
+            requireVersion(version);
+            require(context != null && keyVersion > 0 && seedFingerprint != null
+                    && seedFingerprint.matches("[0-9a-f]{64}"), INVALID_RESULT);
+            require(candidateCount >= 0 && selectedCount >= 0 && selectedCount <= candidateCount, INVALID_RESULT);
+        }
+        @Override public String toString() {
+            return "RandomEvidence[version=" + version + ", keyVersion=" + keyVersion
+                    + ", candidateCount=" + candidateCount + ", selectedCount=" + selectedCount + "]";
         }
     }
 
@@ -70,10 +148,18 @@ public final class QuestionSelection {
      * Positions may have gaps, but duplicate positions cannot acquire a UUID tie-break fallback.
      */
     public record Input(int version, UUID quizRevisionId, int revisionSchemaVersion,
-                        Configuration configuration, List<Item> eligibleItems, List<AtomicGroup> atomicGroups) {
+                        Configuration configuration, List<Item> eligibleItems, List<AtomicGroup> atomicGroups,
+                        SelectionContext context) {
+        public Input(int version, UUID quizRevisionId, int revisionSchemaVersion, Configuration configuration,
+                     List<Item> eligibleItems, List<AtomicGroup> atomicGroups) {
+            this(version, quizRevisionId, revisionSchemaVersion, configuration, eligibleItems, atomicGroups, null);
+        }
         public Input {
             requireReference(version, quizRevisionId, revisionSchemaVersion);
             require(configuration != null && eligibleItems != null && atomicGroups != null, INVALID_INPUT);
+            require(configuration.strategy().random() == (context != null), INVALID_SEED_CONTEXT);
+            // Structured random selection belongs to #546; never split or resample an atomic case here.
+            require(!configuration.strategy().random() || atomicGroups.isEmpty(), UNSUPPORTED_CONSTRAINT);
             var ids = new HashSet<UUID>();
             var positions = new HashSet<Integer>();
             for (Item item : eligibleItems) {
@@ -98,12 +184,17 @@ public final class QuestionSelection {
          */
         public static Input fromRevision(ContentPolicy content, QuizRevision revision,
                                          Configuration configuration, List<AtomicGroup> atomicGroups) {
+            return fromRevision(content, revision, configuration, atomicGroups, null);
+        }
+
+        public static Input fromRevision(ContentPolicy content, QuizRevision revision, Configuration configuration,
+                                         List<AtomicGroup> atomicGroups, SelectionContext context) {
             require(content != null && revision != null, INVALID_INPUT);
             require(content.quizRevisionId().equals(revision.id())
                     && content.revisionSchemaVersion() == revision.schemaVersion(), REVISION_MISMATCH);
             return new Input(VERSION, revision.id(), revision.schemaVersion(), configuration,
                     revision.items().stream().map(item -> new Item(item.id(), item.authoredPosition())).toList(),
-                    atomicGroups);
+                    atomicGroups, context);
         }
 
         /** Do not accidentally log a complete eligible bank through a record's default toString. */
@@ -118,11 +209,17 @@ public final class QuestionSelection {
      * Unselected bank/group membership is deliberately absent. #522 owns persisted form evidence.
      */
     public record Evidence(int version, int inputVersion, UUID quizRevisionId, int revisionSchemaVersion,
-                           Configuration configuration) {
+                           Configuration configuration, RandomEvidence random) {
+        public Evidence(int version, int inputVersion, UUID quizRevisionId, int revisionSchemaVersion,
+                        Configuration configuration) {
+            this(version, inputVersion, quizRevisionId, revisionSchemaVersion, configuration, null);
+        }
         public Evidence {
             requireReference(version, quizRevisionId, revisionSchemaVersion);
             requireVersion(inputVersion);
             require(configuration != null, INVALID_INPUT);
+            require(configuration.strategy().random() == (random != null), INVALID_RESULT);
+            if (random != null) require(configuration.selectionSize(random.candidateCount()) == random.selectedCount(), INVALID_RESULT);
         }
     }
 
@@ -132,6 +229,7 @@ public final class QuestionSelection {
             requireVersion(version);
             require(evidence != null, INVALID_RESULT);
             itemIds = copyIds(itemIds);
+            if (evidence.random() != null) require(itemIds.size() == evidence.random().selectedCount(), INVALID_RESULT);
             if (evidence.configuration().strategy() == Strategy.MANUAL_SET) {
                 require(new HashSet<>(itemIds).equals(new HashSet<>(evidence.configuration().manualItemIds())),
                         INVALID_RESULT);
