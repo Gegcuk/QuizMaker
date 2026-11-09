@@ -20,6 +20,8 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
 import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
+import uk.gegc.quizmaker.features.attempt.domain.repository.FixedFormRepository;
+
 import java.util.Set;
 import java.util.UUID;
 
@@ -32,19 +34,30 @@ public class FixedFormMaterializerImpl implements FixedFormMaterializer {
     private final QuestionRevisionContractService contracts;
     private final FormOptionOrderService orders;
     private final MeterRegistry metrics;
+    private final FixedFormRepository forms;
     private final TransactionTemplate transaction;
 
     public FixedFormMaterializerImpl(QuizRevisionRepository revisions, QuestionRevisionContractService contracts,
-                                    FormOptionOrderService orders, PlatformTransactionManager manager, MeterRegistry metrics) {
+                                    FormOptionOrderService orders, PlatformTransactionManager manager, MeterRegistry metrics, FixedFormRepository forms) {
         this.revisions = revisions;
         this.contracts = contracts;
         this.orders = orders;
         this.metrics = metrics;
+        this.forms = forms;
         this.transaction = new TransactionTemplate(manager);
     }
 
     @Override
     public ParticipantForm materialize(UUID ownerId, Command command) {
+        return materialize(ownerId, command, false);
+    }
+
+    @Override
+    public ParticipantForm materializeSelected(UUID ownerId, Command command) {
+        return materialize(ownerId, command, true);
+    }
+
+    private ParticipantForm materialize(UUID ownerId, Command command, boolean persistSelection) {
         boolean standalone = !TransactionSynchronizationManager.isActualTransactionActive();
         Timer.Sample sample = null;
         try { sample = Timer.start(metrics); }
@@ -70,6 +83,7 @@ public class FixedFormMaterializerImpl implements FixedFormMaterializer {
                 validate(command, revision);
                 var resolved = contracts.resolve(ownerId, revision.id());
                 var order = orders.createOrReplay(ownerId, command.form(), command.answerOrdering());
+                if (persistSelection) forms.createSelectionOrReplay(ownerId, command.form(), command.selection());
                 return ParticipantFormProjector.project(command.form(), revision, order, resolved);
             });
             outcome = "success";

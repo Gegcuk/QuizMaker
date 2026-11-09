@@ -20,4 +20,7 @@ public interface FixedFormMaterializer {
      * A successful return does not commit an outer transaction. No HTTP, start or offline activation.
      */
     ParticipantForm materialize(UUID ownerId, Command command);
+
+    /** Canonical start boundary: also persist exact immutable selection evidence in the same transaction. */
+    ParticipantForm materializeSelected(UUID ownerId, Command command);
 }

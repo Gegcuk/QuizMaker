@@ -43,6 +43,8 @@ class AttemptStartValidationTest {
                 new AttemptStartService.Command(1, quiz, content, 1, key, preset, context, null, AnswerOrder.AUTHORED),
                 new AttemptStartService.Command(1, quiz, content, 1, key, preset, context, "x".repeat(33), AnswerOrder.AUTHORED),
                 new AttemptStartService.Command(1, quiz, content, 1, key, preset, context, "ALL_AT_ONCE", null)));
+        invalid.add(new AttemptStartService.Command(1, quiz, content, 1, key, preset, context, "ALL_AT_ONCE",
+                AnswerOrder.AUTHORED, false, new NavigationPolicy(NavigationMode.FREE), DeliveryMode.ALL_AT_ONCE, null));
         for (var command : invalid) assertThatThrownBy(() -> service.start(command))
                 .isInstanceOfSatisfying(AttemptStartException.class, e -> assertThat(e.reason()).isEqualTo(INVALID_INPUT));
         assertThatThrownBy(() -> service.start(new AttemptStartService.Command(2, quiz, content, 1, key, preset, context, "ALL_AT_ONCE", AnswerOrder.AUTHORED)))

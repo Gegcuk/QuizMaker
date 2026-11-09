@@ -765,6 +765,36 @@ DUE_FOR_REVIEW
 ADAPTIVE
 ```
 
+#### Canonical selected-strategy start (#547)
+
+The internal authenticated flat start supports explicit server-authorized `MANUAL_SET`,
+`RANDOM_COUNT` and `RANDOM_PERCENTAGE` configurations alongside the unchanged `ALL`
+default. The existing owner/full-content-editor check supplies author authority;
+participant overrides cannot grant selection authority. This is a dark application
+boundary, not a new start endpoint, assignment implementation or public activation.
+
+The resolved policy captures the exact typed configuration and provenance. Historical
+`ALL` canonical JSON/hashes and start fingerprints retain their original representation.
+Non-default selection participates in command identity, so reusing a key with another
+configuration conflicts. Random selection derives its context from the server-created
+canonical receipt ID, never a client seed, selected result or display order.
+
+The existing start transaction materializes the form and writes immutable
+`attempt_form_selection` metadata before completing the subject/lifecycle/trace/receipt.
+`attempt_form_item` and the existing option-order tables retain the exact delivered IDs
+and order; metadata stores configuration/version and bounded seed provenance/fingerprint,
+never raw seed/key material or rejected candidates. A committed replay reads its saved
+acknowledgement without selecting again, including when seed configuration is unavailable.
+A failed strategy or reached persistence fault rolls back all start-owned writes.
+Non-default empty selections cannot start an attempt. Missing evidence on an older form
+stays explicitly absent; the additive migration does not infer or backfill it.
+
+The original standalone `materialize` boundary remains compatible; canonical start uses
+`materializeSelected` to require metadata persistence in the same transaction. There is
+no second start orchestrator. Structured/stratified selection remains gated by #546/#604;
+formal D38 activation still requires real composition and conformance in #668. A valid
+strategy test double proves only this extension boundary, not an algorithm or formal flow.
+
 ### Question ordering policy
 
 Candidate strategies:

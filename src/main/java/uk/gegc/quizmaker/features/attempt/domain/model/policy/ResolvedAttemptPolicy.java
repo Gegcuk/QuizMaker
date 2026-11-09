@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.attempt.domain.model.policy;
 
+import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelection;
+
 import java.util.List;
 import java.util.UUID;
 
@@ -88,8 +90,27 @@ public record ResolvedAttemptPolicy(
         }
     }
 
-    public record SelectionPolicy(SelectionMode mode, int algorithmVersion) {
-        public SelectionPolicy { present(mode); strategyVersion(algorithmVersion); }
+    public record SelectionPolicy(SelectionMode mode, int algorithmVersion, List<UUID> manualItemIds,
+                                  Integer count, Integer percentageBasisPoints) {
+        public SelectionPolicy(SelectionMode mode, int algorithmVersion) {
+            this(mode, algorithmVersion, List.of(), null, null);
+        }
+        public SelectionPolicy {
+            present(mode, manualItemIds); strategyVersion(algorithmVersion);
+            var config = new QuestionSelection.Configuration(1, QuestionSelection.Strategy.valueOf(mode.name()),
+                    algorithmVersion, manualItemIds, count, percentageBasisPoints);
+            manualItemIds = config.manualItemIds();
+        }
+        public static SelectionPolicy from(QuestionSelection.Configuration value) {
+            present(value);
+            return new SelectionPolicy(SelectionMode.valueOf(value.strategy().name()), value.algorithmVersion(),
+                    value.manualItemIds(), value.count(), value.percentageBasisPoints());
+        }
+        public QuestionSelection.Configuration configuration() {
+            return new QuestionSelection.Configuration(1, QuestionSelection.Strategy.valueOf(mode.name()),
+                    algorithmVersion, manualItemIds, count, percentageBasisPoints);
+        }
+        @Override public String toString() { return "SelectionPolicy[mode=" + mode + "]"; }
     }
 
     public record QuestionOrderingPolicy(QuestionOrder mode, int algorithmVersion) {
@@ -204,7 +225,7 @@ public record ResolvedAttemptPolicy(
     public enum FormMode { PRECOMPUTED }
     public enum SectionMode { IMPLICIT_FLAT }
     public enum CaseMode { NOT_CONFIGURED }
-    public enum SelectionMode { ALL }
+    public enum SelectionMode { ALL, MANUAL_SET, RANDOM_COUNT, RANDOM_PERCENTAGE }
     public enum QuestionOrder { AUTHORED }
     public enum AnswerOrder { AUTHORED, SHUFFLED_PER_ATTEMPT }
     public enum DeliveryMode { ALL_AT_ONCE, ONE_AT_A_TIME }

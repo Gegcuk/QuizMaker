@@ -233,7 +233,7 @@ class PublishedFamilyContractsMySqlIntegrationTest {
         var restartedContracts = restartedContracts();
         var restarted = new FixedFormMaterializerImpl(revisions, restartedContracts,
                 new FormOptionOrderServiceImpl(revisions, restartedContracts, new JdbcFixedFormRepository(named),
-                        new JdbcFormOptionOrderRepository(named), manager, new SimpleMeterRegistry()), manager, new SimpleMeterRegistry());
+                        new JdbcFormOptionOrderRepository(named), manager, new SimpleMeterRegistry()), manager, new SimpleMeterRegistry(), new JdbcFixedFormRepository(named));
         assertThat(restarted.materialize(ownerId, command)).isEqualTo(result);
         assertThat(JSON.writeValueAsString(result)).doesNotContain("correct", "answer", "sourceKey", "ownerId", "questionRevisionId");
         assertThat(count("attempt_form")).isEqualTo(1);

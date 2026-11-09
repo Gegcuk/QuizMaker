@@ -9,6 +9,9 @@ import uk.gegc.quizmaker.features.attempt.domain.model.form.FixedForm;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.FixedFormException;
 import uk.gegc.quizmaker.features.attempt.domain.repository.FixedFormRepository;
 
+import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelection;
+import uk.gegc.quizmaker.features.attempt.infra.selection.SelectionEvidenceJson;
+
 import java.nio.ByteBuffer;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -19,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import static uk.gegc.quizmaker.features.attempt.domain.model.form.FixedFormException.Reason.*;
@@ -81,6 +85,45 @@ public class JdbcFixedFormRepository implements FixedFormRepository {
         var saved = jdbc.query("SELECT id,source_item_id,position FROM attempt_form_item WHERE form_id=:id ORDER BY position FOR UPDATE",
                 parameters, (row, index) -> item(row));
         if (!saved.equals(form.items())) throw new FixedFormException(FORM_CONFLICT);
+    }
+
+    @Override
+    public void createSelectionOrReplay(UUID ownerId, FixedForm form, QuestionSelection.Result selection) {
+        if (form == null || selection == null) throw new FixedFormException(INVALID_FORM);
+        var saved = findByIdsForShare(ownerId, List.of(form.id()));
+        if (saved.size() != 1 || !saved.get(0).equals(form)) throw new FixedFormException(FORM_CONFLICT);
+        if (!selection.evidence().quizRevisionId().equals(form.quizRevisionId())
+                || !selection.itemIds().equals(form.items().stream().map(FixedForm.Item::sourceItemId).toList()))
+            throw new FixedFormException(INVALID_FORM);
+        String json = SelectionEvidenceJson.encode(selection.evidence());
+        var params = new MapSqlParameterSource("id", bytes(form.id())).addValue("evidence", json);
+        jdbc.update("""
+                INSERT INTO attempt_form_selection (form_id,evidence_json) VALUES (:id,:evidence)
+                ON DUPLICATE KEY UPDATE form_id=attempt_form_selection.form_id
+                """, params);
+        String stored = jdbc.queryForObject("SELECT evidence_json FROM attempt_form_selection WHERE form_id=:id FOR UPDATE", params, String.class);
+        if (!json.equals(stored)) throw new FixedFormException(FORM_CONFLICT);
+    }
+
+    @Override
+    public Optional<QuestionSelection.Evidence> findSelection(UUID ownerId, UUID formId) {
+        if (formId == null) throw new FixedFormException(INVALID_FORM);
+        var forms = findByIdsForShare(ownerId, List.of(formId));
+        if (forms.isEmpty()) throw new FixedFormException(FORM_UNAVAILABLE);
+        var values = jdbc.query("SELECT evidence_json FROM attempt_form_selection WHERE form_id=:id FOR SHARE",
+                new MapSqlParameterSource("id", bytes(formId)), (row, index) -> SelectionEvidenceJson.decode(row.getString(1)));
+        if (!values.isEmpty() && !values.get(0).quizRevisionId().equals(forms.get(0).quizRevisionId()))
+            throw new FixedFormException(INVALID_STORED_FORM);
+        if (!values.isEmpty()) {
+            var evidence = values.get(0);
+            var ids = forms.get(0).items().stream().map(FixedForm.Item::sourceItemId).toList();
+            if (evidence.revisionSchemaVersion() != forms.get(0).schemaVersion()
+                    || evidence.random() != null && evidence.random().selectedCount() != ids.size()
+                    || evidence.configuration().strategy() == QuestionSelection.Strategy.MANUAL_SET
+                    && !new java.util.HashSet<>(evidence.configuration().manualItemIds()).equals(new java.util.HashSet<>(ids)))
+                throw new FixedFormException(INVALID_STORED_FORM);
+        }
+        return values.stream().findFirst();
     }
 
     @Override
