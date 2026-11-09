@@ -84,4 +84,22 @@ class FlatNavigationTest {
         rejected(() -> context(true, true, 2, Set.of()).next(), TRANSITION_DENIED);
     }
 
+    @Test void transitionAvailabilityIncludesReturnIndependentlyOfNext() {
+        assertThat(context(true, false, 2, Set.of()).hasPermittedTransition()).isTrue();
+        assertThat(context(false, true, 1, Set.of(items.get(0))).hasPermittedTransition()).isTrue();
+        assertThat(context(false, false, 1, Set.of(items.get(0))).hasPermittedTransition()).isFalse();
+        assertThat(context(false, false, 0, Set.of()).hasPermittedTransition()).isFalse();
+        assertThat(context(true, false, 0, Set.of()).hasPermittedTransition()).isTrue();
+        assertThat(context(false, false, 0, Set.of(items.get(0))).hasPermittedTransition()).isTrue();
+    }
+
+    @Test void theCurrentItemAloneDoesNotCountAsAnAvailableTransition() {
+        var item = items.get(0);
+        for (var accepted : List.of(Set.<UUID>of(), Set.of(item))) {
+            var only = new FlatNavigation.Context(new NavigationPolicy(NavigationMode.SEQUENTIAL, new NavigationRules(1, true, true)),
+                    form, List.of(item), accepted, new FlatNavigation.Cursor(form, item, 1));
+            assertThat(only.hasPermittedTransition()).isFalse();
+        }
+    }
+
 }

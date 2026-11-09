@@ -950,4 +950,55 @@ class NavigationMySqlIntegrationTest {
         assertThat(count("attempt_navigation_result")).isEqualTo(1); assertThat(deliveredEvents()).isEqualTo(2);
     }
 
+    private org.springframework.test.web.servlet.MockMvc currentItemHttp() {
+        return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                        new AttemptFormController(delivery), new NavigationController(navigation),
+                        new AttemptController(context.getBean(AttemptService.class), context.getBeanProvider(ParticipantAttemptViewService.class)))
+                .setControllerAdvice(new AttemptDeliveryErrorHandler(), new NavigationErrorHandler()).build();
+    }
+
+    private void currentItemActions(Fixture f, boolean canNavigate) throws Exception {
+        var before = snapshot(); var mvc = currentItemHttp();
+        for (String suffix : List.of("/form", "")) {
+            var body = json.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                            .get("/api/v1/attempts/" + f.start().attemptId() + suffix)
+                            .principal(SecurityContextHolder.getContext().getAuthentication()))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Cache-Control", "no-store"))
+                    .andReturn().getResponse().getContentAsString());
+            var expected = canNavigate ? List.of("VIEW_ATTEMPT", "NAVIGATE_TO_ITEM") : List.of("VIEW_ATTEMPT");
+            var actual = new ArrayList<String>(); body.path("allowedActions").forEach(action -> actual.add(action.asText()));
+            assertThat(actual).as("allowedActions on %s", suffix.isEmpty() ? "participant view" : "/form").containsExactlyElementsOf(expected);
+            assertThat(body.at("/navigation/currentFormItemId").asText()).isEqualTo(f.id(1).toString());
+        }
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    @Test void skippedPreviousAtLastStopRemainsAdvertised() throws Exception {
+        var f = oneAtATime(true, false, 2); navigation.next(next(f, 1, 1, "skip-to-last"));
+        rejected(() -> navigation.next(next(f, 1, 2, "no-next-at-last")), NavigationException.Reason.TRANSITION_DENIED);
+        currentItemActions(f, true);
+        currentItemHttp().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/attempts/{id}/navigation", f.start().attemptId())
+                        .header("Idempotency-Key", "return-skipped").contentType("application/json")
+                        .content(json.writeValueAsString(new uk.gegc.quizmaker.features.attempt.api.dto.NavigationRequest(f.id(0), 1L, 2L))))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        current(f, 0, 3); assertThat(count("attempt_accepted_response")).isZero();
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void acceptedPreviousReturnIsAdvertisedBeforeCurrentAnswer(boolean revisit) throws Exception {
+        var f = oneAtATime(false, revisit, 3); answer(f, 0, 1, "accept-previous");
+        navigation.next(next(f, 2, 1, "open-unanswered-current"));
+        rejected(() -> navigation.next(next(f, 2, 2, "answer-required-before-next")), NavigationException.Reason.ANSWER_REQUIRED);
+        currentItemActions(f, revisit);
+        currentItemHttp().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/attempts/{id}/navigation", f.start().attemptId())
+                        .header("Idempotency-Key", "return-accepted").contentType("application/json")
+                        .content(json.writeValueAsString(new uk.gegc.quizmaker.features.attempt.api.dto.NavigationRequest(f.id(0), 2L, 2L))))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().is(revisit ? 200 : 404));
+        current(f, revisit ? 0 : 1, revisit ? 3 : 2);
+        assertThat(count("attempt_accepted_response")).isEqualTo(1);
+    }
+
 }
