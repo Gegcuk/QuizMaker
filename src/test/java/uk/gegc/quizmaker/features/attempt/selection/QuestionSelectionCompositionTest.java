@@ -54,9 +54,8 @@ class QuestionSelectionCompositionTest {
         assertThat(ordered.itemIds()).containsExactly(FIRST, LAST);
         assertThat(selection.itemIds()).isEqualTo(ordered.itemIds());
         assertThat(selection.toString()).doesNotContain(MIDDLE.toString());
-        // An internal configuration does not add MANUAL_SET to the resolved public policy vocabulary.
+        // A standalone algorithm call never mutates the captured/default policy.
         assertThat(policy.questionSelection().mode()).isEqualTo(SelectionMode.ALL);
-        assertThat(SelectionMode.values()).containsExactly(SelectionMode.ALL);
         assertThat(revision.items()).extracting(QuizRevision.Item::id).containsExactlyElementsOf(ORDERED);
     }
 

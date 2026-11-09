@@ -8,6 +8,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPol
 import uk.gegc.quizmaker.features.attempt.domain.model.preset.PresetReference;
 
 import java.util.List;
+import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.SelectionPolicy;
 import java.util.Set;
 
 import static uk.gegc.quizmaker.features.attempt.domain.model.resolution.PolicyResolutionException.Reason.INVALID_INPUT;
@@ -17,7 +18,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.resolution.PolicyR
  * Trusted server facts for an already selected ordinary practice policy, not an HTTP request or
  * proof of access. The caller resolves grants against the selected preset/author and current
  * resource authority. An override cannot grant itself permission. Assignments/accommodations,
- * question selection and per-question option constraints have separate integration owners.
+ * per-question option constraints have separate integration owners.
  */
 public record PolicyResolutionRequest(
         int resolverVersion, int canonicalVersion, String hashAlgorithm,
@@ -34,10 +35,10 @@ public record PolicyResolutionRequest(
     }
 
     public enum OverrideSource { AUTHOR, PARTICIPANT }
-    public enum Setting { ANSWER_ORDER, HINTS, DRAFTS, NAVIGATION, DELIVERY }
+    public enum Setting { ANSWER_ORDER, HINTS, DRAFTS, NAVIGATION, DELIVERY, SELECTION }
 
     /** Only explicit supported choices are representable, never arbitrary policy paths. */
-    public sealed interface Choice permits AnswerOrderChoice, HintChoice, DraftsChoice, NavigationChoice, DeliveryChoice {
+    public sealed interface Choice permits AnswerOrderChoice, HintChoice, DraftsChoice, NavigationChoice, DeliveryChoice, SelectionChoice {
         Setting setting();
     }
 
@@ -66,8 +67,17 @@ public record PolicyResolutionRequest(
         @Override public Setting setting() { return Setting.DELIVERY; }
     }
 
+    /** Only the verified server author scope can configure a fixed-form selection. */
+    public record SelectionChoice(SelectionPolicy value) implements Choice {
+        public SelectionChoice { require(value != null, INVALID_INPUT); }
+        @Override public Setting setting() { return Setting.SELECTION; }
+    }
+
     /** Exact allowed values, not an implicit permission to enable every supported value. */
-    public record AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts, Set<NavigationPolicy> navigation, Set<DeliveryMode> delivery) {
+    public record AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts, Set<NavigationPolicy> navigation, Set<DeliveryMode> delivery, Set<SelectionPolicy> selection) {
+        public AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts, Set<NavigationPolicy> navigation, Set<DeliveryMode> delivery) {
+            this(answerOrders, hintModes, drafts, navigation, delivery, Set.of());
+        }
         public AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts, Set<NavigationPolicy> navigation) {
             this(answerOrders, hintModes, drafts, navigation, Set.of());
         }
@@ -78,14 +88,15 @@ public record PolicyResolutionRequest(
             this(answerOrders, hintModes, Set.of(), Set.of());
         }
         public AllowedChoices {
-            require(answerOrders != null && hintModes != null && drafts != null && navigation != null && delivery != null, INVALID_INPUT);
+            require(answerOrders != null && hintModes != null && drafts != null && navigation != null && delivery != null && selection != null, INVALID_INPUT);
             require(answerOrders.stream().allMatch(v -> v != null) && hintModes.stream().allMatch(v -> v != null)
-                    && drafts.stream().allMatch(v -> v != null) && navigation.stream().allMatch(v -> v != null) && delivery.stream().allMatch(v -> v != null), INVALID_INPUT);
+                    && drafts.stream().allMatch(v -> v != null) && navigation.stream().allMatch(v -> v != null) && delivery.stream().allMatch(v -> v != null) && selection.stream().allMatch(v -> v != null), INVALID_INPUT);
             answerOrders = Set.copyOf(answerOrders);
             hintModes = Set.copyOf(hintModes);
             drafts = Set.copyOf(drafts);
             navigation = Set.copyOf(navigation);
             delivery = Set.copyOf(delivery);
+            selection = Set.copyOf(selection);
         }
     }
 

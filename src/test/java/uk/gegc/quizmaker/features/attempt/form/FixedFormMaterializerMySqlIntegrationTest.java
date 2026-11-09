@@ -511,7 +511,7 @@ class FixedFormMaterializerMySqlIntegrationTest {
     }
 
     private FixedFormMaterializer service(QuestionRevisionContractService contractService) {
-        return new FixedFormMaterializerImpl(revisions, contractService, orders(contractService), manager, metrics);
+        return new FixedFormMaterializerImpl(revisions, contractService, orders(contractService), manager, metrics, proxy(new JdbcFixedFormRepository(named())));
     }
 
     private Outcome race(Command command, String isolation) {

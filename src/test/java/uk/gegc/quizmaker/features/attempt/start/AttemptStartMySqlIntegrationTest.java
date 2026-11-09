@@ -1,5 +1,11 @@
 package uk.gegc.quizmaker.features.attempt.start;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
+import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -42,6 +48,15 @@ import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPol
 import uk.gegc.quizmaker.features.attempt.domain.model.preset.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt;
 import uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStartException;
+import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelection;
+import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelection.*;
+import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelection.Configuration;
+import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelectionException;
+import uk.gegc.quizmaker.features.attempt.domain.model.form.FixedFormException;
+import uk.gegc.quizmaker.features.attempt.domain.model.form.FixedForm;
+import uk.gegc.quizmaker.features.attempt.domain.model.ordering.AuthoredQuestionOrder;
+import uk.gegc.quizmaker.features.attempt.domain.repository.FixedFormRepository;
+import uk.gegc.quizmaker.features.attempt.infra.selection.HmacSelectionSeedSource;
 import uk.gegc.quizmaker.features.attempt.infra.repository.*;
 import uk.gegc.quizmaker.features.attempt.infra.repository.JdbcFixedFormRepository;
 import uk.gegc.quizmaker.features.attempt.infra.repository.JdbcFormOptionOrderRepository;
@@ -148,6 +163,7 @@ class AttemptStartMySqlIntegrationTest {
     }
     @Autowired PublishedQuestionContractService binding;
     @Autowired FixedFormMaterializer materializer;
+    @Autowired FixedFormRepository formRepository;
     @Autowired QuizRevisionPublicationService publications;
     @Autowired QuestionRevisionContractService contracts;
     @Autowired QuestionContractRegistry registry;
@@ -176,7 +192,7 @@ class AttemptStartMySqlIntegrationTest {
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
     static final List<String> TARGET_TABLES = List.of("attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
-            "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form", "attempt_policy_snapshot");
+            "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     StartDataSource observer() { return (StartDataSource) source; }
     TransactionTemplate tx;
     String username;
@@ -761,6 +777,281 @@ class AttemptStartMySqlIntegrationTest {
             sql.update("INSERT INTO user_roles(user_id,role_id) SELECT UUID_TO_BIN(?),role_id FROM roles WHERE role_name=?", userId.toString(), role);
         });
     }
+    @Test void allStartKeepsThePreExtensionFingerprintAndExplicitAllReplaysTheSameReceipt() throws Exception {
+        var command = command(prepared(), AnswerOrder.AUTHORED, "historical-all");
+        var result = starts.start(command);
+        var historical = JSON.readTree("""
+                {"version":1,"quiz":"%s","revision":"%s","publicationVersion":1,"revisionVersion":1,
+                 "formMode":"PRECOMPUTED","sections":"IMPLICIT_FLAT","cases":"NOT_CONFIGURED",
+                 "preset":"FREE_PRACTICE","presetVersion":1,"context":"ORDINARY","legacyMode":"ALL_AT_ONCE","answerOrder":"AUTHORED"}
+                """.formatted(quizId, command.content().quizRevisionId()));
+        var expected = uk.gegc.quizmaker.features.attempt.infra.receipt.CanonicalCommandInput.fingerprint(1, historical);
+        assertThat(sql.queryForObject("SELECT input_hash FROM attempt_command_receipt", String.class)).isEqualTo(expected.digest());
+        var replay = starts.start(selected(command, Configuration.all()));
+        assertThat(replay.replayed()).isTrue(); assertThat(replay.attemptId()).isEqualTo(result.attemptId());
+    }
+
+    @ParameterizedTest @EnumSource(SelectionMode.class)
+    void selectedStartsPersistRealAlgorithmEvidenceAndResumeWithoutRequiringTheSeedAgain(SelectionMode mode) throws Exception {
+        UUID revision = prepared();
+        var bank = revisions.findById(ownerId, revision).orElseThrow().items().stream().map(i -> i.id()).toList();
+        Configuration config = switch (mode) {
+            case ALL -> Configuration.all();
+            case MANUAL_SET -> Configuration.manualSet(List.of(bank.get(3), bank.get(1)));
+            case RANDOM_COUNT -> Configuration.randomCount(2);
+            case RANDOM_PERCENTAGE -> Configuration.randomPercentage(3300); // ceil(5 * .33) = 2
+        };
+        var command = selected(command(revision, AnswerOrder.SHUFFLED_PER_ATTEMPT, "selected"), config);
+        var result = randomStarts().start(command);
+        assertCoherent(result, mode == SelectionMode.ALL ? 5 : 2);
+        var captured = tx.execute(status -> formRepository.findSelection(ownerId, result.formId()).orElseThrow());
+        assertThat(captured.configuration()).isEqualTo(config);
+        var form = tx.execute(status -> formRepository.findByIds(ownerId, List.of(result.formId())).get(0));
+        var ids = form.items().stream().map(i -> i.sourceItemId()).toList();
+        assertThat(ids).doesNotHaveDuplicates().isSubsetOf(bank);
+        assertThat(bank.stream().filter(ids::contains).toList()).isEqualTo(ids);
+        if (mode == SelectionMode.MANUAL_SET) assertThat(ids).containsExactly(bank.get(1), bank.get(3));
+        if (config.strategy().random()) {
+            String receipt = sql.queryForObject("SELECT BIN_TO_UUID(id) FROM attempt_command_receipt", String.class);
+            assertThat(captured.random().context().operationId()).isEqualTo(UUID.fromString(receipt));
+            assertThat(captured.random().candidateCount()).isEqualTo(5);
+            assertThat(captured.random().selectedCount()).isEqualTo(2);
+            assertThat(captured.random().keyVersion()).isEqualTo(7);
+        }
+        var resolution = sql.queryForObject("SELECT canonical_json FROM attempt_policy_snapshot", String.class);
+        assertThat(JSON.readTree(resolution).at("/policy/questionSelection/mode").asText()).isEqualTo(mode.name());
+        var before = targetSnapshot();
+        // A reconstructed receipt service and an unavailable seed source must read committed state.
+        var replay = withSelector(input -> { throw new AssertionError("Committed replay must not select again"); }).start(command);
+        assertThat(replay.attemptId()).isEqualTo(result.attemptId()); assertThat(replay.replayed()).isTrue();
+        assertThat(targetSnapshot()).isEqualTo(before);
+        assertThat(JSON.writeValueAsString(result)).doesNotContain("seed", "candidate", "selection", "configuration");
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"INSERT INTO attempt_form_selection", "INSERT INTO attempt_participant_subject", "UPDATE attempt_command_receipt SET"})
+    void selectedStartReachedWriteFailuresRollBackFormEvidenceAndReceiptBeforeSuccessfulRetry(String checkpoint) {
+        var command = selected(command(prepared(), AnswerOrder.AUTHORED, "selected-fault"), Configuration.randomCount(2));
+        AtomicBoolean reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.contains(checkpoint) && reached.compareAndSet(false, true)) throw new SQLException("Synthetic selected write failure", "08006");
+        };
+        denied(() -> randomStarts().start(command), PERSISTENCE_UNAVAILABLE);
+        observer().reset(); assertThat(reached).isTrue(); assertNoTargetRows();
+        assertCoherent(randomStarts().start(command), 2);
+    }
+
+    @ParameterizedTest @CsvSource({"0,ALL", "1213,ALL", "1205,ALL", "0,RANDOM_COUNT", "1213,RANDOM_COUNT", "1205,RANDOM_COUNT"})
+    void selectedSqlFailuresAreSanitizedBeforeTransactionLoggingAndKeepRollbackAndRetry(int code, SelectionMode mode) {
+        var config = mode == SelectionMode.ALL ? Configuration.all() : Configuration.randomCount(2);
+        var command = selected(command(prepared(), AnswerOrder.AUTHORED, "selection-log-failure"), config);
+        String marker = "selection-private-driver-marker";
+        var reached = new AtomicBoolean();
+        var logger = (Logger) LoggerFactory.getLogger(TransactionTemplate.class);
+        Level previous = logger.getLevel(); Thread requestThread = Thread.currentThread();
+        var captured = new ListAppender<ILoggingEvent>() {
+            @Override protected void append(ILoggingEvent event) {
+                if (Thread.currentThread() == requestThread) {
+                    event.prepareForDeferredProcessing(); super.append(event);
+                }
+            }
+        };
+        captured.setContext(logger.getLoggerContext()); captured.start();
+        logger.addAppender(captured); logger.setLevel(Level.DEBUG);
+        observer().afterSql = (statement, connection) -> {
+            if (statement.stripLeading().startsWith("INSERT INTO attempt_form_selection") && reached.compareAndSet(false, true)) {
+                // Same transaction: prove that the actual INSERT reached its write before failing.
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form_selection", Integer.class)).isEqualTo(1);
+                var failure = new SQLException(marker, code == 1213 ? "40001" : code == 1205 ? "HY000" : "08006", code);
+                failure.initCause(new IllegalArgumentException(marker + "-cause"));
+                failure.addSuppressed(new IllegalStateException(marker + "-suppressed"));
+                failure.setNextException(new SQLException(marker + "-next"));
+                throw failure;
+            }
+        };
+        try {
+            var expected = code == 1213 ? RETRYABLE : code == 1205 ? IN_PROGRESS : PERSISTENCE_UNAVAILABLE;
+            denied(() -> randomStarts().start(command), expected);
+            assertThat(reached).isTrue(); observer().reset();
+            assertNoTargetRows(); // Fresh transactions, after the real receipt transaction rolled back.
+            var retry = randomStarts().start(command);
+            assertCoherent(retry, mode == SelectionMode.ALL ? 5 : 2);
+            assertThat(restarted().start(command).attemptId()).isEqualTo(retry.attemptId());
+            var throwableEvents = captured.list.stream().filter(event -> event.getThrowableProxy() != null).toList();
+            assertThat(throwableEvents).isNotEmpty();
+            for (var event : captured.list) {
+                assertThat(event.getFormattedMessage()).doesNotContain(marker);
+                var throwable = event.getThrowableProxy();
+                if (throwable != null) {
+                    assertThat(ThrowableProxyUtil.asString(throwable)).doesNotContain(marker);
+                    assertThat(throwable.getCause()).isNull();
+                    assertThat(throwable.getSuppressed()).isNullOrEmpty();
+                }
+            }
+            assertThat(throwableEvents).anySatisfy(event -> {
+                assertThat(event.getLevel()).isEqualTo(Level.DEBUG);
+                assertThat(event.getThrowableProxy().getMessage()).contains(code == 0
+                        ? "PERSISTENCE_UNAVAILABLE" : code == 1213 ? "DEADLOCK" : "LOCK_TIMEOUT");
+            });
+        } finally {
+            observer().reset(); logger.detachAppender(captured); logger.setLevel(previous); captured.stop();
+        }
+    }
+
+    @Test void strategyFailureInsufficiencyEmptySelectionAndUnavailableSeedLeaveNoAuthoritativeWrites() {
+        var original = command(prepared(), AnswerOrder.AUTHORED, "rejected-selection");
+        denied(() -> randomStarts().start(selected(original, Configuration.randomCount(6))), SELECTION_REJECTED);
+        assertNoTargetRows();
+        for (var config : List.of(Configuration.randomCount(0), Configuration.randomPercentage(0), Configuration.manualSet(List.of()),
+                Configuration.manualSet(List.of(UUID.randomUUID())))) {
+            denied(() -> randomStarts().start(selected(original, config)), SELECTION_REJECTED); assertNoTargetRows();
+        }
+        var valid = selected(original, Configuration.randomCount(2));
+        denied(() -> starts.start(valid), SELECTION_UNAVAILABLE); assertNoTargetRows(); // optional key is absent in this fixture
+        denied(() -> withSelector(input -> { throw new QuestionSelectionException(QuestionSelectionException.Reason.CONSTRAINT_VIOLATION); })
+                .start(valid), SELECTION_REJECTED);
+        assertNoTargetRows();
+        denied(() -> withSelector(input -> { throw new QuestionSelectionException(QuestionSelectionException.Reason.UNSUPPORTED_STRATEGY_VERSION); })
+                .start(valid), UNSUPPORTED_VERSION);
+        assertNoTargetRows();
+        assertCoherent(randomStarts().start(valid), 2);
+    }
+
+    @Test void genericExtensionAcceptsAValidContractDoubleWhileRealStartAndMaterializerCommitAndReplay() {
+        UUID revision = prepared();
+        var bank = revisions.findById(ownerId, revision).orElseThrow().items();
+        var config = Configuration.manualSet(List.of(bank.get(1).id(), bank.get(3).id()));
+        var command = selected(command(revision, AnswerOrder.AUTHORED, "extension"), config);
+        AtomicInteger calls = new AtomicInteger();
+        QuestionSelectionService adapter = input -> {
+            calls.incrementAndGet();
+            return new QuestionSelection.Result(1, new Evidence(1, 1, revision, 1, config), List.of(bank.get(1).id(), bank.get(3).id()));
+        };
+        var result = withSelector(adapter).start(command); assertCoherent(result, 2);
+        assertThat(withSelector(adapter).start(command).attemptId()).isEqualTo(result.attemptId());
+        assertThat(calls).hasValue(1); // Extension composition proof, not random algorithm conformance.
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void selectedDuplicateRacesHaveASuccessfulWinnerAndNoSecondForm(boolean conflicting) throws Exception {
+        var original = selected(command(prepared(), AnswerOrder.AUTHORED, "selected-race"), Configuration.randomCount(2));
+        var other = selected(original, Configuration.randomCount(conflicting ? 3 : 2));
+        var barrier = new CyclicBarrier(2);
+        observer().beforeSql = (statement, connection) -> {
+            if (statement.contains("INSERT INTO attempt_command_receipt")) {
+                try { barrier.await(10, TimeUnit.SECONDS); }
+                catch (Exception failure) { throw new SQLException("Selected race barrier failed", failure); }
+            }
+        };
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var a = pool.submit(() -> selectedRace(original)); var b = pool.submit(() -> selectedRace(other));
+            var outcomes = List.of(a.get(25, TimeUnit.SECONDS), b.get(25, TimeUnit.SECONDS)); observer().reset();
+            var winners = outcomes.stream().filter(AttemptStartService.Result.class::isInstance).map(AttemptStartService.Result.class::cast).toList();
+            assertThat(winners).hasSize(conflicting ? 1 : 2);
+            assertThat(winners.stream().filter(r -> !r.replayed()).count()).isEqualTo(1);
+            if (conflicting) assertThat(outcomes).contains(CONFLICT);
+            else assertThat(winners.get(0).attemptId()).isEqualTo(winners.get(1).attemptId());
+            assertThat(count("attempt_form_selection")).isEqualTo(1);
+            assertThat(count("attempt_form")).isEqualTo(1);
+            assertThat(count("attempt_participant_subject")).isEqualTo(1);
+            assertThat(count("attempt_command_receipt")).isEqualTo(1);
+        } finally { observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {true, false})
+    void selectedUnknownCommitReconcilesAfterRestartWithoutDuplicatingTheStoredSelection(boolean committed) {
+        var command = selected(command(prepared(), AnswerOrder.AUTHORED, "selected-unknown"), Configuration.randomCount(2));
+        var reached = new AtomicBoolean(); var written = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> { if (statement.contains("UPDATE attempt_command_receipt SET")) written.set(true); };
+        if (committed) observer().afterCommit = connection -> { if (written.get()) { reached.set(true); throw new SQLException("Synthetic selected lost response", "08006"); } };
+        else observer().beforeCommit = connection -> { if (written.get()) { connection.rollback(); reached.set(true); throw new SQLException("Synthetic selected rejected commit", "08006"); } };
+        denied(() -> randomStarts().start(command), UNKNOWN_OUTCOME);
+        observer().reset(); assertThat(reached).isTrue(); assertThat(written).isTrue();
+        var before = targetSnapshot(); if (!committed) assertNoTargetRows();
+        var replay = randomStarts().start(command); assertThat(replay.replayed()).isEqualTo(committed); assertCoherent(replay, 2);
+        if (committed) assertThat(targetSnapshot()).isEqualTo(before);
+    }
+
+    @Test void preExtensionFormWithoutMetadataRemainsReadableWithoutInferringSelectionHistory() {
+        UUID revisionId = prepared();
+        var revision = revisions.findById(ownerId, revisionId).orElseThrow();
+        var selection = selector.select(QuestionSelection.Input.fromRevision(content(revisionId), revision, Configuration.all(), List.of()));
+        var order = AuthoredQuestionOrder.order(
+                new AuthoredQuestionOrder.Input(1, revisionId, 1,
+                        new QuestionOrderingPolicy(QuestionOrder.AUTHORED, 1), revision.items().stream().map(i ->
+                        new AuthoredQuestionOrder.Item(i.id(), i.authoredPosition())).toList(), selection.itemIds()));
+        var form = new FixedForm(UUID.randomUUID(), 1, revisionId,
+                IntStream.range(0, order.itemIds().size()).mapToObj(i -> new FixedForm.Item(
+                        UUID.randomUUID(), order.itemIds().get(i), i)).toList());
+        var command = new FixedFormMaterializer.Command(form, selection, order, new AnswerOrderingPolicy(AnswerOrder.AUTHORED, 1));
+        var before = materializer.materialize(ownerId, command);
+        var absent = tx.execute(status -> formRepository.findSelection(ownerId, form.id()));
+        assertThat(absent).isEmpty();
+        assertThat(materializer.materialize(ownerId, command)).isEqualTo(before);
+        assertThat(count("attempt_form_selection")).isZero();
+        assertThat(count("attempt_participant_subject")).isZero();
+    }
+
+    @Test void persistedMetadataCannotBeOverwrittenOrReadByAnotherOwnerAndUnknownVersionsFailClosed() {
+        var result = randomStarts().start(selected(command(prepared(), AnswerOrder.AUTHORED, "metadata"), Configuration.randomCount(2)));
+        var original = sql.queryForObject("SELECT evidence_json FROM attempt_form_selection", String.class);
+        var form = tx.execute(status -> formRepository.findByIds(ownerId, List.of(result.formId())).get(0));
+        var alternate = Configuration.manualSet(form.items().stream().map(i -> i.sourceItemId()).toList());
+        var changed = new QuestionSelection.Result(1, new Evidence(1, 1, form.quizRevisionId(), 1, alternate),
+                form.items().stream().map(i -> i.sourceItemId()).toList());
+        assertThatThrownBy(() -> tx.executeWithoutResult(status -> formRepository.createSelectionOrReplay(ownerId, form, changed)))
+                .isInstanceOfSatisfying(FixedFormException.class, e -> assertThat(e.reason()).isEqualTo(FixedFormException.Reason.FORM_CONFLICT));
+        assertThat(sql.queryForObject("SELECT evidence_json FROM attempt_form_selection", String.class)).isEqualTo(original);
+        assertThatThrownBy(() -> tx.execute(status -> formRepository.findSelection(UUID.randomUUID(), result.formId())))
+                .isInstanceOfSatisfying(FixedFormException.class, e -> assertThat(e.reason()).isEqualTo(FixedFormException.Reason.FORM_UNAVAILABLE));
+        tx.executeWithoutResult(status -> sql.update("UPDATE attempt_form_selection SET evidence_json=?", original.replace("\"version\":1", "\"version\":2")));
+        assertThatThrownBy(() -> tx.execute(status -> formRepository.findSelection(ownerId, result.formId())))
+                .isInstanceOfSatisfying(FixedFormException.class, e -> assertThat(e.reason()).isEqualTo(FixedFormException.Reason.INVALID_STORED_FORM));
+    }
+
+    @Test void selectedConfigurationDoesNotGrantAuthorityAndConflictingRetriesCannotChangeIt() {
+        var command = selected(command(prepared(), AnswerOrder.AUTHORED, "selected-access"), Configuration.randomCount(2));
+        var result = randomStarts().start(command); var before = targetSnapshot();
+        denied(() -> randomStarts().start(selected(command, Configuration.randomCount(3))), CONFLICT);
+        SecurityContextHolder.clearContext(); denied(() -> randomStarts().start(command), UNAUTHENTICATED);
+        String outsider = "selected-outsider"; user(outsider, true); authenticate(outsider);
+        denied(() -> randomStarts().start(command), ACCESS_DENIED);
+        assertThat(targetSnapshot()).isEqualTo(before); assertThat(result.replayed()).isFalse();
+    }
+
+    @Test void selectedRelationshipReadsRemainBoundedAcrossMultipleParentQuizzesAndLargerBanks(TestReporter reporter) {
+        var counts = new ArrayList<Integer>();
+        for (int size : List.of(5, 10, 20)) {
+            quizId = newQuiz();
+            UUID revision = publish(0, IntStream.range(0, size).mapToObj(i -> draft(FAMILIES.get(i % 5))).toList()); binding.bind(quizId, revision);
+            var command = selected(command(revision, AnswerOrder.AUTHORED, "selected-size-" + size), Configuration.randomCount(size / 2));
+            observer().selects.clear(); var result = randomStarts().start(command); counts.add(observer().selects.size());
+            assertThat(tx.execute(status -> formRepository.findSelection(ownerId, result.formId()).orElseThrow()).random().candidateCount()).isEqualTo(size);
+        }
+        assertThat(counts.get(0)).isPositive(); assertThat(counts).allMatch(n -> n.equals(counts.get(0)));
+        reporter.publishEntry("selectedStartSelectCountsFor5_10_20Items", counts.toString());
+    }
+
+    private AttemptStartService randomStarts() {
+        byte[] testKey = new byte[32]; Arrays.fill(testKey, (byte) 19);
+        return withSelector(new QuestionSelectionServiceImpl(new HmacSelectionSeedSource("7", Base64.getEncoder().encodeToString(testKey))));
+    }
+    private AttemptStartService withSelector(QuestionSelectionService configured) {
+        var receipt = new CommandReceiptServiceImpl(new JdbcCommandReceiptRepository(new NamedParameterJdbcTemplate(source)), manager, clock, metrics);
+        return new AttemptStartServiceImpl(identity, sources, presets, policies, snapshots, contracts, configured, materializer,
+                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)));
+    }
+    private static AttemptStartService.Command selected(AttemptStartService.Command c, Configuration selection) {
+        return new AttemptStartService.Command(c.version(), c.quizId(), c.content(), c.publicationVersion(), c.key(), c.preset(),
+                c.context(), c.legacyMode(), c.answerOrder(), c.draftsEnabled(), c.navigation(), c.delivery(), selection);
+    }
+    private Object selectedRace(AttemptStartService.Command command) {
+        authenticate(username);
+        try { return randomStarts().start(command); }
+        catch (AttemptStartException failure) { return failure.reason(); }
+        finally { SecurityContextHolder.clearContext(); }
+    }
+
     private AttemptStartService restarted() {
         var receipt = new CommandReceiptServiceImpl(new JdbcCommandReceiptRepository(new NamedParameterJdbcTemplate(source)), manager, clock, metrics);
         return new AttemptStartServiceImpl(identity, sources, presets, policies, snapshots, contracts, selector, materializer,

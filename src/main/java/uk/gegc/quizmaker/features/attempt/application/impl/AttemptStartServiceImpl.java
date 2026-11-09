@@ -17,6 +17,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.receipt.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.resolution.PolicyResolutionRequest;
 import uk.gegc.quizmaker.features.attempt.domain.model.resolution.PolicyResolutionRequest.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelection;
+import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelectionException;
 import uk.gegc.quizmaker.features.attempt.domain.model.snapshot.PolicySnapshot;
 import uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStartException;
 import uk.gegc.quizmaker.features.attempt.domain.model.subject.*;
@@ -106,7 +107,8 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         } finally {
             try {
                 if (timer != null) timer.stop(Timer.builder("quizmaker.attempt.start")
-                        .tags("version", "1", "outcome", outcome).register(metrics));
+                        .tags("version", "1", "strategy", command == null || command.selection() == null
+                                ? "none" : command.selection().strategy().name(), "outcome", outcome).register(metrics));
             } catch (RuntimeException ignored) { /* telemetry never changes command authority */ }
         }
     }
@@ -139,20 +141,32 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         if (configuredNavigation) authorChoices.add(new NavigationChoice(command.navigation()));
         boolean configuredDelivery = command.delivery() != DeliveryMode.ALL_AT_ONCE;
         if (configuredDelivery) authorChoices.add(new DeliveryChoice(command.delivery()));
+        boolean configuredSelection = !command.selection().equals(QuestionSelection.Configuration.all());
+        if (configuredSelection) authorChoices.add(new SelectionChoice(SelectionPolicy.from(command.selection())));
         if (!authorChoices.isEmpty()) overrides.add(new SourceOverrides(OverrideSource.AUTHOR, 1,
                 new AllowedChoices(Set.of(), Set.of(), command.draftsEnabled() ? Set.of(true) : Set.of(),
                         configuredNavigation ? Set.of(command.navigation()) : Set.of(),
-                        configuredDelivery ? Set.of(command.delivery()) : Set.of()), authorChoices));
+                        configuredDelivery ? Set.of(command.delivery()) : Set.of(),
+                        configuredSelection ? Set.of(SelectionPolicy.from(command.selection())) : Set.of()), authorChoices));
         var resolution = policies.resolve(new PolicyResolutionRequest(1, 1, PolicyResolutionRequest.HASH_ALGORITHM,
                 command.preset(), command.content(), overrides));
         var snapshot = snapshots.createOrReplay(access.ownerId(), new PolicySnapshot(UUID.randomUUID(), resolution));
         var policy = resolution.policy();
-        var selected = selection.select(QuestionSelection.Input.fromRevision(policy.content(), revision,
-                QuestionSelection.Configuration.all(), List.of()));
+        var config = policy.questionSelection().configuration();
+        var context = config.strategy().random() ? new QuestionSelection.SelectionContext(1, commandId) : null;
+        var input = QuestionSelection.Input.fromRevision(policy.content(), revision, config, List.of(), context);
+        var selected = selection.select(input);
+        require(selected != null && selected.evidence().configuration().equals(config)
+                && selected.evidence().quizRevisionId().equals(revision.id())
+                && selected.evidence().revisionSchemaVersion() == revision.schemaVersion()
+                && selected.itemIds().size() == config.selectionSize(revision.items().size())
+                && (!configuredSelection || !selected.itemIds().isEmpty()), SELECTION_REJECTED);
+        if (config.strategy().random()) require(selected.evidence().random().context().equals(context)
+                && selected.evidence().random().candidateCount() == revision.items().size(), SELECTION_REJECTED);
         var ordered = AuthoredQuestionOrder.order(AuthoredQuestionOrder.Input.fromRevision(policy, revision, selected.itemIds()));
         var form = new FixedForm(UUID.randomUUID(), 1, revision.id(), IntStream.range(0, ordered.itemIds().size())
                 .mapToObj(n -> new FixedForm.Item(UUID.randomUUID(), ordered.itemIds().get(n), n)).toList());
-        forms.materialize(access.ownerId(), new FixedFormMaterializer.Command(form, selected, ordered, policy.answerOrdering()));
+        forms.materializeSelected(access.ownerId(), new FixedFormMaterializer.Command(form, selected, ordered, policy.answerOrdering()));
         subjects.bindOrReplay(subject.userId(), subject);
         var initial = lifecycle.initialize(subject.attemptId());
         var decision = AttemptCommands.evaluate(new AttemptCommands.Command(1, AttemptCommands.Type.START),
@@ -183,7 +197,7 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         require(c.version() == 1, UNSUPPORTED_VERSION);
         require(c.quizId() != null && c.content() != null && c.publicationVersion() > 0 && c.key() != null
                 && c.preset() != null && c.context() != null && c.legacyMode() != null && c.legacyMode().length() <= 32
-                && c.answerOrder() != null && c.navigation() != null && c.delivery() != null, INVALID_INPUT);
+                && c.answerOrder() != null && c.navigation() != null && c.delivery() != null && c.selection() != null, INVALID_INPUT);
     }
 
     private static CommandReceipt.Fingerprint fingerprint(Command c) {
@@ -202,6 +216,15 @@ public class AttemptStartServiceImpl implements AttemptStartService {
             var rules = c.navigation().rules();
             if (rules != null) nav.putObject("rules").put("version", rules.version())
                     .put("allowSkipAndReturn", rules.allowSkipAndReturn()).put("allowAcceptedRevisit", rules.allowAcceptedRevisit());
+        }
+        if (!c.selection().equals(QuestionSelection.Configuration.all())) {
+            var selected = json.putObject("selection").put("version", c.selection().version())
+                    .put("strategy", c.selection().strategy().name()).put("algorithmVersion", c.selection().algorithmVersion());
+            if (c.selection().count() != null) selected.put("count", c.selection().count());
+            if (c.selection().percentageBasisPoints() != null) selected.put("percentageBasisPoints", c.selection().percentageBasisPoints());
+            if (c.selection().strategy() == QuestionSelection.Strategy.MANUAL_SET) {
+                var ids = selected.putArray("manualItemIds"); c.selection().manualItemIds().forEach(id -> ids.add(id.toString()));
+            }
         }
         return CanonicalCommandInput.fingerprint(1, json);
     }
@@ -224,9 +247,18 @@ public class AttemptStartServiceImpl implements AttemptStartService {
             case UNSUPPORTED_VERSION -> UNSUPPORTED_VERSION;
             default -> PERSISTENCE_UNAVAILABLE;
         });
+        if (failure instanceof QuestionSelectionException selected)
+            return new AttemptStartException(switch (selected.reason()) {
+                case SEED_UNAVAILABLE -> SELECTION_UNAVAILABLE;
+                case UNSUPPORTED_VERSION, UNSUPPORTED_REVISION_VERSION, UNSUPPORTED_STRATEGY_VERSION -> UNSUPPORTED_VERSION;
+                default -> SELECTION_REJECTED;
+            });
         if (failure instanceof ContractResolutionException contract)
             return new AttemptStartException(contract.reason() == ContractResolutionException.Reason.PERSISTENCE_UNAVAILABLE
                     ? PERSISTENCE_UNAVAILABLE : CONTRACT_UNAVAILABLE);
+        if (failure instanceof FixedFormException form)
+            return new AttemptStartException(form.reason() == FixedFormException.Reason.PERSISTENCE_UNAVAILABLE
+                    ? PERSISTENCE_UNAVAILABLE : MATERIAL_UNAVAILABLE);
         if (failure instanceof FormMaterializationException form)
             return new AttemptStartException(form.reason() == FormMaterializationException.Reason.PERSISTENCE_UNAVAILABLE
                     ? PERSISTENCE_UNAVAILABLE : MATERIAL_UNAVAILABLE);

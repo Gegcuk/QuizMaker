@@ -16,6 +16,7 @@ import java.lang.reflect.RecordComponent;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.*;
@@ -43,7 +44,7 @@ class PolicyValidationTest {
     @Test
     @DisplayName("vocabulary: when deferred modes are requested then there is no implicit activation")
     void deferredModesAndInvalidParserArgumentsFailClosed() {
-        rejected(() -> ResolvedAttemptPolicy.parseValue(SelectionMode.class, "RANDOM_COUNT"), UNKNOWN_VALUE);
+        rejected(() -> ResolvedAttemptPolicy.parseValue(SelectionMode.class, "STRATIFIED"), UNKNOWN_VALUE);
         rejected(() -> ResolvedAttemptPolicy.parseValue(DeliveryMode.class, "NOT_IMPLEMENTED"), UNKNOWN_VALUE);
         rejected(() -> ResolvedAttemptPolicy.parseValue(TimingMode.class, "TOTAL_ATTEMPT"), UNKNOWN_VALUE);
         rejected(() -> ResolvedAttemptPolicy.parseValue(ParticipantMode.class, "GUEST"), UNKNOWN_VALUE);
@@ -180,7 +181,8 @@ class PolicyValidationTest {
             for (int index = 0; index < components.length; index++) {
                 // Only the historical FREE representation omits navigation rules.
                 if (!components[index].getType().isPrimitive()
-                        && !(record instanceof NavigationPolicy && components[index].getName().equals("rules"))) {
+                        && !(record instanceof NavigationPolicy && components[index].getName().equals("rules"))
+                        && !(record instanceof SelectionPolicy && Set.of("count", "percentageBasisPoints").contains(components[index].getName()))) {
                     arguments.add(Arguments.of(record, index, record.getClass().getSimpleName() + "." + components[index].getName()));
                 }
             }

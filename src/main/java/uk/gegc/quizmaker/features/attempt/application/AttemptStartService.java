@@ -7,15 +7,22 @@ import uk.gegc.quizmaker.features.attempt.domain.model.preset.PresetReference;
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt.Key;
 
 import java.util.UUID;
+import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelection;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.NavigationPolicy;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.NavigationMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.DeliveryMode;
 
-/** Internal authenticated ALL start. No controller, routing or participant delivery is activated. */
+/** Internal authenticated fixed-form start. No controller, routing or participant delivery is activated. */
 public interface AttemptStartService {
     /** Requested configuration is never authority; the server resolves user, access and publication. */
     record Command(int version, UUID quizId, ContentPolicy content, long publicationVersion, Key key,
-                   PresetReference preset, LaunchContext context, String legacyMode, AnswerOrder answerOrder, boolean draftsEnabled, NavigationPolicy navigation, DeliveryMode delivery) {
+                   PresetReference preset, LaunchContext context, String legacyMode, AnswerOrder answerOrder, boolean draftsEnabled, NavigationPolicy navigation, DeliveryMode delivery, QuestionSelection.Configuration selection) {
+        public Command(int version, UUID quizId, ContentPolicy content, long publicationVersion, Key key,
+                       PresetReference preset, LaunchContext context, String legacyMode, AnswerOrder answerOrder,
+                       boolean draftsEnabled, NavigationPolicy navigation, DeliveryMode delivery) {
+            this(version, quizId, content, publicationVersion, key, preset, context, legacyMode, answerOrder,
+                    draftsEnabled, navigation, delivery, QuestionSelection.Configuration.all());
+        }
         public Command(int version, UUID quizId, ContentPolicy content, long publicationVersion, Key key,
                        PresetReference preset, LaunchContext context, String legacyMode, AnswerOrder answerOrder, boolean draftsEnabled, NavigationPolicy navigation) {
             this(version, quizId, content, publicationVersion, key, preset, context, legacyMode, answerOrder, draftsEnabled, navigation, DeliveryMode.ALL_AT_ONCE);
