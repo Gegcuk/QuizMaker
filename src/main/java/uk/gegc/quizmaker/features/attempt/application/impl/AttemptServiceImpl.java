@@ -320,8 +320,8 @@ public class AttemptServiceImpl implements AttemptService {
             // Get all questions for the quiz from Question side
             List<Question> allQuestions = questionRepository.findAllByQuizId_IdOrderById(attempt.getQuiz().getId());
             
-            // Count answers using the same approach as getCurrentQuestion to ensure consistency
-            long answeredCount = answerRepository.countByAttemptId(attemptId);
+            // Use current locked membership, not the caller's older RR count snapshot.
+            long answeredCount = attempt.getAnswers().size();
             
             // Determine which question should be answered next
             if (answeredCount >= allQuestions.size()) {
@@ -358,8 +358,8 @@ public class AttemptServiceImpl implements AttemptService {
             // Get all questions for the quiz from Question side
             List<Question> allQuestions = questionRepository.findAllByQuizId_IdOrderById(attempt.getQuiz().getId());
             
-            // Count answers using the same approach as getCurrentQuestion to ensure consistency
-            long answeredCount = answerRepository.countByAttemptId(attemptId);
+            // The handler has added the accepted answer to this current managed collection.
+            long answeredCount = attempt.getAnswers().size();
             
             // Check if there are more questions to answer
             if (answeredCount < allQuestions.size()) {
@@ -656,8 +656,7 @@ public class AttemptServiceImpl implements AttemptService {
     @Override
     @Transactional
     public AttemptDto pauseAttempt(String username, UUID attemptId) {
-        Attempt attempt = attemptRepository.findByIdForUpdate(attemptId)
-                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        Attempt attempt = lockCurrentAttempt(attemptId);
         enforceOwnership(attempt, username);
 
         if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
@@ -672,8 +671,7 @@ public class AttemptServiceImpl implements AttemptService {
     @Override
     @Transactional
     public AttemptDto resumeAttempt(String username, UUID attemptId) {
-        Attempt attempt = attemptRepository.findByIdForUpdate(attemptId)
-                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        Attempt attempt = lockCurrentAttempt(attemptId);
         enforceOwnership(attempt, username);
 
         if (attempt.getStatus() != AttemptStatus.PAUSED) {
@@ -995,11 +993,29 @@ public class AttemptServiceImpl implements AttemptService {
     }
 
     private Attempt lockAndLoadAttempt(UUID attemptId) {
-        // Acquire the root lock before the collection query so a waiting command sees committed answers/state.
-        attemptRepository.findByIdForUpdate(attemptId)
+        Attempt attempt = lockCurrentAttempt(attemptId);
+        // This graph supplies associations only; it cannot establish current answer membership under RR.
+        attemptRepository.findFullyLoadedById(attemptId)
                 .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
-        return attemptRepository.findFullyLoadedById(attemptId)
+        List<Answer> currentAnswers = answerRepository.findCurrentByAttemptIdForUpdate(attemptId);
+        // Keep the managed collection and caller references. Accepted answers themselves are immutable.
+        attempt.getAnswers().clear();
+        attempt.getAnswers().addAll(currentAnswers);
+        return attempt;
+    }
+
+    private Attempt lockCurrentAttempt(UUID attemptId) {
+        // Flush, never commit/clear: preserve earlier batch writes and the caller's pending changes.
+        attemptRepository.flush();
+        var current = attemptRepository.findCurrentStateForUpdate(attemptId)
                 .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        Attempt attempt = current.attempt();
+        attempt.setStatus(current.status());
+        attempt.setMode(current.mode());
+        attempt.setStartedAt(current.startedAt());
+        attempt.setCompletedAt(current.completedAt());
+        attempt.setTotalScore(current.totalScore());
+        return attempt;
     }
 
     private Instant checkTimeLimit(Attempt attempt) {

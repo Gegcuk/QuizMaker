@@ -5612,6 +5612,21 @@ in another attempt and different questions in one attempt remain valid. The reta
 its answer/completion locking and its existing `200` success and `422` duplicate/terminal errors;
 no new client idempotency key, scoring rule, disclosure entitlement or target routing is introduced.
 
+The command lock also establishes **current state**, including when a share-link precheck or an
+outer transaction has already loaded the entity. `AttemptCommandState` carries the managed entity
+and separately selected scalar values from the same locking query; the guard copies those current
+values into the existing instance. An ordinary entity query does not refresh its first-level cache.
+The association graph is therefore not used as authority for answer membership: a second locking
+read loads the current accepted answers, and the guard synchronizes the existing managed collection.
+ONE_BY_ONE validation and next-question selection use that collection, including the answer just
+added by the real handler, rather than an ordinary COUNT against an older REPEATABLE_READ snapshot.
+
+The guard flushes earlier caller/batch writes in the **same** transaction before reading current
+state. It does not commit, clear/detach the persistence context or start a separate transaction.
+Caller entities remain managed for subsequent changes, and a later batch/caller failure rolls back
+the whole transaction while preserving another transaction's previously committed answer. Pause
+and resume use the same current-state guard so an old cached status cannot restore a terminal attempt.
+
 Before rollout, use the existing #608 read-only inventory and check report completeness and
 `ANSWER / DUPLICATE_ANSWER`. A truncated, unavailable or otherwise unreconciled report cannot
 establish that the data is clean. Identical and conflicting duplicate keys both require
@@ -5640,8 +5655,14 @@ orderings for every legacy mode: answer-first contributes once; completion-first
 late answer; one completion event survives. Its batch failure test reaches and observes the first
 real INSERT before failure and inspects rollback in a fresh transaction. Existing measurements
 compare three parent attempts with one versus eight related answers on both submission and
-completion; SQL counts remain bounded as the relationship collection grows. No new relationship
-read or serialization path is added by the uniqueness metadata.
+completion; SQL counts remain bounded as the relationship collection grows. Additional measurements
+preload the complete graphs in an outer REPEATABLE_READ transaction before submission/completion,
+include DTO serialization and the final flush in each measured group, and require bounded SQL as
+the answer collection grows. Real shared HTTP regressions establish the preload before another
+request completes, then require a 422 and unchanged terminal facts under READ_COMMITTED and
+REPEATABLE_READ, with successful same-route controls. Old-snapshot completion includes the committed
+answer and its original identity; duplicate rejection occurs before the uniqueness constraint;
+ONE_BY_ONE navigation, outer caller changes, batch rollback and cached pause/resume remain covered.
 
 ### Compatible cutover with a retained legacy path
 

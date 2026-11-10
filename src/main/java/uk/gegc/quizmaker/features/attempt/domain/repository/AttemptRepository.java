@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.attempt.domain.model.AttemptCommandState;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 
 import java.time.Instant;
@@ -23,6 +24,15 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
     @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT a FROM Attempt a WHERE a.id = :id")
     Optional<Attempt> findByIdForUpdate(@Param("id") UUID id);
+
+    /** Do not infer these scalars from the entity: it may have been preloaded by OSIV/a caller. */
+    @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT new uk.gegc.quizmaker.features.attempt.domain.model.AttemptCommandState(
+                a, a.status, a.mode, a.startedAt, a.completedAt, a.totalScore)
+            FROM Attempt a WHERE a.id = :id
+            """)
+    Optional<AttemptCommandState> findCurrentStateForUpdate(@Param("id") UUID id);
 
     @Query(value = """
             SELECT a
