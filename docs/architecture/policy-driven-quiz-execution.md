@@ -5605,64 +5605,138 @@ Inventory does not activate those routes or replace real writer evidence with a 
 
 #### Retained-answer uniqueness and rollout (#848)
 
-V106 adds `uq_answers_attempt_question` on `answers(attempt_id, question_id)`; the real `Answer`
-mapping declares the same constraint for Hibernate-created test schemas. This protects the
-existing one-final-answer invariant independently of the application row lock. The same question
-in another attempt and different questions in one attempt remain valid. The retained service keeps
-its answer/completion locking and its existing `200` success and `422` duplicate/terminal errors;
-no new client idempotency key, scoring rule, disclosure entitlement or target routing is introduced.
+V106 adds `uq_answers_attempt_question` on `answers(attempt_id, question_id)`; the `Answer` mapping
+also declares it for Hibernate compatibility fixtures. The same question in different attempts
+and different questions in one attempt remain valid. Existing success DTOs and `200`/`422`
+answer/duplicate/terminal behavior, ownership, shared routes, timing and feedback remain unchanged.
+There is no new client idempotency key, grading policy, target routing or automatic retry policy.
 
-The command lock also establishes **current state**, including when a share-link precheck or an
-outer transaction has already loaded the entity. `AttemptCommandState` carries the managed entity
-and separately selected scalar values from the same locking query; the guard copies those current
-values into the existing instance. An ordinary entity query does not refresh its first-level cache.
-The association graph is therefore not used as authority for answer membership: a second locking
-read loads the current accepted answers, and the guard synchronizes the existing managed collection.
-ONE_BY_ONE validation and next-question selection use that collection, including the answer just
-added by the real handler, rather than an ordinary COUNT against an older REPEATABLE_READ snapshot.
+**10 November 2026 owner decision:** commands use a synchronous database-maintained projection of
+minimal accepted-answer facts in the attempt row, without independently rereading physical
+`answers` rows on each command. Exact correspondence is established at migration and maintained
+transactionally on every supported source mutation. This is a deliberate replacement of the
+previous per-command physical-row check, not an assertion that the two guarantees are identical.
+The [decision register](decision-register.md#legacy-answer-projection) records the scope.
 
-The guard flushes earlier caller/batch writes in the **same** transaction before reading current
-state. It does not commit, clear/detach the persistence context or start a separate transaction.
-Caller entities remain managed for subsequent changes, and a later batch/caller failure rolls back
-the whole transaction while preserving another transaction's previously committed answer. Pause
-and resume use the same current-state guard so an old cached status cannot restore a terminal attempt.
+V107 introduces `attempts.accepted_answer_projection` as nullable JSON: NULL means uninitialized,
+not an empty attempt. V108 installs the three answer triggers, rebuilds from stored values, runs a
+separate exact source/projection comparison, then makes the column NOT NULL with a valid empty
+default. Its version-1 format is `{"version":1,"answers":{answerUUID:fact,...}}`. Each fact contains
+`questionId`, Boolean `isCorrect`, nullable saved `score` and numeric `answeredAtEpochSeconds`
+(UTC epoch seconds at the source timestamp precision). Answer text, correct choices, explanations
+and other large/sensitive content are absent. A null saved score retains the legacy zero-point
+contribution; unavailable correctness is an error, never inferred or regraded.
 
-Before rollout, use the existing #608 read-only inventory and check report completeness and
-`ANSWER / DUPLICATE_ANSWER`. A truncated, unavailable or otherwise unreconciled report cannot
-establish that the data is clean. Identical and conflicting duplicate keys both require
-classification; do not choose a historical winner, delete answers or recalculate scores as part
-of this migration. This is not an automatic production inventory or repair command.
+Hibernate maps this field with both `insertable=false` and `updatable=false`. `AttemptCommandState`
+selects current scalars and the raw projection under the attempt's row lock, independently of an
+already cached entity. The guard flushes previous writes in the caller's existing transaction,
+without committing, clearing or detaching its persistence context. It then copies the fresh values
+into that managed attempt. Ownership/state/timing guards precede projection decoding. Current
+immutable `AcceptedAnswerFact` values supply duplicate/ONE_BY_ONE checks, score and result DTOs.
+Batch processing loads that working set once, adds each accepted answer to it, and reads requested
+questions in groups of 256 while retaining input order, deadline checks and complete rollback.
+Pause/resume retain the current scalar guard; attempt deletion acquires the parent lock before
+a native parent DELETE delegates removal of its current children to the existing FK cascade.
+It evicts only that parent and the child IDs from its current projection. DETACH does not cascade
+through the cached inverse collection: an answer already rebound to another participant remains
+stored and managed, and unrelated caller changes after deletion still flush normally.
 
-MySQL's atomic unique-index DDL is the final integrity guard, including against writes after the
-preflight snapshot. If duplicate keys exist, V106 fails without removing/changing original
-answers, published attempt scores or analytics snapshots, and without installing a partial unique
-index. Stop the rollout and reconcile the discrepancy separately. A failed Flyway history entry
-is not automatically repaired or accepted by a later startup. A code rollback retains a successfully
-installed guard; do not drop the constraint or downgrade retained data as a recovery shortcut.
+`JsonCurrentAnswerRepository` decodes this already selected JSON and issues no SQL. Unknown
+versions, missing/extra fields, invalid canonical UUIDs, duplicate question IDs, incorrect types or
+unusable timestamps fail with bounded `AcceptedAnswerEvidenceException`. Parser diagnostics are
+not retained as cause/suppressed exceptions or logged with the projection. Commands do not clear
+or rebuild an orphan-removing association merely to read evidence. Their correctness does not
+depend on a cached `Attempt.answers` or cached `Answer` scalar. No locking child SELECT is used.
 
-`LegacyAnswerUniquenessMySqlIntegrationTest` uses isolated catalogs migrated through V105 and the
-real next migration. It proves clean upgrade/replay, exact/conflicting duplicate preflight and
-failed rollout, immutable historical rows, rejected duplicate INSERT/UPDATE, valid distinct pairs,
-the indexed lookup plan and independent SQL transaction contention. These SQL fixtures prove the
-database invariant, not application orchestration. `LegacyCompatibilityHttpIntegrationTest`
-separately races real HTTP commands with identical/different payloads in all three legacy modes,
-requires one `200` and one RFC 7807 `422`, checks immutable replay, batch rollback, wrong-owner and
-unauthenticated denial, and verifies the Hibernate-created constraint. The existing nine-family,
-shared-link and immediate-feedback fixtures remain in scope for compatibility.
+The earlier range read, and the candidate UNION of primary-key point reads, are not the retained
+strategy. Isolated JDBC reproductions on MySQL 8.4.11 and 8.4.13 showed independent inserts waiting
+on PRIMARY/supremum even for an existing unique key with LIMIT 1. Binary binding, UUID_TO_BIN and
+UNION branch limits did not satisfy the behavioral criterion. This evidence is specific to those
+versions/fixtures; it does not prove every possible point-read implementation is impossible.
+The replacement avoids acquiring child locks for reads instead of accepting a favorable EXPLAIN.
+It does not promise the absence of every possible deadlock elsewhere in InnoDB.
 
-`LegacyAttemptTimeoutMySqlIntegrationTest` additionally forces both on-time answer/completion
-orderings for every legacy mode: answer-first contributes once; completion-first rejects the
-late answer; one completion event survives. Its batch failure test reaches and observes the first
-real INSERT before failure and inspects rollback in a fresh transaction. Existing measurements
-compare three parent attempts with one versus eight related answers on both submission and
-completion; SQL counts remain bounded as the relationship collection grows. Additional measurements
-preload the complete graphs in an outer REPEATABLE_READ transaction before submission/completion,
-include DTO serialization and the final flush in each measured group, and require bounded SQL as
-the answer collection grows. Real shared HTTP regressions establish the preload before another
-request completes, then require a 422 and unchanged terminal facts under READ_COMMITTED and
-REPEATABLE_READ, with successful same-route controls. Old-snapshot completion includes the committed
-answer and its original identity; duplicate rejection occurs before the uniqueness constraint;
-ONE_BY_ONE navigation, outer caller changes, batch rollback and cached pause/resume remain covered.
+V108's triggers maintain INSERT, DELETE and changes to any copied field, answer identity or parent
+binding. They lock the parent and check the previous projected fact before replacing/removing it;
+a missing, unknown or mismatched previous state aborts the source statement. Explicit rebinds
+update both parents in stable order. Source and projection remain in one InnoDB transaction, so a
+later service/caller failure rolls back both and the caller's other writes. Noncopied response
+changes do not rewrite this projection. Parent/quiz FK cascades do not execute child triggers in
+MySQL; the parent and its projection disappear together and require explicit cascade regressions.
+
+This is not an independent runtime cross-check against `answers`. Structurally valid arbitrary
+administrator tampering can evade command validation. Trigger bypass, constraint bypass or manual
+schema/data manipulation requires a separately controlled exact reconciliation before reopening
+writers. An adjacent counter/hash does not establish physical correspondence and is not added.
+
+**Required rollout boundary:** pause and drain all paths capable of legacy writes on every
+instance, including corresponding background tasks, service/maintenance writers and affected
+cascade operations. Keep that external pause throughout installation, population and validation.
+It is not automatically released by application startup, migration completion callbacks or failure
+cleanup. The operator resumes writes only after all stages below succeed; the duration must be
+measured on the actual data volume. This change defines the gate, not a new public maintenance API
+or an automatic deployment action.
+
+Use the existing #608 inventory first and require a complete `ANSWER / DUPLICATE_ANSWER` report.
+Identical and conflicting historical duplicates both require separate classification. V106's
+atomic unique-index DDL rejects them without choosing a winner, deleting answers, changing
+published scores or rewriting analytics. A truncated/unavailable report does not prove readiness.
+
+With writers paused, run V106 uniqueness, V107 uninitialized column and V108 triggers/rebuild/exact
+verification/final default in order. Rebuild copies the saved score/correctness/time, never invokes
+question handlers. Per-parent transactions on the migration connection use READ_COMMITTED and
+parent-before-source ordering; application/caller isolation is unchanged. A separate second pass
+compares each complete projection with all of that parent's original rows. Missing mandatory facts
+or any discrepancy aborts rollout. The application's existing Flyway validation and Hibernate
+`ddl-auto=validate` must remain enabled; Hibernate schema update cannot replace these migrations.
+
+MySQL DDL is nontransactional. If V108 fails, keep every writer paused, inspect the failed history
+and installed objects, resolve the cause, and explicitly review repair/retry before continuing.
+The script's owned-object DROP IF EXISTS permits that controlled retry; the application never
+calls Flyway repair automatically. A later startup must continue to fail on unresolved migration
+history. Neither partial population nor an empty/default value is evidence that validation passed.
+V106 remains unchanged; retain the successful constraint/projection/triggers on code rollback.
+V107/V108 were unpublished working files; the checked local application of the earlier candidate
+was confined to the disposable test-schema history.
+
+The migration identity needs ALTER, TRIGGER, CREATE/ALTER ROUTINE and the required binary-log
+routine privileges. Provision those before rollout; the migration does not change server-wide
+trust settings. Runtime code needs no new dependency, public endpoint, permission model or
+transaction/isolation boundary.
+
+Storage grows with accepted-answer count. Every source insert updates a growing JSON object;
+large batches may incur more than linear total JSON rewriting. There is no new answer-count limit.
+Acceptance therefore measures real write time and JSON size, not just SELECT count. The full-Flyway
+application fixture exercises 1/129/512/2048 answers, multiple independent attempts and adjacent UUID
+inserts while a real command/caller transaction holds its own attempt lock. SQL capture includes
+DTO construction/serialization where applicable and requires bounded reads with no answer-table
+read dependency. Application SELECT counts exclude statements inside database triggers; elapsed
+write times include their cost. Its figures are local regression evidence, not a production
+capacity guarantee.
+
+`LegacyAnswerUniquenessMySqlIntegrationTest` owns migration/preflight, stored-evidence preservation,
+exact reconciliation, partial failure and explicit recovery/retry evidence in isolated catalogs.
+`LegacyAnswerMembershipMySqlIntegrationTest` uses a complete Flyway schema with ORM schema creation
+disabled for actual triggers, field ownership, all copied-field updates, rebind/delete/cascades,
+projection errors, old snapshots, caller/batch rollback and independent-command cost/lock evidence.
+Older Hibernate-created compatibility fixtures install the same production V108 through Flyway;
+they are compatibility coverage rather than substitutes for the complete-schema fixture.
+
+Local MySQL 8.4.11 evidence (10 November 2026): the focused command
+`./mvnw -o -B clean test -Dtest=AttemptServiceDeleteTest,LegacyAnswerMembershipMySqlIntegrationTest,LegacyAttemptTimeoutMySqlIntegrationTest`
+passed 92 tests. The 512-answer batch took approximately 0.68 seconds and the 2048-answer batch
+8.10 seconds, including trigger maintenance; their projections occupied 93,237 and 372,789 bytes.
+Batch SELECT counts for 1/129/512/2048 answers were 3/3/4/10; completion used 4 at every size,
+without answer-table reads. Completion's own measured time, excluding the deliberately gated peer
+write, was approximately 25/36/55/132 ms. Independent writes committed before the caller completed,
+including the frozen 512-key boundary fixture. These costs expose substantial large-batch write
+amplification; they do not establish production latency or remove the paused-rollout gate.
+
+`LegacyCompatibilityHttpIntegrationTest` retains all nine families, immutable duplicate winners,
+all three modes, feedback/history, wrong-owner and unauthenticated contracts. The timeout/current-state
+fixture additionally forces both answer/completion orders, preloaded shared HTTP state under RC/RR,
+old-snapshot scoring/navigation, cached pause/resume and real rollback checkpoints. One completion
+event survives and no accepted answer appears after completion. Full verify remains a handoff gate.
 
 ### Compatible cutover with a retained legacy path
 

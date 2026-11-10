@@ -9,5 +9,6 @@ public record AttemptCommandState(
         AttemptMode mode,
         Instant startedAt,
         Instant completedAt,
-        Double totalScore
+        Double totalScore,
+        String acceptedAnswerProjection
 ) { }

@@ -5,6 +5,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -29,10 +30,15 @@ public interface AttemptRepository extends JpaRepository<Attempt, UUID> {
     @Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             SELECT new uk.gegc.quizmaker.features.attempt.domain.model.AttemptCommandState(
-                a, a.status, a.mode, a.startedAt, a.completedAt, a.totalScore)
+                a, a.status, a.mode, a.startedAt, a.completedAt, a.totalScore, a.acceptedAnswerProjection)
             FROM Attempt a WHERE a.id = :id
             """)
     Optional<AttemptCommandState> findCurrentStateForUpdate(@Param("id") UUID id);
+
+    /** Caller holds the parent lock; the database FK deletes its current children. */
+    @Modifying
+    @Query(value = "DELETE FROM attempts WHERE id = :id", nativeQuery = true)
+    int deleteLockedById(@Param("id") UUID id);
 
     @Query(value = """
             SELECT a

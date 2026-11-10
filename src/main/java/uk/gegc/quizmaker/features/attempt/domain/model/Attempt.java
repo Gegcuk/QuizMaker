@@ -4,6 +4,9 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.ColumnDefault;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
 import uk.gegc.quizmaker.features.quiz.domain.model.ShareLink;
@@ -52,8 +55,16 @@ public class Attempt {
     @Column(name = "mode", nullable = false, length = 30)
     private AttemptMode mode;
 
-    @OneToMany(mappedBy = "attempt", cascade = CascadeType.ALL, orphanRemoval = true)
+    // Targeted eviction after a database delete must not traverse a stale child collection.
+    @OneToMany(mappedBy = "attempt", cascade = {CascadeType.PERSIST, CascadeType.MERGE,
+            CascadeType.REMOVE, CascadeType.REFRESH}, orphanRemoval = true)
     private List<Answer> answers = new ArrayList<>();
+
+    /** Database triggers own this derived field; a cached entity must never overwrite it. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @ColumnDefault("(json_object('version',1,'answers',json_object()))")
+    @Column(name = "accepted_answer_projection", columnDefinition = "json", nullable = false, insertable = false, updatable = false)
+    private String acceptedAnswerProjection;
 
     @Column(name = "total_score")
     private Double totalScore;

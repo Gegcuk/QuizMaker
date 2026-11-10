@@ -3,6 +3,8 @@ package uk.gegc.quizmaker.features.question.domain.model;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 
 import java.time.Instant;
@@ -22,6 +24,7 @@ public class Answer {
 
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "attempt_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private Attempt attempt;
 
     @ManyToOne(optional = false, fetch = FetchType.LAZY)

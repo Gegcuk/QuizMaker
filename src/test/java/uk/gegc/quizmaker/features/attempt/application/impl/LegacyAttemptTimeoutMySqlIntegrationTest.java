@@ -38,6 +38,8 @@ import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 import uk.gegc.quizmaker.features.attempt.domain.event.AttemptCompletedEvent;
 import uk.gegc.quizmaker.features.attempt.domain.model.*;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
+import uk.gegc.quizmaker.features.attempt.domain.repository.CurrentAnswerRepository;
+import uk.gegc.quizmaker.features.attempt.infra.repository.JsonCurrentAnswerRepository;
 import uk.gegc.quizmaker.features.attempt.infra.mapping.AttemptMapper;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.question.domain.model.*;
@@ -484,7 +486,7 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
                     String.class, f.attemptId().toString())).isEqualTo("COMPLETED");
             reached.set(true);
             throw new IllegalStateException("Injected failure after completion flush");
-        }).when(attemptMapper).toResultDto(any(), anyLong(), anyInt());
+        }).when(attemptMapper).toResultDto(any(), anyLong(), anyInt(), anyList());
         assertThatThrownBy(() -> service.completeAttempt(f.owner(), f.attemptId()))
                 .hasMessage("Injected failure after completion flush");
         assertThat(reached).isTrue();
@@ -720,6 +722,8 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
             Object[] dependencies = Arrays.stream(constructor.getParameterTypes()).map(type -> {
                 if (type == AttemptRepository.class) return reopened;
                 if (type == AnswerRepository.class) return reopenedAnswers;
+                if (type == CurrentAnswerRepository.class) return new JsonCurrentAnswerRepository(json);
+                if (type == jakarta.persistence.EntityManager.class) return em;
                 if (type == ApplicationEventPublisher.class) return context;
                 return context.getBean(type);
             }).toArray();

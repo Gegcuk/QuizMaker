@@ -35,6 +35,127 @@ class LegacyAnswerUniquenessMySqlIntegrationTest {
     private static final String CONSTRAINT = "uq_answers_attempt_question";
 
     @Test
+    void pausedUpgradeCopiesStoredFactsInitializesEmptyParentsAndPreservesPublishedResults() {
+        try (var schema = new OwnedSchema()) {
+            UUID parent = schema.attempt(), empty = schema.attempt();
+            UUID first = schema.answer(parent, schema.question(), true);
+            schema.answer(parent, schema.question(), false);
+            UUID nullableScore = schema.answer(parent, schema.question(), true);
+            schema.sql.update("UPDATE answers SET score=NULL WHERE id=UUID_TO_BIN(?)", nullableScore.toString());
+            schema.sql.update("UPDATE attempts SET status='COMPLETED',total_score=7 WHERE id=UUID_TO_BIN(?)", parent.toString());
+            var before = schema.rows();
+            Flyway.configure().dataSource(schema.source).locations("classpath:db/migration").target("107").load().migrate();
+            assertThat(schema.projection(parent)).isNull();
+            assertThat(schema.projection(empty)).isNull();
+            schema.migrate();
+            assertThat(schema.rows()).isEqualTo(before);
+            var reader = new uk.gegc.quizmaker.features.attempt.infra.repository.JsonCurrentAnswerRepository(new com.fasterxml.jackson.databind.ObjectMapper());
+            var facts = reader.readCurrent(parent, schema.projection(parent));
+            assertThat(facts).hasSize(3);
+            assertThat(facts.stream().map(uk.gegc.quizmaker.features.attempt.domain.model.AcceptedAnswerFact::score).toList())
+                    .containsExactlyInAnyOrder(1.0, 0.0, null);
+            assertThat(facts).allSatisfy(fact -> assertThat(fact.answeredAt()).isEqualTo(java.time.Instant.parse("2026-01-01T00:01:00Z")));
+            assertThat(reader.readCurrent(empty, schema.projection(empty))).isEmpty();
+            assertThat(schema.sql.queryForObject("SELECT total_score FROM attempts WHERE id=UUID_TO_BIN(?)", Double.class, parent.toString())).isEqualTo(7.0);
+            assertThat(schema.sql.queryForObject("SELECT status FROM attempts WHERE id=UUID_TO_BIN(?)", String.class, parent.toString())).isEqualTo("COMPLETED");
+            UUID later = schema.attempt();
+            assertThat(reader.readCurrent(later, schema.projection(later))).isEmpty();
+            schema.answer(later, schema.question(), true);
+            assertThat(reader.readCurrent(later, schema.projection(later))).hasSize(1);
+            schema.migrate();
+            assertThat(schema.sql.queryForObject("SELECT score FROM answers WHERE id=UUID_TO_BIN(?)", Double.class, first.toString())).isEqualTo(1.0);
+        }
+    }
+
+    @Test
+    void partialBackfillFailureKeepsUninitializedStateAndRequiresExplicitRepairBeforeRetry() {
+        try (var schema = new OwnedSchema()) {
+            UUID first = schema.attempt(), second = schema.attempt();
+            schema.answer(first, schema.question(), true); schema.answer(second, schema.question(), false);
+            var before = schema.rows();
+            Flyway.configure().dataSource(schema.source).locations("classpath:db/migration").target("107").load().migrate();
+            String failing = schema.sql.queryForObject("SELECT BIN_TO_UUID(MAX(id)) FROM attempts", String.class);
+            schema.sql.execute("CREATE TRIGGER projection_test_fault BEFORE UPDATE ON attempts FOR EACH ROW BEGIN IF NEW.id=UUID_TO_BIN('"+failing+"') AND NEW.accepted_answer_projection IS NOT NULL THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='projection-backfill-fault'; END IF; END");
+            assertThatThrownBy(schema::migrate).isInstanceOf(FlywayException.class).hasStackTraceContaining("projection-backfill-fault");
+            assertThat(schema.sql.queryForObject("SELECT COUNT(*) FROM attempts WHERE accepted_answer_projection IS NOT NULL", Integer.class)).isEqualTo(1);
+            assertThat(schema.projection(UUID.fromString(failing))).isNull();
+            assertThat(schema.rows()).isEqualTo(before);
+            assertThatThrownBy(schema::migrate).isInstanceOf(FlywayException.class);
+            assertThatThrownBy(() -> schema.answer(UUID.fromString(failing), schema.question(), true))
+                    .isInstanceOf(org.springframework.dao.DataAccessException.class).hasMessageContaining("Accepted answer projection is unavailable");
+            assertThat(schema.rows()).isEqualTo(before);
+            schema.sql.execute("DROP TRIGGER projection_test_fault");
+            // Explicit operator recovery in this disposable schema; never an application startup action.
+            Flyway.configure().dataSource(schema.source).locations("classpath:db/migration").load().repair();
+            schema.migrate();
+            assertThat(schema.rows()).isEqualTo(before);
+            assertThat(schema.sql.queryForObject("SELECT COUNT(*) FROM attempts WHERE accepted_answer_projection IS NULL", Integer.class)).isZero();
+            UUID control = schema.attempt(); schema.answer(control, schema.question(), true);
+        }
+    }
+
+    @Test
+    void exactVerificationRejectsChangedProjectionWithoutRewritingOriginalAnswers() {
+        try (var schema = new OwnedSchema()) {
+            UUID parent = schema.attempt(), id = schema.answer(parent, schema.question(), true);
+            var before = schema.rows();
+            var injected = new java.util.concurrent.atomic.AtomicBoolean();
+            var gated = beforeStatement(schema.source, "CALL reconcile_legacy_answer_projection(FALSE)", () -> {
+                injected.set(true);
+                schema.sql.update("UPDATE attempts SET accepted_answer_projection=JSON_SET(accepted_answer_projection,?,999) WHERE id=UUID_TO_BIN(?)",
+                        "$.answers.\""+id+"\".score", parent.toString());
+            });
+            assertThatThrownBy(() -> Flyway.configure().dataSource(gated).locations("classpath:db/migration").load().migrate())
+                    .isInstanceOf(FlywayException.class).hasStackTraceContaining("Legacy answer projection verification failed");
+            assertThat(injected).isTrue(); assertThat(schema.rows()).isEqualTo(before);
+            assertThatThrownBy(schema::migrate).isInstanceOf(FlywayException.class);
+            Flyway.configure().dataSource(schema.source).locations("classpath:db/migration").load().repair();
+            schema.migrate();
+            assertThat(schema.rows()).isEqualTo(before);
+            var facts = new uk.gegc.quizmaker.features.attempt.infra.repository.JsonCurrentAnswerRepository(new com.fasterxml.jackson.databind.ObjectMapper())
+                    .readCurrent(parent, schema.projection(parent));
+            assertThat(facts).singleElement().satisfies(fact -> assertThat(fact.score()).isEqualTo(1.0));
+        }
+    }
+
+    @ParameterizedTest @ValueSource(ints = {1, 129, 512, 2048})
+    void measureProjectionMigrationAndStoredSizeWithoutRegrading(int count) {
+        try (var schema = new OwnedSchema()) {
+            UUID parent = schema.attempt(); schema.attempt();
+            for (int index = 0; index < count; index++) schema.answer(parent, schema.question(), true);
+            long started = System.nanoTime(); schema.migrate();
+            long elapsed = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-started);
+            var facts = new uk.gegc.quizmaker.features.attempt.infra.repository.JsonCurrentAnswerRepository(new com.fasterxml.jackson.databind.ObjectMapper())
+                    .readCurrent(parent, schema.projection(parent));
+            assertThat(facts).hasSize(count).allSatisfy(fact -> assertThat(fact.score()).isEqualTo(1.0));
+            assertThat(schema.sql.queryForObject("SELECT COUNT(*) FROM answers", Integer.class)).isEqualTo(count);
+            int bytes = schema.sql.queryForObject("SELECT JSON_STORAGE_SIZE(accepted_answer_projection) FROM attempts WHERE id=UUID_TO_BIN(?)", Integer.class, parent.toString());
+            System.out.printf("PROJECTION_MIGRATION answers=%d elapsedMs=%d jsonBytes=%d%n", count, elapsed, bytes);
+            assertThat(elapsed).isLessThan(60_000L);
+        }
+    }
+
+    private static javax.sql.DataSource beforeStatement(javax.sql.DataSource source, String prefix, Runnable action) {
+        var once = new java.util.concurrent.atomic.AtomicBoolean();
+        return new org.springframework.jdbc.datasource.DelegatingDataSource(source) {
+            @Override public java.sql.Connection getConnection() throws java.sql.SQLException {
+                var connection = super.getConnection();
+                return (java.sql.Connection) java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{java.sql.Connection.class}, (proxy, method, args) -> {
+                    try {
+                        Object result = method.invoke(connection, args);
+                        if (result instanceof java.sql.Statement statement) return java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{method.getReturnType()}, (statementProxy, operation, parameters) -> {
+                            if (parameters != null && parameters.length > 0 && parameters[0] instanceof String sql && sql.stripLeading().startsWith(prefix) && once.compareAndSet(false,true)) action.run();
+                            try { return operation.invoke(statement, parameters); }
+                            catch (java.lang.reflect.InvocationTargetException failure) { throw failure.getCause(); }
+                        });
+                        return result;
+                    } catch (java.lang.reflect.InvocationTargetException failure) { throw failure.getCause(); }
+                });
+            }
+        };
+    }
+
+    @Test
     void cleanUpgradePreservesEvidenceRejectsDuplicateInsertAndUpdateAndKeepsValidPairs() {
         try (var schema = new OwnedSchema()) {
             UUID attempt = schema.attempt(), otherAttempt = schema.attempt();
@@ -184,6 +305,10 @@ class LegacyAnswerUniquenessMySqlIntegrationTest {
                         VALUES (UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),'Uniqueness fixture','PUBLIC','EASY','PUBLISHED',1,0,0)
                         """, quiz.toString(), user.toString(), category.toString());
             } catch (RuntimeException | Error failure) { close(); throw failure; }
+        }
+
+        String projection(UUID parent) {
+            return sql.queryForObject("SELECT accepted_answer_projection FROM attempts WHERE id=UUID_TO_BIN(?)", String.class, parent.toString());
         }
 
         void migrate() { Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate(); }

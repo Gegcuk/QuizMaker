@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.attempt.application.impl;
 
+import jakarta.persistence.EntityManager;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,7 +21,9 @@ import uk.gegc.quizmaker.features.attempt.domain.event.AttemptCompletedEvent;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
+import uk.gegc.quizmaker.features.attempt.domain.model.AcceptedAnswerFact;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
+import uk.gegc.quizmaker.features.attempt.domain.repository.CurrentAnswerRepository;
 import uk.gegc.quizmaker.features.attempt.infra.mapping.AttemptMapper;
 import uk.gegc.quizmaker.features.question.application.CorrectAnswerExtractor;
 import uk.gegc.quizmaker.features.question.application.QuestionContracts;
@@ -65,7 +69,7 @@ import java.util.stream.Collectors;
 @Transactional
 @RequiredArgsConstructor
 public class AttemptServiceImpl implements AttemptService {
-
+    private static final int BATCH_QUESTION_READ_SIZE = 256;
 
     private final UserRepository userRepository;
     private final QuizRepository quizRepository;
@@ -74,6 +78,8 @@ public class AttemptServiceImpl implements AttemptService {
     private final QuestionRepository questionRepository;
     private final QuestionHandlerFactory handlerFactory;
     private final AnswerRepository answerRepository;
+    private final CurrentAnswerRepository currentAnswers;
+    private final EntityManager entityManager;
     private final AnswerMapper answerMapper;
     private final ScoringService scoringService;
     private final SafeQuestionMapper safeQuestionMapper;
@@ -294,7 +300,7 @@ public class AttemptServiceImpl implements AttemptService {
     public AnswerSubmissionDto submitAnswer(String username,
                                             UUID attemptId,
                                             AnswerSubmissionRequest request) {
-        Attempt attempt = lockAndLoadAttempt(attemptId);
+        Attempt attempt = lockCurrentAttempt(attemptId);
         enforceOwnership(attempt, username);
 
         if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
@@ -303,9 +309,14 @@ public class AttemptServiceImpl implements AttemptService {
 
         checkTimeLimit(attempt);
 
-        Question question = questionRepository.findById(request.questionId())
+        LockedAttempt locked = loadCurrentAnswers(attempt);
+        return submitLockedAnswer(locked, request, loadQuestionForAttempt(attempt, request.questionId()));
+    }
+
+    private Question loadQuestionForAttempt(Attempt attempt, UUID questionId) {
+        Question question = questionRepository.findById(questionId)
                 .orElseThrow(() -> new ResourceNotFoundException(
-                        "Question " + request.questionId() + " not found"));
+                        "Question " + questionId + " not found"));
 
         // ensure question belongs to quiz - check from Question side
         boolean belongs = questionRepository.existsByIdAndQuizId_Id(question.getId(), attempt.getQuiz().getId());
@@ -314,14 +325,20 @@ public class AttemptServiceImpl implements AttemptService {
                     "Question " + question.getId() + " is not part of Quiz " +
                             attempt.getQuiz().getId());
         }
+        return question;
+    }
 
+    /** Caller owns the attempt lock, authorization and transaction for the entire command/batch. */
+    private AnswerSubmissionDto submitLockedAnswer(LockedAttempt locked, AnswerSubmissionRequest request, Question question) {
+        Attempt attempt = locked.attempt();
+        UUID attemptId = attempt.getId();
         // For ONE_BY_ONE mode, enforce sequential question submission
         if (attempt.getMode() == AttemptMode.ONE_BY_ONE) {
             // Get all questions for the quiz from Question side
             List<Question> allQuestions = questionRepository.findAllByQuizId_IdOrderById(attempt.getQuiz().getId());
             
             // Use current locked membership, not the caller's older RR count snapshot.
-            long answeredCount = attempt.getAnswers().size();
+            long answeredCount = locked.answers().size();
             
             // Determine which question should be answered next
             if (answeredCount >= allQuestions.size()) {
@@ -339,8 +356,8 @@ public class AttemptServiceImpl implements AttemptService {
             }
         } else {
             // For ALL_AT_ONCE mode, just check for duplicate answers
-            boolean already = attempt.getAnswers().stream()
-                    .map(a -> a.getQuestion().getId())
+            boolean already = locked.answers().stream()
+                    .map(AcceptedAnswerFact::questionId)
                     .anyMatch(id -> id.equals(question.getId()));
             if (already) {
                 throw new IllegalStateException(
@@ -351,6 +368,7 @@ public class AttemptServiceImpl implements AttemptService {
         var handler = handlerFactory.getHandler(question.getType());
         Answer answer = handler.handle(attempt, question, request);
         answer = answerRepository.save(answer);
+        locked.answers().add(new AcceptedAnswerFact(answer.getId(), question.getId(), answer.getIsCorrect(), answer.getScore(), answer.getAnsweredAt()));
 
         var baseDto = answerMapper.toDto(answer);
         QuestionForAttemptDto nextQuestion = null;
@@ -358,8 +376,8 @@ public class AttemptServiceImpl implements AttemptService {
             // Get all questions for the quiz from Question side
             List<Question> allQuestions = questionRepository.findAllByQuizId_IdOrderById(attempt.getQuiz().getId());
             
-            // The handler has added the accepted answer to this current managed collection.
-            long answeredCount = attempt.getAnswers().size();
+            // The working projection already includes this command's accepted answer.
+            long answeredCount = locked.answers().size();
             
             // Check if there are more questions to answer
             if (answeredCount < allQuestions.size()) {
@@ -397,7 +415,7 @@ public class AttemptServiceImpl implements AttemptService {
     public List<AnswerSubmissionDto> submitBatch(String username,
                                                  UUID attemptId,
                                                  BatchAnswerSubmissionRequest request) {
-        Attempt attempt = lockAndLoadAttempt(attemptId);
+        Attempt attempt = lockCurrentAttempt(attemptId);
         enforceOwnership(attempt, username);
 
         if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
@@ -407,21 +425,36 @@ public class AttemptServiceImpl implements AttemptService {
             throw new IllegalStateException("Batch submissions only allowed in ALL_AT_ONCE mode");
         }
 
+        LockedAttempt locked = loadCurrentAnswers(attempt);
+        Map<UUID, Question> questions = new HashMap<>();
+        List<UUID> ids = request.answers().stream().map(AnswerSubmissionRequest::questionId).filter(Objects::nonNull).distinct().toList();
+        for (int start = 0; start < ids.size(); start += BATCH_QUESTION_READ_SIZE) {
+            questionRepository.findBatchQuestions(attempt.getQuiz().getId(), ids.subList(start, Math.min(start + BATCH_QUESTION_READ_SIZE, ids.size())))
+                    .forEach(question -> questions.put(question.getId(), question));
+        }
         return request.answers().stream()
-                .map(req -> submitAnswer(username, attemptId, req))
+                .map(req -> {
+                    checkTimeLimit(attempt);
+                    Question question = questions.get(req.questionId());
+                    // Resolve a missing/foreign question at its original input position so
+                    // error precedence and rollback of earlier answers remain compatible.
+                    if (question == null) question = loadQuestionForAttempt(attempt, req.questionId());
+                    return submitLockedAnswer(locked, req, question);
+                })
                 .collect(Collectors.toList());
     }
 
     @Override
     @Transactional(noRollbackFor = AttemptTimedOutException.class)
     public AttemptResultDto completeAttempt(String username, UUID attemptId) {
-        Attempt attempt = lockAndLoadAttempt(attemptId);
+        Attempt attempt = lockCurrentAttempt(attemptId);
         enforceOwnership(attempt, username);
 
         if (attempt.getStatus() != AttemptStatus.IN_PROGRESS) {
             throw new IllegalStateException("Cannot complete attempt with status " + attempt.getStatus());
         }
         Instant completedAt = checkTimeLimit(attempt);
+        LockedAttempt locked = loadCurrentAnswers(attempt);
 
         // An unavailable question is never silently skipped or converted into a completed attempt.
         for (Question question : questionRepository.findAllByQuizId_IdOrderById(attempt.getQuiz().getId())) {
@@ -429,8 +462,8 @@ public class AttemptServiceImpl implements AttemptService {
             catch (QuestionContractException ex) { throw new QuestionContentUnavailableException(); }
         }
 
-        scoringService.computeAndPersistScore(attempt);
-        long correctCount = scoringService.countCorrect(attempt);
+        scoringService.computeAndPersistScore(attempt, locked.answers());
+        long correctCount = scoringService.countCorrect(locked.answers());
         int totalQ = (int) questionRepository.countByQuizId_Id(attempt.getQuiz().getId());
 
         attempt.setStatus(AttemptStatus.COMPLETED);
@@ -445,7 +478,7 @@ public class AttemptServiceImpl implements AttemptService {
                 completedAt
         ));
 
-        return attemptMapper.toResultDto(attempt, correctCount, totalQ);
+        return attemptMapper.toResultDto(attempt, correctCount, totalQ, locked.answers());
     }
 
     @Override
@@ -686,15 +719,18 @@ public class AttemptServiceImpl implements AttemptService {
     @Override
     @Transactional
     public void deleteAttempt(String username, UUID attemptId) {
-        Attempt attempt = attemptRepository.findById(attemptId)
-                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
+        Attempt attempt = lockCurrentAttempt(attemptId);
         enforceOwnership(attempt, username);
 
-        // Delete all answers associated with this attempt first
-        answerRepository.deleteByAttemptId(attemptId);
-        
-        // Then delete the attempt itself
-        attemptRepository.delete(attempt);
+        List<AcceptedAnswerFact> answers = loadCurrentAnswers(attempt).answers();
+        if (attemptRepository.deleteLockedById(attemptId) != 1) {
+            throw new ResourceNotFoundException("Attempt " + attemptId + " not found");
+        }
+        // Evict only rows actually removed by the FK, never a stale inverse collection or the caller.
+        for (AcceptedAnswerFact answer : answers) {
+            entityManager.detach(entityManager.getReference(Answer.class, answer.id()));
+        }
+        entityManager.detach(attempt);
     }
 
     @Override
@@ -992,16 +1028,11 @@ public class AttemptServiceImpl implements AttemptService {
         }
     }
 
-    private Attempt lockAndLoadAttempt(UUID attemptId) {
-        Attempt attempt = lockCurrentAttempt(attemptId);
-        // This graph supplies associations only; it cannot establish current answer membership under RR.
-        attemptRepository.findFullyLoadedById(attemptId)
-                .orElseThrow(() -> new ResourceNotFoundException("Attempt " + attemptId + " not found"));
-        List<Answer> currentAnswers = answerRepository.findCurrentByAttemptIdForUpdate(attemptId);
-        // Keep the managed collection and caller references. Accepted answers themselves are immutable.
-        attempt.getAnswers().clear();
-        attempt.getAnswers().addAll(currentAnswers);
-        return attempt;
+    private record LockedAttempt(Attempt attempt, List<AcceptedAnswerFact> answers) { }
+
+    private LockedAttempt loadCurrentAnswers(Attempt attempt) {
+        // Do not reconcile a cached orphan-removing association merely to read evidence.
+        return new LockedAttempt(attempt, currentAnswers.readCurrent(attempt.getId(), attempt.getAcceptedAnswerProjection()));
     }
 
     private Attempt lockCurrentAttempt(UUID attemptId) {
@@ -1015,6 +1046,7 @@ public class AttemptServiceImpl implements AttemptService {
         attempt.setStartedAt(current.startedAt());
         attempt.setCompletedAt(current.completedAt());
         attempt.setTotalScore(current.totalScore());
+        attempt.setAcceptedAnswerProjection(current.acceptedAnswerProjection());
         return attempt;
     }
 
