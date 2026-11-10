@@ -1,5 +1,8 @@
 package uk.gegc.quizmaker.features.quiz.infra.repository;
 
+import org.springframework.dao.DataAccessException;
+import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
+
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -97,7 +100,11 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public Optional<QuizRevision> findByIdForShare(UUID ownerId, UUID revisionId) {
-        return read(ownerId, List.of(revisionId), true).stream().findFirst();
+        try {
+            return read(ownerId, List.of(revisionId), true).stream().findFirst();
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 
     private List<QuizRevision> read(UUID ownerId, Collection<UUID> revisionIds, boolean current) {

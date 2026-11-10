@@ -1,5 +1,8 @@
 package uk.gegc.quizmaker.features.attempt.infra.repository;
 
+import org.springframework.dao.DataAccessException;
+import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
+
 import java.sql.Timestamp;
 import java.util.Map;
 import java.util.UUID;
@@ -43,14 +46,18 @@ public class JdbcAcceptedResponseRepository implements AcceptedResponseRepositor
     }
 
     @Override public List<Reference> references(UUID attemptId) {
-        return jdbc.query("""
-                SELECT BIN_TO_UUID(form_id) form_id, BIN_TO_UUID(form_item_id) item_id,
-                       BIN_TO_UUID(question_revision_id) question_id, response_contract_id, response_contract_version
-                FROM attempt_accepted_response WHERE attempt_id=UUID_TO_BIN(:attempt)
-                ORDER BY form_item_id FOR SHARE
-                """, Map.of("attempt", attemptId.toString()), (row, n) -> new Reference(
-                UUID.fromString(row.getString("form_id")), UUID.fromString(row.getString("item_id")),
-                UUID.fromString(row.getString("question_id")), new uk.gegc.quizmaker.features.question.domain.model.contract.ContractVersion(
-                row.getString("response_contract_id"), row.getInt("response_contract_version"))));
+        try {
+            return jdbc.query("""
+                    SELECT BIN_TO_UUID(form_id) form_id, BIN_TO_UUID(form_item_id) item_id,
+                           BIN_TO_UUID(question_revision_id) question_id, response_contract_id, response_contract_version
+                    FROM attempt_accepted_response WHERE attempt_id=UUID_TO_BIN(:attempt)
+                    ORDER BY form_item_id FOR SHARE
+                    """, Map.of("attempt", attemptId.toString()), (row, n) -> new Reference(
+                    UUID.fromString(row.getString("form_id")), UUID.fromString(row.getString("item_id")),
+                    UUID.fromString(row.getString("question_id")), new uk.gegc.quizmaker.features.question.domain.model.contract.ContractVersion(
+                    row.getString("response_contract_id"), row.getInt("response_contract_version"))));
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 }

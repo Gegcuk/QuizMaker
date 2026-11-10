@@ -1,5 +1,8 @@
 package uk.gegc.quizmaker.features.attempt.infra.repository;
 
+import org.springframework.dao.DataAccessException;
+import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
+
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -39,7 +42,13 @@ public class JdbcLifecycleStateRepository implements LifecycleStateRepository {
     public Optional<StoredState> findById(UUID attemptId) { return find(attemptId, false); }
 
     @Override
-    public Optional<StoredState> findByIdForUpdate(UUID attemptId) { return find(attemptId, true); }
+    public Optional<StoredState> findByIdForUpdate(UUID attemptId) {
+        try {
+            return find(attemptId, true);
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
+    }
 
     private Optional<StoredState> find(UUID id, boolean lock) {
         return jdbc.query(SELECT + (lock ? " FOR UPDATE" : ""), new MapSqlParameterSource("id", bytes(id)),
@@ -51,11 +60,15 @@ public class JdbcLifecycleStateRepository implements LifecycleStateRepository {
 
     @Override
     public boolean compareAndSet(long expectedVersion, LifecycleState next) {
-        return jdbc.update("""
-                UPDATE attempt_lifecycle_state SET row_version=:version, execution_state=:execution,
-                  answer_collection_state=:answers, updated_at=:updated, started_at=:started, submitted_at=:submitted
-                WHERE attempt_id=:id AND row_version=:expected AND lifecycle_version=:contract
-                """, parameters(next).addValue("expected", expectedVersion)) == 1;
+        try {
+            return jdbc.update("""
+                    UPDATE attempt_lifecycle_state SET row_version=:version, execution_state=:execution,
+                      answer_collection_state=:answers, updated_at=:updated, started_at=:started, submitted_at=:submitted
+                    WHERE attempt_id=:id AND row_version=:expected AND lifecycle_version=:contract
+                    """, parameters(next).addValue("expected", expectedVersion)) == 1;
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 
     private static MapSqlParameterSource parameters(LifecycleState value) {

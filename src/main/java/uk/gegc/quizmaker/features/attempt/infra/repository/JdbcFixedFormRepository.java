@@ -1,5 +1,8 @@
 package uk.gegc.quizmaker.features.attempt.infra.repository;
 
+import org.springframework.dao.DataAccessException;
+import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
+
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -133,7 +136,11 @@ public class JdbcFixedFormRepository implements FixedFormRepository {
 
     @Override
     public List<FixedForm> findByIdsForShare(UUID ownerId, Collection<UUID> formIds) {
-        return read(ownerId, formIds, true);
+        try {
+            return read(ownerId, formIds, true);
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 
     private List<FixedForm> read(UUID ownerId, Collection<UUID> formIds, boolean current) {

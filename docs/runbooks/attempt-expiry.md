@@ -67,6 +67,12 @@ pending work and retained evidence. Compare lag with the installation's measured
 batch capacity. No numerical alert SLA or automatic deadline extension is introduced here.
 A permanently failing early candidate cannot prevent the cursor from visiting later candidates.
 
+Database failures are sanitized inside the dependency repositories before their transactional
+proxies can log them, including at TRACE. Spring failure categories and bounded deadlock/lock-timeout
+evidence survive; SQL text, driver messages, original causes and suppressed diagnostics do not.
+Transaction annotations remain in place: catching a participating repository failure does not
+permit a caller to commit a rollback-only transaction.
+
 Disable the scheduler to pause dispatch. Do not roll back schema after terminal writes: retain
 V105 tables, receipts and the completion cause and use a forward fix. Destructive removal would
 break retained evidence and replay. No worker failure refunds an attempt or reopens a result.
@@ -76,7 +82,7 @@ break retained evidence and replay. No worker failure refunds an attempt or reop
 Run with JDK 17 and the repository's test MySQL configuration:
 
 ```bash
-./mvnw test -Dtest=AttemptExpiryContractTest,AttemptExpirySchedulerTest,AttemptSubmissionMySqlIntegrationTest,AutomaticResultMySqlIntegrationTest
+./mvnw test -Dtest=SafeDataAccessTest,AttemptExpiryContractTest,AttemptExpirySchedulerTest,AttemptSubmissionMySqlIntegrationTest,AutomaticResultMySqlIntegrationTest
 ./mvnw verify
 ```
 

@@ -28,6 +28,7 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -187,7 +188,7 @@ class AttemptSubmissionMySqlIntegrationTest {
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
     static final List<String> TARGET_TABLES = List.of("attempt_result_created", "attempt_automatic_grade", "attempt_automatic_result",
-            "attempt_expiry_receipt", "attempt_expiry_work", "attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
+            "attempt_navigation_result", "attempt_navigation", "attempt_expiry_receipt", "attempt_expiry_work", "attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     SubmissionDataSource observer() { return (SubmissionDataSource) source; }
@@ -227,11 +228,16 @@ class AttemptSubmissionMySqlIntegrationTest {
         return fixture(requireAll,size,answered,new TimingPolicy(TimingMode.NONE));
     }
     private Fixture fixture(boolean requireAll, int size, int answered, TimingPolicy timing) {
+        return fixture(requireAll,size,answered,timing,false);
+    }
+    private Fixture fixture(boolean requireAll, int size, int answered, TimingPolicy timing, boolean sequential) {
         var revision = publish(0, IntStream.range(0, size).mapToObj(i -> draft(QuestionType.TRUE_FALSE)).toList());
         binding.bind(quizId, revision);
         var base=command(revision,AnswerOrder.AUTHORED,"start-"+UUID.randomUUID());
         var started=starts.start(new AttemptStartService.Command(base.version(),base.quizId(),base.content(),base.publicationVersion(),base.key(),base.preset(),base.context(),base.legacyMode(),
-                base.answerOrder(),base.draftsEnabled(),base.navigation(),base.delivery(),base.selection(),base.attemptLimit(),timing));
+                base.answerOrder(),base.draftsEnabled(),
+                sequential ? new NavigationPolicy(NavigationMode.SEQUENTIAL,new NavigationRules(1,false,true)) : base.navigation(),
+                sequential ? DeliveryMode.ONE_AT_A_TIME : base.delivery(),base.selection(),base.attemptLimit(),timing));
         UUID attempt = started.attemptId();
         if (requireAll) {
             // The public minimal starter owns its fixed OFF preset. Build a separate captured ON
@@ -262,7 +268,11 @@ class AttemptSubmissionMySqlIntegrationTest {
             });
             attempt = other;
         }
-        var items = delivery.read(attempt).form().items();
+        UUID capturedAttempt=attempt;
+        var items = sequential ? tx.execute(status -> {
+            var saved=facts.read(capturedAttempt,AttemptReadFactsService.Purpose.PARTICIPANT_VIEW);
+            return ParticipantFormProjector.project(saved.form(),saved.revision(),saved.order(),saved.contracts()).items();
+        }) : delivery.read(attempt).form().items();
         for (int n = 0; n < answered; n++) responses.accept(answer(attempt, items.get(n), n + 1, "accepted-" + n + "-" + attempt));
         return new Fixture(attempt, items, answered + 1);
     }
@@ -1053,6 +1063,86 @@ class AttemptSubmissionMySqlIntegrationTest {
             System.out.println("Expiry independent worker isolation: "+isolation.get());
             observer().reset(); assertExpiry(a.attempt(),effective(a.attempt()),1,1); assertExpiry(b.attempt(),effective(b.attempt()),1,1);
         } finally { release.countDown(); workers.shutdownNow(); observer().reset(); }
+    }
+
+    static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> expiryTraceSqlFaults() {
+        var points=List.of("SELECT 1 FROM attempt_lifecycle_state", "SELECT * FROM attempt_lifecycle_state",
+                "JOIN attempt_trace_stream s ON", "SELECT s.* FROM attempt_policy_snapshot",
+                "FROM quiz_revisions r LEFT JOIN quiz_revision_items", "SELECT locked.id FROM (",
+                "FROM attempt_timing WHERE", "SELECT f.id,f.schema_version", "SELECT form_id,id,source_item_id,position",
+                "SELECT o.* FROM attempt_form_option_order", "SELECT i.*,b.binding_hash", "SELECT form_id,item_id,option_id,position",
+                "SELECT * FROM quiz_revisions WHERE", "SELECT i.id AS item_id", "SELECT o.* FROM question_option_revisions",
+                "FROM question_revision_contract_bindings b", "FROM attempt_accepted_response",
+                "UPDATE attempt_lifecycle_state", "INSERT INTO attempt_trace_stream", "SELECT * FROM attempt_trace_stream",
+                "SELECT e.*, s.policy_snapshot_id", "INSERT INTO attempt_trace_identity", "SELECT attempt_id,sequence_number FROM attempt_trace_identity",
+                "INSERT INTO attempt_trace_event", "UPDATE attempt_trace_identity", "UPDATE attempt_trace_stream",
+                "INSERT INTO attempt_submission", "DELETE FROM attempt_expiry_work", "INSERT INTO attempt_finalization_intent",
+                "INSERT INTO attempt_expiry_receipt", "FROM attempt_expiry_receipt e", "FROM attempt_navigation WHERE");
+        return points.stream().flatMap(point->java.util.stream.IntStream.of(0,1205,1213)
+                .mapToObj(code->org.junit.jupiter.params.provider.Arguments.of(point,code)));
+    }
+    private static final class TransactionLogs implements AutoCloseable {
+        final ch.qos.logback.classic.Logger root=(ch.qos.logback.classic.Logger)org.slf4j.LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
+        final ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> events=new ch.qos.logback.core.read.ListAppender<>();
+        final Map<ch.qos.logback.classic.Logger,ch.qos.logback.classic.Level> levels=new HashMap<>();
+        TransactionLogs() {
+            events.start(); root.addAppender(events);
+            for(String name:List.of("org.springframework.transaction","org.springframework.orm.jpa.JpaTransactionManager")) {
+                var logger=(ch.qos.logback.classic.Logger)org.slf4j.LoggerFactory.getLogger(name);
+                levels.put(logger,logger.getLevel()); logger.setLevel(ch.qos.logback.classic.Level.TRACE);
+            }
+        }
+        String rendered() {
+            return events.list.stream().map(e->e.getFormattedMessage()+"\n"+(e.getThrowableProxy()==null?"":
+                    ch.qos.logback.classic.spi.ThrowableProxyUtil.asString(e.getThrowableProxy())))
+                    .collect(java.util.stream.Collectors.joining("\n"));
+        }
+        @Override public void close() { levels.forEach(ch.qos.logback.classic.Logger::setLevel); root.detachAppender(events); events.stop(); }
+    }
+    @ParameterizedTest(name="TRACE expiry: {0}, SQL {1}") @MethodSource("expiryTraceSqlFaults")
+    void expiryTraceNeverLogsPrivateDatabaseDiagnosticsAndRealRollbackRetrySurvive(String point,int code) {
+        boolean sequential=point.contains("attempt_navigation");
+        var f=fixture(false,2,1,new TimingPolicy(TimingMode.TOTAL_ATTEMPT,Duration.ofMinutes(30),null),sequential);
+        expiryClock().now=effective(f.attempt()); var before=targetSnapshot(); var reached=new AtomicBoolean();
+        String marker="private-expiry-trace-"+UUID.randomUUID();
+        observer().afterSql=(statement,connection)->{
+            if(statement.replaceAll("\\s+"," ").contains(point) && reached.compareAndSet(false,true)) {
+                var failure=new SQLException(marker,code==1213?"40001":"HY000",code);
+                failure.setNextException(new SQLException(marker+"-next","HY000"));
+                failure.addSuppressed(new IllegalStateException(marker+"-suppressed")); throw failure;
+            }
+        };
+        try(var logs=new TransactionLogs()) {
+            assertThatThrownBy(()->expiry().expire(f.attempt())).isInstanceOf(AttemptExpiryService.Failure.class)
+                    .hasNoCause().hasMessage("UNAVAILABLE");
+            assertThat(reached).as("actual SQL checkpoint: %s",point).isTrue();
+            if(!point.equals("SELECT 1 FROM attempt_lifecycle_state"))
+                assertThat(logs.events.list).anyMatch(e->e.getLoggerName().contains("TransactionInterceptor")
+                        && e.getLevel()==ch.qos.logback.classic.Level.TRACE);
+            else assertThat(logs.rendered()).contains("Initiating transaction rollback");
+            assertThat(logs.rendered()).doesNotContain(marker);
+        } finally { observer().reset(); }
+        assertThat(targetSnapshot()).isEqualTo(before);
+        assertThat(restartedExpiry().expire(f.attempt()).outcome()).isEqualTo(AttemptExpiryService.Outcome.EXPIRED);
+        assertExpiry(f.attempt(),effective(f.attempt()),1,1);
+    }
+    @Test void expiryRepositoryFailureStillMarksCallerRollbackOnlyWhenCaughtInsideOwnerTransaction() {
+        var f=timedFixture(false,2,1); var before=targetSnapshot(); var reached=new AtomicBoolean();
+        observer().afterSql=(statement,connection)->{
+            if(statement.contains("FROM attempt_accepted_response") && reached.compareAndSet(false,true))
+                throw new SQLException("private-rollback-only-marker","HY000");
+        };
+        try(var logs=new TransactionLogs()) {
+            assertThatThrownBy(()->tx.executeWithoutResult(status->{
+                lifecycle.save(f.attempt(),f.version(),new AttemptLifecycle.State(1,AttemptLifecycle.Execution.IN_PROGRESS,AttemptLifecycle.AnswerCollection.IN_PROGRESS));
+                assertThatThrownBy(()->context.getBean(AcceptedResponseRepository.class).references(f.attempt()))
+                        .isInstanceOf(org.springframework.dao.DataAccessException.class).hasNoCause();
+            })).isInstanceOf(org.springframework.transaction.UnexpectedRollbackException.class);
+            assertThat(reached).isTrue(); assertThat(logs.rendered()).doesNotContain("private-rollback-only-marker");
+        } finally { observer().reset(); }
+        assertThat(targetSnapshot()).isEqualTo(before);
+        expiryClock().now=effective(f.attempt());
+        assertThat(expiry().expire(f.attempt()).outcome()).isEqualTo(AttemptExpiryService.Outcome.EXPIRED);
     }
 
     private UUID prepared() {

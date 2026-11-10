@@ -1,5 +1,8 @@
 package uk.gegc.quizmaker.features.attempt.infra.repository;
 
+import org.springframework.dao.DataAccessException;
+import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
+
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -58,7 +61,11 @@ public class JdbcPolicySnapshotRepository implements PolicySnapshotRepository {
 
     @Override
     public Optional<StoredSnapshot> findByIdForShare(UUID revisionOwnerId, UUID snapshotId) {
-        return read(revisionOwnerId, snapshotId, true);
+        try {
+            return read(revisionOwnerId, snapshotId, true);
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 
     private Optional<StoredSnapshot> read(UUID revisionOwnerId, UUID snapshotId, boolean current) {
