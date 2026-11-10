@@ -1,5 +1,8 @@
 package uk.gegc.quizmaker.features.attempt.infra.repository;
 
+import org.springframework.dao.DataAccessException;
+import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
+
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -83,7 +86,13 @@ public class JdbcFormOptionOrderRepository implements FormOptionOrderRepository 
     public List<FormOptionOrder> findByIds(UUID ownerId, Collection<UUID> formIds) { return read(ownerId, formIds, false); }
 
     @Override
-    public List<FormOptionOrder> findByIdsForShare(UUID ownerId, Collection<UUID> formIds) { return read(ownerId, formIds, true); }
+    public List<FormOptionOrder> findByIdsForShare(UUID ownerId, Collection<UUID> formIds) {
+        try {
+            return read(ownerId, formIds, true);
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
+    }
 
     private List<FormOptionOrder> read(UUID ownerId, Collection<UUID> formIds, boolean lock) {
         if (ownerId == null) throw new FixedFormException(FixedFormException.Reason.FORM_UNAVAILABLE);

@@ -1,5 +1,8 @@
 package uk.gegc.quizmaker.features.attempt.infra.repository;
 
+import org.springframework.dao.DataAccessException;
+import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
+
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -39,80 +42,112 @@ public class JdbcExecutionTraceRepository implements ExecutionTraceRepository {
 
     @Override
     public void ensureStream(Scope scope) {
-        // Only existing compatible target roots may acquire a stream. No target state is inferred.
-        jdbc.update("""
-                INSERT INTO attempt_trace_stream (attempt_id,schema_version,policy_snapshot_id,form_id,last_sequence)
-                SELECT :attempt,1,:policy,:form,0 FROM attempt_lifecycle_state l
-                JOIN attempt_participant_subject u ON u.attempt_id=l.attempt_id
-                JOIN attempt_policy_snapshot p ON p.id=:policy
-                JOIN attempt_form f ON f.id=:form AND f.quiz_revision_id=p.quiz_revision_id
-                WHERE l.attempt_id=:attempt
-                ON DUPLICATE KEY UPDATE attempt_id=attempt_trace_stream.attempt_id
-                """, parameters(scope));
+        try {
+            // Only existing compatible target roots may acquire a stream. No target state is inferred.
+            jdbc.update("""
+                    INSERT INTO attempt_trace_stream (attempt_id,schema_version,policy_snapshot_id,form_id,last_sequence)
+                    SELECT :attempt,1,:policy,:form,0 FROM attempt_lifecycle_state l
+                    JOIN attempt_participant_subject u ON u.attempt_id=l.attempt_id
+                    JOIN attempt_policy_snapshot p ON p.id=:policy
+                    JOIN attempt_form f ON f.id=:form AND f.quiz_revision_id=p.quiz_revision_id
+                    WHERE l.attempt_id=:attempt
+                    ON DUPLICATE KEY UPDATE attempt_id=attempt_trace_stream.attempt_id
+                    """, parameters(scope));
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 
     @Override
     public Optional<Stream> lockStream(UUID attemptId) {
-        return jdbc.query("SELECT * FROM attempt_trace_stream WHERE attempt_id=:attempt FOR UPDATE",
-                new MapSqlParameterSource("attempt", bytes(attemptId)), (row, index) ->
-                        new Stream(row.getInt("schema_version"), scope(row), row.getLong("last_sequence"))).stream().findFirst();
+        try {
+            return jdbc.query("SELECT * FROM attempt_trace_stream WHERE attempt_id=:attempt FOR UPDATE",
+                    new MapSqlParameterSource("attempt", bytes(attemptId)), (row, index) ->
+                            new Stream(row.getInt("schema_version"), scope(row), row.getLong("last_sequence"))).stream().findFirst();
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 
     @Override
     public Identity reserve(UUID attemptId, UUID eventId) {
-        var parameters = new MapSqlParameterSource("attempt", bytes(attemptId)).addValue("event", bytes(eventId));
-        jdbc.update("""
-                INSERT INTO attempt_trace_identity (event_id,attempt_id,sequence_number) VALUES (:event,:attempt,0)
-                ON DUPLICATE KEY UPDATE event_id=attempt_trace_identity.event_id
-                """, parameters);
-        return jdbc.queryForObject("SELECT attempt_id,sequence_number FROM attempt_trace_identity WHERE event_id=:event FOR UPDATE",
-                parameters, (row, index) -> new Identity(uuid(row, "attempt_id"), row.getLong("sequence_number")));
+        try {
+            var parameters = new MapSqlParameterSource("attempt", bytes(attemptId)).addValue("event", bytes(eventId));
+            jdbc.update("""
+                    INSERT INTO attempt_trace_identity (event_id,attempt_id,sequence_number) VALUES (:event,:attempt,0)
+                    ON DUPLICATE KEY UPDATE event_id=attempt_trace_identity.event_id
+                    """, parameters);
+            return jdbc.queryForObject("SELECT attempt_id,sequence_number FROM attempt_trace_identity WHERE event_id=:event FOR UPDATE",
+                    parameters, (row, index) -> new Identity(uuid(row, "attempt_id"), row.getLong("sequence_number")));
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 
     @Override
     public boolean assign(UUID eventId, long sequence) {
-        return jdbc.update("UPDATE attempt_trace_identity SET sequence_number=:sequence WHERE event_id=:event AND sequence_number=0",
-                new MapSqlParameterSource("event", bytes(eventId)).addValue("sequence", sequence)) == 1;
+        try {
+            return jdbc.update("UPDATE attempt_trace_identity SET sequence_number=:sequence WHERE event_id=:event AND sequence_number=0",
+                    new MapSqlParameterSource("event", bytes(eventId)).addValue("sequence", sequence)) == 1;
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 
     @Override
     public Optional<Stored> findEvent(UUID eventId) {
-        // Current read is essential when the caller already has an old REPEATABLE_READ snapshot.
-        return jdbc.query(SELECT + JOIN_SCOPE + " WHERE e.event_id=:event FOR SHARE",
-                new MapSqlParameterSource("event", bytes(eventId)), (row, index) -> stored(row)).stream().findFirst();
+        try {
+            // Current read is essential when the caller already has an old REPEATABLE_READ snapshot.
+            return jdbc.query(SELECT + JOIN_SCOPE + " WHERE e.event_id=:event FOR SHARE",
+                    new MapSqlParameterSource("event", bytes(eventId)), (row, index) -> stored(row)).stream().findFirst();
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 
     @Override
     public Optional<Stored> last(UUID attemptId) {
-        // A bounded tail read detects a counter behind/ahead of persisted evidence.
-        return jdbc.query(SELECT_SEQUENCE + " WHERE e.attempt_id=:attempt ORDER BY e.sequence_number DESC LIMIT 1 FOR SHARE",
-                new MapSqlParameterSource("attempt", bytes(attemptId)), (row, index) -> stored(row)).stream().findFirst();
+        try {
+            // A bounded tail read detects a counter behind/ahead of persisted evidence.
+            return jdbc.query(SELECT_SEQUENCE + " WHERE e.attempt_id=:attempt ORDER BY e.sequence_number DESC LIMIT 1 FOR SHARE",
+                    new MapSqlParameterSource("attempt", bytes(attemptId)), (row, index) -> stored(row)).stream().findFirst();
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 
     @Override
     public void insert(Stored saved) {
-        var event = saved.event();
-        var data = event.data();
-        jdbc.update("""
-                INSERT INTO attempt_trace_event (attempt_id,sequence_number,event_id,schema_version,event_type,
-                  actor_type,recorded_at,command_id,form_id,item_id,from_execution,from_answers,to_execution,to_answers,reason_code)
-                VALUES (:attempt,:sequence,:event,:version,:type,:actor,:at,:command,:form,:item,:fromExecution,:fromAnswers,
-                  :toExecution,:toAnswers,:reason)
-                """, parameters(saved.scope()).addValue("sequence", saved.sequence()).addValue("event", bytes(event.id()))
-                .addValue("version", event.version()).addValue("type", event.type().name()).addValue("actor", event.actor().name())
-                .addValue("at", LocalDateTime.ofInstant(saved.recordedAt(), ZoneOffset.UTC)).addValue("command", bytes(data.commandId()))
-                .addValue("item", bytes(data.itemId())).addValue("fromExecution", data.from() == null ? null : data.from().execution().name())
-                .addValue("fromAnswers", data.from() == null ? null : data.from().answers().name())
-                .addValue("toExecution", data.to() == null ? null : data.to().execution().name())
-                .addValue("toAnswers", data.to() == null ? null : data.to().answers().name()).addValue("reason", data.reason().name()));
+        try {
+            var event = saved.event();
+            var data = event.data();
+            jdbc.update("""
+                    INSERT INTO attempt_trace_event (attempt_id,sequence_number,event_id,schema_version,event_type,
+                      actor_type,recorded_at,command_id,form_id,item_id,from_execution,from_answers,to_execution,to_answers,reason_code)
+                    VALUES (:attempt,:sequence,:event,:version,:type,:actor,:at,:command,:form,:item,:fromExecution,:fromAnswers,
+                      :toExecution,:toAnswers,:reason)
+                    """, parameters(saved.scope()).addValue("sequence", saved.sequence()).addValue("event", bytes(event.id()))
+                    .addValue("version", event.version()).addValue("type", event.type().name()).addValue("actor", event.actor().name())
+                    .addValue("at", LocalDateTime.ofInstant(saved.recordedAt(), ZoneOffset.UTC)).addValue("command", bytes(data.commandId()))
+                    .addValue("item", bytes(data.itemId())).addValue("fromExecution", data.from() == null ? null : data.from().execution().name())
+                    .addValue("fromAnswers", data.from() == null ? null : data.from().answers().name())
+                    .addValue("toExecution", data.to() == null ? null : data.to().execution().name())
+                    .addValue("toAnswers", data.to() == null ? null : data.to().answers().name()).addValue("reason", data.reason().name()));
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 
     @Override
     public boolean advance(UUID attemptId, long expectedSequence) {
-        return jdbc.update("""
-                UPDATE attempt_trace_stream SET last_sequence=last_sequence+1
-                WHERE attempt_id=:attempt AND last_sequence=:expected AND schema_version=1
-                """, new MapSqlParameterSource("attempt", bytes(attemptId)).addValue("expected", expectedSequence)) == 1;
+        try {
+            return jdbc.update("""
+                    UPDATE attempt_trace_stream SET last_sequence=last_sequence+1
+                    WHERE attempt_id=:attempt AND last_sequence=:expected AND schema_version=1
+                    """, new MapSqlParameterSource("attempt", bytes(attemptId)).addValue("expected", expectedSequence)) == 1;
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 
     @Override

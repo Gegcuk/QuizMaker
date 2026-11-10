@@ -30,19 +30,30 @@ public class JdbcSubmittedAttemptRepository implements SubmittedAttemptRepositor
                     BIN_TO_UUID(s.quiz_revision_id) rid, BIN_TO_UUID(s.command_id) cid,
                     BIN_TO_UUID(r.owner_id) owner_id, BIN_TO_UUID(t.policy_snapshot_id) bound_policy,
                     BIN_TO_UUID(t.form_id) bound_form, i.schema_version intent_version,
-                    t.schema_version stream_version, p.schema_version subject_version, p.subject_type
+                    t.schema_version stream_version, p.schema_version subject_version, p.subject_type,
+                    e.schema_version expiry_version, e.effective_deadline expiry_deadline,
+                    BIN_TO_UUID(e.command_id) expiry_command, e.state_version expiry_state_version
                 FROM attempt_finalization_intent i JOIN attempt_submission s
                     ON s.id=i.submission_id AND s.attempt_id=i.attempt_id
                 JOIN quiz_revisions r ON r.id=s.quiz_revision_id
                 JOIN attempt_trace_stream t ON t.attempt_id=s.attempt_id
                 JOIN attempt_participant_subject p ON p.attempt_id=s.attempt_id
+                LEFT JOIN attempt_expiry_receipt e ON e.submission_id=s.id AND e.attempt_id=s.attempt_id
                 WHERE i.submission_id=UUID_TO_BIN(:id) FOR UPDATE OF i FOR SHARE OF s
-                """, Map.of("id", submissionId.toString()), (r, n) -> new Header(
+                """, Map.of("id", submissionId.toString()), (r, n) -> {
+            if ("EXPIRY".equals(r.getString("completion_cause")) && (r.getInt("expiry_version") != 1
+                    || r.getLong("expiry_state_version") != r.getLong("state_version")
+                    || !r.getString("cid").equals(r.getString("expiry_command"))
+                    || !r.getObject("submitted_at", LocalDateTime.class).equals(r.getObject("expiry_deadline", LocalDateTime.class))))
+                throw new Failure(Failure.Reason.CORRUPT);
+            return new Header(
                 new AttemptSubmissionRepository.Submission(id(r,"sid"),id(r,"aid"),id(r,"fid"),id(r,"pid"),id(r,"rid"),
                         id(r,"cid"),r.getLong("state_version"),r.getInt("accepted_count"),r.getInt("unanswered_count"),
-                        r.getObject("submitted_at", LocalDateTime.class).toInstant(ZoneOffset.UTC)), id(r,"owner_id"),
+                        r.getObject("submitted_at", LocalDateTime.class).toInstant(ZoneOffset.UTC),
+                        AttemptSubmissionRepository.Cause.valueOf(r.getString("completion_cause"))), id(r,"owner_id"),
                 id(r,"bound_policy"),id(r,"bound_form"),r.getInt("schema_version"),r.getInt("intent_version"),
-                r.getInt("stream_version"),r.getInt("subject_version"),r.getString("subject_type"))).stream().findFirst();
+                r.getInt("stream_version"),r.getInt("subject_version"),r.getString("subject_type"));
+        }).stream().findFirst();
     }
 
     @Override public List<AcceptedResponseRepository.Value> responses(UUID attemptId) {

@@ -9,7 +9,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.Lifecycl
 import static uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.LifecycleException.require;
 
 /**
- * Trusted immutable facts for a voluntary attempt submission, not a request DTO or response store.
+ * Trusted immutable facts for attempt completion, not a request DTO or response store.
  * Callers supply every form item in persisted form order and its authoritative completion scope.
  * Editable facts describe the approved #834 contract only; constructing them activates no policy.
  * No payload, grade, access decision, clock, section transition or database effect is represented.
@@ -58,6 +58,15 @@ public record CompletionFacts(int version, FinalizationMode finalization, boolea
     }
 
     Plan plan() {
+        return plan(false);
+    }
+
+    /** System expiry is a distinct cause; it never changes the captured require-all policy. */
+    Plan expiryPlan() {
+        return plan(true);
+    }
+
+    private Plan plan(boolean expiry) {
         var finalizeItems = new ArrayList<UUID>();
         var unansweredItems = new ArrayList<UUID>();
         for (var item : items) {
@@ -65,13 +74,13 @@ public record CompletionFacts(int version, FinalizationMode finalization, boolea
                 case ACCEPTED -> { /* Preserve already immutable evidence. */ }
                 case EDITABLE -> finalizeItems.add(item.formItemId());
                 case EMPTY, DRAFT, PENDING_CONFIRMATION -> {
-                    require(!requireAllAnswers || item.scope() == Scope.PERMANENTLY_CLOSED,
+                    require(expiry || !requireAllAnswers || item.scope() == Scope.PERMANENTLY_CLOSED,
                             INCOMPLETE_REQUIRED_SCOPE);
                     unansweredItems.add(item.formItemId());
                 }
             }
         }
-        require(completionConfirmed, CONFIRMATION_REQUIRED);
+        require(expiry || completionConfirmed, CONFIRMATION_REQUIRED);
         return new Plan(finalizeItems, unansweredItems);
     }
 }

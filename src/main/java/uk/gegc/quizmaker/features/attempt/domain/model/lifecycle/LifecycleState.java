@@ -54,6 +54,15 @@ public record LifecycleState(UUID attemptId, long rowVersion, State state, Insta
                 startedAt == null ? at : startedAt, next.terminal() ? at : null);
     }
 
+    /** Effective terminal time is immutable; processing time remains monotonic after delayed work. */
+    public LifecycleState expire(State next, Instant deadline, Instant processedAt) {
+        require(next != null && next.terminal() && state.execution() == Execution.IN_PROGRESS, INVALID_TRANSITION);
+        var advanced = advance(next, processedAt);
+        deadline = time(deadline);
+        require(!deadline.isBefore(startedAt) && !deadline.isAfter(advanced.updatedAt()), INVALID_INPUT);
+        return new LifecycleState(attemptId, advanced.rowVersion(), next, createdAt, advanced.updatedAt(), startedAt, deadline);
+    }
+
     private static Instant time(Instant value) {
         require(value != null && !value.isBefore(MIN_TIME) && !value.isAfter(MAX_TIME), INVALID_INPUT);
         return value.truncatedTo(ChronoUnit.MICROS);

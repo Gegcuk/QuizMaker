@@ -86,6 +86,16 @@ public class AttemptLifecycleServiceImpl implements AttemptLifecycleService {
         return verify(repository.findByIdForUpdate(attemptId).orElseThrow(() -> new LifecycleStateException(STATE_UNAVAILABLE)));
     }
 
+    @Override public LifecycleState expire(UUID attemptId, long expectedVersion, AttemptLifecycle.State next, java.time.Instant deadline) {
+        return execute("expire", mandatory, () -> {
+            var current = locked(attemptId);
+            if (current.rowVersion() != expectedVersion) throw new LifecycleStateException(STATE_CONFLICT);
+            var value = current.expire(next, deadline, clock.instant());
+            if (!repository.compareAndSet(expectedVersion, value)) throw new LifecycleStateException(STATE_CONFLICT);
+            return value;
+        });
+    }
+
     private static LifecycleState verify(StoredState row) {
         if (row.lifecycleVersion() != AttemptLifecycle.VERSION) throw new LifecycleStateException(UNSUPPORTED_VERSION);
         try {

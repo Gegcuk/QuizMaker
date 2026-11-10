@@ -28,4 +28,7 @@ public interface AttemptLifecycleService {
      * unknown commit outcome: reconcile by a fresh read; #599 owns command replay identity.
      */
     LifecycleState save(UUID attemptId, long expectedVersion, State next);
+
+    /** Joins an existing system-expiry transaction; deadline must come from verified timing. */
+    LifecycleState expire(UUID attemptId, long expectedVersion, State next, java.time.Instant deadline);
 }

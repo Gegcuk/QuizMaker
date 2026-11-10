@@ -25,13 +25,25 @@ public class AttemptTerminalSubmissionImpl implements AttemptTerminalSubmission 
     }
     @Override public CommandReceipt.Acknowledgement finish(AttemptReadFactsService.Facts facts, long expectedVersion,
                                                          UUID commandId, CompletionFacts completion) {
+        return complete(facts, expectedVersion, commandId, completion, null);
+    }
+    @Override public CommandReceipt.Acknowledgement expire(AttemptReadFactsService.Facts facts, long expectedVersion,
+            UUID commandId, CompletionFacts completion, java.time.Instant deadline) {
+        require(facts != null && facts.timing() != null && deadline != null
+                && deadline.equals(facts.timing().effectiveDeadline()), CORRUPT);
+        return complete(facts, expectedVersion, commandId, completion, deadline);
+    }
+    private CommandReceipt.Acknowledgement complete(AttemptReadFactsService.Facts facts, long expectedVersion,
+            UUID commandId, CompletionFacts completion, java.time.Instant deadline) {
         require(facts != null && completion != null && commandId != null, INVALID_INPUT);
+        boolean expiry = deadline != null;
         var current = lifecycle.lock(facts.access().attemptId());
         require(current.rowVersion() == expectedVersion && current.equals(facts.access().lifecycle()), STALE);
         require(completion.items().stream().map(CompletionFacts.Item::formItemId).toList()
                 .equals(facts.form().items().stream().map(i -> i.id()).toList()), CORRUPT);
         require(completion.requireAllAnswers() == facts.policy().submission().requireAllAnswers(), CORRUPT);
-        var decision = AttemptLifecycle.evaluate(current.state(), AttemptLifecycle.Event.SUBMIT,
+        var decision = expiry ? AttemptLifecycle.expire(current.state(), completion)
+                : AttemptLifecycle.evaluate(current.state(), AttemptLifecycle.Event.SUBMIT,
                 AttemptLifecycle.Context.submit(completion));
         if (decision instanceof AttemptLifecycle.Denied denied) throw denial(denied.reason(), completion);
         require(decision instanceof AttemptLifecycle.Advance, CONFLICT);
@@ -39,16 +51,18 @@ public class AttemptTerminalSubmissionImpl implements AttemptTerminalSubmission 
         // Conversion must complete in this transaction BEFORE the terminal tuple. No proposal
         // is part of finalizeItems; a conversion exception rolls back every authoritative write.
         finalizer.finalizeResponses(facts, advance.plan());
-        var next = lifecycle.save(current.attemptId(), current.rowVersion(), advance.state());
+        var next = expiry ? lifecycle.expire(current.attemptId(), current.rowVersion(), advance.state(), deadline)
+                : lifecycle.save(current.attemptId(), current.rowVersion(), advance.state());
         var scope = new ExecutionTrace.Scope(current.attemptId(), facts.access().policySnapshotId(), facts.form().id());
-        for (var event : List.of(ExecutionTrace.Type.ANSWER_LOCKED, ExecutionTrace.Type.ATTEMPT_SUBMITTED)) {
-            trace.append(scope, new ExecutionTrace.Event(1, UUID.randomUUID(), event, ExecutionTrace.Actor.PARTICIPANT,
+        for (var event : List.of(ExecutionTrace.Type.ANSWER_LOCKED, expiry ? ExecutionTrace.Type.ATTEMPT_EXPIRED : ExecutionTrace.Type.ATTEMPT_SUBMITTED)) {
+            trace.append(scope, new ExecutionTrace.Event(1, UUID.randomUUID(), event, expiry ? ExecutionTrace.Actor.SYSTEM : ExecutionTrace.Actor.PARTICIPANT,
                     new ExecutionTrace.Data(commandId, null, current.state(), next.state(),
-                            event == ExecutionTrace.Type.ANSWER_LOCKED ? ExecutionTrace.ReasonCode.LOCKED : ExecutionTrace.ReasonCode.SUBMITTED)));
+                            event == ExecutionTrace.Type.ANSWER_LOCKED ? ExecutionTrace.ReasonCode.LOCKED : expiry ? ExecutionTrace.ReasonCode.EXPIRED : ExecutionTrace.ReasonCode.SUBMITTED)));
         }
         var value = new AttemptSubmissionRepository.Submission(UUID.randomUUID(), current.attemptId(), facts.form().id(),
                 facts.access().policySnapshotId(), facts.revision().id(), commandId, next.rowVersion(),
-                completion.items().size() - advance.plan().unansweredItems().size(), advance.plan().unansweredItems().size(), next.submittedAt());
+                completion.items().size() - advance.plan().unansweredItems().size(), advance.plan().unansweredItems().size(), next.submittedAt(),
+                expiry ? AttemptSubmissionRepository.Cause.EXPIRY : AttemptSubmissionRepository.Cause.VOLUNTARY);
         submissions.insert(value);
         submissions.enqueue(value);
         return new CommandReceipt.Acknowledgement(1, current.attemptId(), value.id(), next.rowVersion());

@@ -63,6 +63,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 class AuthSessionRefreshConcurrencyIntegrationTest {
 
     @Autowired
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
+
+    @Autowired
     private MockMvc mockMvc;
 
     @Autowired
@@ -86,6 +89,7 @@ class AuthSessionRefreshConcurrencyIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        assertThat(transactionManager).isInstanceOf(uk.gegc.quizmaker.shared.transaction.SafeJpaTransactionManager.class);
         String suffix = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
         User user = new User();
         user.setUsername("refresh-concurrency-" + suffix);

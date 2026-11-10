@@ -1,5 +1,8 @@
 package uk.gegc.quizmaker.features.attempt.infra.repository;
 
+import org.springframework.dao.DataAccessException;
+import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
+
 import java.sql.*;
 import java.util.*;
 import org.springframework.jdbc.core.namedparam.*;
@@ -21,10 +24,14 @@ public class JdbcNavigationRepository implements NavigationRepository {
                 .addValue("item", c.currentFormItemId().toString()).addValue("version", c.version()));
     }
     @Override public Optional<Cursor> read(UUID attemptId) {
-        return jdbc.query("""
-                SELECT BIN_TO_UUID(form_id) form_id,BIN_TO_UUID(current_item_id) item_id,row_version
-                FROM attempt_navigation WHERE attempt_id=UUID_TO_BIN(:attempt) FOR SHARE
-                """, Map.of("attempt", attemptId.toString()), (r, n) -> cursor(r)).stream().findFirst();
+        try {
+            return jdbc.query("""
+                    SELECT BIN_TO_UUID(form_id) form_id,BIN_TO_UUID(current_item_id) item_id,row_version
+                    FROM attempt_navigation WHERE attempt_id=UUID_TO_BIN(:attempt) FOR SHARE
+                    """, Map.of("attempt", attemptId.toString()), (r, n) -> cursor(r)).stream().findFirst();
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
     @Override public boolean move(UUID attemptId, long expectedVersion, UUID target) {
         return jdbc.update("""

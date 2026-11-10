@@ -1,5 +1,8 @@
 package uk.gegc.quizmaker.features.question.infra.repository;
 
+import org.springframework.dao.DataAccessException;
+import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
+
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -42,77 +45,93 @@ public class JdbcQuestionContractBindingRepository implements QuestionContractBi
     @Override
     @Transactional(readOnly = true)
     public Optional<Set<UUID>> findQuestionRevisionIds(UUID ownerId, UUID quizRevisionId) {
-        scope(ownerId, quizRevisionId);
-        return Optional.ofNullable(findQuestionRevisionIds(ownerId, Set.of(quizRevisionId)).get(quizRevisionId));
+        try {
+            scope(ownerId, quizRevisionId);
+            return Optional.ofNullable(findQuestionRevisionIds(ownerId, Set.of(quizRevisionId)).get(quizRevisionId));
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 
     @Override
     @Transactional(readOnly = true)
     public Map<UUID, Set<UUID>> findQuestionRevisionIds(UUID ownerId, Set<UUID> quizRevisionIds) {
-        if (ownerId == null || quizRevisionIds == null || quizRevisionIds.stream().anyMatch(Objects::isNull)) {
-            throw new ContractResolutionException(REVISION_UNAVAILABLE);
+        try {
+            if (ownerId == null || quizRevisionIds == null || quizRevisionIds.stream().anyMatch(Objects::isNull)) {
+                throw new ContractResolutionException(REVISION_UNAVAILABLE);
+            }
+            var ordered = quizRevisionIds.stream().sorted(Comparator.comparing(UUID::toString)).toList();
+            var result = new HashMap<UUID, Set<UUID>>();
+            for (int start = 0; start < ordered.size(); start += SQL_BATCH) {
+                var batch = ordered.subList(start, Math.min(start + SQL_BATCH, ordered.size()));
+                var parameters = new MapSqlParameterSource("owner", bytes(ownerId))
+                        .addValue("quizzes", batch.stream().map(JdbcQuestionContractBindingRepository::bytes).toList());
+                // Current membership, even if publication committed after the caller's RR snapshot.
+                // Only immutable roots/items are shared here; question locks still follow the
+                // canonical order in lockQuestionRevisions, without a shared-to-exclusive upgrade.
+                jdbc.query("""
+                        SELECT r.id AS quiz_revision_id, i.question_revision_id AS item_question_id
+                        FROM quiz_revisions r LEFT JOIN quiz_revision_items i ON i.quiz_revision_id=r.id
+                        WHERE r.owner_id=:owner AND r.id IN (:quizzes) FOR SHARE
+                        """, parameters, (org.springframework.jdbc.core.RowCallbackHandler) row -> {
+                    var ids = result.computeIfAbsent(uuid(row.getBytes("quiz_revision_id")), ignored -> new HashSet<>());
+                    byte[] questionId = row.getBytes("item_question_id");
+                    if (questionId != null) ids.add(uuid(questionId));
+                });
+            }
+            result.replaceAll((id, ids) -> Set.copyOf(ids));
+            return Map.copyOf(result);
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
         }
-        var ordered = quizRevisionIds.stream().sorted(Comparator.comparing(UUID::toString)).toList();
-        var result = new HashMap<UUID, Set<UUID>>();
-        for (int start = 0; start < ordered.size(); start += SQL_BATCH) {
-            var batch = ordered.subList(start, Math.min(start + SQL_BATCH, ordered.size()));
-            var parameters = new MapSqlParameterSource("owner", bytes(ownerId))
-                    .addValue("quizzes", batch.stream().map(JdbcQuestionContractBindingRepository::bytes).toList());
-            // Current membership, even if publication committed after the caller's RR snapshot.
-            // Only immutable roots/items are shared here; question locks still follow the
-            // canonical order in lockQuestionRevisions, without a shared-to-exclusive upgrade.
-            jdbc.query("""
-                    SELECT r.id AS quiz_revision_id, i.question_revision_id AS item_question_id
-                    FROM quiz_revisions r LEFT JOIN quiz_revision_items i ON i.quiz_revision_id=r.id
-                    WHERE r.owner_id=:owner AND r.id IN (:quizzes) FOR SHARE
-                    """, parameters, (org.springframework.jdbc.core.RowCallbackHandler) row -> {
-                var ids = result.computeIfAbsent(uuid(row.getBytes("quiz_revision_id")), ignored -> new HashSet<>());
-                byte[] questionId = row.getBytes("item_question_id");
-                if (questionId != null) ids.add(uuid(questionId));
-            });
-        }
-        result.replaceAll((id, ids) -> Set.copyOf(ids));
-        return Map.copyOf(result);
     }
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void lockQuestionRevisions(Set<UUID> questionRevisionIds) {
-        var ordered = questionRevisionIds.stream().sorted(Comparator.comparing(UUID::toString)).toList();
-        String lock = TransactionSynchronizationManager.isCurrentTransactionReadOnly() ? "FOR SHARE" : "FOR UPDATE";
-        for (int start = 0; start < ordered.size(); start += SQL_BATCH) {
-            var batch = ordered.subList(start, Math.min(start + SQL_BATCH, ordered.size()));
-            // Every identity exists before declaration, including questions with no binding.
-            // UNION ALL executes exact primary-key lookups in canonical arm order. An IN query
-            // can choose a full scan and lock unrelated identities even with FORCE INDEX.
-            String points = pointReads("SELECT q.id FROM question_revisions q", "q.id", batch.size(), lock);
-            var locked = jdbc.query("SELECT locked.id FROM (" + points + ") locked", pointParameters(batch),
-                    (row, index) -> uuid(row.getBytes("id")));
-            if (locked.size() != batch.size()) throw new ContractResolutionException(REVISION_UNAVAILABLE);
+        try {
+            var ordered = questionRevisionIds.stream().sorted(Comparator.comparing(UUID::toString)).toList();
+            String lock = TransactionSynchronizationManager.isCurrentTransactionReadOnly() ? "FOR SHARE" : "FOR UPDATE";
+            for (int start = 0; start < ordered.size(); start += SQL_BATCH) {
+                var batch = ordered.subList(start, Math.min(start + SQL_BATCH, ordered.size()));
+                // Every identity exists before declaration, including questions with no binding.
+                // UNION ALL executes exact primary-key lookups in canonical arm order. An IN query
+                // can choose a full scan and lock unrelated identities even with FORCE INDEX.
+                String points = pointReads("SELECT q.id FROM question_revisions q", "q.id", batch.size(), lock);
+                var locked = jdbc.query("SELECT locked.id FROM (" + points + ") locked", pointParameters(batch),
+                        (row, index) -> uuid(row.getBytes("id")));
+                if (locked.size() != batch.size()) throw new ContractResolutionException(REVISION_UNAVAILABLE);
+            }
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
         }
     }
 
     @Override
     @Transactional(readOnly = true)
     public Optional<Snapshot> findForRevision(UUID ownerId, UUID quizRevisionId) {
-        return findQuestionRevisionIds(ownerId, quizRevisionId).map(ids -> {
-            if (ids.isEmpty()) return new Snapshot(ids, Map.of());
-            // Current read of binding rows only. A normal SELECT could retain a snapshot
-            // from before an identical concurrent bind, even after insert accepted it.
-            var ordered = ids.stream().sorted(Comparator.comparing(UUID::toString)).toList();
-            var bindings = new HashMap<UUID, QuestionContractBinding>();
-            for (int start = 0; start < ordered.size(); start += SQL_BATCH) {
-                var batch = ordered.subList(start, Math.min(start + SQL_BATCH, ordered.size()));
-                String points = pointReads("SELECT " + COLUMNS + " FROM question_revision_contract_bindings b",
-                        "b.question_revision_id", batch.size(), "FOR SHARE");
-                jdbc.query("SELECT " + COLUMNS + " FROM (" + points + ") b", pointParameters(batch),
-                        (org.springframework.jdbc.core.RowCallbackHandler) row -> {
-                    var binding = binding(row);
-                    bindings.put(binding.questionRevisionId(), binding);
-                });
-            }
-            return new Snapshot(ids, bindings);
-        });
+        try {
+            return findQuestionRevisionIds(ownerId, quizRevisionId).map(ids -> {
+                if (ids.isEmpty()) return new Snapshot(ids, Map.of());
+                // Current read of binding rows only. A normal SELECT could retain a snapshot
+                // from before an identical concurrent bind, even after insert accepted it.
+                var ordered = ids.stream().sorted(Comparator.comparing(UUID::toString)).toList();
+                var bindings = new HashMap<UUID, QuestionContractBinding>();
+                for (int start = 0; start < ordered.size(); start += SQL_BATCH) {
+                    var batch = ordered.subList(start, Math.min(start + SQL_BATCH, ordered.size()));
+                    String points = pointReads("SELECT " + COLUMNS + " FROM question_revision_contract_bindings b",
+                            "b.question_revision_id", batch.size(), "FOR SHARE");
+                    jdbc.query("SELECT " + COLUMNS + " FROM (" + points + ") b", pointParameters(batch),
+                            (org.springframework.jdbc.core.RowCallbackHandler) row -> {
+                        var binding = binding(row);
+                        bindings.put(binding.questionRevisionId(), binding);
+                    });
+                }
+                return new Snapshot(ids, bindings);
+            });
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 
     private static String pointReads(String select, String primaryKey, int count, String lock) {
