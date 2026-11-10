@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.orm.jpa.HibernatePropertiesCustomizer;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -103,15 +104,28 @@ class LegacyCompatibilityHttpIntegrationTest extends BaseIntegrationTest {
         Fixture fixture = fixture(QuestionType.TRUE_FALSE); Fixture other = fixture(QuestionType.TRUE_FALSE);
         UUID attempt = start(fixture, "ALL_AT_ONCE");
         String path = "/api/v1/attempts/" + attempt;
+        var answer = new AnswerSubmissionRequest(fixture.question(), json.createObjectNode().put("answer", true), true, true, true);
         mockMvc.perform(get(path)).andExpect(status().isUnauthorized());
         mockMvc.perform(get(path).with(user(other.username()))).andExpect(status().isForbidden());
         mockMvc.perform(post(path + "/complete").with(user(other.username()))).andExpect(status().isForbidden());
+        mockMvc.perform(post(path + "/answers").contentType("application/json").content(json.writeValueAsBytes(answer)))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post(path + "/answers").with(user(other.username()))
+                        .contentType("application/json").content(json.writeValueAsBytes(answer)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post(path + "/answers/batch").with(user(other.username()))
+                        .contentType("application/json").content(json.writeValueAsBytes(java.util.Map.of("answers", List.of(answer)))))
+                .andExpect(status().isForbidden());
         new TransactionTemplate(transactions).executeWithoutResult(status -> jdbcTemplate.update(
                 "UPDATE quizzes SET visibility='PRIVATE' WHERE quiz_id=UUID_TO_BIN(?)", fixture.quiz().toString()));
         mockMvc.perform(post("/api/v1/attempts/quizzes/{quiz}", fixture.quiz()).with(user(other.username())))
                 .andExpect(status().isForbidden());
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM attempts WHERE quiz_id=UUID_TO_BIN(?)", Integer.class, fixture.quiz().toString())).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM answers WHERE attempt_id=UUID_TO_BIN(?)", Integer.class, attempt.toString())).isZero();
+        mockMvc.perform(post(path + "/answers").with(user(fixture.username()))
+                        .contentType("application/json").content(json.writeValueAsBytes(answer)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.score").value(1.0));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM answers WHERE attempt_id=UUID_TO_BIN(?)", Integer.class, attempt.toString())).isEqualTo(1);
     }
 
     @ParameterizedTest @EnumSource(AttemptMode.class)
@@ -148,9 +162,83 @@ class LegacyCompatibilityHttpIntegrationTest extends BaseIntegrationTest {
         }
     }
 
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void duplicateQuestionWithinBatchUsesExisting422AndRollsBackEarlierInsert(boolean conflicting) throws Exception {
+        Fixture f = fixture(QuestionType.TRUE_FALSE);
+        UUID id = start(f, "ALL_AT_ONCE");
+        var first = new AnswerSubmissionRequest(f.question(), json.createObjectNode().put("answer", true), true, true, true);
+        var second = new AnswerSubmissionRequest(f.question(), json.createObjectNode().put("answer", !conflicting), true, true, true);
+        mockMvc.perform(post("/api/v1/attempts/{id}/answers/batch", id).with(user(f.username()))
+                        .contentType("application/json").content(json.writeValueAsBytes(java.util.Map.of("answers", List.of(first, second)))))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM answers WHERE attempt_id=UUID_TO_BIN(?)",
+                Integer.class, id.toString())).isZero();
+        assertThat(attempts.submitAnswer(f.username(), id, first).isCorrect()).isTrue();
+        assertThat(attempts.completeAttempt(f.username(), id).totalScore()).isEqualTo(1.0);
+    }
+
     private Object submit(String username, UUID id, AnswerSubmissionRequest request) {
         try { return attempts.submitAnswer(username, id, request); }
         catch (IllegalStateException rejection) { return rejection; }
+    }
+
+    @ParameterizedTest @EnumSource(AttemptMode.class)
+    void concurrentHttpSubmissionsReturnOne200AndOne422WithAnImmutableWinner(AttemptMode mode) throws Exception {
+        for (boolean conflicting : List.of(false, true)) {
+            Fixture f = fixture(QuestionType.TRUE_FALSE);
+            if (mode == AttemptMode.TIMED) new TransactionTemplate(transactions).executeWithoutResult(status ->
+                    jdbcTemplate.update("UPDATE quizzes SET is_timer_enabled=1,timer_duration_min=60 WHERE quiz_id=UUID_TO_BIN(?)", f.quiz().toString()));
+            UUID id = attempts.startAttempt(f.username(), f.quiz(), mode).attemptId();
+            var first = new AnswerSubmissionRequest(f.question(), json.createObjectNode().put("answer", true), true, true, true);
+            var second = new AnswerSubmissionRequest(f.question(), json.createObjectNode().put("answer", !conflicting), true, true, true);
+            String path = "/api/v1/attempts/" + id + "/answers";
+            var executor = Executors.newFixedThreadPool(2);
+            lockGate.barrier = new CyclicBarrier(2);
+            List<org.springframework.test.web.servlet.MvcResult> outcomes;
+            try {
+                var a = executor.submit(() -> mockMvc.perform(post(path).with(user(f.username()))
+                        .contentType("application/json").content(json.writeValueAsBytes(first))).andReturn());
+                var b = executor.submit(() -> mockMvc.perform(post(path).with(user(f.username()))
+                        .contentType("application/json").content(json.writeValueAsBytes(second))).andReturn());
+                outcomes = List.of(a.get(15, TimeUnit.SECONDS), b.get(15, TimeUnit.SECONDS));
+            } finally {
+                lockGate.barrier = null; executor.shutdownNow();
+                assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+            }
+            assertThat(outcomes).extracting(result -> result.getResponse().getStatus()).containsExactlyInAnyOrder(200, 422);
+            var winner = json.readTree(outcomes.stream().filter(result -> result.getResponse().getStatus() == 200)
+                    .findFirst().orElseThrow().getResponse().getContentAsString());
+            var loser = outcomes.stream().filter(result -> result.getResponse().getStatus() == 422)
+                    .findFirst().orElseThrow().getResponse();
+            assertThat(loser.getContentType()).startsWith("application/problem+json");
+            var stored = jdbcTemplate.queryForMap("SELECT BIN_TO_UUID(id) AS id,response,score FROM answers WHERE attempt_id=UUID_TO_BIN(?)", id.toString());
+            assertThat(stored.get("id")).isEqualTo(winner.path("answerId").asText());
+            for (var request : List.of(first, second)) mockMvc.perform(post(path).with(user(f.username()))
+                            .contentType("application/json").content(json.writeValueAsBytes(request)))
+                    .andExpect(status().isUnprocessableEntity());
+            assertThat(attempts.completeAttempt(f.username(), id).totalScore()).isEqualTo(winner.path("score").asDouble());
+            assertThat(jdbcTemplate.queryForMap("SELECT BIN_TO_UUID(id) AS id,response,score FROM answers WHERE attempt_id=UUID_TO_BIN(?)", id.toString()))
+                    .isEqualTo(stored);
+        }
+    }
+
+    @Test
+    void hibernateSchemaEnforcesTheSameDatabaseInvariantAsFlyway() {
+        Fixture f = fixture(QuestionType.TRUE_FALSE);
+        UUID id = attempts.startAttempt(f.username(), f.quiz(), AttemptMode.ALL_AT_ONCE).attemptId();
+        var request = new AnswerSubmissionRequest(f.question(), json.createObjectNode().put("answer", true), false, false, false);
+        var accepted = attempts.submitAnswer(f.username(), id, request);
+        assertThat(jdbcTemplate.queryForList("""
+                SELECT column_name FROM information_schema.statistics WHERE table_schema=DATABASE()
+                AND table_name='answers' AND index_name='uq_answers_attempt_question' AND non_unique=0 ORDER BY seq_in_index
+                """, String.class)).containsExactly("attempt_id", "question_id");
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                INSERT INTO answers(id,attempt_id,question_id,response,is_correct,score,answered_at)
+                SELECT UUID_TO_BIN(?),attempt_id,question_id,response,is_correct,score,answered_at FROM answers WHERE id=UUID_TO_BIN(?)
+                """, UUID.randomUUID().toString(), accepted.answerId().toString()))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class).hasMessageContaining("uq_answers_attempt_question");
+        assertThat(attempts.completeAttempt(f.username(), id).totalScore()).isEqualTo(1.0);
     }
 
     static class LockGate implements org.hibernate.resource.jdbc.spi.StatementInspector {

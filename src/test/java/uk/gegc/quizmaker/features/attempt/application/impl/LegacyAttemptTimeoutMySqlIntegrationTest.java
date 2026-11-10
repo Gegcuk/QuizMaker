@@ -261,10 +261,22 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
     @Test
     void batchRemainsAtomicAndOneByOneKeepsItsOrdering() {
         Fixture batch = fixture(AttemptMode.ALL_AT_ONCE, true, 2);
+        AtomicBoolean firstInsertReached = new AtomicBoolean();
+        doAnswer(invocation -> {
+            Answer answer = invocation.getArgument(0);
+            if (answer.getAttempt().getId().equals(batch.attemptId())) {
+                entityManager.flush();
+                assertThat(answerCount(batch)).isEqualTo(1);
+                firstInsertReached.set(true);
+            }
+            return invocation.callRealMethod();
+        }).when(answerMapper).toDto(any(Answer.class));
         var bad = new AnswerSubmissionRequest(batch.questions().get(1), json.createObjectNode(), true, true, true);
         assertThatThrownBy(() -> service.submitBatch(batch.owner(), batch.attemptId(),
                 new BatchAnswerSubmissionRequest(List.of(request(batch, 0), bad)))).isInstanceOf(RuntimeException.class);
+        assertThat(firstInsertReached).as("rollback follows a real successful INSERT").isTrue();
         assertThat(state(batch).answers()).isZero();
+        reset(answerMapper);
         var accepted = service.submitBatch(batch.owner(), batch.attemptId(),
                 new BatchAnswerSubmissionRequest(List.of(request(batch, 0), request(batch, 1))));
         assertThat(accepted).hasSize(2);
@@ -276,6 +288,47 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
         assertThat(service.submitAnswer(sequential.owner(), sequential.attemptId(), request(sequential, 0)).nextQuestion()).isNotNull();
         service.submitAnswer(sequential.owner(), sequential.attemptId(), request(sequential, 1));
         assertThat(service.completeAttempt(sequential.owner(), sequential.attemptId()).totalScore()).isEqualTo(2.0);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"ALL_AT_ONCE,true", "ALL_AT_ONCE,false", "ONE_BY_ONE,true", "ONE_BY_ONE,false", "TIMED,true", "TIMED,false"})
+    void onTimeAnswerAndCompletionKeepTheCommittedWinnerAndOneCompletionEvent(AttemptMode mode, boolean answerFirst) throws Exception {
+        Fixture f = fixture(mode, true, 1);
+        CountDownLatch firstHasLock = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch secondReachedLockQuery = new CountDownLatch(1);
+        sqlGate.secondQuery.set(secondReachedLockQuery);
+        AtomicBoolean gated = new AtomicBoolean();
+        when(clock.instant()).thenAnswer(invocation -> {
+            if (Thread.currentThread().getName().equals("legacy-time-first") && gated.compareAndSet(false, true)) {
+                firstHasLock.countDown(); await(releaseFirst);
+            }
+            return now.get();
+        });
+        ExecutorService first = Executors.newSingleThreadExecutor(r -> new Thread(r, "legacy-time-first"));
+        ExecutorService second = Executors.newSingleThreadExecutor(r -> new Thread(r, "legacy-time-second"));
+        try {
+            Future<Outcome> one = first.submit(() -> command(f, answerFirst));
+            assertThat(firstHasLock.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Outcome> two = second.submit(() -> command(f, !answerFirst));
+            assertThat(secondReachedLockQuery.await(10, TimeUnit.SECONDS)).isTrue();
+            releaseFirst.countDown();
+            assertThat(one.get(10, TimeUnit.SECONDS).success()).isTrue();
+            Outcome following = two.get(10, TimeUnit.SECONDS);
+            assertThat(following.success()).isEqualTo(answerFirst);
+            if (!answerFirst) assertThat(following.error()).isEqualTo("Cannot submit answer to attempt with status COMPLETED");
+            assertThat(state(f)).isEqualTo(new State(AttemptStatus.COMPLETED, now.get(), answerFirst ? 1.0 : 0.0, answerFirst ? 1 : 0));
+            assertThat(completions.ids).containsExactly(f.attemptId());
+            assertThatThrownBy(() -> service.completeAttempt(f.owner(), f.attemptId())).isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> service.submitAnswer(f.owner(), f.attemptId(), request(f, 0))).isInstanceOf(IllegalStateException.class);
+            assertThat(completions.ids).containsExactly(f.attemptId());
+            assertThat(state(f).answers()).isEqualTo(answerFirst ? 1 : 0);
+        } finally {
+            releaseFirst.countDown(); first.shutdownNow(); second.shutdownNow();
+            assertThat(first.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(second.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+            sqlGate.secondQuery.set(null);
+        }
     }
 
     @ParameterizedTest

@@ -5600,9 +5600,48 @@ Known compatibility gates remain explicit: #690 requires a demonstrated saved-di
 and must preserve immediate practice feedback; #849 already serializes answer/completion and
 persists timeout. The new HTTP integration class also races identical and different same-question
 answers in independent MySQL transactions for all three modes: one immutable answer and one score
-contribution survive, and subsequent retries keep the existing rejection. #848 remains the owner
-of any additional retained-writer uniqueness/rollout repair and historical duplicate reconciliation.
+contribution survive, and subsequent retries keep the existing rejection.
 Inventory does not activate those routes or replace real writer evidence with a target fake.
+
+#### Retained-answer uniqueness and rollout (#848)
+
+V106 adds `uq_answers_attempt_question` on `answers(attempt_id, question_id)`; the real `Answer`
+mapping declares the same constraint for Hibernate-created test schemas. This protects the
+existing one-final-answer invariant independently of the application row lock. The same question
+in another attempt and different questions in one attempt remain valid. The retained service keeps
+its answer/completion locking and its existing `200` success and `422` duplicate/terminal errors;
+no new client idempotency key, scoring rule, disclosure entitlement or target routing is introduced.
+
+Before rollout, use the existing #608 read-only inventory and check report completeness and
+`ANSWER / DUPLICATE_ANSWER`. A truncated, unavailable or otherwise unreconciled report cannot
+establish that the data is clean. Identical and conflicting duplicate keys both require
+classification; do not choose a historical winner, delete answers or recalculate scores as part
+of this migration. This is not an automatic production inventory or repair command.
+
+MySQL's atomic unique-index DDL is the final integrity guard, including against writes after the
+preflight snapshot. If duplicate keys exist, V106 fails without removing/changing original
+answers, published attempt scores or analytics snapshots, and without installing a partial unique
+index. Stop the rollout and reconcile the discrepancy separately. A failed Flyway history entry
+is not automatically repaired or accepted by a later startup. A code rollback retains a successfully
+installed guard; do not drop the constraint or downgrade retained data as a recovery shortcut.
+
+`LegacyAnswerUniquenessMySqlIntegrationTest` uses isolated catalogs migrated through V105 and the
+real next migration. It proves clean upgrade/replay, exact/conflicting duplicate preflight and
+failed rollout, immutable historical rows, rejected duplicate INSERT/UPDATE, valid distinct pairs,
+the indexed lookup plan and independent SQL transaction contention. These SQL fixtures prove the
+database invariant, not application orchestration. `LegacyCompatibilityHttpIntegrationTest`
+separately races real HTTP commands with identical/different payloads in all three legacy modes,
+requires one `200` and one RFC 7807 `422`, checks immutable replay, batch rollback, wrong-owner and
+unauthenticated denial, and verifies the Hibernate-created constraint. The existing nine-family,
+shared-link and immediate-feedback fixtures remain in scope for compatibility.
+
+`LegacyAttemptTimeoutMySqlIntegrationTest` additionally forces both on-time answer/completion
+orderings for every legacy mode: answer-first contributes once; completion-first rejects the
+late answer; one completion event survives. Its batch failure test reaches and observes the first
+real INSERT before failure and inspects rollback in a fresh transaction. Existing measurements
+compare three parent attempts with one versus eight related answers on both submission and
+completion; SQL counts remain bounded as the relationship collection grows. No new relationship
+read or serialization path is added by the uniqueness metadata.
 
 ### Compatible cutover with a retained legacy path
 
