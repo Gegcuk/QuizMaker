@@ -173,9 +173,19 @@ public record ResolvedAttemptPolicy(
         public HintPolicy { present(mode, source); }
     }
 
-    /** No duration/default is invented for the untimed slice. Later timers require typed extensions. */
-    public record TimingPolicy(TimingMode mode) {
-        public TimingPolicy { present(mode); }
+    /** Overall attempt clocks only; no section clock, pause, grace or implicit duration. */
+    public record TimingPolicy(TimingMode mode, java.time.Duration duration, java.time.Instant overallDeadline) {
+        public TimingPolicy(TimingMode mode) { this(mode, null, null); }
+        public TimingPolicy {
+            present(mode);
+            require(mode == TimingMode.NONE ? duration == null && overallDeadline == null
+                    : duration != null || overallDeadline != null, INVALID_COMBINATION);
+            if (duration != null) require(!duration.isNegative() && !duration.isZero()
+                    && duration.getNano() % 1_000 == 0, INVALID_VALUE);
+            if (overallDeadline != null) require(!overallDeadline.isBefore(java.time.Instant.parse("1000-01-01T00:00:00Z"))
+                    && !overallDeadline.isAfter(java.time.Instant.parse("9999-12-31T23:59:59.999999Z"))
+                    && overallDeadline.getNano() % 1_000 == 0, INVALID_VALUE);
+        }
     }
 
     public record PausePolicy(PauseMode mode) {
@@ -247,7 +257,7 @@ public record ResolvedAttemptPolicy(
     public enum ReleaseMoment { NEVER, AFTER_ACCEPTANCE, AFTER_COMPLETION }
     public enum HintMode { DISABLED, ON_REQUEST }
     public enum HintSource { AUTHORED }
-    public enum TimingMode { NONE }
+    public enum TimingMode { NONE, TOTAL_ATTEMPT }
     public enum PauseMode { DISABLED }
     public enum AttemptLimitMode { UNLIMITED, FIXED_COUNT }
     public enum ParticipantMode { AUTHENTICATED }

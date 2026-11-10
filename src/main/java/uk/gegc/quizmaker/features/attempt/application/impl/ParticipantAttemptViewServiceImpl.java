@@ -30,12 +30,13 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
     private final ParticipantViewMediaReader media;
     private final TransactionTemplate transaction;
     private final MeterRegistry metrics;
+    private final java.time.Clock clock;
 
     public ParticipantAttemptViewServiceImpl(AuthenticatedSubjectResolver identity, AttemptViewRouteRepository routes,
             AttemptService legacy, AttemptReadFactsService facts, ParticipantViewDisclosureReader disclosure,
-            ParticipantViewMediaReader media, PlatformTransactionManager manager, MeterRegistry metrics) {
+            ParticipantViewMediaReader media, PlatformTransactionManager manager, MeterRegistry metrics, java.time.Clock clock) {
         this.identity = identity; this.routes = routes; this.legacy = legacy; this.facts = facts;
-        this.disclosure = disclosure; this.media = media; this.metrics = metrics;
+        this.disclosure = disclosure; this.media = media; this.metrics = metrics; this.clock = clock;
         transaction = new TransactionTemplate(manager); transaction.setReadOnly(true);
     }
 
@@ -114,10 +115,14 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
                 && saved.navigation().items().stream().anyMatch(saved.navigation()::readable))
             actions.add(AttemptCommands.Type.NAVIGATE_TO_ITEM);
         if (saved.oneAtATime()) actions = new ArrayList<>(CurrentItemDelivery.actions(saved));
+        var timingDetails = ParticipantAttemptTiming.from(saved.timing(), clock.instant());
+        if (timingDetails != null && (timingDetails.expired() || timingDetails.serverTime().isBefore(timingDetails.startedAt())))
+            actions.removeIf(action -> action != AttemptCommands.Type.VIEW_ATTEMPT);
         return new ParticipantAttemptView(ParticipantAttemptView.Representation.POLICY_DRIVEN, 1, attemptId,
                 granted.quizId(), granted.quizRevisionId(), granted.formId(), granted.stateVersion(), saved.policy().schemaVersion(),
                 lifecycle.state().execution(), lifecycle.state().answers(), lifecycle.startedAt(), lifecycle.submittedAt(),
-                ParticipantAttemptView.Timing.UNTIMED, visibility, items, actions, disclosed.result(), NavigationPosition.from(saved.navigation().cursor()));
+                saved.timing() == null ? ParticipantAttemptView.Timing.UNTIMED : ParticipantAttemptView.Timing.TIMED,
+                visibility, items, actions, disclosed.result(), NavigationPosition.from(saved.navigation().cursor()), timingDetails);
     }
 
     @Override public AttemptReviewResponse review(UUID attemptId, boolean includeUserAnswers,
@@ -147,6 +152,6 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
         return new ParticipantAttemptView(view.representation(), view.schemaVersion(), view.attemptId(), view.quizId(), view.quizRevisionId(),
                 view.formId(), view.stateVersion(), view.policyVersion(), view.execution(), view.answerCollection(), view.startedAt(),
                 view.submittedAt(), view.timing(), view.contentVisibility(), includeQuestionContext ? view.items() : null,
-                view.allowedActions(), filtered, view.navigation());
+                view.allowedActions(), filtered, view.navigation(), view.timingDetails());
     }
 }

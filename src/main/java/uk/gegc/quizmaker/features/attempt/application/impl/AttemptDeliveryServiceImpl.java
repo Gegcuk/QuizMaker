@@ -31,8 +31,9 @@ public class AttemptDeliveryServiceImpl implements AttemptDeliveryService {
         Timer.Sample timer = Timer.start();
         String outcome = "unavailable";
         try {
+            var receivedAt = clock.instant();
             var result = transaction.execute(status -> {
-                try { return readAuthorized(attemptId); }
+                try { return readAuthorized(attemptId, receivedAt); }
                 catch (RuntimeException failure) { throw AttemptReadFailures.translate(failure); }
             });
             outcome = "delivered";
@@ -48,8 +49,8 @@ public class AttemptDeliveryServiceImpl implements AttemptDeliveryService {
         }
     }
 
-    private View readAuthorized(UUID attemptId) {
-        var saved = facts.read(attemptId, AttemptReadFactsService.Purpose.ACTIVE_DELIVERY);
+    private View readAuthorized(UUID attemptId, java.time.Instant receivedAt) {
+        var saved = facts.read(attemptId, AttemptReadFactsService.Purpose.ACTIVE_DELIVERY, receivedAt);
         var granted = saved.access();
         var state = granted.lifecycle().state();
         if (state.execution() != AttemptLifecycle.Execution.IN_PROGRESS) throw new AttemptDeliveryException(INACTIVE);

@@ -28,7 +28,7 @@ class AttemptStartValidationTest {
         var service = new AttemptStartServiceImpl(identity, sources, mock(AttemptPresetService.class),
                 mock(AttemptPolicyResolver.class), mock(PolicySnapshotService.class), mock(QuestionRevisionContractService.class),
                 mock(QuestionSelectionService.class), mock(FixedFormMaterializer.class), mock(AttemptSubjectService.class),
-                mock(AttemptLifecycleService.class), mock(ExecutionTraceService.class), receipts, metrics, mock(uk.gegc.quizmaker.features.attempt.domain.repository.NavigationRepository.class), mock(AttemptAllowanceService.class));
+                mock(AttemptLifecycleService.class), mock(ExecutionTraceService.class), receipts, metrics, mock(uk.gegc.quizmaker.features.attempt.domain.repository.NavigationRepository.class), mock(AttemptAllowanceService.class), mock(AttemptTimingService.class));
         var content = new ContentPolicy(UUID.randomUUID(), 1, FormMode.PRECOMPUTED, SectionMode.IMPLICIT_FLAT, CaseMode.NOT_CONFIGURED);
         UUID quiz = UUID.randomUUID(); var key = CommandReceipt.Key.from("validation");
         var preset = BuiltInPracticePreset.REFERENCE; var context = LegacyPracticeRequest.LaunchContext.ORDINARY;
@@ -53,6 +53,16 @@ class AttemptStartValidationTest {
         assertThatThrownBy(() -> service.start(new AttemptStartService.Command(2, quiz, content, 1, key, preset, context, "ALL_AT_ONCE", AnswerOrder.AUTHORED)))
                 .isInstanceOfSatisfying(AttemptStartException.class, e -> assertThat(e.reason()).isEqualTo(UNSUPPORTED_VERSION));
         verifyNoInteractions(identity, sources, receipts);
+    }
+    @Test void timingRepositoryCannotReadOrWriteOutsideTheSharedTransaction() {
+        var sql=mock(org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate.class);
+        var repository=new uk.gegc.quizmaker.features.attempt.infra.repository.JdbcAttemptTimingRepository(sql);
+        var timing=uk.gegc.quizmaker.features.attempt.domain.model.timing.AttemptTiming.capture(UUID.randomUUID(),UUID.randomUUID(),
+                new TimingPolicy(TimingMode.TOTAL_ATTEMPT,java.time.Duration.ofSeconds(1),null),java.time.Instant.parse("2026-11-05T12:00:00Z"));
+        for (Runnable operation:List.<Runnable>of(() -> repository.read(timing.attemptId()),() -> repository.insert(timing)))
+            assertThatThrownBy(operation::run).isInstanceOfSatisfying(uk.gegc.quizmaker.features.attempt.domain.model.timing.AttemptTimingException.class,
+                    e -> assertThat(e.reason()).isEqualTo(uk.gegc.quizmaker.features.attempt.domain.model.timing.AttemptTimingException.Reason.UNAVAILABLE)).hasNoCause();
+        verifyNoInteractions(sql);
     }
     @Test void allowanceRepositoryCannotReadOrWriteOutsideTheSharedStartTransaction() {
         var sql = mock(org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate.class);

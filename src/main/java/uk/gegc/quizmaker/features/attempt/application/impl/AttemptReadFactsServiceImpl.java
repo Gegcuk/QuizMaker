@@ -31,12 +31,13 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
     private final QuestionRevisionContractService contracts;
     private final NavigationRepository navigation;
     private final AcceptedResponseRepository answers;
+    private final AttemptTimingService timing;
 
     public AttemptReadFactsServiceImpl(AttemptAccessService access, PolicySnapshotService snapshots,
             FixedFormRepository forms, FormOptionOrderRepository orders, QuizRevisionRepository revisions,
-            QuestionRevisionContractService contracts, NavigationRepository navigation, AcceptedResponseRepository answers) {
+            QuestionRevisionContractService contracts, NavigationRepository navigation, AcceptedResponseRepository answers, AttemptTimingService timing) {
         this.access = access; this.snapshots = snapshots; this.forms = forms; this.orders = orders;
-        this.revisions = revisions; this.contracts = contracts; this.navigation = navigation; this.answers = answers;
+        this.revisions = revisions; this.contracts = contracts; this.navigation = navigation; this.answers = answers; this.timing = timing;
     }
 
     @Override public Facts read(UUID attemptId, Purpose purpose) {
@@ -50,6 +51,7 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
             var owner = granted.contentOwnerId();
             var snapshot = snapshots.readCurrent(owner, granted.policySnapshotId());
             var policy = snapshot.resolution().policy();
+            var capturedTiming = timing.read(granted, snapshot);
             if (policy.schemaVersion() != 1 || policy.content().formMode() != FormMode.PRECOMPUTED
                     || policy.content().sections() != SectionMode.IMPLICIT_FLAT)
                 throw new AttemptDeliveryException(UNSUPPORTED);
@@ -78,7 +80,7 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
                     ? navigation.read(attemptId).orElseThrow(() -> new AttemptDeliveryException(CORRUPT)) : null;
             var nav = new FlatNavigation.Context(policy.navigation(), form.get(0).id(),
                     form.get(0).items().stream().map(uk.gegc.quizmaker.features.attempt.domain.model.form.FixedForm.Item::id).toList(), accepted, cursor);
-            return new Facts(granted, policy, form.get(0), order.get(0), revision, resolved, snapshot.resolution().hash(), nav);
+            return new Facts(granted, policy, form.get(0), order.get(0), revision, resolved, snapshot.resolution().hash(), nav, capturedTiming);
         } catch (RuntimeException failure) {
             // Preserve the sanitized conflict until the caller chooses its command/read error contract.
             var conflict = DatabaseConflictException.from(failure);

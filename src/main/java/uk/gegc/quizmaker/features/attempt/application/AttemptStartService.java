@@ -7,6 +7,8 @@ import uk.gegc.quizmaker.features.attempt.domain.model.preset.PresetReference;
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt.Key;
 
 import java.util.UUID;
+import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.TimingPolicy;
+import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.TimingMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.AttemptLimitPolicy;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.AttemptLimitMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelection;
@@ -22,7 +24,13 @@ public interface AttemptStartService {
      * captures them for this user/publication context. Later different limits conflict, not reset.
      */
     record Command(int version, UUID quizId, ContentPolicy content, long publicationVersion, Key key,
-                   PresetReference preset, LaunchContext context, String legacyMode, AnswerOrder answerOrder, boolean draftsEnabled, NavigationPolicy navigation, DeliveryMode delivery, QuestionSelection.Configuration selection, AttemptLimitPolicy attemptLimit) {
+                   PresetReference preset, LaunchContext context, String legacyMode, AnswerOrder answerOrder, boolean draftsEnabled, NavigationPolicy navigation, DeliveryMode delivery, QuestionSelection.Configuration selection, AttemptLimitPolicy attemptLimit, TimingPolicy timing) {
+        public Command(int version, UUID quizId, ContentPolicy content, long publicationVersion, Key key,
+                       PresetReference preset, LaunchContext context, String legacyMode, AnswerOrder answerOrder, boolean draftsEnabled,
+                       NavigationPolicy navigation, DeliveryMode delivery, QuestionSelection.Configuration selection, AttemptLimitPolicy attemptLimit) {
+            this(version, quizId, content, publicationVersion, key, preset, context, legacyMode, answerOrder, draftsEnabled,
+                    navigation, delivery, selection, attemptLimit, new TimingPolicy(TimingMode.NONE));
+        }
         public Command(int version, UUID quizId, ContentPolicy content, long publicationVersion, Key key,
                        PresetReference preset, LaunchContext context, String legacyMode, AnswerOrder answerOrder, boolean draftsEnabled,
                        NavigationPolicy navigation, DeliveryMode delivery, QuestionSelection.Configuration selection) {

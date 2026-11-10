@@ -101,7 +101,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
         ResponseAcceptanceServiceImpl.class, JdbcAcceptedResponseRepository.class,
         AttemptSubmissionServiceImpl.class, AttemptTerminalSubmissionImpl.class, AcceptedSubmissionResponseFinalizer.class, JdbcAttemptSubmissionRepository.class,
-        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
+        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, uk.gegc.quizmaker.features.attempt.application.impl.AttemptTimingServiceImpl.class, uk.gegc.quizmaker.features.attempt.infra.repository.JdbcAttemptTimingRepository.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
         AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
         JdbcPolicySnapshotRepository.class, QuestionSelectionServiceImpl.class,
@@ -130,10 +130,16 @@ class AttemptSubmissionMySqlIntegrationTest {
     }
     @AfterAll static void dropDatabase() { if (schemaCreated) admin.execute("DROP DATABASE " + SCHEMA); }
 
+    static class AdjustableClock extends Clock {
+        volatile Instant now=Instant.parse("2026-11-05T12:00:00Z");
+        @Override public ZoneId getZone() { return ZoneOffset.UTC; }
+        @Override public Clock withZone(ZoneId zone) { return Clock.fixed(now,zone); }
+        @Override public Instant instant() { return now; }
+    }
     @TestConfiguration(proxyBeanMethods = false)
     @EnableAspectJAutoProxy
     static class Config {
-        @Bean Clock clock() { return Clock.fixed(Instant.parse("2026-11-05T12:00:00Z"), ZoneOffset.UTC); }
+        @Bean Clock clock() { return new AdjustableClock(); }
         @Bean SimpleMeterRegistry metrics() { return new SimpleMeterRegistry(); }
         @Bean MediaStorageProperties mediaProperties() { return new MediaStorageProperties(); }
         @Bean SavedImageStorage storage() {
@@ -174,7 +180,7 @@ class AttemptSubmissionMySqlIntegrationTest {
     @Autowired SimpleMeterRegistry metrics;
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
-    static final List<String> TARGET_TABLES = List.of("attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
+    static final List<String> TARGET_TABLES = List.of("attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     SubmissionDataSource observer() { return (SubmissionDataSource) source; }
@@ -184,6 +190,7 @@ class AttemptSubmissionMySqlIntegrationTest {
 
 
     @BeforeEach void setup() {
+        ((AdjustableClock)context.getBean(Clock.class)).now=Instant.parse("2026-11-05T12:00:00Z");
         tx = new TransactionTemplate(manager); observer().reset();
         username = "acceptance-" + UUID.randomUUID().toString().substring(0, 12);
         ownerId = user(username, true);
@@ -210,9 +217,14 @@ class AttemptSubmissionMySqlIntegrationTest {
     record Fixture(UUID attempt, List<ParticipantForm.Item> items, long version) { }
 
     private Fixture fixture(boolean requireAll, int size, int answered) {
+        return fixture(requireAll,size,answered,new TimingPolicy(TimingMode.NONE));
+    }
+    private Fixture fixture(boolean requireAll, int size, int answered, TimingPolicy timing) {
         var revision = publish(0, IntStream.range(0, size).mapToObj(i -> draft(QuestionType.TRUE_FALSE)).toList());
         binding.bind(quizId, revision);
-        var started = starts.start(command(revision, AnswerOrder.AUTHORED, "start-" + UUID.randomUUID()));
+        var base=command(revision,AnswerOrder.AUTHORED,"start-"+UUID.randomUUID());
+        var started=starts.start(new AttemptStartService.Command(base.version(),base.quizId(),base.content(),base.publicationVersion(),base.key(),base.preset(),base.context(),base.legacyMode(),
+                base.answerOrder(),base.draftsEnabled(),base.navigation(),base.delivery(),base.selection(),base.attemptLimit(),timing));
         UUID attempt = started.attemptId();
         if (requireAll) {
             // The public minimal starter owns its fixed OFF preset. Build a separate captured ON
@@ -258,12 +270,13 @@ class AttemptSubmissionMySqlIntegrationTest {
     private AttemptSubmissionService.Command submit(Fixture f, String key) {
         return new AttemptSubmissionService.Command(f.attempt(), f.version(), true, CommandReceipt.Key.from(key));
     }
-    private AttemptSubmissionService recreated() {
+    private AttemptSubmissionService recreated() { return recreated(metrics); }
+    private AttemptSubmissionService recreated(io.micrometer.core.instrument.MeterRegistry meter) {
         return new AttemptSubmissionServiceImpl(context.getBean(AuthenticatedSubjectResolver.class), access,
                 context.getBean(AcceptedResponseRepository.class), lifecycle,
                 facts, finalizer, terminal, new CommandReceiptServiceImpl(
                         context.getBean(CommandReceiptRepository.class),
-                        manager, context.getBean(Clock.class), metrics), metrics);
+                        manager, context.getBean(Clock.class), metrics), meter, context.getBean(Clock.class));
     }
     private void reject(AttemptSubmissionService service, AttemptSubmissionService.Command c, String reason) {
         assertThatThrownBy(() -> service.submit(c)).isInstanceOfSatisfying(
@@ -476,7 +489,7 @@ class AttemptSubmissionMySqlIntegrationTest {
         var future = Clock.offset(context.getBean(Clock.class), Duration.ofDays(31));
         var receipts = new CommandReceiptServiceImpl(context.getBean(CommandReceiptRepository.class), manager, future, metrics);
         var later = new AttemptSubmissionServiceImpl(context.getBean(AuthenticatedSubjectResolver.class), access,
-                context.getBean(AcceptedResponseRepository.class), lifecycle, facts, finalizer, terminal, receipts, metrics);
+                context.getBean(AcceptedResponseRepository.class), lifecycle, facts, finalizer, terminal, receipts, metrics, context.getBean(Clock.class));
         reject(later, request, "EXPIRED");
         Integer purged = tx.execute(s -> receipts.purgeExpired(started.attemptId(), result.stateVersion(), 100));
         assertThat(purged).isEqualTo(7);
@@ -520,11 +533,15 @@ class AttemptSubmissionMySqlIntegrationTest {
 
     @Test void optionalMetricFailureDoesNotChangeCommittedSubmission() {
         var f = fixture(false, 10, 8);
-        metrics.counter("quizmaker.attempt.submission", "version", "1", "outcome", "submitted");
-        var result = submissions.submit(submit(f, "submit"));
-        assertThat(result.replayed()).isFalse(); assertThat(count("attempt_finalization_intent")).isEqualTo(1);
-        assertThat(submissions.submit(submit(f, "submit")).submissionId()).isEqualTo(result.submissionId());
-        metrics.remove(metrics.find("quizmaker.attempt.submission").tags("version", "1", "outcome", "submitted").counter());
+        // Isolate the fault from timers recorded by earlier successful tests.
+        var isolated = new SimpleMeterRegistry();
+        try {
+            isolated.counter("quizmaker.attempt.submission", "version", "1", "outcome", "submitted");
+            var service = recreated(isolated);
+            var result = service.submit(submit(f, "submit"));
+            assertThat(result.replayed()).isFalse(); assertThat(count("attempt_finalization_intent")).isEqualTo(1);
+            assertThat(service.submit(submit(f, "submit")).submissionId()).isEqualTo(result.submissionId());
+        } finally { isolated.close(); }
     }
 
     @Test void realHttpSubmissionReportsMissingItemsThenSucceedsThroughTheSameService() throws Exception {
@@ -767,6 +784,19 @@ class AttemptSubmissionMySqlIntegrationTest {
             return quizzes.saveAndFlush(quiz).getId();
         });
     }
+    @Test void timedSubmissionAtDeadlineCannotCreateTerminalFactsButEarlierSubmissionAndReplaySucceed() {
+        var fixture=fixture(false,2,1,new TimingPolicy(TimingMode.TOTAL_ATTEMPT,Duration.ofMinutes(30),null));
+        var clock=(AdjustableClock)context.getBean(Clock.class); Instant deadline=clock.now.plusSeconds(1800);
+        var command=new AttemptSubmissionService.Command(fixture.attempt(),fixture.version(),true,CommandReceipt.Key.from("timed-submit"));
+        clock.now=deadline;
+        assertThatThrownBy(() -> submissions.submit(command)).isInstanceOfSatisfying(AttemptSubmissionException.class,e -> assertThat(e.reason().name()).isEqualTo("INACTIVE"));
+        assertThat(count("attempt_submission")).isZero(); assertThat(count("attempt_accepted_response")).isEqualTo(1);
+        clock.now=deadline.minusNanos(1000); var success=submissions.submit(command);
+        assertThat(success.replayed()).isFalse(); assertThat(count("attempt_submission")).isEqualTo(1);
+        clock.now=deadline.plusSeconds(10); assertThat(submissions.submit(command).replayed()).isTrue();
+        assertThat(count("attempt_submission")).isEqualTo(1); assertThat(count("attempt_finalization_intent")).isEqualTo(1);
+    }
+
     private UUID prepared() {
         var revision = publish(0, FAMILIES.stream().map(this::draft).toList());
         binding.bind(quizId, revision);

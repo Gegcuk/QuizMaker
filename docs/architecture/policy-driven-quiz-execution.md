@@ -3924,6 +3924,55 @@ The server clock is authoritative.
 
 The client clock is display-only.
 
+### Implemented overall-timing foundation (#601)
+
+The internal authenticated starter accepts an explicit, server-authorized `TOTAL_ATTEMPT`
+configuration with a positive duration, an overall close, or both. Its existing owner/full-editor
+check supplies authority; participants cannot supply a timing override. The built-in default remains
+`NONE`, and legacy `TIMED` mapping and public start routing retain their existing behavior.
+Real assignment availability/binding remains #534; these internal overall-close inputs do not prove
+that integration or activate formal assessment.
+
+The canonical policy records exact integer seconds/nanoseconds and author provenance. Historical
+`{"mode":"NONE"}` canonical bytes/hashes and old start fingerprints remain unchanged. Timing inputs
+use MySQL-compatible microsecond precision; unsupported precision or unrepresentable deadlines
+are rejected rather than rounded or replaced with a default.
+
+V104 adds insert-only `attempt_timing` storage and the `(effective_deadline, attempt_id)` due index.
+The checkpoint binds the exact policy snapshot and lifecycle start, and saves duration-derived and
+overall terminal deadlines separately, their minimum, version 1 and zero grace. All writes share
+the start/receipt/allowance transaction. For example, 17:45 plus thirty minutes with an 18:00 close
+saves 18:15 as the duration deadline and 18:00 as the effective deadline. Author edits and restart
+do not move either value. Exact committed replay returns the original attempt without restarting
+its clock; a changed timing configuration under the same key conflicts.
+
+New command entries sample the injected `Clock` before receipt/lifecycle lock waits. The pure timing
+decision is open from the saved start up to, but excluding, the effective deadline. Acceptance,
+draft, navigation, active delivery and voluntary submission consume that decision; expired fresh
+operations return their existing inactive failure without writes. A committed identical command
+can still replay after the deadline. No client timestamp participates in this decision.
+
+The participant projection adds `TIMED` and the named optional `ParticipantAttemptTiming` field
+`timingDetails`: version, start, effective deadline, zero grace seconds, server time and an expired
+indicator. `UNTIMED` envelopes omit that field. Reads retain current access checks and `no-store`;
+source limits, snapshot IDs and operator facts are not disclosed. An expired indicator does not
+mean terminal processing has committed; it removes fresh actions while preserving the actual
+lifecycle evidence. Full/grouped OpenAPI share schema-valid examples and the existing attempts group.
+
+There is no historical backfill: a verified `NONE` snapshot with no checkpoint stays untimed.
+A timed snapshot with missing, corrupt, mismatched or unsupported checkpoint fails closed and
+never falls back to current settings or legacy execution. After timing writes, recovery is a
+forward fix retaining the additive table, not a destructive downgrade.
+The checkpoint belongs to the detailed-attempt data family and follows its existing scoped
+retention/erasure rules; this increment adds no cleanup job or new retention period.
+
+#702 owns due claims, expiry and restart recovery through the canonical terminal writer; #602
+owns pauses, #660 section clocks, and #668 the actual formal composition and activation.
+#601 does not auto-submit, finalize drafts, release results or turn on public timed starts.
+Regression fixtures cover exact boundaries, committed replay, reached-write rollback, response
+loss, concurrent starts, reader restart, author edits, negative access and bounded relationship
+queries through participant serialization with multiple parent quizzes.
+
 ### Timing modes
 
 ```text

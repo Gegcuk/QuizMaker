@@ -29,12 +29,13 @@ public class NavigationServiceImpl implements NavigationService {
     private final ExecutionTraceService trace;
     private final TransactionTemplate read;
     private final MeterRegistry metrics;
+    private final java.time.Clock clock;
 
     public NavigationServiceImpl(AuthenticatedSubjectResolver identity, AttemptAccessService access, AttemptReadFactsService facts,
             AttemptLifecycleService lifecycle, AcceptedResponseRepository answers, NavigationRepository navigation,
-            CommandReceiptService receipts, ExecutionTraceService trace, PlatformTransactionManager manager, MeterRegistry metrics) {
+            CommandReceiptService receipts, ExecutionTraceService trace, PlatformTransactionManager manager, MeterRegistry metrics, java.time.Clock clock) {
         this.identity = identity; this.access = access; this.facts = facts; this.lifecycle = lifecycle; this.answers = answers;
-        this.navigation = navigation; this.receipts = receipts; this.trace = trace; this.metrics = metrics;
+        this.navigation = navigation; this.receipts = receipts; this.trace = trace; this.metrics = metrics; this.clock = clock;
         this.read = new TransactionTemplate(manager); this.read.setReadOnly(true);
     }
 
@@ -48,6 +49,7 @@ public class NavigationServiceImpl implements NavigationService {
     private Result execute(Command c, boolean next) {
         String outcome = "unavailable";
         try {
+            var receivedAt = clock.instant();
             require(c != null && c.attemptId() != null && (next || c.formItemId() != null) && c.expectedStateVersion() >= 0
                     && c.key() != null && (c.expectedNavigationVersion() == null || c.expectedNavigationVersion() > 0), Reason.INVALID_INPUT);
             var subject = identity.resolve(c.attemptId());
@@ -69,7 +71,7 @@ public class NavigationServiceImpl implements NavigationService {
                     require(answers.lockOwnBinding(subject.userId(), c.attemptId()), Reason.NOT_FOUND);
                     lifecycle.lock(c.attemptId());
                     return access.requireAccess(c.attemptId(), AttemptAccessService.Operation.VIEW);
-                }), id -> call.checked(() -> move(c, id, next)));
+                }), id -> call.checked(() -> move(c, id, next, receivedAt)));
             } catch (ReceiptException failure) {
                 if (call.failure != null && (failure.reason() == ReceiptException.Reason.ACCESS_DENIED
                         || failure.reason() == ReceiptException.Reason.COMMAND_DENIED)) throw call.failure;
@@ -96,8 +98,8 @@ public class NavigationServiceImpl implements NavigationService {
         }
     }
 
-    private CommandReceipt.Acknowledgement move(Command c, UUID commandId, boolean next) {
-        var saved = facts.read(c.attemptId(), AttemptReadFactsService.Purpose.NAVIGATION);
+    private CommandReceipt.Acknowledgement move(Command c, UUID commandId, boolean next, java.time.Instant receivedAt) {
+        var saved = facts.read(c.attemptId(), AttemptReadFactsService.Purpose.NAVIGATION, receivedAt);
         ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
         require(saved.access().stateVersion() == c.expectedStateVersion(), Reason.STALE);
         require(!next || saved.oneAtATime(), Reason.UNSUPPORTED);

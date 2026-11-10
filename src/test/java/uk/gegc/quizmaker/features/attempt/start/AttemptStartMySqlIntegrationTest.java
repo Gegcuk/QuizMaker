@@ -111,7 +111,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStart
         PublishedQuestionContractServiceImpl.class, BaselineQuestionContractConfig.class,
         FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
-        AttemptStartServiceImpl.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
+        AttemptStartServiceImpl.class, uk.gegc.quizmaker.features.attempt.application.impl.AttemptTimingServiceImpl.class, uk.gegc.quizmaker.features.attempt.infra.repository.JdbcAttemptTimingRepository.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
         AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
         JdbcPolicySnapshotRepository.class, QuestionSelectionServiceImpl.class,
@@ -177,6 +177,7 @@ class AttemptStartMySqlIntegrationTest {
     @Autowired PlatformTransactionManager manager;
     @Autowired AttemptStartService starts;
     @Autowired AttemptAllowanceService allowance;
+    @Autowired AttemptTimingService timing;
     @Autowired AuthenticatedSubjectResolver identity;
     @Autowired QuizPracticeSourceService sources;
     @Autowired AttemptPresetService presets;
@@ -191,7 +192,7 @@ class AttemptStartMySqlIntegrationTest {
     static final ObjectMapper JSON = new ObjectMapper();
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
-    static final List<String> TARGET_TABLES = List.of("attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
+    static final List<String> TARGET_TABLES = List.of("attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     StartDataSource observer() { return (StartDataSource) source; }
@@ -841,10 +842,13 @@ class AttemptStartMySqlIntegrationTest {
         assertCoherent(randomStarts().start(command), 2);
     }
 
-    @ParameterizedTest @CsvSource({"0,ALL", "1213,ALL", "1205,ALL", "0,RANDOM_COUNT", "1213,RANDOM_COUNT", "1205,RANDOM_COUNT"})
-    void selectedSqlFailuresAreSanitizedBeforeTransactionLoggingAndKeepRollbackAndRetry(int code, SelectionMode mode) {
+    @ParameterizedTest @CsvSource({"0,ALL", "1213,ALL", "1205,ALL", "0,RANDOM_COUNT", "1213,RANDOM_COUNT", "1205,RANDOM_COUNT", "0,TIMED", "1213,TIMED", "1205,TIMED"})
+    void startSqlFailuresAreSanitizedBeforeTransactionLoggingAndKeepRollbackAndRetry(int code, String capability) {
+        boolean timed = capability.equals("TIMED");
+        var mode = timed ? SelectionMode.ALL : SelectionMode.valueOf(capability);
         var config = mode == SelectionMode.ALL ? Configuration.all() : Configuration.randomCount(2);
-        var command = selected(command(prepared(), AnswerOrder.AUTHORED, "selection-log-failure"), config);
+        var base = selected(command(prepared(), AnswerOrder.AUTHORED, "selection-log-failure"), config);
+        var command = timed ? timed(base, Duration.ofMinutes(30), null) : base;
         String marker = "selection-private-driver-marker";
         var reached = new AtomicBoolean();
         var logger = (Logger) LoggerFactory.getLogger(TransactionTemplate.class);
@@ -859,9 +863,9 @@ class AttemptStartMySqlIntegrationTest {
         captured.setContext(logger.getLoggerContext()); captured.start();
         logger.addAppender(captured); logger.setLevel(Level.DEBUG);
         observer().afterSql = (statement, connection) -> {
-            if (statement.stripLeading().startsWith("INSERT INTO attempt_form_selection") && reached.compareAndSet(false, true)) {
+            if (statement.stripLeading().startsWith(timed ? "INSERT INTO attempt_timing" : "INSERT INTO attempt_form_selection") && reached.compareAndSet(false, true)) {
                 // Same transaction: prove that the actual INSERT reached its write before failing.
-                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form_selection", Integer.class)).isEqualTo(1);
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM " + (timed ? "attempt_timing" : "attempt_form_selection"), Integer.class)).isEqualTo(1);
                 var failure = new SQLException(marker, code == 1213 ? "40001" : code == 1205 ? "HY000" : "08006", code);
                 failure.initCause(new IllegalArgumentException(marker + "-cause"));
                 failure.addSuppressed(new IllegalStateException(marker + "-suppressed"));
@@ -890,7 +894,7 @@ class AttemptStartMySqlIntegrationTest {
             }
             assertThat(throwableEvents).anySatisfy(event -> {
                 assertThat(event.getLevel()).isEqualTo(Level.DEBUG);
-                assertThat(event.getThrowableProxy().getMessage()).contains(code == 0
+                assertThat(event.getThrowableProxy().getMessage()).contains(timed ? "COMMAND_DENIED" : code == 0
                         ? "PERSISTENCE_UNAVAILABLE" : code == 1213 ? "DEADLOCK" : "LOCK_TIMEOUT");
             });
         } finally {
@@ -1381,6 +1385,101 @@ class AttemptStartMySqlIntegrationTest {
         } finally { pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
     }
 
+    @Test void timingFreezesTheEarlierDeadlineAndSurvivesRestartAndAuthorEdits() {
+        UUID revision = prepared();
+        var request = timed(command(revision, AnswerOrder.AUTHORED, "timed-replay"), Duration.ofMinutes(30), clock.instant().plusSeconds(900));
+        var result = starts.start(request);
+        var saved = timingRow(result.attemptId());
+        assertThat(saved.effectiveDeadline()).isEqualTo(clock.instant().plusSeconds(900));
+        assertThat(saved.durationDeadline()).isEqualTo(clock.instant().plusSeconds(1800));
+        assertThat(saved.startedAt()).isEqualTo(clock.instant());
+        tx.executeWithoutResult(status -> sql.update("UPDATE quizzes SET timer_duration_min=99 WHERE quiz_id=?", bytes(quizId)));
+        var replay = serviceWithClock(Clock.fixed(clock.instant().plusSeconds(3600), ZoneOffset.UTC)).start(request);
+        assertThat(replay.replayed()).isTrue(); assertThat(replay.attemptId()).isEqualTo(result.attemptId());
+        assertThat(timingRow(result.attemptId())).isEqualTo(saved);
+        assertThat(count("attempt_timing")).isEqualTo(1);
+        denied(() -> starts.start(timed(request,Duration.ofMinutes(31),request.timing().overallDeadline())), CONFLICT);
+        assertThat(timingRow(result.attemptId())).isEqualTo(saved);
+    }
+    @Test void timingMicrosecondsSurviveExactDatabaseRoundTrip() {
+        var duration=Duration.ofSeconds(1,123456000);
+        var result=starts.start(timed(command(prepared(),AnswerOrder.AUTHORED,"microsecond-timer"),duration,null));
+        var saved=timingRow(result.attemptId());
+        assertThat(saved.policy().duration()).isEqualTo(duration);
+        assertThat(saved.effectiveDeadline()).isEqualTo(clock.instant().plus(duration));
+        assertThat(timingRow(result.attemptId())).isEqualTo(saved);
+    }
+    @Test void elapsedOverallDeadlineRollsBackEveryStartWriteAndAllowance() {
+        UUID revision = prepared();
+        var request = timed(command(revision,AnswerOrder.AUTHORED,"closed-timing"),Duration.ofMinutes(30),clock.instant());
+        denied(() -> starts.start(request),ENTRY_CLOSED);
+        assertNoTargetRows();
+        var success = starts.start(timed(command(revision,AnswerOrder.AUTHORED,"open-timing"),Duration.ofMinutes(30),clock.instant().plusSeconds(1)));
+        assertThat(timingRow(success.attemptId()).effectiveDeadline()).isEqualTo(clock.instant().plusSeconds(1));
+        assertThat(count("attempt_start_binding")).isEqualTo(1);
+    }
+    @Test void reachedTimingInsertFailureLeavesNoPartialAttemptAndRetrySucceeds() {
+        UUID revision=prepared(); var request=timed(command(revision,AnswerOrder.AUTHORED,"timing-rollback"),Duration.ofMinutes(30),null);
+        var reached=new AtomicBoolean();
+        observer().afterSql=(statement,connection) -> {
+            if (statement.contains("INSERT INTO attempt_timing")) { reached.set(true); throw new java.sql.SQLException("Synthetic timing checkpoint failure","45000"); }
+        };
+        denied(() -> starts.start(request),PERSISTENCE_UNAVAILABLE);
+        assertThat(reached).isTrue(); observer().reset(); assertNoTargetRows();
+        var retried = restarted().start(request);
+        assertThat(retried.replayed()).isFalse(); assertThat(timingRow(retried.attemptId()).effectiveDeadline()).isEqualTo(clock.instant().plusSeconds(1800));
+    }
+    @Test void responseLossAfterTimedStartCommitReconcilesWithoutRestartingClock() {
+        UUID revision=prepared(); var request=timed(command(revision,AnswerOrder.AUTHORED,"timing-unknown"),Duration.ofMinutes(30),null);
+        var reached=new AtomicBoolean(); var written=new AtomicBoolean();
+        observer().afterSql=(statement,connection) -> { if(statement.contains("INSERT INTO attempt_timing")) written.set(true); };
+        observer().afterCommit=connection -> { if (written.get()) { reached.set(true); throw new java.sql.SQLException("Synthetic lost commit acknowledgement","08006"); } };
+        assertThatThrownBy(() -> starts.start(request)).isInstanceOf(AttemptStartException.class);
+        assertThat(reached).isTrue(); observer().reset(); assertThat(count("attempt_timing")).isEqualTo(1);
+        var result=serviceWithClock(Clock.fixed(clock.instant().plusSeconds(7200),ZoneOffset.UTC)).start(request);
+        assertThat(result.replayed()).isTrue(); assertThat(timingRow(result.attemptId()).effectiveDeadline()).isEqualTo(clock.instant().plusSeconds(1800));
+    }
+    @Test void concurrentIdenticalTimedStartsCaptureOneClockAndOneAllowance() throws Exception {
+        UUID revision=prepared(); var request=timed(command(revision,AnswerOrder.AUTHORED,"timing-race"),Duration.ofMinutes(30),null);
+        var gate=new CountDownLatch(1); var pool=Executors.newFixedThreadPool(2);
+        java.util.concurrent.Callable<AttemptStartService.Result> work=() -> {
+            authenticate(username);
+            try { assertThat(gate.await(10,TimeUnit.SECONDS)).isTrue(); return restarted().start(request); }
+            finally { SecurityContextHolder.clearContext(); }
+        };
+        try {
+            var one=pool.submit(work); var two=pool.submit(work); gate.countDown();
+            var first=one.get(30,TimeUnit.SECONDS); var second=two.get(30,TimeUnit.SECONDS);
+            assertThat(first.attemptId()).isEqualTo(second.attemptId());
+            assertThat(List.of(first.replayed(),second.replayed())).containsExactlyInAnyOrder(false,true);
+            assertThat(count("attempt_timing")).isEqualTo(1); assertThat(count("attempt_start_binding")).isEqualTo(1);
+            assertThat(timingRow(first.attemptId()).effectiveDeadline()).isEqualTo(clock.instant().plusSeconds(1800));
+        } finally { pool.shutdownNow(); assertThat(pool.awaitTermination(10,TimeUnit.SECONDS)).isTrue(); }
+    }
+    @Test void timingConstraintsRejectDuplicateForeignKeysAndGraceWithoutChangingTheCheckpoint() {
+        UUID revision=prepared(); var result=starts.start(timed(command(revision,AnswerOrder.AUTHORED,"timing-constraints"),Duration.ofMinutes(30),null));
+        var saved=timingRow(result.attemptId());
+        assertThatThrownBy(() -> tx.executeWithoutResult(s -> new JdbcAttemptTimingRepository(new NamedParameterJdbcTemplate(source)).insert(saved)))
+                .isInstanceOf(org.springframework.dao.DuplicateKeyException.class);
+        assertThatThrownBy(() -> tx.executeWithoutResult(s -> sql.update("UPDATE attempt_timing SET grace_seconds=1 WHERE attempt_id=?",bytes(result.attemptId()))))
+                .isInstanceOf(org.springframework.dao.DataAccessException.class).hasRootCauseInstanceOf(java.sql.SQLException.class);
+        assertThatThrownBy(() -> tx.executeWithoutResult(s -> sql.update("UPDATE attempt_timing SET policy_snapshot_id=? WHERE attempt_id=?",bytes(UUID.randomUUID()),bytes(result.attemptId()))))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThat(timingRow(result.attemptId())).isEqualTo(saved);
+        var plan=sql.queryForMap("EXPLAIN SELECT attempt_id FROM attempt_timing WHERE effective_deadline<=? ORDER BY effective_deadline,attempt_id LIMIT 10",java.sql.Timestamp.from(saved.effectiveDeadline()));
+        assertThat(plan.get("key")).isEqualTo("ix_attempt_timing_due");
+    }
+    private uk.gegc.quizmaker.features.attempt.domain.model.timing.AttemptTiming timingRow(UUID id) {
+        return tx.execute(status -> new JdbcAttemptTimingRepository(new NamedParameterJdbcTemplate(source)).read(id).orElseThrow());
+    }
+    private static AttemptStartService.Command timed(AttemptStartService.Command c, Duration duration, Instant close) {
+        return new AttemptStartService.Command(c.version(),c.quizId(),c.content(),c.publicationVersion(),c.key(),c.preset(),c.context(),
+                c.legacyMode(),c.answerOrder(),c.draftsEnabled(),c.navigation(),c.delivery(),c.selection(),c.attemptLimit(),new TimingPolicy(TimingMode.TOTAL_ATTEMPT,duration,close));
+    }
+
+    private static byte[] bytes(UUID id) {
+        return java.nio.ByteBuffer.allocate(16).putLong(id.getMostSignificantBits()).putLong(id.getLeastSignificantBits()).array();
+    }
     private void finish(UUID attemptId) {
         // Actual #528 terminal writer, not a fake eligibility history. Full submit is tested in #529's fixture.
         tx.executeWithoutResult(s -> {
@@ -1402,7 +1501,7 @@ class AttemptStartMySqlIntegrationTest {
     private AttemptStartService withGate(AttemptAllowanceService gate, Clock at) {
         return new AttemptStartServiceImpl(identity, sources, presets, policies, snapshots, contracts, selector, materializer, subjects, lifecycle, trace,
                 new CommandReceiptServiceImpl(new JdbcCommandReceiptRepository(new NamedParameterJdbcTemplate(source)), manager, at, metrics),
-                metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), gate);
+                metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), gate, timing);
     }
 
     private AttemptStartService randomStarts() {
@@ -1412,7 +1511,7 @@ class AttemptStartMySqlIntegrationTest {
     private AttemptStartService withSelector(QuestionSelectionService configured) {
         var receipt = new CommandReceiptServiceImpl(new JdbcCommandReceiptRepository(new NamedParameterJdbcTemplate(source)), manager, clock, metrics);
         return new AttemptStartServiceImpl(identity, sources, presets, policies, snapshots, contracts, configured, materializer,
-                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), allowance);
+                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), allowance, timing);
     }
     private static AttemptStartService.Command selected(AttemptStartService.Command c, Configuration selection) {
         return new AttemptStartService.Command(c.version(), c.quizId(), c.content(), c.publicationVersion(), c.key(), c.preset(),
@@ -1428,7 +1527,7 @@ class AttemptStartMySqlIntegrationTest {
     private AttemptStartService restarted() {
         var receipt = new CommandReceiptServiceImpl(new JdbcCommandReceiptRepository(new NamedParameterJdbcTemplate(source)), manager, clock, metrics);
         return new AttemptStartServiceImpl(identity, sources, presets, policies, snapshots, contracts, selector, materializer,
-                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), allowance);
+                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), allowance, timing);
     }
     private Object raced(AttemptStartService.Command command, int isolation) {
         authenticate(username);

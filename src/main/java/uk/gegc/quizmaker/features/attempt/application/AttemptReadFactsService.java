@@ -1,6 +1,9 @@
 package uk.gegc.quizmaker.features.attempt.application;
 
 import java.util.Map;
+import java.time.Instant;
+import uk.gegc.quizmaker.features.attempt.domain.model.timing.AttemptTiming;
+import uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException;
 import java.util.UUID;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.FixedForm;
 import uk.gegc.quizmaker.features.attempt.domain.model.ordering.FormOptionOrder;
@@ -15,9 +18,24 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
 public interface AttemptReadFactsService {
     enum Purpose { ACTIVE_DELIVERY, PARTICIPANT_VIEW, ACCEPT_RESPONSE, SUBMIT_ATTEMPT, DRAFT_COMMAND, NAVIGATION }
     Facts read(UUID attemptId, Purpose purpose);
+    /** Receipt time comes from the command's injected Clock before any database lock wait. */
+    default Facts read(UUID attemptId, Purpose purpose, Instant serverReceivedAt) {
+        var saved = read(attemptId, purpose);
+        if (saved.policy().timing().mode() != ResolvedAttemptPolicy.TimingMode.NONE) {
+            if (saved.timing() == null) throw new AttemptDeliveryException(AttemptDeliveryException.Reason.CORRUPT);
+            if (saved.timing().decide(serverReceivedAt) != AttemptTiming.Decision.OPEN)
+                throw new AttemptDeliveryException(AttemptDeliveryException.Reason.INACTIVE);
+        }
+        return saved;
+    }
 
     record Facts(AttemptAccessService.Access access, ResolvedAttemptPolicy policy, FixedForm form,
-                 FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts, String policyHash, uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Context navigation) {
+                 FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts, String policyHash, uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Context navigation, AttemptTiming timing) {
+        public Facts(AttemptAccessService.Access access, ResolvedAttemptPolicy policy, FixedForm form,
+                     FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts, String policyHash,
+                     uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Context navigation) {
+            this(access, policy, form, order, revision, contracts, policyHash, navigation, null);
+        }
         public Facts(AttemptAccessService.Access access, ResolvedAttemptPolicy policy, FixedForm form,
                      FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts, String policyHash) {
             this(access, policy, form, order, revision, contracts, policyHash,
