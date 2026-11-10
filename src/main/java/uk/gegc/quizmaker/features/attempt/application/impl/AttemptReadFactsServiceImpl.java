@@ -51,13 +51,14 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
             var owner = granted.contentOwnerId();
             var snapshot = snapshots.readCurrent(owner, granted.policySnapshotId());
             var policy = snapshot.resolution().policy();
-            var capturedTiming = timing.read(granted, snapshot);
             if (policy.schemaVersion() != 1 || policy.content().formMode() != FormMode.PRECOMPUTED
                     || policy.content().sections() != SectionMode.IMPLICIT_FLAT)
                 throw new AttemptDeliveryException(UNSUPPORTED);
             if (!policy.content().quizRevisionId().equals(granted.quizRevisionId())) throw new AttemptDeliveryException(CORRUPT);
             // Preserve #524's lock order and current reads, including all child rows in an older RR caller.
             contracts.declareScope(owner, Set.of(granted.quizRevisionId()));
+            // An absent timing row can gap-lock under RR: acquire question locks first, as start does.
+            var capturedTiming = timing.read(granted, snapshot);
             var form = forms.findByIdsForShare(owner, List.of(granted.formId()));
             var order = orders.findByIdsForShare(owner, List.of(granted.formId()));
             if (form.size() != 1 || order.size() != 1 || !order.get(0).policy().equals(policy.answerOrdering()))

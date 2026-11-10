@@ -95,6 +95,8 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         uk.gegc.quizmaker.features.result.infra.repository.JdbcAutomaticResultRepository.class,
         uk.gegc.quizmaker.features.result.infra.repository.JdbcResultReleaseRepository.class,
         SubmittedAttemptSourceImpl.class, JdbcSubmittedAttemptRepository.class,
+        AttemptSubmissionServiceImpl.class, AttemptTerminalSubmissionImpl.class,
+        AcceptedSubmissionResponseFinalizer.class, JdbcAttemptSubmissionRepository.class,
         ParticipantAttemptViewServiceImpl.class, JdbcAttemptViewRouteRepository.class, InitialParticipantViewDisclosureReader.class, InitialParticipantViewMediaReader.class, AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, uk.gegc.quizmaker.features.attempt.application.impl.AttemptTimingServiceImpl.class, uk.gegc.quizmaker.features.attempt.infra.repository.JdbcAttemptTimingRepository.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
         AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
@@ -162,11 +164,12 @@ class ParticipantAttemptViewMySqlIntegrationTest {
     @Autowired DataSource source;
     @Autowired PlatformTransactionManager manager;
     @Autowired AttemptStartService starts;
+    @Autowired AttemptSubmissionService submissions;
     @Autowired AttemptLifecycleService lifecycle;
     @Autowired SimpleMeterRegistry metrics;
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
-    static final List<String> TARGET_TABLES = List.of("attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
+    static final List<String> TARGET_TABLES = List.of("attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     DeliveryDataSource observer() { return (DeliveryDataSource) source; }
@@ -419,6 +422,115 @@ class ParticipantAttemptViewMySqlIntegrationTest {
             assertThat(observer().sqlErrorCodes).isEmpty();
         } finally { release.countDown(); pool.shutdownNow(); observer().reset(); }
         assertThat(targetSnapshot()).isEqualTo(before);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"2,false,false", "2,false,true", "2,true,false", "2,true,true",
+            "4,false,false", "4,false,true", "4,true,false", "4,true,true"})
+    void completedUntimedViewAndNewStartBothCommitWithoutTimingGapDeadlock(
+            int isolation, boolean readOnly, boolean timedStart) throws Exception {
+        UUID revision = prepared();
+        var previous = starts.start(command(revision, AnswerOrder.AUTHORED, "previous"));
+        var terminal = submissions.submit(new AttemptSubmissionService.Command(previous.attemptId(),
+                previous.stateVersion(), true, uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt.Key.from("finish-previous")));
+        var expected = view(previous.attemptId());
+        assertThat(expected.execution()).isEqualTo(AttemptLifecycle.Execution.SUBMITTED);
+        assertThat(expected.stateVersion()).isEqualTo(terminal.stateVersion());
+        assertThat(expected.timing()).isEqualTo(ParticipantAttemptView.Timing.UNTIMED);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_timing", Integer.class)).isZero();
+
+        var base = command(revision, AnswerOrder.AUTHORED, "new-start");
+        var request = timedStart ? timed(base) : base;
+        var writerHeldQuestions = new CountDownLatch(1);
+        var allowWriter = new CountDownLatch(1);
+        var readerIssuedQuestions = new CountDownLatch(1);
+        var writerThread = new AtomicReference<Thread>();
+        var readerThread = new AtomicReference<Thread>();
+        var writerConnection = new AtomicInteger();
+        var readerConnection = new AtomicInteger();
+        observer().reset();
+        observer().beforeSql = (statement, connection) -> {
+            if (Thread.currentThread() == writerThread.get()
+                    && statement.stripLeading().startsWith(timedStart ? "INSERT INTO attempt_timing" : "INSERT INTO attempt_trace_event")) {
+                // Hold the start at the timing boundary, after real form/lifecycle writes and question locks.
+                writerConnection.set(connection);
+                writerHeldQuestions.countDown();
+                await(allowWriter);
+            }
+            if (Thread.currentThread() == readerThread.get()
+                    && statement.contains("FROM question_revisions q")
+                    && (statement.contains("FOR SHARE") || statement.contains("FOR UPDATE"))) {
+                readerConnection.set(connection);
+                readerIssuedQuestions.countDown();
+            }
+        };
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<AttemptStartService.Result> writing = pool.submit(() -> {
+                writerThread.set(Thread.currentThread()); authenticate(username);
+                try { return starts.start(request); }
+                finally { SecurityContextHolder.clearContext(); }
+            });
+            assertThat(writerHeldQuestions.await(10, TimeUnit.SECONDS)).as("start holds real question locks").isTrue();
+            Future<ParticipantAttemptView> reading = pool.submit(() -> {
+                readerThread.set(Thread.currentThread()); authenticate(username);
+                var transaction = new TransactionTemplate(manager);
+                transaction.setIsolationLevel(isolation); transaction.setReadOnly(readOnly);
+                try {
+                    return transaction.execute(status -> {
+                        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class))
+                                .isEqualTo(isolation == TransactionDefinition.ISOLATION_REPEATABLE_READ ? "REPEATABLE-READ" : "READ-COMMITTED");
+                        assertThat(sql.queryForObject("SELECT @@transaction_read_only", Boolean.class)).isEqualTo(readOnly);
+                        return view(previous.attemptId());
+                    });
+                } finally { SecurityContextHolder.clearContext(); }
+            });
+            assertThat(readerIssuedQuestions.await(10, TimeUnit.SECONDS)).as("view reaches real question-lock SQL").isTrue();
+            awaitQuestionLockWait();
+            assertThat(reading.isDone()).as("view really waits for the start, not merely for a Java barrier").isFalse();
+            assertThat(readerConnection.get()).isNotEqualTo(writerConnection.get());
+            allowWriter.countDown();
+
+            var created = writing.get(20, TimeUnit.SECONDS);
+            try { assertThat(reading.get(20, TimeUnit.SECONDS)).isEqualTo(expected); }
+            catch (ExecutionException failure) {
+                throw new AssertionError("View/start failed: isolation=" + isolation + ", readOnly=" + readOnly
+                        + ", timedStart=" + timedStart + ", MySQL codes=" + observer().sqlErrorCodes, failure);
+            }
+            assertThat(created.attemptId()).isNotEqualTo(previous.attemptId());
+            assertThat(created.replayed()).isFalse();
+            assertThat(observer().sqlErrorCodes).isEmpty();
+            observer().reset();
+
+            // Fresh transactions prove both durable outcomes and exact replay, without retries hiding a deadlock.
+            var active = view(created.attemptId());
+            assertThat(active.execution()).isEqualTo(AttemptLifecycle.Execution.IN_PROGRESS);
+            assertThat(active.timing()).isEqualTo(timedStart ? ParticipantAttemptView.Timing.TIMED : ParticipantAttemptView.Timing.UNTIMED);
+            assertThat(view(previous.attemptId())).isEqualTo(expected);
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_lifecycle_state", Integer.class)).isEqualTo(2);
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_timing", Integer.class)).isEqualTo(timedStart ? 1 : 0);
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_submission", Integer.class)).isEqualTo(1);
+            var replay = starts.start(request);
+            assertThat(replay.replayed()).isTrue(); assertThat(replay.attemptId()).isEqualTo(created.attemptId());
+            System.out.println("Timing/read lock order: isolation=" + isolation + ", readOnly=" + readOnly
+                    + ", timedStart=" + timedStart + "; real question wait, both operations committed, no SQL errors");
+        } finally {
+            allowWriter.countDown(); pool.shutdownNow();
+            assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); observer().reset();
+        }
+    }
+
+    private void awaitQuestionLockWait() throws InterruptedException {
+        long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        do {
+            if (admin.queryForObject("""
+                    SELECT COUNT(*) FROM performance_schema.data_lock_waits w
+                    JOIN performance_schema.data_locks l ON l.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID
+                    WHERE l.OBJECT_SCHEMA=? AND l.OBJECT_NAME='question_revisions'
+                    """, Integer.class, SCHEMA) > 0) return;
+            Thread.sleep(10);
+        } while (System.nanoTime() < until);
+        throw new AssertionError("View never entered the expected MySQL question-revision lock wait");
     }
 
     @Test void authorityRemainsLockedThroughActualContentProjection() throws Exception {

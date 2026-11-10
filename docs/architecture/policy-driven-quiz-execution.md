@@ -3952,6 +3952,12 @@ draft, navigation, active delivery and voluntary submission consume that decisio
 operations return their existing inactive failure without writes. A committed identical command
 can still replay after the deadline. No client timestamp participates in this decision.
 
+Participant reads declare and lock question-revision scope before reading the timing checkpoint,
+matching the starter's lock order. A missing untimed checkpoint can acquire a gap lock under
+`REPEATABLE_READ`; reading it first would allow a cycle with a concurrent timed start. SQL-barrier
+fixtures prove actual question-lock waiting and two successful outcomes under `READ_COMMITTED`
+and `REPEATABLE_READ`, for read-only and ordinary reads, with timed and untimed new starts.
+
 The participant projection adds `TIMED` and the named optional `ParticipantAttemptTiming` field
 `timingDetails`: version, start, effective deadline, zero grace seconds, server time and an expired
 indicator. `UNTIMED` envelopes omit that field. Reads retain current access checks and `no-store`;
