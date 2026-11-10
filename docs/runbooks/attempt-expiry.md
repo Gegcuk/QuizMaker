@@ -73,6 +73,16 @@ evidence survive; SQL text, driver messages, original causes and suppressed diag
 Transaction annotations remain in place: catching a participating repository failure does not
 permit a caller to commit a rollback-only transaction.
 
+The application's JPA transaction manager also sanitizes commit/rollback failures before Spring's
+completion logging, including DEBUG/TRACE. It delegates persistence to `JpaTransactionManager`,
+retains Boot transaction customizers and preserves Spring's completion categories (including
+unexpected rollback, heuristic outcome, transaction-system and data-access failures) and bounded
+deadlock/lock-timeout evidence. Spring receives sanitized JPA completion failures throughout the
+application; no retry or rollback setting is changed. A lost response after a successful commit
+still requires reconciliation against the saved receipt, not a second terminal write.
+Bounded duplicate-key, foreign-key, not-null and check-constraint categories survive redaction so
+existing data-conflict responses remain useful without driver messages or constraint/object names.
+
 Disable the scheduler to pause dispatch. Do not roll back schema after terminal writes: retain
 V105 tables, receipts and the completion cause and use a forward fix. Destructive removal would
 break retained evidence and replay. No worker failure refunds an attempt or reopens a result.
@@ -82,8 +92,9 @@ break retained evidence and replay. No worker failure refunds an attempt or reop
 Run with JDK 17 and the repository's test MySQL configuration:
 
 ```bash
-./mvnw test -Dtest=SafeDataAccessTest,AttemptExpiryContractTest,AttemptExpirySchedulerTest,AttemptSubmissionMySqlIntegrationTest,AutomaticResultMySqlIntegrationTest
-./mvnw verify
+./mvnw test -Dtest=SafeJpaTransactionManagerTest,TransactionConfigTest,SafeDataAccessTest
+./mvnw test -Dtest=AttemptExpiryContractTest,AttemptExpirySchedulerTest,AttemptSubmissionMySqlIntegrationTest,AutomaticResultMySqlIntegrationTest
+./mvnw clean verify
 ```
 
 Tests use real publication, timing/start, acceptance, terminal persistence, system receipts and
@@ -91,6 +102,12 @@ result finalization. They cover deadline equality/delayed processing, require-al
 workers, rollback after reached writes, restart after commit-response loss, partial batches,
 query plans and measured multi-parent query bounds. External image storage is fail-on-use for
 text fixtures; no remote provider is called.
+
+Framework comparison tests run the ordinary and sanitizing managers against the same JPA-provider
+test double, comparing commit/rollback calls, completion callbacks, REQUIRED/REQUIRES_NEW and caught
+rollback-only behavior. Real MySQL tests use the sanitizing manager and capture transaction logs
+for failures before commit and lost responses after a successful commit, including private markers
+in causes and suppressed exceptions. The latter must replay the original command/submission IDs.
 
 Prepared editable plans or failed extension collaborators prove contract/orchestration only.
 #834 must prove actual editable conversion/proposal handling; #660/#711 own section due events

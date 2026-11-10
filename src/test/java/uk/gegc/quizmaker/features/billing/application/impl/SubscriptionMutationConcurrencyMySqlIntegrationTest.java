@@ -66,6 +66,7 @@ import static org.mockito.Mockito.when;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @TestPropertySource(properties = "spring.flyway.enabled=false")
 @Import({
+        uk.gegc.quizmaker.shared.config.TransactionConfig.class,
         SubscriptionMutationCoordinatorImpl.class,
         SubscriptionMutationServiceImpl.class,
         SubscriptionMutationConcurrencyMySqlIntegrationTest.ClockTestConfiguration.class
@@ -73,6 +74,9 @@ import static org.mockito.Mockito.when;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DisplayName("Subscription mutation concurrency with MySQL")
 class SubscriptionMutationConcurrencyMySqlIntegrationTest {
+
+    @Autowired
+    private org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     private static final String SUBSCRIPTION_ID = "sub_concurrency_owner";
     private static final String CUSTOMER_ID = "cus_concurrency_owner";
@@ -119,6 +123,7 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
 
     @BeforeEach
     void setUp() throws StripeException {
+        assertThat(transactionManager).isInstanceOf(uk.gegc.quizmaker.shared.transaction.SafeJpaTransactionManager.class);
         clearDatabase();
         userId = UUID.randomUUID();
         remoteState = new AtomicReference<>(new RemoteState("active", ORIGINAL_PRICE));

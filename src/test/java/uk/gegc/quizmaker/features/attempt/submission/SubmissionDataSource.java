@@ -34,16 +34,23 @@ final class SubmissionDataSource extends DelegatingDataSource {
                 (proxy, method, arguments) -> {
                     try {
                         if (method.getName().equals("commit") && failBeforeCommit.compareAndSet(true, false))
-                            throw new SQLException("private-commit-marker", "08006");
+                            throw commitFailure();
                         Object result = method.invoke(target, arguments);
                         if (method.getName().equals("commit") && failAfterCommit.compareAndSet(true, false))
-                            throw new SQLException("private-commit-marker", "08006");
+                            throw commitFailure();
                         if (method.getName().equals("prepareStatement") && arguments[0] instanceof String statement) {
                             return observe((PreparedStatement) result, statement, connectionId);
                         }
                         return result;
                     } catch (InvocationTargetException failure) { throw failure.getCause(); }
                 });
+    }
+
+    private static SQLException commitFailure() {
+        var failure=new SQLException("private-commit-marker", "08006");
+        failure.initCause(new IllegalStateException("private-commit-cause"));
+        failure.addSuppressed(new IllegalStateException("private-commit-suppressed"));
+        return failure;
     }
 
     private PreparedStatement observe(PreparedStatement target, String sql, int connectionId) {

@@ -93,7 +93,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
 @TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=none", "spring.flyway.enabled=true"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-@Import({AttemptExpiryServiceImpl.class, AttemptExpiryFactsServiceImpl.class, JdbcAttemptExpiryRepository.class,
+@Import({uk.gegc.quizmaker.shared.config.TransactionConfig.class, AttemptExpiryServiceImpl.class, AttemptExpiryFactsServiceImpl.class, JdbcAttemptExpiryRepository.class,
         SubmittedAttemptSourceImpl.class, JdbcSubmittedAttemptRepository.class,
         uk.gegc.quizmaker.features.result.application.impl.AutomaticResultServiceImpl.class,
         uk.gegc.quizmaker.features.result.infra.repository.JdbcAutomaticResultRepository.class,
@@ -921,16 +921,25 @@ class AttemptSubmissionMySqlIntegrationTest {
     }
     @ParameterizedTest @ValueSource(booleans={false,true})
     void expiryCommitResponseLossReconcilesRealDurableOutcome(boolean committed) {
+        assertThat(manager).isInstanceOf(uk.gegc.quizmaker.shared.transaction.SafeJpaTransactionManager.class);
         var f=timedFixture(false,2,1); expiryClock().now=effective(f.attempt()); var armed=new AtomicBoolean();
         observer().afterSql=(statement,connection)->{
             if(statement.stripLeading().startsWith("INSERT INTO attempt_expiry_receipt") && armed.compareAndSet(false,true)) {
                 if(committed) observer().failAfterCommit.set(true); else observer().failBeforeCommit.set(true);
             }
         };
-        assertThatThrownBy(()->expiry().expire(f.attempt())).isInstanceOf(AttemptExpiryService.Failure.class).hasNoCause();
-        observer().reset(); assertThat(armed).isTrue();
+        try(var logs=new TransactionLogs()) {
+            assertThatThrownBy(()->expiry().expire(f.attempt())).isInstanceOf(AttemptExpiryService.Failure.class)
+                    .hasMessage("UNAVAILABLE").hasNoCause();
+            assertThat(logs.rendered()).contains("Initiating transaction rollback after commit exception")
+                    .doesNotContain("private-commit-marker","private-commit-cause","private-commit-suppressed");
+        } finally { observer().reset(); }
+        assertThat(armed).isTrue();
         assertThat(count("attempt_expiry_receipt")).isEqualTo(committed?1:0);
-        assertThat(restartedExpiry().expire(f.attempt()).outcome()).isEqualTo(committed?AttemptExpiryService.Outcome.REPLAYED:AttemptExpiryService.Outcome.EXPIRED);
+        var stored=sql.queryForList("SELECT BIN_TO_UUID(command_id) command_id,BIN_TO_UUID(submission_id) submission_id FROM attempt_expiry_receipt");
+        var replay=restartedExpiry().expire(f.attempt());
+        assertThat(replay.outcome()).isEqualTo(committed?AttemptExpiryService.Outcome.REPLAYED:AttemptExpiryService.Outcome.EXPIRED);
+        if(committed) assertThat(sql.queryForList("SELECT BIN_TO_UUID(command_id) command_id,BIN_TO_UUID(submission_id) submission_id FROM attempt_expiry_receipt")).isEqualTo(stored);
         assertExpiry(f.attempt(),effective(f.attempt()),1,1);
     }
     @Test void expiryPartialBatchFailureDoesNotLoseSuccessfulRowsOrStarveFollowingPages() {
@@ -1087,7 +1096,8 @@ class AttemptSubmissionMySqlIntegrationTest {
         final Map<ch.qos.logback.classic.Logger,ch.qos.logback.classic.Level> levels=new HashMap<>();
         TransactionLogs() {
             events.start(); root.addAppender(events);
-            for(String name:List.of("org.springframework.transaction","org.springframework.orm.jpa.JpaTransactionManager")) {
+            for(String name:List.of("org.springframework.transaction","org.springframework.orm.jpa.JpaTransactionManager",
+                    "uk.gegc.quizmaker.shared.transaction.SafeJpaTransactionManager")) {
                 var logger=(ch.qos.logback.classic.Logger)org.slf4j.LoggerFactory.getLogger(name);
                 levels.put(logger,logger.getLevel()); logger.setLevel(ch.qos.logback.classic.Level.TRACE);
             }
