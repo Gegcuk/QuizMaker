@@ -26,18 +26,27 @@ public record ParticipantAttemptView(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) AttemptLifecycle.AnswerCollection answerCollection,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) Instant startedAt,
         @Schema(description = "Absent until collection is submitted. Does not establish grading or release.") Instant submittedAt,
-        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "This implemented baseline is untimed; it cannot supply a timer/deadline for a future timed capability.") Timing timing,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "UNTIMED preserves the original contract. TIMED has saved timingDetails; public timed activation requires separate conformance.") Timing timing,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "WITHHELD means no content disclosure proof is available; it is not a grading/result state. Items are absent when withheld.") ContentVisibility contentVisibility,
         @Schema(description = "Saved item/option order. Absent when content is withheld or review context was not requested.") List<Item> items,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Advisory server decisions; every command must reauthorize. The current read-only baseline reports VIEW_ATTEMPT.") List<AttemptCommands.Type> allowedActions,
         @Schema(description = "Absent until a matching release commits. Every nested category is independently authorized; include flags cannot grant access.")
         uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView result,
-        @Schema(description = "Saved sequential position; absent for FREE. Does not imply an answer or a change to finality.") NavigationPosition navigation
+        @Schema(description = "Saved sequential position; absent for FREE. Does not imply an answer or a change to finality.") NavigationPosition navigation,
+        @Schema(description = "Absent for UNTIMED; saved overall timing for TIMED. Additive web/iOS field; no client clock authority.") ParticipantAttemptTiming timingDetails
 ) implements AttemptDetailsResponse, AttemptReviewResponse {
     public enum Representation { POLICY_DRIVEN }
-    public enum Timing { UNTIMED }
+    public enum Timing { UNTIMED, TIMED }
     public ParticipantAttemptView {
         items = items == null ? null : List.copyOf(items); allowedActions = List.copyOf(allowedActions);
+    }
+    public ParticipantAttemptView(Representation representation, int schemaVersion, UUID attemptId, UUID quizId,
+            UUID quizRevisionId, UUID formId, long stateVersion, int policyVersion, AttemptLifecycle.Execution execution,
+            AttemptLifecycle.AnswerCollection answerCollection, Instant startedAt, Instant submittedAt, Timing timing,
+            ContentVisibility contentVisibility, List<Item> items, List<AttemptCommands.Type> allowedActions,
+            uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView result, NavigationPosition navigation) {
+        this(representation, schemaVersion, attemptId, quizId, quizRevisionId, formId, stateVersion, policyVersion, execution,
+                answerCollection, startedAt, submittedAt, timing, contentVisibility, items, allowedActions, result, navigation, null);
     }
     public ParticipantAttemptView(Representation representation, int schemaVersion, UUID attemptId, UUID quizId,
             UUID quizRevisionId, UUID formId, long stateVersion, int policyVersion, AttemptLifecycle.Execution execution,

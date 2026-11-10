@@ -91,7 +91,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
         ResponseAcceptanceServiceImpl.class, JdbcAcceptedResponseRepository.class,
-        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
+        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, uk.gegc.quizmaker.features.attempt.application.impl.AttemptTimingServiceImpl.class, uk.gegc.quizmaker.features.attempt.infra.repository.JdbcAttemptTimingRepository.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
         AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
         JdbcPolicySnapshotRepository.class, QuestionSelectionServiceImpl.class,
@@ -120,10 +120,16 @@ class ResponseAcceptanceMySqlIntegrationTest {
     }
     @AfterAll static void dropDatabase() { if (schemaCreated) admin.execute("DROP DATABASE " + SCHEMA); }
 
+    static class AdjustableClock extends Clock {
+        volatile Instant now=Instant.parse("2026-11-05T12:00:00Z");
+        @Override public ZoneId getZone() { return ZoneOffset.UTC; }
+        @Override public Clock withZone(ZoneId zone) { return Clock.fixed(now,zone); }
+        @Override public Instant instant() { return now; }
+    }
     @TestConfiguration(proxyBeanMethods = false)
     @EnableAspectJAutoProxy
     static class Config {
-        @Bean Clock clock() { return Clock.fixed(Instant.parse("2026-11-05T12:00:00Z"), ZoneOffset.UTC); }
+        @Bean Clock clock() { return new AdjustableClock(); }
         @Bean SimpleMeterRegistry metrics() { return new SimpleMeterRegistry(); }
         @Bean MediaStorageProperties mediaProperties() { return new MediaStorageProperties(); }
         @Bean SavedImageStorage storage() {
@@ -160,7 +166,7 @@ class ResponseAcceptanceMySqlIntegrationTest {
     @Autowired SimpleMeterRegistry metrics;
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
-    static final List<String> TARGET_TABLES = List.of("attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
+    static final List<String> TARGET_TABLES = List.of("attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     AcceptanceDataSource observer() { return (AcceptanceDataSource) source; }
@@ -170,6 +176,7 @@ class ResponseAcceptanceMySqlIntegrationTest {
 
 
     @BeforeEach void setup() {
+        ((AdjustableClock)context.getBean(Clock.class)).now=Instant.parse("2026-11-05T12:00:00Z");
         tx = new TransactionTemplate(manager); observer().reset();
         username = "acceptance-" + UUID.randomUUID().toString().substring(0, 12);
         ownerId = user(username, true);
@@ -725,6 +732,35 @@ class ResponseAcceptanceMySqlIntegrationTest {
             return quizzes.saveAndFlush(quiz).getId();
         });
     }
+    @Test void timedAcceptanceRejectsAtDeadlineWithoutWritesAndAcceptsBeforeIt() {
+        UUID revision=prepared(); var started=starts.start(timed(command(revision,AnswerOrder.AUTHORED,"timed-response")));
+        var item=delivery.read(started.attemptId()).form().items().get(0);
+        Instant deadline=Instant.parse("2026-11-05T12:30:00Z"); var clock=(AdjustableClock)context.getBean(Clock.class);
+        var request=answer(started.attemptId(),item,1,"timed-answer");
+        clock.now=deadline; rejected(request,"INACTIVE"); assertThat(count("attempt_accepted_response")).isZero();
+        clock.now=deadline.minusNanos(1000); var accepted=responses.accept(request);
+        assertThat(accepted.replayed()).isFalse(); assertThat(count("attempt_accepted_response")).isEqualTo(1);
+        clock.now=deadline.plusSeconds(60); assertThat(responses.accept(request).replayed()).isTrue();
+        assertThat(count("attempt_accepted_response")).isEqualTo(1);
+    }
+    @Test void timelyReceiptStillSucceedsWhenRealLockProcessingCrossesTheDeadline() {
+        UUID revision=prepared(); var started=starts.start(timed(command(revision,AnswerOrder.AUTHORED,"timed-lock")));
+        var item=delivery.read(started.attemptId()).form().items().get(0);
+        var clock=(AdjustableClock)context.getBean(Clock.class); Instant deadline=clock.now.plusSeconds(1800);
+        clock.now=deadline.minusSeconds(1); var reached=new AtomicBoolean();
+        observer().beforeSql=(statement,connection) -> {
+            if (statement.contains("FROM attempt_lifecycle_state") && statement.contains("FOR UPDATE")) {
+                reached.set(true); clock.now=deadline.plusSeconds(1);
+            }
+        };
+        var result=responses.accept(answer(started.attemptId(),item,1,"receipt-before-deadline"));
+        assertThat(reached).isTrue(); assertThat(result.replayed()).isFalse(); assertThat(count("attempt_accepted_response")).isEqualTo(1);
+    }
+    private static AttemptStartService.Command timed(AttemptStartService.Command c) {
+        return new AttemptStartService.Command(c.version(),c.quizId(),c.content(),c.publicationVersion(),c.key(),c.preset(),c.context(),c.legacyMode(),
+                c.answerOrder(),c.draftsEnabled(),c.navigation(),c.delivery(),c.selection(),c.attemptLimit(),new TimingPolicy(TimingMode.TOTAL_ATTEMPT,Duration.ofMinutes(30),null));
+    }
+
     private UUID prepared() {
         var revision = publish(0, FAMILIES.stream().map(this::draft).toList());
         binding.bind(quizId, revision);

@@ -28,6 +28,11 @@ final class AttemptReadFailures {
                 case UNAVAILABLE -> UNAVAILABLE;
                 default -> NOT_FOUND;
             });
+        if (failure instanceof uk.gegc.quizmaker.features.attempt.domain.model.timing.AttemptTimingException timed)
+            return new AttemptDeliveryException(switch (timed.reason()) {
+                case UNAVAILABLE -> UNAVAILABLE; case UNSUPPORTED -> UNSUPPORTED; case CLOSED -> INACTIVE;
+                default -> CORRUPT;
+            });
         if (failure instanceof PolicySnapshotException snapshot) return new AttemptDeliveryException(switch (snapshot.reason()) {
             case PERSISTENCE_UNAVAILABLE -> UNAVAILABLE;
             case UNSUPPORTED_VERSION, UNSUPPORTED_HASH_ALGORITHM -> UNSUPPORTED;

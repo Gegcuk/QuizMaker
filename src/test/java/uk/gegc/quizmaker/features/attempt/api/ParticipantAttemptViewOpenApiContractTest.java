@@ -83,6 +83,26 @@ class ParticipantAttemptViewOpenApiContractTest {
         verifyNoInteractions(legacy);
     }
 
+    @Test @WithMockUser void timedViewHasNamedSafeSchemaAndSchemaValidExampleInFullAndGroupedSpecs() throws Exception {
+        var base=fixture(); var deadline=base.startedAt().plusSeconds(1800);
+        var timer=new ParticipantAttemptTiming(1,base.startedAt(),deadline,0,base.startedAt(),false);
+        var timed=new ParticipantAttemptView(base.representation(),base.schemaVersion(),base.attemptId(),base.quizId(),base.quizRevisionId(),base.formId(),
+                base.stateVersion(),base.policyVersion(),base.execution(),base.answerCollection(),base.startedAt(),base.submittedAt(),ParticipantAttemptView.Timing.TIMED,
+                base.contentVisibility(),base.items(),base.allowedActions(),base.result(),base.navigation(),timer);
+        when(views.read(base.attemptId())).thenReturn(timed);
+        String body=mvc.perform(get(PATH,base.attemptId())).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(json.readValue(body,ParticipantAttemptView.class)).isEqualTo(timed);
+        assertThat(json.readTree(body).path("timingDetails").path("effectiveDeadline").asText()).isEqualTo(deadline.toString());
+        for(String path:List.of("/v3/api-docs","/v3/api-docs/attempts")) {
+            var spec=json.readTree(mvc.perform(get(path)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            var schemas=spec.path("components").path("schemas");
+            assertThat(schemas.path("ParticipantAttemptView").at("/properties/timingDetails/$ref").asText()).isEqualTo("#/components/schemas/ParticipantAttemptTiming");
+            assertThat(schemas.path("ParticipantAttemptTiming").path("properties").fieldNames()).toIterable()
+                    .containsExactlyInAnyOrder("version","startedAt","effectiveDeadline","graceSeconds","serverTime","expired");
+            assertThat(matchesFormSchema(spec,schemas.path("AttemptDetailsResponse"),json.readTree(body),0)).isTrue();
+        }
+    }
+
     @Test @WithMockUser void legacyIsExplicitlyTheUnchangedLegacyShapeWithoutTargetFields() throws Exception {
         var old = new AttemptDetailsDto(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), java.time.Instant.parse("2026-11-06T12:00:00Z"),
                 null, uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus.IN_PROGRESS,
@@ -125,7 +145,7 @@ class ParticipantAttemptViewOpenApiContractTest {
                 assertThat(op.path("responses").path(code).findValuesAsText("$ref")).contains("#/components/schemas/ProblemDetail");
             for (String name : List.of("ParticipantAttemptView", "ParticipantAttemptItem", "ParticipantAttemptImage", "AttemptFormContent",
                     "AttemptFormChoices", "AttemptFormTrueFalse", "AttemptFormFillGap", "AttemptFormOrdering")) assertThat(schemas.has(name)).as(name).isTrue();
-            var examples = op.at("/responses/200/content/application~1json/examples"); assertThat(examples).hasSize(3);
+            var examples = op.at("/responses/200/content/application~1json/examples"); assertThat(examples).hasSize(4);
             for (var example : examples) assertThat(matchesFormSchema(spec, schemas.path("AttemptDetailsResponse"), example.path("value"), 0)).as("Example %s", example).isTrue();
             var value = json.valueToTree(fixture());
             assertThat(matchesFormSchema(spec, schemas.path("AttemptDetailsResponse"), value, 0)).isTrue();

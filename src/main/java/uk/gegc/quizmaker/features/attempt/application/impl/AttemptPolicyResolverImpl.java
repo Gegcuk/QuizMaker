@@ -73,6 +73,7 @@ public final class AttemptPolicyResolverImpl implements AttemptPolicyResolver {
         var delivery = base.delivery();
         var selection = base.questionSelection();
         var attempts = base.attempts();
+        var timing = base.timing();
         var provenance = new HashMap<String, ValueSource>();
         // Explicit precedence, independent of input collection order. Safety/structural facts
         // cannot be overridden because Choice has no representation for those fields.
@@ -118,6 +119,16 @@ public final class AttemptPolicyResolverImpl implements AttemptPolicyResolver {
                     if (!attempts.cooldown().isZero()) {
                         provenance.put("attempts.cooldownSeconds", origin); provenance.put("attempts.cooldownNanos", origin);
                     }
+                } else if (choice instanceof TimingChoice selected) {
+                    check(sourceType == OverrideSource.AUTHOR && source.allowed().timing().contains(selected.value()), FORBIDDEN_OVERRIDE);
+                    timing = selected.value();
+                    provenance.put("timing.mode", origin);
+                    if (timing.duration() != null) {
+                        provenance.put("timing.durationSeconds", origin); provenance.put("timing.durationNanos", origin);
+                    }
+                    if (timing.overallDeadline() != null) {
+                        provenance.put("timing.overallDeadlineSeconds", origin); provenance.put("timing.overallDeadlineNanos", origin);
+                    }
                 } else if (choice instanceof DraftsChoice draft) {
                     check(sourceType == OverrideSource.AUTHOR && source.allowed().drafts().contains(draft.enabled()), FORBIDDEN_OVERRIDE);
                     submission = new SubmissionPolicy(draft.enabled(), false, submission.requireAllAnswers(),
@@ -130,7 +141,7 @@ public final class AttemptPolicyResolverImpl implements AttemptPolicyResolver {
         // Re-enter the existing aggregate validator after composition; no parallel rule set.
         var effective = new ResolvedAttemptPolicy(base.schemaVersion(), base.content(), selection,
                 base.questionOrdering(), answerOrder, delivery, navigation, submission,
-                base.answerChange(), base.disclosure(), hints, base.timing(), base.pause(), attempts,
+                base.answerChange(), base.disclosure(), hints, timing, base.pause(), attempts,
                 base.access(), base.grading(), base.review(), base.results(), base.accessibility(), base.integrity());
         return format.encode(request.preset(), effective, provenance);
     }

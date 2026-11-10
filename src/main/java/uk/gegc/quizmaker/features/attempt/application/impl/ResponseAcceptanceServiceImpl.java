@@ -40,6 +40,7 @@ public class ResponseAcceptanceServiceImpl implements ResponseAcceptanceService 
     @Override public Result accept(Command c) {
         Timer.Sample timer = Timer.start(); String outcome = "unavailable";
         try {
+            var receivedAt = clock.instant();
             require(c != null && c.attemptId() != null && c.formItemId() != null && c.expectedStateVersion() >= 0
                     && c.key() != null, INVALID_INPUT);
             var subject = identity.resolve(c.attemptId());
@@ -62,7 +63,7 @@ public class ResponseAcceptanceServiceImpl implements ResponseAcceptanceService 
                     // Serialize before shared access/content reads; no shared-to-exclusive upgrade race.
                     lifecycle.lock(c.attemptId());
                     return access.requireAccess(c.attemptId(), AttemptAccessService.Operation.ANSWER);
-                }), id -> call.checked(() -> acceptFresh(c, stable, id)));
+                }), id -> call.checked(() -> acceptFresh(c, stable, id, receivedAt)));
             } catch (ReceiptException failure) {
                 if (call.failure != null && (failure.reason() == ReceiptException.Reason.ACCESS_DENIED
                         || failure.reason() == ReceiptException.Reason.COMMAND_DENIED)) throw call.failure;
@@ -79,8 +80,8 @@ public class ResponseAcceptanceServiceImpl implements ResponseAcceptanceService 
         }
     }
 
-    private CommandReceipt.Acknowledgement acceptFresh(Command c, ObjectNode stable, UUID commandId) {
-        var saved = facts.read(c.attemptId(), AttemptReadFactsService.Purpose.ACCEPT_RESPONSE);
+    private CommandReceipt.Acknowledgement acceptFresh(Command c, ObjectNode stable, UUID commandId, java.time.Instant receivedAt) {
+        var saved = facts.read(c.attemptId(), AttemptReadFactsService.Purpose.ACCEPT_RESPONSE, receivedAt);
         // ALL_AT_ONCE exposes this complete fixed form; no per-item delivery cursor is invented.
         ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
         var item = saved.form().items().stream().filter(i -> i.id().equals(c.formItemId())).findFirst()

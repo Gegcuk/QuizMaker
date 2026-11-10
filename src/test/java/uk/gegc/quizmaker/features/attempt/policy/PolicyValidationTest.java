@@ -46,7 +46,7 @@ class PolicyValidationTest {
     void deferredModesAndInvalidParserArgumentsFailClosed() {
         rejected(() -> ResolvedAttemptPolicy.parseValue(SelectionMode.class, "STRATIFIED"), UNKNOWN_VALUE);
         rejected(() -> ResolvedAttemptPolicy.parseValue(DeliveryMode.class, "NOT_IMPLEMENTED"), UNKNOWN_VALUE);
-        rejected(() -> ResolvedAttemptPolicy.parseValue(TimingMode.class, "TOTAL_ATTEMPT"), UNKNOWN_VALUE);
+        rejected(() -> ResolvedAttemptPolicy.parseValue(TimingMode.class, "PER_SECTION"), UNKNOWN_VALUE);
         rejected(() -> ResolvedAttemptPolicy.parseValue(ParticipantMode.class, "GUEST"), UNKNOWN_VALUE);
         rejected(() -> ResolvedAttemptPolicy.parseValue(GradingMode.class, "PARTIAL_CREDIT"), UNKNOWN_VALUE);
         rejected(() -> ResolvedAttemptPolicy.parseValue(AnswerOrder.class, null), INVALID_VALUE);
@@ -181,6 +181,7 @@ class PolicyValidationTest {
             for (int index = 0; index < components.length; index++) {
                 // Only the historical FREE representation omits navigation rules.
                 if (!components[index].getType().isPrimitive()
+                        && !(record instanceof TimingPolicy && Set.of("duration", "overallDeadline").contains(components[index].getName()))
                         && !(record instanceof NavigationPolicy && components[index].getName().equals("rules"))
                         && !(record instanceof AttemptLimitPolicy && components[index].getName().equals("maximumAttempts"))
                         && !(record instanceof SelectionPolicy && Set.of("count", "percentageBasisPoints").contains(components[index].getName()))) {

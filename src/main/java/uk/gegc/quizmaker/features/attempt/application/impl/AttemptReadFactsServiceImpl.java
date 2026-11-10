@@ -31,12 +31,13 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
     private final QuestionRevisionContractService contracts;
     private final NavigationRepository navigation;
     private final AcceptedResponseRepository answers;
+    private final AttemptTimingService timing;
 
     public AttemptReadFactsServiceImpl(AttemptAccessService access, PolicySnapshotService snapshots,
             FixedFormRepository forms, FormOptionOrderRepository orders, QuizRevisionRepository revisions,
-            QuestionRevisionContractService contracts, NavigationRepository navigation, AcceptedResponseRepository answers) {
+            QuestionRevisionContractService contracts, NavigationRepository navigation, AcceptedResponseRepository answers, AttemptTimingService timing) {
         this.access = access; this.snapshots = snapshots; this.forms = forms; this.orders = orders;
-        this.revisions = revisions; this.contracts = contracts; this.navigation = navigation; this.answers = answers;
+        this.revisions = revisions; this.contracts = contracts; this.navigation = navigation; this.answers = answers; this.timing = timing;
     }
 
     @Override public Facts read(UUID attemptId, Purpose purpose) {
@@ -56,6 +57,8 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
             if (!policy.content().quizRevisionId().equals(granted.quizRevisionId())) throw new AttemptDeliveryException(CORRUPT);
             // Preserve #524's lock order and current reads, including all child rows in an older RR caller.
             contracts.declareScope(owner, Set.of(granted.quizRevisionId()));
+            // An absent timing row can gap-lock under RR: acquire question locks first, as start does.
+            var capturedTiming = timing.read(granted, snapshot);
             var form = forms.findByIdsForShare(owner, List.of(granted.formId()));
             var order = orders.findByIdsForShare(owner, List.of(granted.formId()));
             if (form.size() != 1 || order.size() != 1 || !order.get(0).policy().equals(policy.answerOrdering()))
@@ -78,7 +81,7 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
                     ? navigation.read(attemptId).orElseThrow(() -> new AttemptDeliveryException(CORRUPT)) : null;
             var nav = new FlatNavigation.Context(policy.navigation(), form.get(0).id(),
                     form.get(0).items().stream().map(uk.gegc.quizmaker.features.attempt.domain.model.form.FixedForm.Item::id).toList(), accepted, cursor);
-            return new Facts(granted, policy, form.get(0), order.get(0), revision, resolved, snapshot.resolution().hash(), nav);
+            return new Facts(granted, policy, form.get(0), order.get(0), revision, resolved, snapshot.resolution().hash(), nav, capturedTiming);
         } catch (RuntimeException failure) {
             // Preserve the sanitized conflict until the caller chooses its command/read error contract.
             var conflict = DatabaseConflictException.from(failure);

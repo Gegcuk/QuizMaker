@@ -31,17 +31,19 @@ public class AttemptSubmissionServiceImpl implements AttemptSubmissionService {
     private final AttemptTerminalSubmission terminal;
     private final CommandReceiptService receipts;
     private final MeterRegistry metrics;
+    private final java.time.Clock clock;
     public AttemptSubmissionServiceImpl(AuthenticatedSubjectResolver identity, AttemptAccessService access,
             AcceptedResponseRepository answers, AttemptLifecycleService lifecycle, AttemptReadFactsService facts,
-            SubmissionResponseFinalizer finalizer, AttemptTerminalSubmission terminal, CommandReceiptService receipts, MeterRegistry metrics) {
+            SubmissionResponseFinalizer finalizer, AttemptTerminalSubmission terminal, CommandReceiptService receipts, MeterRegistry metrics, java.time.Clock clock) {
         this.identity = identity; this.access = access; this.answers = answers; this.lifecycle = lifecycle;
-        this.facts = facts; this.finalizer = finalizer; this.terminal = terminal; this.receipts = receipts; this.metrics = metrics;
+        this.facts = facts; this.finalizer = finalizer; this.terminal = terminal; this.receipts = receipts; this.metrics = metrics; this.clock = clock;
     }
     @Override public Result submit(Command command) {
         Timer.Sample sample = null;
         try { sample = Timer.start(metrics); } catch (RuntimeException ignored) { /* optional telemetry */ }
         String outcome = "unavailable";
         try {
+            var receivedAt = clock.instant();
             require(command != null && command.attemptId() != null && command.expectedStateVersion() >= 0 && command.key() != null, INVALID_INPUT);
             var subject = identity.resolve(command.attemptId());
             var request = new CommandReceipt.Request(1, subject.userId(), command.attemptId(), AttemptCommands.Type.SUBMIT_ATTEMPT,
@@ -61,7 +63,7 @@ public class AttemptSubmissionServiceImpl implements AttemptSubmissionService {
                     require(answers.lockOwnBinding(subject.userId(), command.attemptId()), NOT_FOUND);
                     lifecycle.lock(command.attemptId());
                     return access.requireAccess(command.attemptId(), AttemptAccessService.Operation.ANSWER);
-                }), id -> call.checked(() -> submitFresh(command, id)));
+                }), id -> call.checked(() -> submitFresh(command, id, receivedAt)));
             } catch (ReceiptException rejected) {
                 if (call.failure != null && (rejected.reason() == ReceiptException.Reason.ACCESS_DENIED
                         || rejected.reason() == ReceiptException.Reason.COMMAND_DENIED)) throw call.failure;
@@ -78,8 +80,8 @@ public class AttemptSubmissionServiceImpl implements AttemptSubmissionService {
             catch (RuntimeException ignored) { /* telemetry cannot alter the transaction outcome */ }
         }
     }
-    private CommandReceipt.Acknowledgement submitFresh(Command command, java.util.UUID id) {
-        var saved = facts.read(command.attemptId(), AttemptReadFactsService.Purpose.SUBMIT_ATTEMPT);
+    private CommandReceipt.Acknowledgement submitFresh(Command command, java.util.UUID id, java.time.Instant receivedAt) {
+        var saved = facts.read(command.attemptId(), AttemptReadFactsService.Purpose.SUBMIT_ATTEMPT, receivedAt);
         ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
         var completion = finalizer.prepare(saved, command.completionConfirmed());
         var current = saved.access().lifecycle();

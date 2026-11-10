@@ -41,6 +41,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.preset.LegacyPract
 @Service
 public class AttemptStartServiceImpl implements AttemptStartService {
     private final AttemptAllowanceService allowance;
+    private final AttemptTimingService timing;
     private final AuthenticatedSubjectResolver identity;
     private final QuizPracticeSourceService sources;
     private final AttemptPresetService presets;
@@ -62,8 +63,8 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                                    QuestionSelectionService selection, FixedFormMaterializer forms,
                                    AttemptSubjectService subjects, AttemptLifecycleService lifecycle,
                                    ExecutionTraceService trace, CommandReceiptService receipts, MeterRegistry metrics,
-                                   uk.gegc.quizmaker.features.attempt.domain.repository.NavigationRepository navigation, AttemptAllowanceService allowance) {
-        this.allowance = allowance;
+                                   uk.gegc.quizmaker.features.attempt.domain.repository.NavigationRepository navigation, AttemptAllowanceService allowance, AttemptTimingService timing) {
+        this.allowance = allowance; this.timing = timing;
         this.identity = identity; this.sources = sources; this.presets = presets; this.policies = policies;
         this.snapshots = snapshots; this.contracts = contracts; this.selection = selection; this.forms = forms;
         this.subjects = subjects; this.lifecycle = lifecycle; this.trace = trace; this.receipts = receipts; this.metrics = metrics; this.navigation = navigation;
@@ -148,12 +149,15 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         if (configuredSelection) authorChoices.add(new SelectionChoice(SelectionPolicy.from(command.selection())));
         boolean configuredLimit = !command.attemptLimit().equals(new AttemptLimitPolicy(AttemptLimitMode.UNLIMITED));
         if (configuredLimit) authorChoices.add(new AttemptLimitChoice(command.attemptLimit()));
+        boolean configuredTiming = command.timing().mode() != TimingMode.NONE;
+        if (configuredTiming) authorChoices.add(new TimingChoice(command.timing()));
         if (!authorChoices.isEmpty()) overrides.add(new SourceOverrides(OverrideSource.AUTHOR, 1,
                 new AllowedChoices(Set.of(), Set.of(), command.draftsEnabled() ? Set.of(true) : Set.of(),
                         configuredNavigation ? Set.of(command.navigation()) : Set.of(),
                         configuredDelivery ? Set.of(command.delivery()) : Set.of(),
                         configuredSelection ? Set.of(SelectionPolicy.from(command.selection())) : Set.of(),
-                        configuredLimit ? Set.of(command.attemptLimit()) : Set.of()), authorChoices));
+                        configuredLimit ? Set.of(command.attemptLimit()) : Set.of(),
+                        configuredTiming ? Set.of(command.timing()) : Set.of()), authorChoices));
         var allowanceScope = new RetakeEligibility.Scope(
                 subject.userId(), RetakeEligibility.ContextKind.PUBLICATION,
                 revision.id(), command.publicationVersion());
@@ -186,6 +190,7 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         var transition = AttemptLifecycle.evaluate(initial.state(), AttemptLifecycle.Event.START, AttemptLifecycle.Context.fresh());
         require(transition instanceof AttemptLifecycle.Advance, UNSUPPORTED_CAPABILITY);
         var started = lifecycle.save(subject.attemptId(), 0, ((AttemptLifecycle.Advance) transition).state());
+        timing.capture(snapshot, started);
         if (policy.navigation().mode() == NavigationMode.SEQUENTIAL) {
             require(!form.items().isEmpty(), UNSUPPORTED_CAPABILITY);
             navigation.initialize(subject.attemptId(), new uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Cursor(
@@ -209,7 +214,7 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         require(c.version() == 1, UNSUPPORTED_VERSION);
         require(c.quizId() != null && c.content() != null && c.publicationVersion() > 0 && c.key() != null
                 && c.preset() != null && c.context() != null && c.legacyMode() != null && c.legacyMode().length() <= 32
-                && c.answerOrder() != null && c.navigation() != null && c.delivery() != null && c.selection() != null && c.attemptLimit() != null, INVALID_INPUT);
+                && c.answerOrder() != null && c.navigation() != null && c.delivery() != null && c.selection() != null && c.attemptLimit() != null && c.timing() != null, INVALID_INPUT);
     }
 
     private static CommandReceipt.Fingerprint fingerprint(Command c) {
@@ -243,6 +248,8 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                     .put("cooldownSeconds", c.attemptLimit().cooldown().getSeconds()).put("cooldownNanos", c.attemptLimit().cooldown().getNano());
             if (c.attemptLimit().maximumAttempts() != null) limits.put("maximumAttempts", c.attemptLimit().maximumAttempts());
         }
+        if (c.timing().mode() != TimingMode.NONE) json.set("timing", com.fasterxml.jackson.databind.json.JsonMapper.builder()
+                .addModule(uk.gegc.quizmaker.features.attempt.infra.policy.TimingPolicyJson.module()).build().valueToTree(c.timing()));
         return CanonicalCommandInput.fingerprint(1, json);
     }
 
@@ -281,6 +288,11 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                     ? PERSISTENCE_UNAVAILABLE : MATERIAL_UNAVAILABLE);
         if (failure instanceof uk.gegc.quizmaker.features.quiz.domain.model.revision.PublicationException)
             return new AttemptStartException(ACCESS_DENIED);
+        if (failure instanceof uk.gegc.quizmaker.features.attempt.domain.model.timing.AttemptTimingException timed)
+            return new AttemptStartException(switch (timed.reason()) {
+                case CLOSED -> ENTRY_CLOSED; case INVALID -> INVALID_INPUT; case UNSUPPORTED -> UNSUPPORTED_VERSION;
+                default -> PERSISTENCE_UNAVAILABLE;
+            });
         if (failure instanceof PresetResolutionException) return new AttemptStartException(UNSUPPORTED_PRESET);
         if (failure instanceof DataAccessException || failure instanceof TransactionException
                 || failure instanceof DatabaseConflictException)

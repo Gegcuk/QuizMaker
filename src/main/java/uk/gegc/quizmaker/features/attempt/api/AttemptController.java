@@ -195,7 +195,9 @@ public class AttemptController {
             "Target reads require ATTEMPT_READ, the bound authenticated participant, and current quiz ownership/full editing authority. " +
             "Unknown/foreign/unavailable target roots share 404; include flags never grant disclosure. " +
             "No pagination/filter/sort or idempotency key. Online only; adapter responses use Cache-Control: no-store. " +
-            "Adapter disabled by default pending #609. Completed result categories require committed release and current RESULT access. Media starts retain their separate integration gate.")
+            "Adapter disabled by default pending #609. TIMED views add timingDetails with the saved UTC deadline, server time and zero grace; " +
+            "expiry shown there does not assert terminal processing. Timed activation requires #702/#668. " +
+            "Completed result categories require committed release and current RESULT access. Media starts retain their separate integration gate.")
     @ApiResponse(responseCode = "200", description = "Attempt details returned",
             content = @Content(
                     mediaType = "application/json",
@@ -213,6 +215,15 @@ public class AttemptController {
                              "timing":"UNTIMED","contentVisibility":"VISIBLE","items":[{"id":"50000000-0000-0000-0000-000000000001",
                              "position":0,"type":"TRUE_FALSE","questionText":"Water is a liquid at room temperature.","content":{"kind":"TRUE_FALSE"}}],
                              "allowedActions":["VIEW_ATTEMPT"]}
+                            """),
+                        @ExampleObject(name = "timedFoundation", value = """
+                            {"representation":"POLICY_DRIVEN","schemaVersion":1,"attemptId":"10000000-0000-0000-0000-000000000001",
+                             "quizId":"20000000-0000-0000-0000-000000000001","quizRevisionId":"30000000-0000-0000-0000-000000000001",
+                             "formId":"40000000-0000-0000-0000-000000000001","stateVersion":1,"policyVersion":1,
+                             "execution":"IN_PROGRESS","answerCollection":"NOT_STARTED","startedAt":"2026-11-06T17:45:00Z",
+                             "timing":"TIMED","timingDetails":{"version":1,"startedAt":"2026-11-06T17:45:00Z",
+                             "effectiveDeadline":"2026-11-06T18:00:00Z","graceSeconds":0,"serverTime":"2026-11-06T17:50:00Z","expired":false},
+                             "contentVisibility":"WITHHELD","allowedActions":["VIEW_ATTEMPT"]}
                             """),
                         @ExampleObject(name = "releasedPractice", value = ParticipantReviewExamples.REVIEW)
                     }

@@ -31,19 +31,21 @@ public class DraftCommandServiceImpl implements DraftCommandService {
     private final ExecutionTraceService trace;
     private final TransactionTemplate read;
     private final MeterRegistry metrics;
+    private final java.time.Clock clock;
 
     public DraftCommandServiceImpl(AuthenticatedSubjectResolver identity, AttemptAccessService access,
             AttemptReadFactsService facts, AttemptLifecycleService lifecycle, AnswerDraftRepository binding,
             AnswerDraftStore drafts, CommandReceiptService receipts, DraftCommandResultRepository results,
-            ExecutionTraceService trace, PlatformTransactionManager manager, MeterRegistry metrics) {
+            ExecutionTraceService trace, PlatformTransactionManager manager, MeterRegistry metrics, java.time.Clock clock) {
         this.identity = identity; this.access = access; this.facts = facts; this.lifecycle = lifecycle;
         this.binding = binding; this.drafts = drafts; this.receipts = receipts; this.results = results;
-        this.trace = trace; this.read = new TransactionTemplate(manager); this.read.setReadOnly(true); this.metrics = metrics;
+        this.trace = trace; this.read = new TransactionTemplate(manager); this.read.setReadOnly(true); this.metrics = metrics; this.clock = clock;
     }
 
     @Override public Result execute(Command c) {
         String outcome = "unavailable";
         try {
+            var receivedAt = clock.instant();
             require(c != null && (c.operation() == AttemptCommands.Type.SAVE_DRAFT || c.operation() == AttemptCommands.Type.DELETE_DRAFT)
                     && c.attemptId() != null && c.formItemId() != null && c.expectedStateVersion() >= 0
                     && c.expectedDraftVersion() >= 0 && c.expectedDraftVersion() < Long.MAX_VALUE && c.key() != null, Reason.INVALID_INPUT);
@@ -70,7 +72,7 @@ public class DraftCommandServiceImpl implements DraftCommandService {
                     // Same root-before-content order as acceptance/submission; kept through receipt commit.
                     lifecycle.lock(c.attemptId());
                     return access.requireAccess(c.attemptId(), AttemptAccessService.Operation.ANSWER);
-                }), id -> call.checked(() -> mutate(c, subject.userId(), stable, id)));
+                }), id -> call.checked(() -> mutate(c, subject.userId(), stable, id, receivedAt)));
             } catch (ReceiptException failure) {
                 if (call.failure != null && (failure.reason() == ReceiptException.Reason.ACCESS_DENIED
                         || failure.reason() == ReceiptException.Reason.COMMAND_DENIED)) throw call.failure;
@@ -96,8 +98,8 @@ public class DraftCommandServiceImpl implements DraftCommandService {
         }
     }
 
-    private CommandReceipt.Acknowledgement mutate(Command c, UUID user, ObjectNode stable, UUID commandId) {
-        var saved = facts.read(c.attemptId(), AttemptReadFactsService.Purpose.DRAFT_COMMAND);
+    private CommandReceipt.Acknowledgement mutate(Command c, UUID user, ObjectNode stable, UUID commandId, java.time.Instant receivedAt) {
+        var saved = facts.read(c.attemptId(), AttemptReadFactsService.Purpose.DRAFT_COMMAND, receivedAt);
         ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
         var item = saved.form().items().stream().filter(i -> i.id().equals(c.formItemId())).findFirst()
                 .orElseThrow(() -> new DraftCommandException(Reason.NOT_FOUND));
