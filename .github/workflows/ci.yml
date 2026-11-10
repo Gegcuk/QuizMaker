@@ -354,19 +354,24 @@ jobs:
             docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "GRANT ALL PRIVILEGES ON quizmaker_test_mysql.* TO 'bestuser'@'%';" 2>&1 || true
             # Keep the migration smoke check separate from Hibernate's create-drop schemas.
             # JDBC-only tables (including receipts) have FKs that Hibernate cannot drop itself.
-            docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS quizmaker_migration_check; GRANT ALL PRIVILEGES ON quizmaker_migration_check.* TO 'bestuser'@'%';"
+            docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS quizmaker_migration_check;"
             docker exec "$MYSQL_CONTAINER" mysql -uroot -proot -e "FLUSH PRIVILEGES;" 2>&1 || true
             echo "✅ Integration-test databases and isolated migration-check database are ready!"
           fi
 
       - name: Flyway migrate (fail fast on schema issues)
+        env:
+          TEST_MYSQL_ADMIN_USERNAME: root
+          TEST_MYSQL_ADMIN_PASSWORD: root
         run: |
           # Validate all migrations without populating the Hibernate-managed test databases.
+          # Routine/trigger installation needs the migration administrator when binary logging is enabled.
+          # Keep application/test datasource credentials restricted to their own schemas.
           ./mvnw -B -V -q -DskipTests=true \
             -Dflyway.url="jdbc:mysql://localhost:3306/quizmaker_migration_check?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" \
             -Dflyway.locations=filesystem:src/main/resources/db/migration \
-            -Dflyway.user="$SPRING_DATASOURCE_USERNAME" \
-            -Dflyway.password="$SPRING_DATASOURCE_PASSWORD" \
+            -Dflyway.user="$TEST_MYSQL_ADMIN_USERNAME" \
+            -Dflyway.password="$TEST_MYSQL_ADMIN_PASSWORD" \
             flyway:migrate
           echo "✅ Flyway migrations completed in the isolated migration-check database"
 
