@@ -87,6 +87,17 @@ public final class AttemptLifecycle {
     }
 
     private static Decision submit(State state, CompletionFacts completion) {
+        return complete(state, completion, false);
+    }
+
+    /** Trusted system cause only. The application must prove the captured terminal deadline. */
+    public static Decision expire(State state, CompletionFacts completion) {
+        if (state == null) return new Denied(INVALID_INPUT);
+        if (state.terminal()) return new Denied(TERMINAL_STATE);
+        return complete(state, completion, true);
+    }
+
+    private static Decision complete(State state, CompletionFacts completion, boolean expiry) {
         if (state.execution() != Execution.IN_PROGRESS) return new Denied(NOT_STARTED);
         if (completion == null) return new Denied(MISSING_CONTEXT);
         // Clearing provisional work does not erase the fact that collection already started.
@@ -94,7 +105,7 @@ public final class AttemptLifecycle {
             return new Denied(CONTRADICTORY_FACTS);
         }
         try {
-            return advance(Execution.SUBMITTED, AnswerCollection.COMPLETE, completion.plan());
+            return advance(Execution.SUBMITTED, AnswerCollection.COMPLETE, expiry ? completion.expiryPlan() : completion.plan());
         } catch (LifecycleException ex) {
             return new Denied(ex.reason());
         }

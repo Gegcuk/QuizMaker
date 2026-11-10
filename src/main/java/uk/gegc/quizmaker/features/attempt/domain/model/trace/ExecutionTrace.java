@@ -20,13 +20,13 @@ public final class ExecutionTrace {
 
     private ExecutionTrace() { }
 
-    /** Initial untimed walking-skeleton evidence only; future producers need explicit contracts. */
+    /** Allow-listed execution evidence; each producer must prove its own saved command authority. */
     public enum Type {
         ATTEMPT_STARTED, FORM_CREATED, QUESTION_DELIVERED, ANSWER_SUBMITTED,
-        ANSWER_LOCKED, ATTEMPT_SUBMITTED, AUTOMATIC_GRADE_PRODUCED, RESULT_RELEASED, DRAFT_SAVED, DRAFT_DELETED, ITEM_NAVIGATED
+        ANSWER_LOCKED, ATTEMPT_SUBMITTED, AUTOMATIC_GRADE_PRODUCED, RESULT_RELEASED, DRAFT_SAVED, DRAFT_DELETED, ITEM_NAVIGATED, ATTEMPT_EXPIRED
     }
     public enum Actor { PARTICIPANT, SYSTEM }
-    public enum ReasonCode { ACCEPTED, MATERIALIZED, DELIVERED, LOCKED, SUBMITTED, GRADED, RELEASED, SAVED, DELETED, NAVIGATED }
+    public enum ReasonCode { ACCEPTED, MATERIALIZED, DELIVERED, LOCKED, SUBMITTED, GRADED, RELEASED, SAVED, DELETED, NAVIGATED, EXPIRED }
 
     /** Subject reference is the existing attempt-subject binding, never a copied user/contact ID. */
     public record Scope(UUID attemptId, UUID policySnapshotId, UUID formId) {

@@ -6158,3 +6158,20 @@ Draft storage #541, commands #542 and immutable acceptance #543 prove their own 
 Navigation integration in #834 additionally requires real #525 and successful next/skip/answer/return controls. Base editable-finalization can complete independently. #614 one-at-a-time delivery and #616 section locks are needed only for variants that use them; a missing route or fake cursor does not establish either navigation denial or success.
 
 Retention matrix #664 is a specification outcome. #699 owns deletion and actual DB restore/replay for its enumerated core aggregate family, including history with no uploaded files. Its test commits deletion, retains bounded deletion facts outside the database snapshot, restores old attempts/forms/answers in a fresh context and runs the real replay handler before serving history. A reached write/checkpoint failure, restart and fresh reads must prove that erased rows do not become visible; missing or incomplete independent evidence keeps the affected restored family unserved. #699 cannot claim object/backup erasure from a handoff event. #832/#844 inspect actual object generations and replay for their object/source families, while #845 proves independent evidence and durability on the selected installation. Local DB replay needs no backup-provider selection, and neither storage tests nor deployment design replace it. Personal practice retains details and results beyond the old 12/24-month thresholds; formal and technical baselines remain class-specific, and organizations cannot override periods initially.
+
+
+### Implemented overall expiry foundation (#702)
+
+The internal system-expiry command reuses #529 terminal persistence with an explicit EXPIRY
+cause. It preserves immutable accepted answers, closes missing responses without disabling the
+saved require-all rule, and records effective completion at the saved overall deadline separately
+from processing time. A durable system receipt, SYSTEM trace event, submission and existing
+finalization intent commit atomically. The real automatic-result reader recognizes this cause;
+voluntary completion retains its original validation.
+
+A derived deadline-indexed work queue and transaction-scoped root claims support bounded batches,
+multiple workers and restart. There is no persistent lease to strand, participant impersonation,
+legacy backfill, or new public API. The scheduler is disabled unless explicitly configured and
+remains subject to #668/timed activation gates. See the [expiry runbook](../runbooks/attempt-expiry.md).
+Editable conversion (#834), section events (#660/#711), pause (#602), full timed conformance
+(#668), and public activation retain their independent owners and evidence requirements.

@@ -31,6 +31,10 @@ public class JdbcAttemptTimingRepository implements AttemptTimingRepository {
                 .addValue("nanos", value.policy().duration() == null ? null : value.policy().duration().getNano())
                 .addValue("overall", local(value.policy().overallDeadline())).addValue("duration", local(value.durationDeadline()))
                 .addValue("effective", local(value.effectiveDeadline())));
+        jdbc.update("""
+                INSERT INTO attempt_expiry_work(attempt_id,effective_deadline)
+                VALUES (:id,:deadline)
+                """, new MapSqlParameterSource("id", bytes(value.attemptId())).addValue("deadline", local(value.effectiveDeadline())));
     }
     @Override public Optional<AttemptTiming> read(UUID attemptId) {
         transaction();

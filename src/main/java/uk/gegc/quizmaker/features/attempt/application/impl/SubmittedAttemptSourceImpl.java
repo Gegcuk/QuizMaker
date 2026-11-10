@@ -50,15 +50,18 @@ public class SubmittedAttemptSourceImpl implements SubmittedAttemptSource {
         var resolved=contracts.resolve(h.revisionOwnerId(),revision.id());
         var responses=repository.responses(s.attemptId());
         check(s.acceptedCount()==responses.size() && (long)s.acceptedCount()+s.unansweredCount()==fixed.items().size()
-                && (!p.submission().requireAllAnswers() || s.unansweredCount()==0),CORRUPT);
+                && (s.cause()==AttemptSubmissionRepository.Cause.EXPIRY || !p.submission().requireAllAnswers() || s.unansweredCount()==0),CORRUPT);
         var questions=revision.items().stream().collect(Collectors.toMap(i->i.id(),i->i.question()));
         var items=fixed.items().stream().collect(Collectors.toMap(i->i.id(),i->questions.get(i.sourceItemId())));
         var seen=new HashSet<UUID>();
+        // acceptedAt is persistence time: an on-time command may wait for a root lock and
+        // persist after the deadline. Expiry preserves authoritative accepted rows, bounded
+        // by actual terminal processing time, while submission.at remains the effective deadline.
         for(var a:responses) {
             var q=items.get(a.formItemId());
             check(seen.add(a.formItemId()) && q!=null && a.formId().equals(fixed.id()) && a.questionRevisionId().equals(q.id())
                     && resolved.containsKey(q.id()) && a.contract().equals(resolved.get(q.id()).response().version())
-                    && !a.acceptedAt().isAfter(s.at()),CORRUPT);
+                    && !a.acceptedAt().isAfter(s.cause()==AttemptSubmissionRepository.Cause.EXPIRY ? state.updatedAt() : s.at()),CORRUPT);
         }
         return new Facts(s,snapshot,fixed,revision,resolved,responses);
     }

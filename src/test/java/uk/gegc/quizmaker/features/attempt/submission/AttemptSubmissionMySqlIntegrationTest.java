@@ -11,6 +11,8 @@ import uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.CompletionFacts
 import uk.gegc.quizmaker.features.attempt.domain.model.submission.AttemptSubmissionException;
 import uk.gegc.quizmaker.features.attempt.domain.model.trace.ExecutionTrace;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptSubmissionRepository;
+import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptExpiryRepository;
+import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptAccessRepository;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository;
 import uk.gegc.quizmaker.features.attempt.domain.repository.CommandReceiptRepository;
 import uk.gegc.quizmaker.features.attempt.infra.receipt.CanonicalCommandInput;
@@ -90,7 +92,11 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
 @TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=none", "spring.flyway.enabled=true"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-@Import({uk.gegc.quizmaker.features.attempt.infra.repository.JdbcNavigationRepository.class, QuizRevisionPublicationServiceImpl.class, JdbcQuizPublicationRepository.class, JdbcQuizRevisionRepository.class,
+@Import({AttemptExpiryServiceImpl.class, AttemptExpiryFactsServiceImpl.class, JdbcAttemptExpiryRepository.class,
+        SubmittedAttemptSourceImpl.class, JdbcSubmittedAttemptRepository.class,
+        uk.gegc.quizmaker.features.result.application.impl.AutomaticResultServiceImpl.class,
+        uk.gegc.quizmaker.features.result.infra.repository.JdbcAutomaticResultRepository.class,
+        uk.gegc.quizmaker.features.attempt.infra.repository.JdbcNavigationRepository.class, QuizRevisionPublicationServiceImpl.class, JdbcQuizPublicationRepository.class, JdbcQuizRevisionRepository.class,
         JdbcQuestionSourceScopeRepository.class, PublicationContent.class, RetainedImageServiceImpl.class,
         AppPermissionEvaluator.class, QuestionHandlerFactory.class,
         McqSingleHandler.class, McqMultiHandler.class, TrueFalseHandler.class, FillGapHandler.class, OrderingHandler.class,
@@ -180,7 +186,8 @@ class AttemptSubmissionMySqlIntegrationTest {
     @Autowired SimpleMeterRegistry metrics;
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
-    static final List<String> TARGET_TABLES = List.of("attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
+    static final List<String> TARGET_TABLES = List.of("attempt_result_created", "attempt_automatic_grade", "attempt_automatic_result",
+            "attempt_expiry_receipt", "attempt_expiry_work", "attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     SubmissionDataSource observer() { return (SubmissionDataSource) source; }
@@ -235,7 +242,8 @@ class AttemptSubmissionMySqlIntegrationTest {
                 var original = facts.read(started.attemptId(), AttemptReadFactsService.Purpose.SUBMIT_ATTEMPT);
                 var policy = withRequireAll(original.policy(), true);
                 var resolution = new uk.gegc.quizmaker.features.attempt.infra.policy.CanonicalPolicyFormat()
-                        .encode(BuiltInPracticePreset.REFERENCE, policy, Map.of());
+                        .encode(BuiltInPracticePreset.REFERENCE, policy, context.getBean(PolicySnapshotService.class)
+                                .readCurrent(ownerId,original.access().policySnapshotId()).resolution().provenance());
                 var snapshot = context.getBean(PolicySnapshotService.class).createOrReplay(ownerId,
                         new uk.gegc.quizmaker.features.attempt.domain.model.snapshot.PolicySnapshot(UUID.randomUUID(), resolution));
                 var subject = context.getBean(AuthenticatedSubjectResolver.class).resolve(other);
@@ -243,6 +251,7 @@ class AttemptSubmissionMySqlIntegrationTest {
                 var initial = lifecycle.initialize(other);
                 var next = lifecycle.save(other, 0, new AttemptLifecycle.State(1, AttemptLifecycle.Execution.IN_PROGRESS,
                         AttemptLifecycle.AnswerCollection.NOT_STARTED));
+                context.getBean(AttemptTimingService.class).capture(snapshot,next);
                 var scope = new ExecutionTrace.Scope(other, snapshot.id(), original.form().id());
                 for (var type : List.of(ExecutionTrace.Type.FORM_CREATED,
                         ExecutionTrace.Type.ATTEMPT_STARTED))
@@ -503,7 +512,7 @@ class AttemptSubmissionMySqlIntegrationTest {
         submissions.submit(submit(fixture(false, 10, 8), "submit"));
         assertThatThrownBy(() -> sql.update("""
                 INSERT INTO attempt_submission SELECT UUID_TO_BIN(UUID()),schema_version,attempt_id,form_id,
-                policy_snapshot_id,quiz_revision_id,UUID_TO_BIN(UUID()),state_version,accepted_count,unanswered_count,submitted_at
+                policy_snapshot_id,quiz_revision_id,UUID_TO_BIN(UUID()),state_version,accepted_count,unanswered_count,submitted_at,completion_cause
                 FROM attempt_submission
                 """)).isInstanceOf(org.springframework.dao.DuplicateKeyException.class);
         assertThatThrownBy(() -> sql.update("INSERT INTO attempt_finalization_intent SELECT * FROM attempt_finalization_intent"))
@@ -795,6 +804,255 @@ class AttemptSubmissionMySqlIntegrationTest {
         assertThat(success.replayed()).isFalse(); assertThat(count("attempt_submission")).isEqualTo(1);
         clock.now=deadline.plusSeconds(10); assertThat(submissions.submit(command).replayed()).isTrue();
         assertThat(count("attempt_submission")).isEqualTo(1); assertThat(count("attempt_finalization_intent")).isEqualTo(1);
+    }
+
+    private AdjustableClock expiryClock() { return (AdjustableClock)context.getBean(Clock.class); }
+    private AttemptExpiryService expiry() { return context.getBean(AttemptExpiryService.class); }
+    private AttemptExpiryService expiry(AttemptExpiryFactsService reader, SubmissionResponseFinalizer responseFinalizer, AttemptTerminalSubmission writer) {
+        return new AttemptExpiryServiceImpl(context.getBean(AttemptExpiryRepository.class), context.getBean(AttemptAccessRepository.class),
+                lifecycle,reader,responseFinalizer,writer,expiryClock(),metrics,manager);
+    }
+    private AttemptExpiryService restartedExpiry() {
+        return expiry(context.getBean(AttemptExpiryFactsService.class),finalizer,terminal);
+    }
+    private Fixture timedFixture(boolean all, int size, int answered) {
+        return fixture(all,size,answered,new TimingPolicy(TimingMode.TOTAL_ATTEMPT,Duration.ofMinutes(30),null));
+    }
+    private Instant effective(UUID attempt) {
+        return tx.execute(s->sql.queryForObject("SELECT effective_deadline FROM attempt_timing WHERE attempt_id=UUID_TO_BIN(?)",
+                java.sql.Timestamp.class,attempt.toString()).toInstant());
+    }
+    private void assertExpiry(UUID attempt, Instant deadline, int accepted, int unanswered) {
+        tx.executeWithoutResult(s->{
+            assertThat(sql.queryForMap("SELECT execution_state,answer_collection_state,submitted_at FROM attempt_lifecycle_state WHERE attempt_id=UUID_TO_BIN(?)",attempt.toString()))
+                    .containsEntry("execution_state","SUBMITTED").containsEntry("answer_collection_state","COMPLETE")
+                    .containsEntry("submitted_at",LocalDateTime.ofInstant(deadline,ZoneOffset.UTC));
+            assertThat(sql.queryForMap("SELECT accepted_count,unanswered_count,completion_cause,submitted_at FROM attempt_submission WHERE attempt_id=UUID_TO_BIN(?)",attempt.toString()))
+                    .containsEntry("accepted_count",accepted).containsEntry("unanswered_count",unanswered).containsEntry("completion_cause","EXPIRY")
+                    .containsEntry("submitted_at",LocalDateTime.ofInstant(deadline,ZoneOffset.UTC));
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_expiry_receipt WHERE attempt_id=UUID_TO_BIN(?)",Integer.class,attempt.toString())).isEqualTo(1);
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_finalization_intent WHERE attempt_id=UUID_TO_BIN(?)",Integer.class,attempt.toString())).isEqualTo(1);
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_expiry_work WHERE attempt_id=UUID_TO_BIN(?)",Integer.class,attempt.toString())).isZero();
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_trace_event WHERE attempt_id=UUID_TO_BIN(?) AND event_type='ATTEMPT_EXPIRED' AND actor_type='SYSTEM' AND reason_code='EXPIRED'",Integer.class,attempt.toString())).isEqualTo(1);
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_accepted_response WHERE attempt_id=UUID_TO_BIN(?)",Integer.class,attempt.toString())).isEqualTo(accepted);
+        });
+    }
+    @ParameterizedTest @CsvSource({"false,0","true,0","false,300","true,300"})
+    void expiryFinalizesRealAcceptedSetAtSavedDeadlineAndGradesMissingRequiredItems(boolean all,int delay) {
+        var f=timedFixture(all,10,8); var deadline=effective(f.attempt());
+        expiryClock().now=deadline.plusSeconds(delay); SecurityContextHolder.clearContext();
+        var result=expiry().expire(f.attempt());
+        assertThat(result.outcome()).isEqualTo(AttemptExpiryService.Outcome.EXPIRED);
+        assertExpiry(f.attempt(),deadline,8,2);
+        assertThat(restartedExpiry().expire(f.attempt()).acknowledgement()).isEqualTo(result.acknowledgement());
+        assertThat(restartedExpiry().expire(f.attempt()).outcome()).isEqualTo(AttemptExpiryService.Outcome.REPLAYED);
+        var graded=context.getBean(uk.gegc.quizmaker.features.result.application.AutomaticResultService.class)
+                .finalizeSubmission(result.acknowledgement().resultId());
+        assertThat(graded.score().earned()).isEqualTo(8); assertThat(graded.score().possible()).isEqualTo(10);
+        assertThat(graded.items().stream().filter(i->i.responseId()==null)).hasSize(2);
+        assertThat(context.getBean(uk.gegc.quizmaker.features.result.application.AutomaticResultService.class)
+                .finalizeSubmission(result.acknowledgement().resultId()).id()).isEqualTo(graded.id());
+        assertThat(metrics.find("attempt.expiry.command").tag("outcome","expired").timer().count()).isPositive();
+    }
+    @Test void expiryLeavesNotDueAndUntimedAttemptsUnchangedAndRespectsVoluntaryTerminalWinner() {
+        var f=timedFixture(false,2,1); var deadline=effective(f.attempt()); var before=targetSnapshot();
+        expiryClock().now=deadline.minusNanos(1000);
+        assertThat(expiry().expire(f.attempt()).outcome()).isEqualTo(AttemptExpiryService.Outcome.NOT_DUE);
+        assertThat(targetSnapshot()).isEqualTo(before);
+        var submitted=submissions.submit(submit(f,"before-expiry")); expiryClock().now=deadline;
+        assertThat(expiry().expire(f.attempt()).outcome()).isEqualTo(AttemptExpiryService.Outcome.ALREADY_TERMINAL);
+        assertThat(count("attempt_expiry_receipt")).isZero();
+        assertThat(sql.queryForObject("SELECT completion_cause FROM attempt_submission",String.class)).isEqualTo("VOLUNTARY");
+        assertThat(count("attempt_expiry_work")).isZero();
+        assertThat(submissions.submit(submit(f,"before-expiry")).submissionId()).isEqualTo(submitted.submissionId());
+        quizId=newQuiz(); var untimed=fixture(false,1,0); var unchanged=targetSnapshot();
+        assertThatThrownBy(()->expiry().expire(untimed.attempt())).isInstanceOf(AttemptExpiryService.Failure.class).hasNoCause();
+        assertThat(targetSnapshot()).isEqualTo(unchanged);
+    }
+    @Test void expiryDoesNotImpersonateParticipantOrRequireLostInteractivePermission() {
+        var f=timedFixture(false,2,1); revoke(ownerId,"ATTEMPT_CREATE");
+        reject(submissions,submit(f,"denied"),"NOT_FOUND");
+        expiryClock().now=effective(f.attempt());
+        SecurityContextHolder.clearContext();
+        assertThat(expiry().expire(f.attempt()).outcome()).isEqualTo(AttemptExpiryService.Outcome.EXPIRED);
+        assertExpiry(f.attempt(),effective(f.attempt()),1,1);
+        assertThatThrownBy(()->expiry().expire(UUID.randomUUID())).isInstanceOf(AttemptExpiryService.Failure.class)
+                .hasMessage("CORRUPT").hasNoCause();
+    }
+    @Test void expiryConcurrentWorkersHaveOneSuccessfulTransitionAndRestartReplaysDurableReceipt() throws Exception {
+        var f=timedFixture(false,10,8); expiryClock().now=effective(f.attempt());
+        var held=new CountDownLatch(1); var release=new CountDownLatch(1); var first=new AtomicBoolean(true);
+        observer().afterSql=(statement,connection)->{
+            if(statement.contains("FOR UPDATE SKIP LOCKED") && first.compareAndSet(true,false)) { held.countDown(); await(release); }
+        };
+        var workers=Executors.newFixedThreadPool(2);
+        try {
+            var winner=workers.submit(()->expiry().expire(f.attempt())); await(held);
+            var loser=workers.submit(()->expiry().expire(f.attempt()));
+            assertThat(loser.get(10,TimeUnit.SECONDS).outcome()).isEqualTo(AttemptExpiryService.Outcome.BUSY);
+            release.countDown(); var committed=winner.get(10,TimeUnit.SECONDS);
+            assertThat(committed.outcome()).isEqualTo(AttemptExpiryService.Outcome.EXPIRED);
+            observer().reset(); assertExpiry(f.attempt(),effective(f.attempt()),8,2);
+            assertThat(restartedExpiry().expire(f.attempt()).acknowledgement()).isEqualTo(committed.acknowledgement());
+        } finally { release.countDown(); workers.shutdownNow(); observer().reset(); }
+    }
+    @ParameterizedTest @ValueSource(strings={"INSERT INTO attempt_submission","INSERT INTO attempt_finalization_intent","INSERT INTO attempt_expiry_receipt"})
+    void expiryReachedWriteFailureRollsBackTerminalReceiptAndTriggerThenRestartSucceeds(String checkpoint) {
+        var f=timedFixture(false,10,8); expiryClock().now=effective(f.attempt()).plusSeconds(300);
+        var before=targetSnapshot(); var reached=new AtomicBoolean();
+        observer().afterSql=(statement,connection)->{
+            if(statement.stripLeading().startsWith(checkpoint) && reached.compareAndSet(false,true))
+                throw new SQLException("private-expiry-write-marker","HY000");
+        };
+        assertThatThrownBy(()->expiry().expire(f.attempt())).isInstanceOf(AttemptExpiryService.Failure.class).hasMessage("UNAVAILABLE").hasNoCause();
+        observer().reset(); assertThat(reached).isTrue(); assertThat(targetSnapshot()).isEqualTo(before);
+        assertThat(restartedExpiry().expire(f.attempt()).outcome()).isEqualTo(AttemptExpiryService.Outcome.EXPIRED);
+        assertExpiry(f.attempt(),effective(f.attempt()),8,2);
+    }
+    @ParameterizedTest @ValueSource(booleans={false,true})
+    void expiryCommitResponseLossReconcilesRealDurableOutcome(boolean committed) {
+        var f=timedFixture(false,2,1); expiryClock().now=effective(f.attempt()); var armed=new AtomicBoolean();
+        observer().afterSql=(statement,connection)->{
+            if(statement.stripLeading().startsWith("INSERT INTO attempt_expiry_receipt") && armed.compareAndSet(false,true)) {
+                if(committed) observer().failAfterCommit.set(true); else observer().failBeforeCommit.set(true);
+            }
+        };
+        assertThatThrownBy(()->expiry().expire(f.attempt())).isInstanceOf(AttemptExpiryService.Failure.class).hasNoCause();
+        observer().reset(); assertThat(armed).isTrue();
+        assertThat(count("attempt_expiry_receipt")).isEqualTo(committed?1:0);
+        assertThat(restartedExpiry().expire(f.attempt()).outcome()).isEqualTo(committed?AttemptExpiryService.Outcome.REPLAYED:AttemptExpiryService.Outcome.EXPIRED);
+        assertExpiry(f.attempt(),effective(f.attempt()),1,1);
+    }
+    @Test void expiryPartialBatchFailureDoesNotLoseSuccessfulRowsOrStarveFollowingPages() {
+        var attempts=new ArrayList<Fixture>();
+        for(int n=0;n<3;n++) { quizId=newQuiz(); attempts.add(timedFixture(false,2,1)); }
+        expiryClock().now=effective(attempts.get(0).attempt()); var injected=new AtomicBoolean();
+        observer().afterSql=(statement,connection)->{
+            if(statement.stripLeading().startsWith("INSERT INTO attempt_expiry_receipt") && injected.compareAndSet(false,true))
+                throw new SQLException("private-batch-marker","HY000");
+        };
+        var first=expiry().runBatch(2,null); observer().reset();
+        assertThat(injected).isTrue(); assertThat(first.examined()).isEqualTo(2); assertThat(first.failed()).isEqualTo(1); assertThat(first.expired()).isEqualTo(1);
+        assertThat(first.next()).isNotNull();
+        var second=restartedExpiry().runBatch(2,first.next());
+        assertThat(second.examined()).isEqualTo(1); assertThat(second.expired()).isEqualTo(1); assertThat(second.next()).isNull();
+        assertThat(count("attempt_expiry_work")).isEqualTo(1); assertThat(count("attempt_expiry_receipt")).isEqualTo(2);
+        var recovery=restartedExpiry().runBatch(2,null);
+        assertThat(recovery.expired()).isEqualTo(1); assertThat(recovery.failed()).isZero();
+        attempts.forEach(f->assertExpiry(f.attempt(),effective(f.attempt()),1,1));
+    }
+    @Test void expiryPreparationFailureLeavesRealStatePendingAndCannotPretendConversionCompleted() {
+        var f=timedFixture(false,2,1); expiryClock().now=effective(f.attempt()); var before=targetSnapshot(); var reached=new AtomicBoolean();
+        var unavailable=new SubmissionResponseFinalizer() {
+            public CompletionFacts prepare(AttemptReadFactsService.Facts saved,boolean confirmed) {
+                reached.set(true); throw new AttemptExpiryService.Failure(AttemptExpiryService.Failure.Reason.UNSUPPORTED);
+            }
+            public void finalizeResponses(AttemptReadFactsService.Facts saved,CompletionFacts.Plan plan) { throw new AssertionError("No conversion was resolved"); }
+        };
+        var worker=expiry(context.getBean(AttemptExpiryFactsService.class),unavailable,terminal);
+        assertThatThrownBy(()->worker.expire(f.attempt())).isInstanceOf(AttemptExpiryService.Failure.class).hasMessage("UNSUPPORTED");
+        assertThat(reached).isTrue(); assertThat(targetSnapshot()).isEqualTo(before);
+        assertThat(expiry().expire(f.attempt()).outcome()).isEqualTo(AttemptExpiryService.Outcome.EXPIRED);
+    }
+    @Test void expiryQueryPlanAndMultipleParentReadsStayBoundedAsFormsGrow(TestReporter reporter) {
+        List<Integer> counts=new ArrayList<>();
+        for(int size:List.of(1,20)) {
+            var commands=new ArrayList<Fixture>();
+            for(int n=0;n<3;n++) { quizId=newQuiz(); commands.add(timedFixture(false,size,size)); }
+            expiryClock().now=effective(commands.get(0).attempt()); observer().selects.clear();
+            for(var f:commands) assertThat(expiry().expire(f.attempt()).outcome()).isEqualTo(AttemptExpiryService.Outcome.EXPIRED);
+            counts.add(observer().selects.size());
+            assertThat(observer().selects.stream().filter(q->q.contains("FROM attempt_accepted_response"))).hasSize(3)
+                    .noneMatch(q->q.contains("normalized_response"));
+        }
+        assertThat(counts.get(0)).isPositive(); assertThat(counts.get(1)).isEqualTo(counts.get(0));
+        reporter.publishEntry("expiry-selects-three-parents-1-vs-20",counts.toString());
+        System.out.println("Expiry SQL: three parents, 1 vs 20 items: "+counts);
+        var plan=sql.queryForMap("EXPLAIN SELECT attempt_id FROM attempt_expiry_work FORCE INDEX(ix_expiry_due) WHERE effective_deadline<=? ORDER BY effective_deadline,attempt_id LIMIT 10",Timestamp.from(expiryClock().now));
+        assertThat(plan.get("key")).isEqualTo("ix_expiry_due");
+        assertThatThrownBy(()->expiry().runBatch(0,null)).isInstanceOf(AttemptExpiryService.Failure.class);
+        assertThatThrownBy(()->expiry().runBatch(101,null)).isInstanceOf(AttemptExpiryService.Failure.class);
+    }
+
+    @Test void expiryMigrationSeedsOnlyActualActiveTimingAndPreservesVoluntaryHistory() {
+        var running=timedFixture(false,2,1);
+        quizId=newQuiz(); var submitted=timedFixture(false,2,1); var voluntary=submissions.submit(submit(submitted,"migrated-voluntary"));
+        quizId=newQuiz(); var untimed=fixture(false,1,0);
+        // Isolated generated catalog only: return additive V105 objects to the real V104 shape.
+        // Existing rows were written through real application services, not invented SQL history.
+        sql.execute("DROP TABLE attempt_expiry_receipt"); sql.execute("DROP TABLE attempt_expiry_work");
+        sql.execute("ALTER TABLE attempt_submission DROP CHECK ck_submission_cause, DROP COLUMN completion_cause");
+        new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
+                new org.springframework.core.io.ClassPathResource("db/migration/V105__persist_system_attempt_expiry.sql")).execute(source);
+        assertThat(sql.queryForList("SELECT BIN_TO_UUID(attempt_id) FROM attempt_expiry_work",String.class))
+                .containsExactly(running.attempt().toString());
+        assertThat(sql.queryForObject("SELECT completion_cause FROM attempt_submission WHERE id=UUID_TO_BIN(?)",String.class,voluntary.submissionId().toString()))
+                .isEqualTo("VOLUNTARY");
+        assertThat(count("attempt_accepted_response")).isEqualTo(2);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_timing WHERE attempt_id=UUID_TO_BIN(?)",Integer.class,untimed.attempt().toString())).isZero();
+        expiryClock().now=effective(running.attempt());
+        assertThat(restartedExpiry().expire(running.attempt()).outcome()).isEqualTo(AttemptExpiryService.Outcome.EXPIRED);
+        assertExpiry(running.attempt(),effective(running.attempt()),1,1);
+    }
+
+    @Test void expiryKeepsAnOnTimeResponseWhoseRealAcceptancePersistsAfterDeadline() {
+        var f=timedFixture(false,2,0); var deadline=effective(f.attempt()); expiryClock().now=deadline.minusNanos(1000);
+        var reached=new AtomicBoolean();
+        observer().afterSql=(statement,connection)->{
+            if(statement.contains("FROM attempt_lifecycle_state WHERE attempt_id=") && statement.contains("FOR UPDATE")
+                    && reached.compareAndSet(false,true)) expiryClock().now=deadline.plusSeconds(1);
+        };
+        responses.accept(answer(f.attempt(),f.items().get(0),1,"on-time-before-lock")); observer().reset();
+        assertThat(reached).isTrue();
+        assertThat(sql.queryForObject("SELECT accepted_at FROM attempt_accepted_response",Timestamp.class).toInstant()).isAfter(deadline);
+        expiryClock().now=deadline.plusSeconds(300);
+        var outcome=expiry().expire(f.attempt()); assertExpiry(f.attempt(),deadline,1,1);
+        var graded=context.getBean(uk.gegc.quizmaker.features.result.application.AutomaticResultService.class)
+                .finalizeSubmission(outcome.acknowledgement().resultId());
+        assertThat(graded.score().earned()).isEqualTo(1); assertThat(graded.score().possible()).isEqualTo(2);
+    }
+    @Test void expiryCorruptCapturedPolicyCannotCreateTerminalFactsOrErasePendingWork() {
+        var f=timedFixture(false,2,1); expiryClock().now=effective(f.attempt());
+        sql.update("UPDATE attempt_policy_snapshot p JOIN attempt_trace_stream s ON s.policy_snapshot_id=p.id SET p.canonical_json='{}' WHERE s.attempt_id=UUID_TO_BIN(?)",f.attempt().toString());
+        var before=targetSnapshot();
+        assertThatThrownBy(()->expiry().expire(f.attempt())).isInstanceOf(AttemptExpiryService.Failure.class).hasMessage("CORRUPT").hasNoCause();
+        assertThat(targetSnapshot()).isEqualTo(before);
+        assertThat(count("attempt_submission")).isZero(); assertThat(count("attempt_expiry_work")).isEqualTo(1);
+    }
+
+    @Test void expiryMissingTerminalEvidenceCannotRemovePendingWork() {
+        var f=timedFixture(false,2,1); expiryClock().now=effective(f.attempt());
+        // Simulated partial/corrupt storage, not a reachable successful application transition.
+        tx.executeWithoutResult(s->lifecycle.save(f.attempt(),f.version(),new AttemptLifecycle.State(1,
+                AttemptLifecycle.Execution.SUBMITTED,AttemptLifecycle.AnswerCollection.COMPLETE)));
+        var before=targetSnapshot();
+        assertThatThrownBy(()->expiry().expire(f.attempt())).isInstanceOf(AttemptExpiryService.Failure.class).hasMessage("CORRUPT");
+        assertThat(targetSnapshot()).isEqualTo(before);
+        assertThat(count("attempt_expiry_work")).isEqualTo(1);
+    }
+
+    @Test void expiryIndependentWorkersCommitTwoRealOutcomesWithoutMissingReceiptGapLocks(TestReporter reporter) throws Exception {
+        var a=timedFixture(false,2,1); quizId=newQuiz(); var b=timedFixture(false,2,1);
+        expiryClock().now=effective(a.attempt()); var ready=new CountDownLatch(2); var release=new CountDownLatch(1);
+        var isolation=new AtomicReference<String>();
+        observer().afterSql=(statement,connection)->{
+            if(statement.contains("FROM attempt_expiry_receipt e")) {
+                isolation.set(sql.queryForObject("SELECT @@transaction_isolation",String.class));
+                ready.countDown(); await(release);
+            }
+        };
+        var workers=Executors.newFixedThreadPool(2);
+        try {
+            var left=workers.submit(()->expiry().expire(a.attempt())); var right=workers.submit(()->expiry().expire(b.attempt()));
+            await(ready); release.countDown();
+            assertThat(left.get(20,TimeUnit.SECONDS).outcome()).isEqualTo(AttemptExpiryService.Outcome.EXPIRED);
+            assertThat(right.get(20,TimeUnit.SECONDS).outcome()).isEqualTo(AttemptExpiryService.Outcome.EXPIRED);
+            assertThat(observer().sqlErrorCodes).doesNotContain(1213);
+            assertThat(isolation.get()).isIn("READ-COMMITTED","REPEATABLE-READ");
+            reporter.publishEntry("expiry-independent-worker-isolation",isolation.get());
+            System.out.println("Expiry independent worker isolation: "+isolation.get());
+            observer().reset(); assertExpiry(a.attempt(),effective(a.attempt()),1,1); assertExpiry(b.attempt(),effective(b.attempt()),1,1);
+        } finally { release.countDown(); workers.shutdownNow(); observer().reset(); }
     }
 
     private UUID prepared() {
