@@ -82,6 +82,8 @@ application; no retry or rollback setting is changed. A lost response after a su
 still requires reconciliation against the saved receipt, not a second terminal write.
 Bounded duplicate-key, foreign-key, not-null and check-constraint categories survive redaction so
 existing data-conflict responses remain useful without driver messages or constraint/object names.
+The safe `Duplicate key` text retains its capital `D` across repeated sanitization because legacy
+repetition processing recognizes that category case-sensitively and must skip an already processed answer.
 
 Disable the scheduler to pause dispatch. Do not roll back schema after terminal writes: retain
 V105 tables, receipts and the completion cause and use a forward fix. Destructive removal would
@@ -93,6 +95,7 @@ Run with JDK 17 and the repository's test MySQL configuration:
 
 ```bash
 ./mvnw test -Dtest=SafeJpaTransactionManagerTest,TransactionConfigTest,SafeDataAccessTest
+./mvnw test -Dtest=RepetitionProcessingMySqlIntegrationTest,RepetitionProcessingServiceImplTest,CategoryControllerIntegrationTest
 ./mvnw test -Dtest=AttemptExpiryContractTest,AttemptExpirySchedulerTest,AttemptSubmissionMySqlIntegrationTest,AutomaticResultMySqlIntegrationTest
 ./mvnw clean verify
 ```
@@ -108,6 +111,8 @@ test double, comparing commit/rollback calls, completion callbacks, REQUIRED/REQ
 rollback-only behavior. Real MySQL tests use the sanitizing manager and capture transaction logs
 for failures before commit and lost responses after a successful commit, including private markers
 in causes and suppressed exceptions. The latter must replay the original command/submission IDs.
+Repetition processing also runs against the new manager after real Flyway migrations: a first answer
+already processed cannot block the remaining answer, and full replay preserves schedules and log IDs.
 
 Prepared editable plans or failed extension collaborators prove contract/orchestration only.
 #834 must prove actual editable conversion/proposal handling; #660/#711 own section due events

@@ -10,13 +10,14 @@ import java.util.IdentityHashMap;
 /** Discards SQL/payload diagnostics before a repository's transaction interceptor sees a failure. */
 public final class SafeDataAccess {
     private static final String MESSAGE = "Database operation failed";
+    private static final String DUPLICATE_KEY = "Duplicate key";
     private SafeDataAccess() { }
 
     /** Keep caller-visible Spring categories and bounded conflict evidence, never the driver graph. */
     @SuppressWarnings("deprecation")
     public static DataAccessException sanitize(DataAccessException failure) {
         Throwable conflict = DatabaseConflictException.from(failure).orElse(null);
-        if (failure instanceof DuplicateKeyException) return new DuplicateKeyException(MESSAGE + ": duplicate key", conflict);
+        if (failure instanceof DuplicateKeyException) return new DuplicateKeyException(MESSAGE + ": " + DUPLICATE_KEY, conflict);
         if (failure instanceof DataIntegrityViolationException) return new DataIntegrityViolationException(integrityMessage(failure), conflict);
         if (failure instanceof CannotAcquireLockException) return new CannotAcquireLockException(MESSAGE, conflict);
         if (failure instanceof DeadlockLoserDataAccessException) return new DeadlockLoserDataAccessException(MESSAGE, conflict);
@@ -45,7 +46,7 @@ public final class SafeDataAccess {
             if (!visited.add(current)) continue;
             if (current instanceof SQLException sql) {
                 String category = switch (sql.getErrorCode()) {
-                    case 1062 -> "duplicate key";
+                    case 1062 -> DUPLICATE_KEY;
                     case 1451, 1452 -> "foreign key constraint";
                     case 1048 -> "not-null";
                     case 3819 -> "check constraint";
@@ -57,8 +58,9 @@ public final class SafeDataAccess {
             if (current.getCause() != null) pending.add(current.getCause());
         }
         // Also retain a previously sanitized category when a failure crosses another safe boundary.
-        for (String category : new String[]{"duplicate key", "foreign key constraint", "not-null", "check constraint"})
+        for (String category : new String[]{DUPLICATE_KEY, "foreign key constraint", "not-null", "check constraint"})
             if ((MESSAGE + ": " + category).equals(failure.getMessage())) return MESSAGE + ": " + category;
+        if ((MESSAGE + ": duplicate key").equals(failure.getMessage())) return MESSAGE + ": " + DUPLICATE_KEY;
         return MESSAGE;
     }
 

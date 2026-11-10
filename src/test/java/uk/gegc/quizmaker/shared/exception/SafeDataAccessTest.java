@@ -27,8 +27,25 @@ class SafeDataAccessTest {
             original.addSuppressed(new IllegalStateException("private-suppressed"));
             var safe=SafeDataAccess.sanitize(original);
             assertThat(safe).isExactlyInstanceOf(original.getClass())
-                    .hasMessage("Database operation failed" + (original instanceof DuplicateKeyException ? ": duplicate key" : "")).hasNoCause();
+                    .hasMessage("Database operation failed" + (original instanceof DuplicateKeyException ? ": Duplicate key" : "")).hasNoCause();
             assertThat(safe.getSuppressed()).isEmpty();
+        }
+    }
+    @Test void duplicateRemainsRecognizableByLegacyCallersAcrossRepeatedRedaction() {
+        var driver=new SQLException("private-duplicate-value-and-constraint", "23000",1062);
+        driver.initCause(new IllegalStateException("private-duplicate-cause"));
+        driver.addSuppressed(new IllegalStateException("private-duplicate-suppressed"));
+        for (DataAccessException failure : List.of(new DuplicateKeyException("private-insert",driver),
+                new DataIntegrityViolationException("private-insert",driver),
+                new DataIntegrityViolationException("Database operation failed: duplicate key"),
+                new DataIntegrityViolationException("Database operation failed: Duplicate key"))) {
+            for (int n=0; n<3; n++) {
+                failure=SafeDataAccess.sanitize(failure);
+                assertThat(failure).isInstanceOf(DataIntegrityViolationException.class)
+                        .hasMessage("Database operation failed: Duplicate key").hasNoCause();
+                assertThat(failure.getMessage()).contains("Duplicate");
+                assertThat(failure.getSuppressed()).isEmpty();
+            }
         }
     }
     @ParameterizedTest @CsvSource(delimiter='|', textBlock="""
