@@ -30,6 +30,7 @@ import uk.gegc.quizmaker.features.quiz.application.QuizPracticeSourceService;
 import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import java.util.*;
+import uk.gegc.quizmaker.features.attempt.domain.model.retake.RetakeEligibility;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
@@ -39,6 +40,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.preset.LegacyPract
 
 @Service
 public class AttemptStartServiceImpl implements AttemptStartService {
+    private final AttemptAllowanceService allowance;
     private final AuthenticatedSubjectResolver identity;
     private final QuizPracticeSourceService sources;
     private final AttemptPresetService presets;
@@ -60,7 +62,8 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                                    QuestionSelectionService selection, FixedFormMaterializer forms,
                                    AttemptSubjectService subjects, AttemptLifecycleService lifecycle,
                                    ExecutionTraceService trace, CommandReceiptService receipts, MeterRegistry metrics,
-                                   uk.gegc.quizmaker.features.attempt.domain.repository.NavigationRepository navigation) {
+                                   uk.gegc.quizmaker.features.attempt.domain.repository.NavigationRepository navigation, AttemptAllowanceService allowance) {
+        this.allowance = allowance;
         this.identity = identity; this.sources = sources; this.presets = presets; this.policies = policies;
         this.snapshots = snapshots; this.contracts = contracts; this.selection = selection; this.forms = forms;
         this.subjects = subjects; this.lifecycle = lifecycle; this.trace = trace; this.receipts = receipts; this.metrics = metrics; this.navigation = navigation;
@@ -143,13 +146,20 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         if (configuredDelivery) authorChoices.add(new DeliveryChoice(command.delivery()));
         boolean configuredSelection = !command.selection().equals(QuestionSelection.Configuration.all());
         if (configuredSelection) authorChoices.add(new SelectionChoice(SelectionPolicy.from(command.selection())));
+        boolean configuredLimit = !command.attemptLimit().equals(new AttemptLimitPolicy(AttemptLimitMode.UNLIMITED));
+        if (configuredLimit) authorChoices.add(new AttemptLimitChoice(command.attemptLimit()));
         if (!authorChoices.isEmpty()) overrides.add(new SourceOverrides(OverrideSource.AUTHOR, 1,
                 new AllowedChoices(Set.of(), Set.of(), command.draftsEnabled() ? Set.of(true) : Set.of(),
                         configuredNavigation ? Set.of(command.navigation()) : Set.of(),
                         configuredDelivery ? Set.of(command.delivery()) : Set.of(),
-                        configuredSelection ? Set.of(SelectionPolicy.from(command.selection())) : Set.of()), authorChoices));
+                        configuredSelection ? Set.of(SelectionPolicy.from(command.selection())) : Set.of(),
+                        configuredLimit ? Set.of(command.attemptLimit()) : Set.of()), authorChoices));
+        var allowanceScope = new RetakeEligibility.Scope(
+                subject.userId(), RetakeEligibility.ContextKind.PUBLICATION,
+                revision.id(), command.publicationVersion());
         var resolution = policies.resolve(new PolicyResolutionRequest(1, 1, PolicyResolutionRequest.HASH_ALGORITHM,
                 command.preset(), command.content(), overrides));
+        allowance.check(allowanceScope, resolution.policy().attempts());
         var snapshot = snapshots.createOrReplay(access.ownerId(), new PolicySnapshot(UUID.randomUUID(), resolution));
         var policy = resolution.policy();
         var config = policy.questionSelection().configuration();
@@ -184,11 +194,13 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         var scope = new ExecutionTrace.Scope(subject.attemptId(), snapshot.id(), form.id());
         trace.append(scope, new ExecutionTrace.Event(1, UUID.randomUUID(), ExecutionTrace.Type.FORM_CREATED,
                 ExecutionTrace.Actor.SYSTEM, new ExecutionTrace.Data(commandId, null, null, null, ExecutionTrace.ReasonCode.MATERIALIZED)));
-        trace.append(scope, new ExecutionTrace.Event(1, UUID.randomUUID(), ExecutionTrace.Type.ATTEMPT_STARTED,
+        var startEventId = UUID.randomUUID();
+        trace.append(scope, new ExecutionTrace.Event(1, startEventId, ExecutionTrace.Type.ATTEMPT_STARTED,
                 ExecutionTrace.Actor.PARTICIPANT, new ExecutionTrace.Data(commandId, null, initial.state(), started.state(), ExecutionTrace.ReasonCode.ACCEPTED)));
         if (policy.delivery().mode() == DeliveryMode.ONE_AT_A_TIME)
             trace.append(scope, new ExecutionTrace.Event(1, UUID.randomUUID(), ExecutionTrace.Type.QUESTION_DELIVERED,
                     ExecutionTrace.Actor.PARTICIPANT, new ExecutionTrace.Data(commandId, form.items().get(0).id(), null, null, ExecutionTrace.ReasonCode.DELIVERED)));
+        allowance.bind(allowanceScope, subject.attemptId(), startEventId);
         return new CommandReceipt.Acknowledgement(1, subject.attemptId(), form.id(), started.rowVersion());
     }
 
@@ -197,7 +209,7 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         require(c.version() == 1, UNSUPPORTED_VERSION);
         require(c.quizId() != null && c.content() != null && c.publicationVersion() > 0 && c.key() != null
                 && c.preset() != null && c.context() != null && c.legacyMode() != null && c.legacyMode().length() <= 32
-                && c.answerOrder() != null && c.navigation() != null && c.delivery() != null && c.selection() != null, INVALID_INPUT);
+                && c.answerOrder() != null && c.navigation() != null && c.delivery() != null && c.selection() != null && c.attemptLimit() != null, INVALID_INPUT);
     }
 
     private static CommandReceipt.Fingerprint fingerprint(Command c) {
@@ -226,11 +238,16 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                 var ids = selected.putArray("manualItemIds"); c.selection().manualItemIds().forEach(id -> ids.add(id.toString()));
             }
         }
+        if (!c.attemptLimit().equals(new AttemptLimitPolicy(AttemptLimitMode.UNLIMITED))) {
+            var limits = json.putObject("attemptLimit").put("mode", c.attemptLimit().mode().name())
+                    .put("cooldownSeconds", c.attemptLimit().cooldown().getSeconds()).put("cooldownNanos", c.attemptLimit().cooldown().getNano());
+            if (c.attemptLimit().maximumAttempts() != null) limits.put("maximumAttempts", c.attemptLimit().maximumAttempts());
+        }
         return CanonicalCommandInput.fingerprint(1, json);
     }
 
     private static AttemptStartException translate(RuntimeException failure) {
-        if (failure instanceof AttemptStartException start) return new AttemptStartException(start.reason());
+        if (failure instanceof AttemptStartException start) return new AttemptStartException(start.reason(), start.nextEligibleAt());
         if (failure instanceof SubjectResolutionException subject) return new AttemptStartException(switch (subject.reason()) {
             case UNAUTHENTICATED -> UNAUTHENTICATED;
             case UNAVAILABLE -> PERSISTENCE_UNAVAILABLE;

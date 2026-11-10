@@ -64,7 +64,7 @@ class CanonicalPolicyFormatTest {
                     new ReviewPolicy(p.review().availability(), review, p.review().window()), p.results(), p.accessibility(), p.integrity());
             assertThat(codec.encode(expected.preset(), normalized, reordered)).isEqualTo(expected);
         }
-        var transport = JsonMapper.builder().disable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY).build();
+        var transport = JsonMapper.builder().addModule(uk.gegc.quizmaker.features.attempt.infra.policy.AttemptLimitPolicyJson.module()).disable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY).build();
         var tree = transport.valueToTree(expected.policy());
         var reversed = transport.createObjectNode();
         var names = new ArrayList<String>();
@@ -82,8 +82,8 @@ class CanonicalPolicyFormatTest {
         var order = resolver.resolve(request(source(OverrideSource.PARTICIPANT, new AnswerOrderChoice(AnswerOrder.SHUFFLED_PER_ATTEMPT))));
         var revision = resolver.resolve(new PolicyResolutionRequest(1, 1, "SHA-256", baseline.preset(), content(43), List.of()));
         assertThat(List.of(baseline.hash(), hints.hash(), order.hash(), revision.hash())).doesNotHaveDuplicates();
-        var transport = new JsonMapper();
-        var reconstructed = new JsonMapper().readValue(transport.writeValueAsBytes(hints), PolicyResolution.class);
+        var transport = JsonMapper.builder().addModule(uk.gegc.quizmaker.features.attempt.infra.policy.AttemptLimitPolicyJson.module()).build();
+        var reconstructed = JsonMapper.builder().addModule(uk.gegc.quizmaker.features.attempt.infra.policy.AttemptLimitPolicyJson.module()).build().readValue(transport.writeValueAsBytes(hints), PolicyResolution.class);
         assertThat(reconstructed).isEqualTo(hints);
         assertThat(new CanonicalPolicyFormat().encode(reconstructed.preset(), reconstructed.policy(), reconstructed.provenance())).isEqualTo(hints);
         assertThat(baseline.policy().content().quizRevisionId()).isEqualTo(content(42).quizRevisionId());

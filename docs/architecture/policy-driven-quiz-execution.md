@@ -4152,6 +4152,78 @@ and consumption with #600; #836 supplies real examination-finality/relative-wind
 selected-result projection and #557 certificate issuance. Cached eligibility never grants online
 or offline start authority; current facts and access must be revalidated at the actual boundary.
 
+### Atomic canonical-start allowance (#549)
+
+The internal `AttemptStartService` now applies D21/D22 in the existing #600 receipt transaction.
+The authenticated user, current full-content access and current immutable publication are resolved
+server-side. This remains an additive dark path: no public start operation, legacy attempt writer,
+permission, participant DTO or OpenAPI group is switched. The current owner/full-editor boundary
+can request typed author configuration; it is not a participant grant or a client-reported count.
+
+`AttemptLimitPolicy` supports an explicit nonnegative fixed count (including zero), or unlimited,
+and an explicit nonnegative cooldown. Unlimited/zero-cooldown retains the historical canonical
+bytes, hashes, provenance and command fingerprint. Configured durations use exact integer seconds
+and nanoseconds. No finite count, nonzero cooldown or automatic database retry is a new default.
+The resolver requires author authority for limit overrides; forged participant provenance is rejected.
+
+`attempt_allowance_scope` locks exactly authenticated user + immutable publication revision +
+publication version until the shared transaction completes. It freezes that scope's authorized
+limit/cooldown. A fresh key or different proposed configuration cannot raise the limit or remove
+cooldown within that context. The row is a serialization/configuration guard, not a consumed-count
+projection; unlimited has no separate counter. Its start-ID directory is updated atomically with
+binding/trace/receipt writes. Current bulk point reads use the directory as an index, not as
+proof of complete history. After validating the listed binding identities, a current authoritative
+binding census must equal the directory length, including when the directory is empty. Missing
+entries return ELIGIBILITY_UNAVAILABLE; the transaction does not repair either source of evidence.
+
+The locking census runs before a rejecting decision, or after this command's binding/directory
+writes and before receipt completion/commit. On that successful path no binding insert follows
+the census: it cannot take a shared empty-range gap lock before independent first inserts in
+REPEATABLE_READ. A mismatch rolls back every tentative start write, leaving the original binding,
+lifecycle and malformed directory unchanged. A nonlocking count from an old RR snapshot is not
+completeness evidence. SQL parameters remain batched without imposing an attempt quota; measured
+multi-parent/history fixtures and independent-scope races cover the added census.
+
+Current reads join durable `attempt_start_binding`, actual lifecycle, immutable policy and start
+trace evidence in bulk. A committed start consumes one allowance even before grading. A real
+terminal submission releases the active-attempt restriction but does not refund that consumption.
+The latest terminal lifecycle instant determines cooldown; grading/release does not restart it.
+One remaining attempt and two tabs produce one committed start; an exact retained-key retry returns
+that same attempt, while a fresh competing key is denied. A reached write failure rolls back the
+guard, binding, form, subject, lifecycle, trace and receipt together. Unknown commit outcomes retain
+#599's reconciliation semantics; they never trigger a second start or legacy fallback.
+
+V103 adds a durable publication-version binding so receipt cleanup cannot restore an allowance.
+Its backfill copies only exact committed v1 START receipt metadata corroborated by immutable
+form/publication/subject identity. It never infers target facts from legacy attempts or mutable
+quiz settings. A pre-extension target root without durable context evidence is explicitly
+unclassified and blocks new starts in the affected revision; unavailable history is not empty.
+V103 records missing-context roots in the immutable `attempt_unclassified_publication` upgrade
+classification; it is not a new runtime writer or automatic repair path. Existing historical
+reads remain unchanged. Schema recovery after target writes is forward-fix,
+without deleting retained history. The learner/publication context owns these new records; later
+record-family erasure/retention work must preserve the same scoped evidence boundaries.
+
+Internal failures distinguish active attempt, exhausted limit, cooldown (with safe next-eligible
+instant), conflicting captured limits, closed entry and unknown/unavailable evidence. A future
+canonical HTTP adapter must document and test its 409 conflict/eligibility, 429 cooldown and 422
+invalid-configuration mappings, authentication/non-enumeration and RFC7807 schemas before exposure;
+this increment adds no route and does not claim those future HTTP responses are activated.
+Lock timeout remains IN_PROGRESS, deadlock RETRYABLE, and other storage failure is bounded and
+sanitized. The allowance repository requires an active caller transaction explicitly and has no
+transactional interceptor of its own. The owning service sanitizes JDBC failures before the first
+transactional proxy can log them, including TRACE message text and nested exception diagnostics.
+There is no hidden retry schedule. Existing bounded start/eligibility metrics contain
+only version, strategy, outcome and reason values; identity and protected content are excluded.
+
+The versioned `AttemptEntryReader` supplies current entry facts. Its publication implementation
+uses the current publication/access already locked by #600. Contract fixtures for permitted,
+closed and unknown entry prove gate consumption only. #836 owns actual examination finality and
+its competing writer; #534/#668 own formal assignment composition, #557 certificate issuance.
+Administrative allowance-adjustment commands, cancellation/expiry writers and their integrations
+are not introduced here. The actual publication baseline uses real canonical writers and MySQL;
+no mocked runtime writer is presented as formal/certificate integration proof.
+
 ---
 
 ## Grading

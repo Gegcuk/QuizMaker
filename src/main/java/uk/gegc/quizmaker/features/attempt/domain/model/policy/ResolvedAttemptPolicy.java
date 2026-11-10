@@ -182,8 +182,14 @@ public record ResolvedAttemptPolicy(
         public PausePolicy { present(mode); }
     }
 
-    public record AttemptLimitPolicy(AttemptLimitMode mode) {
-        public AttemptLimitPolicy { present(mode); }
+    public record AttemptLimitPolicy(AttemptLimitMode mode, Long maximumAttempts, java.time.Duration cooldown) {
+        public AttemptLimitPolicy(AttemptLimitMode mode) { this(mode, null, java.time.Duration.ZERO); }
+        public AttemptLimitPolicy {
+            present(mode, cooldown);
+            require(!cooldown.isNegative(), INVALID_VALUE);
+            require(mode == AttemptLimitMode.UNLIMITED ? maximumAttempts == null
+                    : maximumAttempts != null && maximumAttempts >= 0, INVALID_VALUE);
+        }
     }
 
     /** A validation requirement, never proof that a caller owns or may view a resource. */
@@ -243,7 +249,7 @@ public record ResolvedAttemptPolicy(
     public enum HintSource { AUTHORED }
     public enum TimingMode { NONE }
     public enum PauseMode { DISABLED }
-    public enum AttemptLimitMode { UNLIMITED }
+    public enum AttemptLimitMode { UNLIMITED, FIXED_COUNT }
     public enum ParticipantMode { AUTHENTICATED }
     public enum AccessValidation { SERVER_REVALIDATED_AT_START_AND_READ }
     public enum GradingMode { BINARY }

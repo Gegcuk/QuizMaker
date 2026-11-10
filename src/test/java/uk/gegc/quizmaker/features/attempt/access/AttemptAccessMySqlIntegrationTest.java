@@ -88,7 +88,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         PublishedQuestionContractServiceImpl.class, BaselineQuestionContractConfig.class,
         FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
-        AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
+        AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
         AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
         JdbcPolicySnapshotRepository.class, QuestionSelectionServiceImpl.class,
@@ -156,7 +156,7 @@ class AttemptAccessMySqlIntegrationTest {
     @Autowired SimpleMeterRegistry metrics;
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
-    static final List<String> TARGET_TABLES = List.of("attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
+    static final List<String> TARGET_TABLES = List.of("attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     AccessDataSource observer() { return (AccessDataSource) source; }
@@ -456,7 +456,13 @@ class AttemptAccessMySqlIntegrationTest {
         denied(() -> guarded(partial, Operation.VIEW), DENIED);
         var started = start();
         assertThat(access.requireAccess(started.attemptId(), Operation.VIEW).attemptId()).isEqualTo(started.attemptId());
+        assertThatThrownBy(() -> tx.executeWithoutResult(status ->
+                sql.update("DELETE FROM attempt_trace_event WHERE attempt_id=UUID_TO_BIN(?)", started.attemptId().toString())))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThat(access.requireAccess(started.attemptId(), Operation.VIEW).attemptId()).isEqualTo(started.attemptId());
         tx.executeWithoutResult(status -> {
+            // Prepare genuine partial evidence without disabling the new start-event FK.
+            sql.update("DELETE FROM attempt_start_binding WHERE attempt_id=UUID_TO_BIN(?)", started.attemptId().toString());
             sql.update("DELETE FROM attempt_trace_event WHERE attempt_id=UUID_TO_BIN(?)", started.attemptId().toString());
             sql.update("DELETE FROM attempt_trace_identity WHERE attempt_id=UUID_TO_BIN(?)", started.attemptId().toString());
             sql.update("DELETE FROM attempt_trace_stream WHERE attempt_id=UUID_TO_BIN(?)", started.attemptId().toString());

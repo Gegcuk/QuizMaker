@@ -39,12 +39,14 @@ public final class CanonicalPolicyFormat {
     private final JsonMapper mapper = JsonMapper.builder()
             .addModule(NavigationPolicyJson.module())
             .addModule(SelectionPolicyJson.module())
+            .addModule(AttemptLimitPolicyJson.module())
             .enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
             .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
             .build();
     private final JsonMapper reader = JsonMapper.builder()
             .addModule(NavigationPolicyJson.module())
             .addModule(SelectionPolicyJson.module())
+            .addModule(AttemptLimitPolicyJson.module())
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS,
                     DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES,
@@ -94,6 +96,10 @@ public final class CanonicalPolicyFormat {
                             && !e.getKey().equals("questionSelection.algorithmVersion"))
                     .anyMatch(e -> !new ValueSource(AUTHOR, 1).equals(e.getValue())))
                 throw new PolicySnapshotException(CORRUPT_SNAPSHOT);
+            if ((!envelope.policy().attempts().equals(new ResolvedAttemptPolicy.AttemptLimitPolicy(ResolvedAttemptPolicy.AttemptLimitMode.UNLIMITED)))
+                    && provenance.entrySet().stream().filter(e -> e.getKey().startsWith("attempts."))
+                    .anyMatch(e -> !new ValueSource(AUTHOR, 1).equals(e.getValue())))
+                throw new PolicySnapshotException(CORRUPT_SNAPSHOT);
             if (envelope.policy().submission().draftsEnabled()
                     && !new ValueSource(AUTHOR, 1).equals(provenance.get("submission.draftsEnabled")))
                 throw new PolicySnapshotException(CORRUPT_SNAPSHOT);
@@ -104,7 +110,7 @@ public final class CanonicalPolicyFormat {
             for (var entry : provenance.entrySet()) {
                 var source = entry.getValue();
                 boolean selectable = entry.getKey().equals("answerOrdering.mode") || entry.getKey().equals("hints.mode");
-                boolean draft = (entry.getKey().equals("delivery.mode") || entry.getKey().equals("submission.draftsEnabled") || entry.getKey().startsWith("navigation.") || entry.getKey().startsWith("questionSelection.")
+                boolean draft = (entry.getKey().equals("delivery.mode") || entry.getKey().equals("submission.draftsEnabled") || entry.getKey().startsWith("navigation.") || entry.getKey().startsWith("attempts.") || entry.getKey().startsWith("questionSelection.")
                         && !entry.getKey().equals("questionSelection.algorithmVersion"))
                         && source != null && source.source() == AUTHOR;
                 if (source == null || !(source.equals(defaults.get(entry.getKey())) || draft && source.version() == 1

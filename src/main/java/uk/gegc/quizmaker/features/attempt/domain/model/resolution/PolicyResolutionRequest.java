@@ -8,6 +8,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPol
 import uk.gegc.quizmaker.features.attempt.domain.model.preset.PresetReference;
 
 import java.util.List;
+import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.AttemptLimitPolicy;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.SelectionPolicy;
 import java.util.Set;
 
@@ -35,10 +36,10 @@ public record PolicyResolutionRequest(
     }
 
     public enum OverrideSource { AUTHOR, PARTICIPANT }
-    public enum Setting { ANSWER_ORDER, HINTS, DRAFTS, NAVIGATION, DELIVERY, SELECTION }
+    public enum Setting { ANSWER_ORDER, HINTS, DRAFTS, NAVIGATION, DELIVERY, SELECTION, ATTEMPT_LIMIT }
 
     /** Only explicit supported choices are representable, never arbitrary policy paths. */
-    public sealed interface Choice permits AnswerOrderChoice, HintChoice, DraftsChoice, NavigationChoice, DeliveryChoice, SelectionChoice {
+    public sealed interface Choice permits AnswerOrderChoice, HintChoice, DraftsChoice, NavigationChoice, DeliveryChoice, SelectionChoice, AttemptLimitChoice {
         Setting setting();
     }
 
@@ -73,8 +74,17 @@ public record PolicyResolutionRequest(
         @Override public Setting setting() { return Setting.SELECTION; }
     }
 
+    /** Verified author configuration, never a participant-supplied remaining allowance. */
+    public record AttemptLimitChoice(AttemptLimitPolicy value) implements Choice {
+        public AttemptLimitChoice { require(value != null, INVALID_INPUT); }
+        @Override public Setting setting() { return Setting.ATTEMPT_LIMIT; }
+    }
+
     /** Exact allowed values, not an implicit permission to enable every supported value. */
-    public record AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts, Set<NavigationPolicy> navigation, Set<DeliveryMode> delivery, Set<SelectionPolicy> selection) {
+    public record AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts, Set<NavigationPolicy> navigation, Set<DeliveryMode> delivery, Set<SelectionPolicy> selection, Set<AttemptLimitPolicy> attemptLimits) {
+        public AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts, Set<NavigationPolicy> navigation, Set<DeliveryMode> delivery, Set<SelectionPolicy> selection) {
+            this(answerOrders, hintModes, drafts, navigation, delivery, selection, Set.of());
+        }
         public AllowedChoices(Set<AnswerOrder> answerOrders, Set<HintMode> hintModes, Set<Boolean> drafts, Set<NavigationPolicy> navigation, Set<DeliveryMode> delivery) {
             this(answerOrders, hintModes, drafts, navigation, delivery, Set.of());
         }
@@ -88,15 +98,16 @@ public record PolicyResolutionRequest(
             this(answerOrders, hintModes, Set.of(), Set.of());
         }
         public AllowedChoices {
-            require(answerOrders != null && hintModes != null && drafts != null && navigation != null && delivery != null && selection != null, INVALID_INPUT);
+            require(answerOrders != null && hintModes != null && drafts != null && navigation != null && delivery != null && selection != null && attemptLimits != null, INVALID_INPUT);
             require(answerOrders.stream().allMatch(v -> v != null) && hintModes.stream().allMatch(v -> v != null)
-                    && drafts.stream().allMatch(v -> v != null) && navigation.stream().allMatch(v -> v != null) && delivery.stream().allMatch(v -> v != null) && selection.stream().allMatch(v -> v != null), INVALID_INPUT);
+                    && drafts.stream().allMatch(v -> v != null) && navigation.stream().allMatch(v -> v != null) && delivery.stream().allMatch(v -> v != null) && selection.stream().allMatch(v -> v != null) && attemptLimits.stream().allMatch(v -> v != null), INVALID_INPUT);
             answerOrders = Set.copyOf(answerOrders);
             hintModes = Set.copyOf(hintModes);
             drafts = Set.copyOf(drafts);
             navigation = Set.copyOf(navigation);
             delivery = Set.copyOf(delivery);
             selection = Set.copyOf(selection);
+            attemptLimits = Set.copyOf(attemptLimits);
         }
     }
 

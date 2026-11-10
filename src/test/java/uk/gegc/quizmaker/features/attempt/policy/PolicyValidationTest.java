@@ -182,6 +182,7 @@ class PolicyValidationTest {
                 // Only the historical FREE representation omits navigation rules.
                 if (!components[index].getType().isPrimitive()
                         && !(record instanceof NavigationPolicy && components[index].getName().equals("rules"))
+                        && !(record instanceof AttemptLimitPolicy && components[index].getName().equals("maximumAttempts"))
                         && !(record instanceof SelectionPolicy && Set.of("count", "percentageBasisPoints").contains(components[index].getName()))) {
                     arguments.add(Arguments.of(record, index, record.getClass().getSimpleName() + "." + components[index].getName()));
                 }
