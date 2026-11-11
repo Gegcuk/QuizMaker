@@ -485,7 +485,7 @@ class LegacyAnswerMembershipMySqlIntegrationTest extends BaseIntegrationTest {
                     executor.submit(() -> {
                         long peerStarted = System.nanoTime();
                         assertThat(httpAnswer(http, "REPEATABLE_READ")).isEqualTo(200);
-                        insertAdjacent(second, neighboring);
+                        insertAdjacentBatch(second, neighboring);
                         peerNanos.set(System.nanoTime() - peerStarted);
                     }).get(20, TimeUnit.SECONDS);
                 } finally { executor.shutdownNow(); assertThat(executor.awaitTermination(20, TimeUnit.SECONDS)).isTrue(); }
@@ -518,6 +518,23 @@ class LegacyAnswerMembershipMySqlIntegrationTest extends BaseIntegrationTest {
             for (int index = 0; index < ids.size(); index++)
                 inserts.update("INSERT INTO answers(id,attempt_id,question_id,response,is_correct,score,answered_at) VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),'{\"answer\":true}',1,1,CURRENT_TIMESTAMP)", ids.get(index).toString(), target.id().toString(), target.questions().get(index).toString());
         });
+    }
+
+    private void insertAdjacentBatch(Fixture target, List<UUID> ids) {
+        long started = System.nanoTime();
+        var source = new DriverManagerDataSource(url()
+                + "&sessionVariables=innodb_lock_wait_timeout=3&rewriteBatchedStatements=true", ADMIN_USER, ADMIN_PASSWORD);
+        var inserts = new JdbcTemplate(source);
+        // Keep every adjacent key and every production trigger; batch only the peer's SQL transport.
+        // The frozen boundary regression above still exercises individual INSERT statements.
+        new TransactionTemplate(new org.springframework.jdbc.datasource.DataSourceTransactionManager(source)).executeWithoutResult(status -> {
+            var rows = new ArrayList<Object[]>(ids.size());
+            for (int index = 0; index < ids.size(); index++)
+                rows.add(new Object[]{ids.get(index).toString(), target.id().toString(), target.questions().get(index).toString()});
+            inserts.batchUpdate("INSERT INTO answers(id,attempt_id,question_id,response,is_correct,score,answered_at) VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),'{\"answer\":true}',1,1,CURRENT_TIMESTAMP)", rows);
+        });
+        System.out.printf("PROJECTION_PEER_COMMITTED answers=%d elapsedMs=%d%n", ids.size(),
+                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
     }
 
     private List<UUID> adjacentIds(UUID attempt) {
