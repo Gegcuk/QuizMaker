@@ -369,12 +369,13 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
 
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch claimsCompleted = new CountDownLatch(2);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<QuizGenerationFinalizationClaim> first = executor.submit(() -> finalizeWhenClaimed(
-                    job.getId(), job.getDocumentId(), ready, start));
+                    job.getId(), job.getDocumentId(), ready, start, claimsCompleted));
             Future<QuizGenerationFinalizationClaim> second = executor.submit(() -> finalizeWhenClaimed(
-                    job.getId(), job.getDocumentId(), ready, start));
+                    job.getId(), job.getDocumentId(), ready, start, claimsCompleted));
             assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
             start.countDown();
 
@@ -721,13 +722,20 @@ class QuizGenerationEntitlementMySqlIntegrationTest {
             UUID generationJobId,
             UUID documentId,
             CountDownLatch ready,
-            CountDownLatch start
+            CountDownLatch start,
+            CountDownLatch claimsCompleted
     ) throws InterruptedException {
         ready.countDown();
         if (!start.await(5, TimeUnit.SECONDS)) {
             throw new IllegalStateException("Concurrent finalizer test did not start in time");
         }
         QuizGenerationFinalizationClaim claim = facade.claimQuizGenerationFinalization(generationJobId);
+        // Both real claim transactions must finish before the winner publishes. A start gate alone
+        // also permits a late claimant to observe ALREADY_FINALIZED instead of IN_PROGRESS.
+        claimsCompleted.countDown();
+        if (!claimsCompleted.await(5, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Concurrent finalizer claims did not complete in time");
+        }
         if (claim.shouldFinalize()) {
             facade.createQuizCollectionFromGeneratedQuestions(
                     generationJobId, Map.of(0, List.of(question())), request(documentId));
