@@ -478,7 +478,8 @@ class AutomaticResultMySqlIntegrationTest {
             assertThat(i.responseId()).isEqualTo(accepted.acceptedResponseId()); assertThat(i.earned()).isZero();
         });
     }
-    @Test void unknownScoringVersionAndMissingGradesFailClosed() {
+    @ParameterizedTest @ValueSource(ints={1,2})
+    void unknownScoringVersionAndMissingGradesFailClosed(int removedPosition) {
         var f=fixture(3,3,3);
         // Model a deployment lacking the retained scorer using the actual registry and JDBC
         // reader. Keep the committed contract and all foreign keys intact.
@@ -495,7 +496,8 @@ class AutomaticResultMySqlIntegrationTest {
                 e->assertThat(e.reason()).isEqualTo(AutomaticResultException.Reason.UNSUPPORTED));
         noResult(f);
         results.finalizeSubmission(f.submission());
-        tx.executeWithoutResult(s->sql.update("DELETE FROM attempt_automatic_grade LIMIT 1"));
+        // Exercise both a missing middle item and an incomplete final total deterministically.
+        tx.executeWithoutResult(s->assertThat(sql.update("DELETE FROM attempt_automatic_grade WHERE position=?",removedPosition)).isEqualTo(1));
         reject(f.submission(),AutomaticResultException.Reason.CORRUPT);
     }
     @Test void persistedResultNaturalUniquenessAndExactScoreConstraintsAreReal() {
