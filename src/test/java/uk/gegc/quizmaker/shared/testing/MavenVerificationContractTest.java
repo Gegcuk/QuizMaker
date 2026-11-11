@@ -74,6 +74,54 @@ class MavenVerificationContractTest {
     }
 
     @Test
+    @DisplayName("context profile isolates forks and merges coverage before the unchanged check")
+    void contextProfile_preservesCompleteVerification() throws Exception {
+        Element profile = findElementWithDirectChildText(readPom().getDocumentElement(), "profile", "id", "context-forks").orElseThrow();
+        Element contexts = findElementWithDirectChildText(profile, "execution", "id", "tests-context").orElseThrow();
+        assertThat(textOfDescendant(contexts, "forkCount")).isEqualTo("${context.workers}");
+        assertThat(textOfDescendant(contexts, "reuseForks")).isEqualTo("true");
+        assertThat(textOfDescendant(contexts, "excludedGroups")).isEqualTo("real-provider");
+        assertThat(textOfDescendant(contexts, "configurationParameters")).contains("junit.jupiter.execution.parallel.enabled=false");
+        assertThat(textOfDescendant(contexts, "TEST_MYSQL_PORT")).isEqualTo("3390${surefire.forkNumber}");
+        assertThat(textOfDescendant(contexts, "argLine")).contains("@{contextArgLine}", "-Dquizmaker.tests.context-fork=${surefire.forkNumber}");
+        assertThat(textOfDescendant(contexts, "excludesFile")).endsWith("/tools/testing/context-exclusive-excludes.txt");
+        Element exclusive = findElementWithDirectChildText(profile, "execution", "id", "tests-context-exclusive").orElseThrow();
+        assertThat(textOfDescendant(exclusive, "phase")).isEqualTo("test");
+        assertThat(contexts.compareDocumentPosition(exclusive) & Node.DOCUMENT_POSITION_FOLLOWING).isNotZero();
+        assertThat(textOfDescendant(exclusive, "includesFile")).endsWith("/tools/testing/context-exclusive-suites.txt");
+        assertThat(textOfDescendant(exclusive, "reportsDirectory")).endsWith("/surefire-reports/context-exclusive");
+        assertThat(textOfDescendant(exclusive, "forkCount")).isEqualTo("1");
+        assertThat(textOfDescendant(exclusive, "excludedGroups")).isEqualTo("real-provider");
+        assertThat(textOfDescendant(exclusive, "configurationParameters")).contains("junit.jupiter.execution.parallel.enabled=false");
+        assertThat(textOfDescendant(exclusive, "TEST_MYSQL_PORT")).isEqualTo("33901");
+        assertThat(textOfDescendant(exclusive, "argLine"))
+                .contains("@{contextExclusiveArgLine}", "-Dquizmaker.tests.context-fork=1", "-Dquizmaker.tests.exclusive-context=true");
+        Element exclusiveAgent = findElementWithDirectChildText(profile, "execution", "id", "prepare-exclusive-context-agent").orElseThrow();
+        assertThat(textOfDescendant(exclusiveAgent, "propertyName")).isEqualTo("contextExclusiveArgLine");
+        assertThat(textOfDescendant(exclusiveAgent, "destFile")).endsWith("/jacoco-context/exclusive.exec");
+        Element fast = findElementWithDirectChildText(profile, "execution", "id", "tests-parallel").orElseThrow();
+        assertThat(textOfDescendant(fast, "excludesFile")).endsWith("/tools/testing/context-excludes.txt");
+        Element serial = findElementWithDirectChildText(profile, "execution", "id", "tests-db-serial").orElseThrow();
+        assertThat(textOfDescendant(serial, "phase")).isEqualTo("none");
+        Element merge = findElementWithDirectChildText(profile, "execution", "id", "merge-context-coverage").orElseThrow();
+        Element report = findElementWithDirectChildText(profile, "execution", "id", "report-context-coverage").orElseThrow();
+        assertThat(textOfDescendant(merge, "phase")).isEqualTo("prepare-package");
+        assertThat(textOfDescendant(report, "phase")).isEqualTo("prepare-package");
+        assertThat(merge.getTextContent()).contains("jacoco-context/*.exec");
+        Element requiredCoverage = findElementWithDirectChildText(profile, "execution", "id", "require-merged-coverage").orElseThrow();
+        assertThat(requiredCoverage.getTextContent()).contains("/jacoco-context/exclusive.exec");
+        assertThat(merge.compareDocumentPosition(report) & Node.DOCUMENT_POSITION_FOLLOWING).isNotZero();
+        Element check = findElementWithDirectChildText(profile, "execution", "id", "check").orElseThrow();
+        assertThat(textOfDescendant(check, "dataFile")).endsWith("/jacoco-merged.exec");
+        String workflow = Files.readString(projectDirectory().resolve(".github/workflows/ci.yml"));
+        assertThat(workflow).contains("CONTEXT_TEST_WORKERS:", "vars.CONTEXT_TEST_WORKERS || '0'",
+                "Validate complete context evidence", "Clean up isolated context databases", "--scope full",
+                "target/context-exclusive-worker/**");
+        assertThat(workflow.indexOf("Validate complete context evidence"))
+                .isLessThan(workflow.indexOf("Upload tested backend artifact"));
+    }
+
+    @Test
     @DisplayName("live provider profile explicitly opts into provider calls")
     void liveProviderProfile_enablesOnlyTheDedicatedSerialExecution() throws Exception {
         Document pom = readPom();

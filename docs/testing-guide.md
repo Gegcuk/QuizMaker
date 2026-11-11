@@ -480,3 +480,157 @@ that removing the repository's transactional proxy cannot permit autonomous JDBC
 
 No public canonical-start endpoint is added; the full verification suite retains legacy HTTP,
 participant-view, security and OpenAPI compatibility coverage. Run `./mvnw verify` before handoff.
+
+## Isolated context workers (#897)
+
+The optional `context-forks` profile distributes active Spring-context suites and
+standalone database companions across reusable JVMs. Each pool JVM has its own MySQL server
+on loopback port `33901`–`33904`. Classes remain sequential inside that JVM; threads and
+transactions created by individual concurrency tests are unchanged. The default Maven
+commands still use the existing fast and shared-database serial executions.
+
+One resource-sensitive suite, `LegacyAnswerMembershipMySqlIntegrationTest`, runs in a
+separate JVM after the pool finishes, reusing the first isolated MySQL server. The pool
+contains 242 suites; the exclusive execution retains all 38 scenarios, including concurrent
+participants, the 2,048-answer fixture, rollback checks, and original timeouts. This avoids
+other suites competing for CPU during the large write-cost scenario: on a four-worker CI
+run the independent writer committed successfully in 33.6 seconds but exceeded the test's
+20-second wait. This scheduling exception does not serialize the test's own participants.
+
+Within the opt-in profile, `ContextDatabaseLifecycle` closes cached JPA contexts after
+each top-level suite, after transaction cleanup. A cached context must not survive while
+a different create-drop context deletes its schema. Nested tests finish before this cleanup;
+MVC contexts without JPA and the ordinary Maven execution retain their existing lifecycle.
+
+`tools/testing/context-test-manifest.json` records context suites, database companions,
+existing exclusions, and classes outside Surefire's default naming patterns. Its active
+selection is mirrored by `context-suites.txt` for Surefire. `context-excludes.txt` excludes
+both enclosing and nested discovery roots from the fast execution. `ContextTestManifestTest`
+reconciles all lists against compiled inherited/meta/nested annotations and programmatic
+contexts. Update the lists when adding or renaming a context/database suite. Ordinary
+unit tests continue to enter the default selection automatically. Excluded provider suites
+and the two existing `*IT` discovery gaps are not enabled by this profile.
+
+The manifest's `exclusive_contexts` subset is mirrored by `context-exclusive-suites.txt`
+and `context-exclusive-excludes.txt`: the selected classes run only after the pool.
+Separate reports, assignment records, and `jacoco-context/exclusive.exec` are mandatory;
+the evidence gate rejects missing or overlapping assignments and missing coverage.
+
+Read `BaseIntegrationTest`, `DatabaseTestExecutionTagTest`, and
+`MavenVerificationContractTest` before changing test isolation. Do not remove transaction
+annotations, cleanup, or `@DirtiesContext` to improve timings. For example, a change to
+Anna's attempt completion must still prove that Boris can write independently, that old
+REPEATABLE_READ reads are correct, and that a caller rollback undoes every write.
+
+### Local commands
+
+Prerequisites: JDK 17 in `JAVA_HOME`, Python 3, Docker, a locally available MySQL 8.4 image,
+and cached Maven dependencies. Dependency/image preparation happens before offline testing.
+The local execution launcher currently uses macOS `sandbox-exec` to deny external networking;
+Linux CI uses the existing network namespace. The `prepare`, `check`, and `cleanup` commands
+are platform-independent. The launcher uses checked-in fake environment values, never the
+caller's provider credentials. Set no production connection overrides.
+
+Run from the primary checkout root:
+
+```bash
+python3 -B -m unittest discover -s tools/testing -p 'test_*.py' -v
+python3 tools/testing/context_benchmark.py inventory --check
+python3 tools/testing/context_benchmark.py compare --scope contexts --workers 1,2,4 \
+  --repeat-selected 1 --output /tmp/quizmaker-context-comparison
+python3 tools/testing/context_benchmark.py verify --workers 1 --serial \
+  --output /tmp/quizmaker-full-baseline
+python3 tools/testing/context_benchmark.py compare --scope full --workers 1,2,4 \
+  --repeat-selected 1 --output /tmp/quizmaker-full-comparison
+```
+
+Use a fresh output directory for every invocation. `compare --scope contexts` compiles once
+and measures identical compiled tests; it is a scoped benchmark, not a release gate.
+`verify` and `compare --scope full` execute complete `clean verify` runs. With the profile,
+Maven runs the ordinary unit selection once, then the isolated context/database pool,
+then the exclusive suite, merges coverage from every execution, and performs the existing
+coverage checks and packaging.
+The launcher additionally validates executed suites, unique server identities, and coverage
+files before reporting success. Logs and resource ownership records survive `clean` outside
+`target` and are copied to the selected output even when a run fails.
+
+Use ordinary `./mvnw test -Dtest=...` for focused feature feedback. Do not combine `-Dtest`
+with `context-forks`: Surefire selectors override include/exclude files and could execute
+classes twice. The profile rejects this combination and the manual live-provider profile.
+Worker counts are restricted to 1, 2, or 4. Provision independent servers before invoking the
+profile directly; `-DforkCount=4` against a shared database is unsafe.
+
+The local launcher records separate database setup, Maven execution, and total durations,
+exact test identities, source/bytecode identity, and coverage differences. Class timings and
+nested-container timings must not be summed as wall-clock time. Compare the same tree and
+hardware with JaCoCo enabled. Missing covered lines or branch differences require investigation;
+matching totals alone is insufficient. Choose two workers when four exhaust memory or run
+slower. No automatic retries or relaxed checks compensate for resource shortages.
+
+### Local measurements, 11 November 2026
+
+Four full `clean verify` runs of this profile, based on `5450e297`, used identical source
+and compiled application bytecode. Each run executed the same 9,575 test-case identifiers:
+6,131 in the ordinary unit execution and 3,444 in the 243-suite context/database pool.
+Every run passed with zero failures, errors, or skips; merged coverage checks and packaging
+also passed. These measurements compare this profile at different worker counts, not the
+ordinary no-profile execution or a GitHub runner.
+
+| Workers | Complete Maven execution | Including database setup and evidence checks |
+|---|---:|---:|
+| 1 | 23:05.92 | 23:14.80 |
+| 2 | 14:33.02 | 14:43.76 |
+| 4 | 11:33.10 | 11:45.02 |
+| 4, repeat with fresh databases | 11:26.84 | 11:38.34 |
+
+Four workers reduced the full Maven duration by approximately 50%; two reduced it by 37%.
+The total column excludes artifact copying and final resource cleanup. All 11 MySQL
+instances had distinct server identities and were removed after their runs. The existing
+development MySQL remained running. The launcher/CI helpers also passed 37 Python tests.
+
+Environment: macOS, 10 host CPUs / 32 GiB RAM, JDK 17, JVM `-Xms256m -Xmx2g`,
+Docker with 10 CPUs / 7.75 GiB, and MySQL 8.4.11 with 128 MiB buffer pools and server
+REPEATABLE_READ. Every run resolved the same local MySQL image. A single observation during
+the four-worker run showed approximately 3.4 GiB JVM RSS plus 2.6 GiB MySQL memory; this is
+not a peak measurement and excludes Maven and other processes.
+
+No source lines covered by the one-worker baseline were lost. Coverage was not bit-for-bit
+identical: per-execution JaCoCo probes localized three scheduling-dependent differences to
+the unchanged ordinary unit execution (`GenerationWorkDispatcherImpl:48`,
+`ParentProcessMonitor:23,25,29`, and `AiQuizGenerationServiceImpl:223`). The repeated run
+missed one baseline branch in the cancellation short-circuit, while all cancellation test
+identifiers and assertions remained present. An additional admission-guard branch appeared
+at `GenerationWorkServiceImpl:161` in the context execution. These variations are not newly
+guaranteed coverage and must not be hidden by comparing rounded percentages alone.
+
+On this machine, use the measured four-worker mode for a complete gate:
+
+```bash
+python3 tools/testing/context_benchmark.py verify --workers 4 \
+  --output /tmp/quizmaker-full-verify
+```
+
+Choose a new output path for each run; use two workers on a more constrained machine until
+measurements support four. Focused feature feedback still uses ordinary scoped tests.
+
+### CI rollout and recovery
+
+CI retains the serial baseline by default (`CONTEXT_TEST_WORKERS=0`). The workflow's manual
+`context_workers` input supports 0/1/2/4 for measurements on the actual GitHub runner. A manual
+run never publishes a deployment artifact. After repeated full-run evidence demonstrates an
+improvement without lost tests/coverage, the repository variable `CONTEXT_TEST_WORKERS` may
+select the measured 1/2/4 configuration for ordinary PR and post-merge runs. Do not infer that
+four local workers are optimal on a smaller CI machine.
+
+The accelerated CI path provisions independent MySQL instances, bridges only their loopback
+ports into the offline namespace, runs one full Maven `clean verify`, and validates context
+evidence before uploading the tested JAR. Required checks, migration smoke, post-merge
+verification, and deployment's exact successful-run/SHA artifact binding remain unchanged.
+`context-verification` artifacts include assignments, server identities, reports, coverage,
+resource ownership/cleanup evidence, and the verification log.
+
+To revert the optimization, set `CONTEXT_TEST_WORKERS` to `0` and use the ordinary full Maven
+command locally. No application-data rollback is involved. If cleanup cannot reach Docker,
+restore Docker and run `cleanup --output <run-resource-directory>` against the preserved
+`resources.json`; it validates names and ownership labels before removing only that run's
+containers and anonymous volumes. Never use a global prune for recovery.

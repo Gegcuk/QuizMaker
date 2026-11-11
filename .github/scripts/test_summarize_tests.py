@@ -18,6 +18,15 @@ def plugin(milliseconds, execution):
 
 
 class TestSummaryTest(unittest.TestCase):
+    def test_context_execution_has_its_own_complete_or_partial_result(self):
+        for execution in ("tests-context", "tests-context-exclusive"):
+            with self.subTest(execution=execution):
+                report = summarize([plugin(1000, execution),
+                                    log_line(5000, "Tests run: 40, Failures: 0, Errors: 0, Skipped: 0"),
+                                    log_line(6000, "BUILD SUCCESS")])
+                self.assertIn(f"| {execution} | 5.000 | 40 | 0 | 0 | 0 | reported |", report)
+                self.assertIn(f"| {execution} | >= 0.000 |", summarize([plugin(1000, execution)]))
+
     def test_two_executions_use_wall_intervals_not_sum_of_parallel_suites(self):
         report = summarize([
             plugin(1000, "tests-parallel"),

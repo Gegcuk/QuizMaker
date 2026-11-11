@@ -5,6 +5,13 @@ on:
     branches: [ master, main ]
   pull_request:
     branches: [ master, main ]
+  workflow_dispatch:
+    inputs:
+      context_workers:
+        description: 'Isolated context workers (0 keeps the existing serial baseline)'
+        type: choice
+        default: '0'
+        options: ['0', '1', '2', '4']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
@@ -44,6 +51,8 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
+      # Keep the baseline until repeated measurements on this runner justify opting in.
+      CONTEXT_TEST_WORKERS: ${{ inputs.context_workers || vars.CONTEXT_TEST_WORKERS || '0' }}
       # Fixed fake provider credentials prove that nonblank values cannot opt CI into live calls.
       OPENAI_API_KEY: 'sk-ci-offline-not-real'
       OPENAI_MODEL: 'disabled'
@@ -115,7 +124,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Verify CI helper scripts
-        run: python3 -B -m unittest discover -s .github/scripts -p 'test_*.py' -v
+        run: |
+          python3 -B -m unittest discover -s .github/scripts -p 'test_*.py' -v
+          python3 -B -m unittest discover -s tools/testing -p 'test_*.py' -v
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -391,6 +402,12 @@ jobs:
           echo "Checking if application-test-mysql.properties exists:"
           ls -la src/test/resources/application-test-mysql.properties || echo "⚠️ application-test-mysql.properties not found"
 
+      - name: Prepare isolated context databases
+        if: env.CONTEXT_TEST_WORKERS != '0'
+        run: |
+          python3 tools/testing/context_benchmark.py prepare --workers "$CONTEXT_TEST_WORKERS" \
+            --output "${RUNNER_TEMP}/context-resources"
+
       - name: Verify backend offline release gate
         run: |
           set -Eeuo pipefail
@@ -401,6 +418,8 @@ jobs:
           HOST_VETH="qm-offline-h"
           TEST_VETH="qm-offline-n"
           HOST_PROXY_PID=""
+          CONTEXT_PROXY_PIDS=()
+          MAVEN_CONTEXT_ARGS=()
           VERIFICATION_LOG="${RUNNER_TEMP}/quizmaker-verify.log"
 
           cleanup_offline_network() {
@@ -416,6 +435,9 @@ jobs:
             if [ -n "$HOST_PROXY_PID" ]; then
               kill "$HOST_PROXY_PID" 2>/dev/null || true
             fi
+            for PID in "${CONTEXT_PROXY_PIDS[@]}"; do
+              kill "$PID" 2>/dev/null || true
+            done
             sudo ip link delete "$HOST_VETH" 2>/dev/null || true
             exit "$EXIT_CODE"
           }
@@ -456,6 +478,19 @@ jobs:
             exit 1
           fi
 
+          if [ "$CONTEXT_TEST_WORKERS" != 0 ]; then
+            case "$CONTEXT_TEST_WORKERS" in 1|2|4) ;; *) exit 1 ;; esac
+            MAVEN_CONTEXT_ARGS=(-Pcontext-forks "-Dcontext.workers=$CONTEXT_TEST_WORKERS")
+            for ((WORKER=1; WORKER<=CONTEXT_TEST_WORKERS; WORKER++)); do
+              PORT=$((33900 + WORKER))
+              PROXY_PORT=$((13900 + WORKER))
+              socat "TCP4-LISTEN:${PROXY_PORT},bind=10.203.0.1,reuseaddr,fork" "TCP4:127.0.0.1:${PORT}" &
+              CONTEXT_PROXY_PIDS+=("$!")
+              sudo ip netns exec "$NETNS" \
+                socat "TCP4-LISTEN:${PORT},bind=127.0.0.1,reuseaddr,fork" "TCP4:10.203.0.1:${PROXY_PORT}" &
+            done
+          fi
+
           # This is the canonical release gate: no external route, Maven offline,
           # clean compilation, both Surefire lanes, JaCoCo check, and package.
           set +e
@@ -465,6 +500,7 @@ jobs:
             runuser --user "$USER" -- \
             python3 .github/scripts/run_with_ci_environment.py \
             ./mvnw -o -B -T 1C -DskipTests=false clean verify \
+            ${MAVEN_CONTEXT_ARGS[@]+"${MAVEN_CONTEXT_ARGS[@]}"} \
             -Dorg.slf4j.simpleLogger.showDateTime=true \
             < <(env -0) 2>&1 | tee "$VERIFICATION_LOG"
           TEST_EXIT_CODE=${PIPESTATUS[0]}
@@ -521,6 +557,20 @@ jobs:
           exit $TEST_EXIT_CODE
         continue-on-error: false
 
+      - name: Validate complete context evidence
+        if: env.CONTEXT_TEST_WORKERS != '0'
+        run: |
+          python3 tools/testing/context_benchmark.py check --workers "$CONTEXT_TEST_WORKERS" \
+            --scope full --output target/context-evidence \
+            --verification-log "${RUNNER_TEMP}/quizmaker-verify.log"
+
+      - name: Clean up isolated context databases
+        if: always() && env.CONTEXT_TEST_WORKERS != '0'
+        run: |
+          if [ -f "${RUNNER_TEMP}/context-resources/resources.json" ]; then
+            python3 tools/testing/context_benchmark.py cleanup --output "${RUNNER_TEMP}/context-resources"
+          fi
+
       - name: Publish test timing summary
         if: ${{ always() && !cancelled() }}
         continue-on-error: true
@@ -536,6 +586,23 @@ jobs:
           path: target/QuizMaker-*.jar
           if-no-files-found: error
           retention-days: 1
+
+      - name: Upload context verification evidence
+        if: always() && env.CONTEXT_TEST_WORKERS != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: context-verification
+          path: |
+            target/context-evidence/**
+            target/context-workers/**
+            target/context-exclusive-worker/**
+            target/jacoco-context/**
+            target/jacoco-merged.exec
+            target/site/jacoco/**
+            target/surefire-reports/**
+            ${{ runner.temp }}/context-resources/**
+            ${{ runner.temp }}/quizmaker-verify.log
+          retention-days: 7
 
       - name: Show root cause errors
         if: failure()

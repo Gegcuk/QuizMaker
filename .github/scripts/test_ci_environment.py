@@ -115,7 +115,7 @@ class CiEnvironmentTest(unittest.TestCase):
             lines = verification_script().splitlines()
             start = next(index for index, line in enumerate(lines) if 'runuser --user "$USER"' in line) - 1
             end = next(index for index in range(start, len(lines)) if lines[index] == "set -e")
-            command = "set -Eeuo pipefail\nset +e\n" + "\n".join(lines[start:end+1]) + '\nexit "$TEST_EXIT_CODE"\n'
+            command = "set -Eeuo pipefail\nMAVEN_CONTEXT_ARGS=()\nset +e\n" + "\n".join(lines[start:end+1]) + '\nexit "$TEST_EXIT_CODE"\n'
             result = subprocess.run(["bash", "-c", command], cwd=root, env=environment, capture_output=True, text=True)
             return result, environment
 

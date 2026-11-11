@@ -122,7 +122,10 @@ class LegacyAnswerUniquenessMySqlIntegrationTest {
     void measureProjectionMigrationAndStoredSizeWithoutRegrading(int count) {
         try (var schema = new OwnedSchema()) {
             UUID parent = schema.attempt(); schema.attempt();
-            for (int index = 0; index < count; index++) schema.answer(parent, schema.question(), true);
+            // Reuse one connection for bulk fixture setup; commit before Flyway opens its own connections.
+            new TransactionTemplate(schema.manager).executeWithoutResult(status -> {
+                for (int index = 0; index < count; index++) schema.answer(parent, schema.question(), true);
+            });
             long started = System.nanoTime(); schema.migrate();
             long elapsed = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-started);
             var facts = new uk.gegc.quizmaker.features.attempt.infra.repository.JsonCurrentAnswerRepository(new com.fasterxml.jackson.databind.ObjectMapper())
