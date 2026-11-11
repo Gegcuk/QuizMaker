@@ -20,7 +20,8 @@ public final class ContextWorkerEvidence implements BeforeAllCallback {
         if (fork == null) return;
         if (!fork.matches("[1-4]") || !("3390" + fork).equals(System.getenv("TEST_MYSQL_PORT")))
             throw new IllegalStateException("Context fork " + fork + " is not using its isolated MySQL port: " + System.getenv("TEST_MYSQL_PORT"));
-        Path directory = Path.of("target/context-workers");
+        Path directory = Path.of(Boolean.getBoolean("quizmaker.tests.exclusive-context")
+                ? "target/context-exclusive-worker" : "target/context-workers");
         Files.createDirectories(directory);
         if (!recorded) {
             try (var connection = DriverManager.getConnection("jdbc:mysql://127.0.0.1:3390" + fork

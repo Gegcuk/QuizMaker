@@ -483,11 +483,19 @@ participant-view, security and OpenAPI compatibility coverage. Run `./mvnw verif
 
 ## Isolated context workers (#897)
 
-The optional `context-forks` profile distributes all active Spring-context suites and
-standalone database companions across reusable JVMs. Each JVM has its own MySQL server
+The optional `context-forks` profile distributes active Spring-context suites and
+standalone database companions across reusable JVMs. Each pool JVM has its own MySQL server
 on loopback port `33901`–`33904`. Classes remain sequential inside that JVM; threads and
 transactions created by individual concurrency tests are unchanged. The default Maven
 commands still use the existing fast and shared-database serial executions.
+
+One resource-sensitive suite, `LegacyAnswerMembershipMySqlIntegrationTest`, runs in a
+separate JVM after the pool finishes, reusing the first isolated MySQL server. The pool
+contains 242 suites; the exclusive execution retains all 38 scenarios, including concurrent
+participants, the 2,048-answer fixture, rollback checks, and original timeouts. This avoids
+other suites competing for CPU during the large write-cost scenario: on a four-worker CI
+run the independent writer committed successfully in 33.6 seconds but exceeded the test's
+20-second wait. This scheduling exception does not serialize the test's own participants.
 
 Within the opt-in profile, `ContextDatabaseLifecycle` closes cached JPA contexts after
 each top-level suite, after transaction cleanup. A cached context must not survive while
@@ -502,6 +510,11 @@ reconciles all lists against compiled inherited/meta/nested annotations and prog
 contexts. Update the lists when adding or renaming a context/database suite. Ordinary
 unit tests continue to enter the default selection automatically. Excluded provider suites
 and the two existing `*IT` discovery gaps are not enabled by this profile.
+
+The manifest's `exclusive_contexts` subset is mirrored by `context-exclusive-suites.txt`
+and `context-exclusive-excludes.txt`: the selected classes run only after the pool.
+Separate reports, assignment records, and `jacoco-context/exclusive.exec` are mandatory;
+the evidence gate rejects missing or overlapping assignments and missing coverage.
 
 Read `BaseIntegrationTest`, `DatabaseTestExecutionTagTest`, and
 `MavenVerificationContractTest` before changing test isolation. Do not remove transaction
@@ -535,7 +548,8 @@ Use a fresh output directory for every invocation. `compare --scope contexts` co
 and measures identical compiled tests; it is a scoped benchmark, not a release gate.
 `verify` and `compare --scope full` execute complete `clean verify` runs. With the profile,
 Maven runs the ordinary unit selection once, then the isolated context/database pool,
-merges per-fork coverage, and performs the existing coverage checks and packaging.
+then the exclusive suite, merges coverage from every execution, and performs the existing
+coverage checks and packaging.
 The launcher additionally validates executed suites, unique server identities, and coverage
 files before reporting success. Logs and resource ownership records survive `clean` outside
 `target` and are copied to the selected output even when a run fails.

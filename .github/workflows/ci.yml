@@ -595,6 +595,7 @@ jobs:
           path: |
             target/context-evidence/**
             target/context-workers/**
+            target/context-exclusive-worker/**
             target/jacoco-context/**
             target/jacoco-merged.exec
             target/site/jacoco/**

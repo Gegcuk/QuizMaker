@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 
 
-LANES = ("tests-parallel", "tests-db-serial", "tests-context")
+LANES = ("tests-parallel", "tests-db-serial", "tests-context", "tests-context-exclusive")
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 MESSAGE = re.compile(r"^\s*(\d+)\s+\[(?:INFO|WARNING|WARN|ERROR)\]\s+(.*)$")
 PLUGIN = re.compile(r"^--- .* \(([^)]+)\) @ .* ---$")

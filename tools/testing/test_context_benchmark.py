@@ -137,13 +137,56 @@ class RunnerTest(unittest.TestCase):
             bench.write_json(workers / f'worker-{index}.json', {'server_uuid': 'shared', 'isolation': 'REPEATABLE-READ'})
             (workers / f'worker-{index}.classes').write_text(name + '\n')
             (target / f'jacoco-context/{index}.exec').write_bytes(b'fixture-data')
-        data = {'contexts': ['example.A', 'example.B'], 'database_companions': [], 'excluded': [], 'not_discovered': []}
+        data = {'contexts': ['example.A', 'example.B'], 'exclusive_contexts': [],
+                'database_companions': [], 'excluded': [], 'not_discovered': []}
         result = {'suites': ['example.A', 'example.B']}
         with patch.object(bench, 'inventory', return_value=data), patch.object(bench, 'reports', return_value=result):
             with self.assertRaisesRegex(ValueError, 'share a database'):
                 bench.check_evidence(2, 'contexts', target=target)
             bench.write_json(workers / 'worker-2.json', {'server_uuid': 'independent', 'isolation': 'REPEATABLE-READ'})
             (target / 'jacoco-context/2.exec').unlink()
+            with self.assertRaises(OSError):
+                bench.check_evidence(2, 'contexts', target=target)
+
+    def test_exclusive_suite_requires_complete_separate_assignment_and_coverage(self):
+        target = self.root / 'target'
+        for name in ('context-workers', 'context-exclusive-worker', 'jacoco-context', 'site/jacoco'):
+            (target / name).mkdir(parents=True)
+        (target / 'site/jacoco/jacoco.xml').write_text('<report/>')
+        for index, name in enumerate(('example.A', 'example.B'), 1):
+            bench.write_json(target / f'context-workers/worker-{index}.json',
+                             {'server_uuid': f'server-{index}', 'isolation': 'REPEATABLE-READ'})
+            (target / f'context-workers/worker-{index}.classes').write_text(name + '\n')
+            (target / f'jacoco-context/{index}.exec').write_bytes(b'fixture-data')
+        exclusive = target / 'context-exclusive-worker'
+        evidence = {'server_uuid': 'server-1', 'isolation': 'REPEATABLE-READ'}
+        bench.write_json(exclusive / 'worker-1.json', evidence)
+        (exclusive / 'worker-1.classes').write_text('example.C\n')
+        coverage = target / 'jacoco-context/exclusive.exec'
+        coverage.write_bytes(b'fixture-data')
+        data = {'contexts': ['example.A', 'example.B', 'example.C'], 'exclusive_contexts': ['example.C'],
+                'database_companions': [], 'excluded': [], 'not_discovered': []}
+        result = {'suites': data['contexts']}
+        with patch.object(bench, 'inventory', return_value=data), patch.object(bench, 'reports', return_value=result):
+            bench.check_evidence(2, 'contexts', target=target)
+            for classes in ('', 'example.A\n', 'example.C\nexample.A\n'):
+                (exclusive / 'worker-1.classes').write_text(classes)
+                with self.subTest(classes=classes), self.assertRaisesRegex(ValueError, 'exclusive suite assignment'):
+                    bench.check_evidence(2, 'contexts', target=target)
+            (exclusive / 'worker-1.classes').write_text('example.C\n')
+            for changes in ({'server_uuid': 'server-2'}, {'isolation': 'READ-COMMITTED'}):
+                bench.write_json(exclusive / 'worker-1.json', dict(evidence, **changes))
+                with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, 'first isolated server'):
+                    bench.check_evidence(2, 'contexts', target=target)
+            bench.write_json(exclusive / 'worker-1.json', evidence)
+            (target / 'context-workers/worker-1.classes').write_text('example.A\nexample.C\n')
+            with self.assertRaisesRegex(ValueError, 'expected inventory'):
+                bench.check_evidence(2, 'contexts', target=target)
+            (target / 'context-workers/worker-1.classes').write_text('example.A\n')
+            coverage.write_bytes(b'')
+            with self.assertRaisesRegex(ValueError, 'Exclusive coverage'):
+                bench.check_evidence(2, 'contexts', target=target)
+            coverage.unlink()
             with self.assertRaises(OSError):
                 bench.check_evidence(2, 'contexts', target=target)
 

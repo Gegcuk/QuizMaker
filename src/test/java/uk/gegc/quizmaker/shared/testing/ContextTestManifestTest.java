@@ -73,6 +73,15 @@ class ContextTestManifestTest {
                 .filter(s -> !s.isBlank() && !s.startsWith("#")).toList();
         assertThat(exclusions).containsExactlyElementsOf(selected.stream().flatMap(n ->
                 java.util.stream.Stream.of(n.replace('.', '/') + ".java", n.replace('.', '/') + "$*.java")).toList());
+        List<String> exclusive = new ArrayList<>();
+        manifest.required("exclusive_contexts").forEach(n -> exclusive.add(n.asText()));
+        assertThat(exclusive).isNotEmpty().doesNotHaveDuplicates();
+        assertThat(contexts).containsAll(exclusive);
+        assertThat(Files.readAllLines(ROOT.resolve("tools/testing/context-exclusive-suites.txt")))
+                .containsExactlyElementsOf(exclusive.stream().sorted().map(n -> n.replace('.', '/') + ".java").toList());
+        assertThat(Files.readAllLines(ROOT.resolve("tools/testing/context-exclusive-excludes.txt")))
+                .containsExactlyElementsOf(exclusive.stream().sorted().flatMap(n ->
+                        java.util.stream.Stream.of(n.replace('.', '/') + ".java", n.replace('.', '/') + "$*.java")).toList());
     }
 
     private static void assertSection(JsonNode manifest, String key, Set<String> expected) {

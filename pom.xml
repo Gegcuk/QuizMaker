@@ -586,6 +586,7 @@
                                         <file>${project.build.directory}/jacoco.exec</file>
                                         <file>${project.build.directory}/jacoco-context/1.exec</file>
                                         <file>${project.build.directory}/jacoco-context/${context.workers}.exec</file>
+                                        <file>${project.build.directory}/jacoco-context/exclusive.exec</file>
                                         <file>${project.build.directory}/jacoco-merged.exec</file>
                                     </files></requireFilesExist></rules>
                                 </configuration>
@@ -610,6 +611,7 @@
                                 <goals><goal>test</goal></goals>
                                 <configuration>
                                     <includesFile>${context.includesFile}</includesFile>
+                                    <excludesFile>${project.basedir}/tools/testing/context-exclusive-excludes.txt</excludesFile>
                                     <reportsDirectory>${project.build.directory}/surefire-reports/context</reportsDirectory>
                                     <excludedGroups>real-provider</excludedGroups>
                                     <failIfNoTests>true</failIfNoTests>
@@ -620,6 +622,29 @@
                                     <environmentVariables>
                                         <TEST_MYSQL_PORT>3390${surefire.forkNumber}</TEST_MYSQL_PORT>
                                     </environmentVariables>
+                                    <systemPropertyVariables>
+                                        <quizmaker.tests.live-provider>false</quizmaker.tests.live-provider>
+                                    </systemPropertyVariables>
+                                    <properties><configurationParameters>
+                                        junit.jupiter.execution.parallel.enabled=false
+                                        junit.jupiter.extensions.autodetection.enabled=true
+                                    </configurationParameters></properties>
+                                </configuration>
+                            </execution>
+                            <!-- Keep the large write-cost fixture off competing workers without relaxing its timeouts. -->
+                            <execution>
+                                <id>tests-context-exclusive</id>
+                                <phase>test</phase>
+                                <goals><goal>test</goal></goals>
+                                <configuration>
+                                    <includesFile>${project.basedir}/tools/testing/context-exclusive-suites.txt</includesFile>
+                                    <reportsDirectory>${project.build.directory}/surefire-reports/context-exclusive</reportsDirectory>
+                                    <excludedGroups>real-provider</excludedGroups>
+                                    <failIfNoTests>true</failIfNoTests>
+                                    <forkCount>1</forkCount>
+                                    <reuseForks>true</reuseForks>
+                                    <argLine>@{contextExclusiveArgLine} -Dquizmaker.tests.context-fork=1 -Dquizmaker.tests.exclusive-context=true -Djdk.attach.allowAttachSelf=true -javaagent:${project.build.directory}/byte-buddy-agent.jar</argLine>
+                                    <environmentVariables><TEST_MYSQL_PORT>33901</TEST_MYSQL_PORT></environmentVariables>
                                     <systemPropertyVariables>
                                         <quizmaker.tests.live-provider>false</quizmaker.tests.live-provider>
                                     </systemPropertyVariables>
@@ -642,6 +667,14 @@
                                 <configuration>
                                     <propertyName>contextArgLine</propertyName>
                                     <destFile>${project.build.directory}/jacoco-context/${surefire.forkNumber}.exec</destFile>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>prepare-exclusive-context-agent</id>
+                                <goals><goal>prepare-agent</goal></goals>
+                                <configuration>
+                                    <propertyName>contextExclusiveArgLine</propertyName>
+                                    <destFile>${project.build.directory}/jacoco-context/exclusive.exec</destFile>
                                 </configuration>
                             </execution>
                             <execution>

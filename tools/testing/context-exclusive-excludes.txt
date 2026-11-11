@@ -1,0 +1,2 @@
+uk/gegc/quizmaker/features/attempt/application/impl/LegacyAnswerMembershipMySqlIntegrationTest.java
+uk/gegc/quizmaker/features/attempt/application/impl/LegacyAnswerMembershipMySqlIntegrationTest$*.java

@@ -1,6 +1,9 @@
 {
   "version": 1,
   "source_commit": "5450e2972ea85ad3d302c42270bc5b99ed95fec7",
+  "exclusive_contexts": [
+    "uk.gegc.quizmaker.features.attempt.application.impl.LegacyAnswerMembershipMySqlIntegrationTest"
+  ],
   "contexts": [
     "uk.gegc.quizmaker.QuizMakerApplicationTests",
     "uk.gegc.quizmaker.QuizMakerDataSourceTest",

@@ -56,6 +56,15 @@ def inventory():
                 if line and not line.startswith('#')]
     if excludes != [name.replace('.', '/') + suffix for name in selected for suffix in ('.java', '$*.java')]:
         raise ValueError('context-excludes.txt must exclude enclosing and nested discovery roots')
+    exclusive = data['exclusive_contexts']
+    if not exclusive or len(exclusive) != len(set(exclusive)) or not set(exclusive) <= set(data['contexts']):
+        raise ValueError('Exclusive suites must be a nonempty, unique subset of context suites')
+    for filename, suffixes in (('context-exclusive-suites.txt', ('.java',)),
+                               ('context-exclusive-excludes.txt', ('.java', '$*.java'))):
+        actual = [line for line in (MANIFEST.parent / filename).read_text().splitlines()
+                  if line and not line.startswith('#')]
+        if actual != [name.replace('.', '/') + suffix for name in sorted(exclusive) for suffix in suffixes]:
+            raise ValueError(f'{filename} does not match exclusive suites')
     return data
 
 
@@ -254,10 +263,13 @@ def check_evidence(workers, scope, accelerated=True, target=None):
         raise ValueError('Context comparison executed unexpected suites')
     if accelerated:
         server_ids = set()
+        first_server = None
         assigned = set()
         for index in range(1, workers + 1):
             evidence = json.loads((target / f'context-workers/worker-{index}.json').read_text())
             server_ids.add(evidence['server_uuid'])
+            if index == 1:
+                first_server = evidence['server_uuid']
             if evidence['isolation'] != 'REPEATABLE-READ':
                 raise ValueError('Unexpected MySQL server isolation')
             classes = {s.split('$')[0] for s in (target / f'context-workers/worker-{index}.classes').read_text().splitlines()}
@@ -266,8 +278,19 @@ def check_evidence(workers, scope, accelerated=True, target=None):
             assigned |= classes
             if (target / f'jacoco-context/{index}.exec').stat().st_size < 10:
                 raise ValueError('Worker coverage is missing/empty')
-        if len(server_ids) != workers or assigned != expected:
+        exclusive = set(data['exclusive_contexts'])
+        if len(server_ids) != workers or assigned != expected - exclusive:
             raise ValueError('Workers share a database or do not cover the expected inventory')
+        if exclusive:
+            directory = target / 'context-exclusive-worker'
+            evidence = json.loads((directory / 'worker-1.json').read_text())
+            classes = {s.split('$')[0] for s in (directory / 'worker-1.classes').read_text().splitlines()}
+            if evidence['server_uuid'] != first_server or evidence['isolation'] != 'REPEATABLE-READ':
+                raise ValueError('Exclusive suites did not reuse the first isolated server after the worker pool')
+            if classes != exclusive or classes & assigned:
+                raise ValueError('Missing, duplicate or unexpected exclusive suite assignment')
+            if (target / 'jacoco-context/exclusive.exec').stat().st_size < 10:
+                raise ValueError('Exclusive coverage is missing/empty')
     xml = ET.parse(target / 'site/jacoco/jacoco.xml').getroot()
     result['coverage'] = {c.attrib['type']: dict(covered=int(c.attrib['covered']), missed=int(c.attrib['missed']))
                           for c in xml.findall('counter')}
@@ -279,7 +302,7 @@ def check_evidence(workers, scope, accelerated=True, target=None):
 
 
 def reset_test_outputs():
-    for name in ('surefire-reports', 'context-workers', 'jacoco-context', 'site/jacoco'):
+    for name in ('surefire-reports', 'context-workers', 'context-exclusive-worker', 'jacoco-context', 'site/jacoco'):
         shutil.rmtree(ROOT / 'target' / name, ignore_errors=True)
     for name in ('jacoco.exec', 'jacoco-merged.exec'):
         (ROOT / 'target' / name).unlink(missing_ok=True)
@@ -305,7 +328,9 @@ def run(workers, output, image, scope, serial=False):
             includes = output / 'contexts.txt'
             includes.write_text('\n'.join(n.replace('.', '/') + '.java' for n in inventory()['contexts']) + '\n')
             args += [f'-Dcontext.includesFile={includes}', 'jacoco:prepare-agent@prepare-context-agent',
-                     'surefire:test@tests-context', 'jacoco:merge@merge-context-coverage',
+                     'jacoco:prepare-agent@prepare-exclusive-context-agent',
+                     'surefire:test@tests-context', 'surefire:test@tests-context-exclusive',
+                     'jacoco:merge@merge-context-coverage',
                      'jacoco:report@report-context-coverage']
         test_start = time.monotonic()
         maven(args, output / 'maven.log', env)
@@ -317,7 +342,7 @@ def run(workers, output, image, scope, serial=False):
         result.update(commit=command(['git', 'rev-parse', 'HEAD'], cwd=ROOT), source=before,
                       bytecode=fingerprint(ROOT / 'target/classes'), workers=workers, scope=scope, serial=serial,
                       setup_seconds=state['setup_seconds'], test_seconds=elapsed, total_seconds=time.monotonic()-started)
-        for name in ('surefire-reports', 'context-workers', 'jacoco-context', 'site/jacoco'):
+        for name in ('surefire-reports', 'context-workers', 'context-exclusive-worker', 'jacoco-context', 'site/jacoco'):
             source = ROOT / 'target' / name
             if source.exists():
                 shutil.copytree(source, output / name)
