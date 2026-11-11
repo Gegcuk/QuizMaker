@@ -11,11 +11,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestContext;
+import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.context.support.AbstractTestExecutionListener;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,7 +62,10 @@ import static org.mockito.Mockito.*;
 @ActiveProfiles("test-mysql")
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@TestExecutionListeners(listeners = NormalizedDocumentStructureBuildMySqlIntegrationTest.SchemaCleanup.class,
+        mergeMode = TestExecutionListeners.MergeMode.MERGE_WITH_DEFAULTS)
 @TestPropertySource(properties = {
+        "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.datasource.hikari.transaction-isolation=${structure.test.isolation:TRANSACTION_REPEATABLE_READ}",
         "spring.jpa.properties.hibernate.generate_statistics=true",
@@ -68,6 +78,35 @@ import static org.mockito.Mockito.*;
         ChunkedStructureService.class, DocumentChunker.class, TokenCounter.class,
         DocumentChunkingConfig.class, TransactionConfig.class, ClockConfig.class})
 class NormalizedDocumentStructureBuildMySqlIntegrationTest {
+    private static final String CATALOG = "structure_build_" + UUID.randomUUID().toString().replace("-", "");
+    private static final String PORT = System.getenv().getOrDefault("TEST_MYSQL_PORT", "3306");
+    private static final String ADMIN_USER = System.getenv().getOrDefault("TEST_MYSQL_ADMIN_USERNAME", "root");
+    private static final String ADMIN_PASSWORD = System.getenv().getOrDefault("TEST_MYSQL_ADMIN_PASSWORD", "root");
+    private static final String OPTIONS = "?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC";
+
+    private static String serverUrl() {
+        if (!PORT.matches("[0-9]{1,5}")) throw new IllegalArgumentException("Invalid test MySQL port");
+        return "jdbc:mysql://127.0.0.1:" + PORT + "/";
+    }
+
+    @DynamicPropertySource
+    static void ownCatalog(DynamicPropertyRegistry properties) {
+        // Flyway builds this class's schema before Hibernate validates it, independently of other suites.
+        properties.add("spring.datasource.url", () -> serverUrl() + CATALOG + OPTIONS + "&createDatabaseIfNotExist=true");
+        properties.add("spring.datasource.username", () -> ADMIN_USER);
+        properties.add("spring.datasource.password", () -> ADMIN_PASSWORD);
+    }
+
+    public static class SchemaCleanup extends AbstractTestExecutionListener {
+        // afterTestClass runs in reverse order: close JPA and its pool before dropping the schema.
+        @Override public int getOrder() { return 1000; }
+
+        @Override public void afterTestClass(TestContext ignored) {
+            new JdbcTemplate(new DriverManagerDataSource(serverUrl() + OPTIONS, ADMIN_USER, ADMIN_PASSWORD))
+                    .execute("DROP DATABASE IF EXISTS " + CATALOG);
+        }
+    }
+
     @Autowired NormalizedDocumentAccessService access;
     @Autowired NormalizedDocumentRepository documents;
     @Autowired UserRepository users;
