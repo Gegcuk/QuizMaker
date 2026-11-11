@@ -17,6 +17,19 @@ Use [open questions](open-questions.md) for unresolved choices, conflicting clau
 - A13's largest-remainder allocation across groups remains unchanged. This rule determines the total random selection size, not stratified quotas, family proportions, or a new minimum-one constraint.
 - #545 owns the pure algorithm and bounded seed evidence; #547 owns actual start/form persistence and #668 owns the real randomized formal scenario. No public capability is activated by this decision.
 
+<a id="legacy-answer-projection"></a>
+## Retained legacy answer projection — DECIDED
+
+**Decision date/source:** 10 November 2026, explicit repository-owner confirmation in the #848 implementation chat.
+
+- Retain `answers` and its `(attempt_id, question_id)` uniqueness, the specific attempt row lock, old REPEATABLE_READ compatibility and caller-transaction atomicity.
+- Commands read a versioned, database-maintained projection of only answer ID, question ID, correctness, saved score and answer time. They do not independently reread physical answer rows on each invocation. Migration and synchronous INSERT/UPDATE/DELETE maintenance establish correspondence; malformed/unknown projection state fails closed.
+- This replaces the earlier literal per-command physical-row-check requirement. Arbitrary administrative bypass requires exact reconciliation before returning data to use; the projection is not claimed to detect every structurally valid manual corruption.
+- Pause and drain all legacy write paths on all instances, including affected background/maintenance writers. Resume only after trigger installation, population and successful exact source reconciliation. Failure never automatically reopens writes.
+- Acceptance includes independent attempts while the reader transaction remains open, the adjacent-UUID fixture, RR/shared/preloaded state, real rollback checkpoints, migration failure/retry, all nine families, bounded SQL and measured large-batch write/JSON cost, then full verify. No general deadlock-freedom, new retry policy, grading/disclosure change or deployment activation is selected.
+
+**Consumer:** [#848](https://github.com/Gegcuk/QuizMaker/issues/848); implementation and rollout details are in [retained-answer uniqueness](policy-driven-quiz-execution.md#retained-answer-uniqueness-and-rollout-848). The earlier ID-only/child-locking candidate is not accepted as completed evidence.
+
 ## Reading order and document status
 
 | Source | Role |

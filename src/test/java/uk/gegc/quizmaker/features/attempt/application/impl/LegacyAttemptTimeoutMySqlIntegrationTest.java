@@ -25,20 +25,25 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
 import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.TransactionDefinition;
 import uk.gegc.quizmaker.BaseIntegrationTest;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
 import uk.gegc.quizmaker.features.attempt.domain.event.AttemptCompletedEvent;
 import uk.gegc.quizmaker.features.attempt.domain.model.*;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptRepository;
+import uk.gegc.quizmaker.features.attempt.domain.repository.CurrentAnswerRepository;
+import uk.gegc.quizmaker.features.attempt.infra.repository.JsonCurrentAnswerRepository;
 import uk.gegc.quizmaker.features.attempt.infra.mapping.AttemptMapper;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.question.domain.model.*;
+import uk.gegc.quizmaker.features.question.domain.repository.AnswerRepository;
 import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
 import uk.gegc.quizmaker.features.quiz.domain.model.*;
 import uk.gegc.quizmaker.features.quiz.application.ShareLinkService;
@@ -90,6 +95,237 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
         completions.ids.clear();
         sqlGate.secondQuery.set(null);
+        sqlGate.beforeSharedLock.set(null);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"READ_COMMITTED,ALL_AT_ONCE", "READ_COMMITTED,ONE_BY_ONE", "READ_COMMITTED,TIMED",
+            "REPEATABLE_READ,ALL_AT_ONCE", "REPEATABLE_READ,ONE_BY_ONE", "REPEATABLE_READ,TIMED"})
+    void sharedHttpPreloadCannotAcceptAnAnswerAfterAnotherRequestCompleted(Isolation isolation, AttemptMode mode) throws Exception {
+        Fixture source = fixture(mode, true, 1);
+        UUID[] owners = tx(() -> {
+            Attempt a = attempts.findById(source.attemptId()).orElseThrow();
+            return new UUID[]{a.getQuiz().getId(), a.getUser().getId()};
+        });
+        var link = links.createShareLink(owners[0], owners[1], new CreateShareLinkRequest(ShareLinkScope.QUIZ_ATTEMPT_START, null, false));
+        UUID id = service.startAnonymousAttempt(owners[0], link.link().id(), mode).attemptId();
+        tx(() -> jdbcTemplate.update("UPDATE attempts SET started_at=? WHERE id=UUID_TO_BIN(?)", java.sql.Timestamp.from(START), id.toString()));
+        Fixture f = new Fixture("anonymous", id, source.questions());
+        var cookie = new jakarta.servlet.http.Cookie("share_token", link.token());
+        var reached = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var httpResponse = new AtomicReference<org.springframework.mock.web.MockHttpServletResponse>();
+        sqlGate.beforeSharedLock.set(() -> { reached.countDown(); await(release); });
+        var executor = Executors.newSingleThreadExecutor(r -> new Thread(r, "stale-shared"));
+        try {
+            var outer = new TransactionTemplate(transactionManager);
+            outer.setIsolationLevel(isolation.value());
+            var pending = executor.submit(() -> outer.execute(status -> {
+                try {
+                    var response = mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{id}/answers", id).cookie(cookie)
+                                    .contentType("application/json").content(json.writeValueAsBytes(request(f, 0))))
+                            .andReturn().getResponse();
+                    httpResponse.set(response);
+                    return response;
+                } catch (Exception failure) { throw new AssertionError(failure); }
+            }));
+            assertThat(reached.await(10, TimeUnit.SECONDS)).as("shared route has preloaded its attempt before the command lock").isTrue();
+            assertThat(service.completeAttempt("anonymous", id).totalScore()).isZero();
+            release.countDown();
+            // The HTTP advice handles the command exception; the joined outer transaction is rollback-only.
+            try {
+                assertThat(pending.get(10, TimeUnit.SECONDS).getStatus()).isEqualTo(422);
+            } catch (ExecutionException failure) {
+                assertThat(failure.getCause()).isInstanceOf(org.springframework.transaction.UnexpectedRollbackException.class);
+            }
+            assertThat(httpResponse.get()).isNotNull();
+            assertThat(httpResponse.get().getStatus()).isEqualTo(422);
+            assertThat(httpResponse.get().getContentType()).startsWith("application/problem+json");
+            assertThat(state(f)).isEqualTo(new State(AttemptStatus.COMPLETED, now.get(), 0.0, 0));
+            assertThat(completions.ids).containsExactly(id);
+        } finally {
+            release.countDown(); sqlGate.beforeSharedLock.set(null); executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+        UUID controlId = service.startAnonymousAttempt(owners[0], link.link().id(), mode).attemptId();
+        tx(() -> jdbcTemplate.update("UPDATE attempts SET started_at=? WHERE id=UUID_TO_BIN(?)", java.sql.Timestamp.from(START), controlId.toString()));
+        Fixture control = new Fixture("anonymous", controlId, source.questions());
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{id}/answers", controlId).cookie(cookie)
+                        .contentType("application/json").content(json.writeValueAsBytes(request(control, 0))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.score").value(1.0));
+        mockMvc.perform(post("/api/v1/quizzes/shared/attempts/{id}/complete", controlId).cookie(cookie))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalScore").value(1.0));
+    }
+
+    @ParameterizedTest @org.junit.jupiter.params.provider.EnumSource(AttemptMode.class)
+    void oldRepeatableReadCompletionIncludesCommittedAnswersAndPreservesCallerEntities(AttemptMode mode) throws Exception {
+        Fixture f = fixture(mode, true, 2);
+        var acceptedId = new AtomicReference<UUID>();
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            String finalEmail = "caller-" + UUID.randomUUID() + "@example.invalid";
+            var outer = new TransactionTemplate(transactionManager);
+            outer.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+            var result = outer.execute(status -> {
+                Attempt cached = attempts.findFullyLoadedById(f.attemptId()).orElseThrow();
+                assertThat(cached.getAnswers()).isEmpty();
+                var owner = cached.getUser();
+                try { acceptedId.set(executor.submit(() -> service.submitAnswer(f.owner(), f.attemptId(), request(f, 0))).get(10, TimeUnit.SECONDS).answerId()); }
+                catch (Exception failure) { throw new AssertionError(failure); }
+                assertThat(answerCount(f)).as("the caller still holds its original RR snapshot").isZero();
+                owner.setEmail("pending-" + finalEmail);
+                var completed = service.completeAttempt(f.owner(), f.attemptId());
+                assertThat(entityManager.contains(owner)).as("the command must not clear/detach the caller's context").isTrue();
+                assertThat(entityManager.contains(cached)).isTrue();
+                owner.setEmail(finalEmail);
+                return completed;
+            });
+            assertThat(result.totalScore()).isEqualTo(1.0);
+            assertThat(result.answers()).hasSize(1);
+            assertThat(result.answers().get(0).answerId()).isEqualTo(acceptedId.get());
+            assertThat(state(f)).isEqualTo(new State(AttemptStatus.COMPLETED, now.get(), 1.0, 1));
+            assertThat(tx(() -> attempts.findById(f.attemptId()).orElseThrow().getUser().getEmail())).isEqualTo(finalEmail);
+            assertThat(completions.ids).containsExactly(f.attemptId());
+        } finally { executor.shutdownNow(); assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @ParameterizedTest @org.junit.jupiter.params.provider.EnumSource(AttemptMode.class)
+    void oldRepeatableReadDuplicateUsesTheExistingStateErrorBeforeTheDatabaseConstraint(AttemptMode mode) throws Exception {
+        Fixture f = fixture(mode, true, 2);
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var outer = new TransactionTemplate(transactionManager);
+            outer.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+            assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
+                assertThat(attempts.findFullyLoadedById(f.attemptId()).orElseThrow().getAnswers()).isEmpty();
+                try { executor.submit(() -> service.submitAnswer(f.owner(), f.attemptId(), request(f, 0))).get(10, TimeUnit.SECONDS); }
+                catch (Exception failure) { throw new AssertionError(failure); }
+                assertThat(answerCount(f)).isZero();
+                service.submitAnswer(f.owner(), f.attemptId(), request(f, 0));
+            })).isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining(mode == AttemptMode.ONE_BY_ONE ? "Expected question" : "Already answered question");
+            assertThat(state(f).answers()).isEqualTo(1);
+            assertThat(service.completeAttempt(f.owner(), f.attemptId()).totalScore()).isEqualTo(1.0);
+        } finally { executor.shutdownNow(); assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @Test
+    void oldRepeatableReadOneByOneUsesCurrentAnswersForSequenceAndNextQuestion() throws Exception {
+        Fixture f = fixture(AttemptMode.ONE_BY_ONE, true, 2);
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var outer = new TransactionTemplate(transactionManager);
+            outer.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+            outer.executeWithoutResult(status -> {
+                assertThat(attempts.findFullyLoadedById(f.attemptId()).orElseThrow().getAnswers()).isEmpty();
+                try { executor.submit(() -> service.submitAnswer(f.owner(), f.attemptId(), request(f, 0))).get(10, TimeUnit.SECONDS); }
+                catch (Exception failure) { throw new AssertionError(failure); }
+                assertThat(service.submitAnswer(f.owner(), f.attemptId(), request(f, 1)).nextQuestion()).isNull();
+                assertThat(service.completeAttempt(f.owner(), f.attemptId()).totalScore()).isEqualTo(2.0);
+            });
+            assertThat(state(f).answers()).isEqualTo(2);
+        } finally { executor.shutdownNow(); assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @Test
+    void oldRepeatableReadBatchRollbackPreservesTheConcurrentAnswerAndRollsBackCallerChanges() throws Exception {
+        Fixture f = fixture(AttemptMode.ALL_AT_ONCE, true, 3);
+        String originalEmail = tx(() -> attempts.findById(f.attemptId()).orElseThrow().getUser().getEmail());
+        var reached = new AtomicBoolean();
+        doAnswer(invocation -> {
+            Answer answer = invocation.getArgument(0);
+            if (answer.getQuestion().getId().equals(f.questions().get(1))) {
+                entityManager.flush();
+                assertThat(jdbcTemplate.queryForList("SELECT BIN_TO_UUID(id) FROM answers WHERE attempt_id=UUID_TO_BIN(?) FOR UPDATE",
+                        String.class, f.attemptId().toString())).hasSize(2);
+                reached.set(true);
+            }
+            return invocation.callRealMethod();
+        }).when(answerMapper).toDto(any(Answer.class));
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var outer = new TransactionTemplate(transactionManager);
+            outer.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+            assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
+                Attempt cached = attempts.findFullyLoadedById(f.attemptId()).orElseThrow();
+                assertThat(cached.getAnswers()).isEmpty();
+                try { executor.submit(() -> service.submitAnswer(f.owner(), f.attemptId(), request(f, 0))).get(10, TimeUnit.SECONDS); }
+                catch (Exception failure) { throw new AssertionError(failure); }
+                cached.getUser().setEmail("rollback-" + UUID.randomUUID() + "@example.invalid");
+                var invalid = new AnswerSubmissionRequest(f.questions().get(2), json.createObjectNode(), true, true, true);
+                service.submitBatch(f.owner(), f.attemptId(), new BatchAnswerSubmissionRequest(List.of(request(f, 1), invalid)));
+            })).isInstanceOf(uk.gegc.quizmaker.features.question.application.QuestionContractException.class);
+            assertThat(reached).as("failure occurs after observing the committed answer and the real new INSERT").isTrue();
+            assertThat(state(f)).isEqualTo(new State(AttemptStatus.IN_PROGRESS, null, null, 1));
+            assertThat(tx(() -> attempts.findById(f.attemptId()).orElseThrow().getUser().getEmail())).isEqualTo(originalEmail);
+            assertThat(completions.ids).isEmpty();
+            reset(answerMapper);
+            assertThat(service.submitBatch(f.owner(), f.attemptId(), new BatchAnswerSubmissionRequest(List.of(request(f, 1), request(f, 2))))).hasSize(2);
+            assertThat(service.completeAttempt(f.owner(), f.attemptId()).totalScore()).isEqualTo(3.0);
+        } finally { executor.shutdownNow(); assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"ALL_AT_ONCE,false", "ONE_BY_ONE,false", "TIMED,false", "ALL_AT_ONCE,true", "ONE_BY_ONE,true", "TIMED,true"})
+    void oldCallerPauseOrResumeCannotRestoreACompletedAttempt(AttemptMode mode, boolean resume) throws Exception {
+        Fixture f = fixture(mode, true, 1);
+        if (resume) service.pauseAttempt(f.owner(), f.attemptId());
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var outer = new TransactionTemplate(transactionManager);
+            outer.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+            assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
+                Attempt cached = attempts.findById(f.attemptId()).orElseThrow();
+                assertThat(cached.getStatus()).isEqualTo(resume ? AttemptStatus.PAUSED : AttemptStatus.IN_PROGRESS);
+                try {
+                    executor.submit(() -> {
+                        if (resume) service.resumeAttempt(f.owner(), f.attemptId());
+                        return service.completeAttempt(f.owner(), f.attemptId());
+                    }).get(10, TimeUnit.SECONDS);
+                } catch (Exception failure) { throw new AssertionError(failure); }
+                if (resume) service.resumeAttempt(f.owner(), f.attemptId());
+                else service.pauseAttempt(f.owner(), f.attemptId());
+            })).isInstanceOf(IllegalStateException.class).hasMessageContaining(resume ? "paused" : "in progress");
+            assertThat(state(f)).isEqualTo(new State(AttemptStatus.COMPLETED, now.get(), 0.0, 0));
+            assertThat(completions.ids).containsExactly(f.attemptId());
+        } finally { executor.shutdownNow(); assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void preloadedCommandGraphsRemainManagedAndUseBoundedSql(boolean completion, org.junit.jupiter.api.TestReporter reporter) {
+        List<Fixture> small = new ArrayList<>(), large = new ArrayList<>();
+        for (int parent = 0; parent < 3; parent++) {
+            for (int existing : List.of(1, 8)) {
+                Fixture f = fixture(AttemptMode.TIMED, true, existing + (completion ? 0 : 1));
+                for (int question = 0; question < existing; question++) service.submitAnswer(f.owner(), f.attemptId(), request(f, question));
+                (existing == 1 ? small : large).add(f);
+            }
+        }
+        var outer = new TransactionTemplate(transactionManager);
+        outer.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        outer.executeWithoutResult(status -> {
+            java.util.stream.Stream.concat(small.stream(), large.stream()).forEach(f ->
+                    assertThat(attempts.findFullyLoadedById(f.attemptId()).orElseThrow().getAnswers()).hasSize(small.contains(f) ? 1 : 8));
+            java.util.function.Consumer<Fixture> command = f -> {
+                Object dto = completion ? service.completeAttempt(f.owner(), f.attemptId())
+                        : service.submitAnswer(f.owner(), f.attemptId(), request(f, small.contains(f) ? 1 : 8));
+                try { assertThat(json.writeValueAsString(dto)).isNotEmpty(); }
+                catch (Exception failure) { throw new AssertionError(failure); }
+                entityManager.flush(); // Count the last command's writes in the same measured group.
+            };
+            int smallQueries = countCommandSql(() -> small.forEach(command));
+            int largeQueries = countCommandSql(() -> large.forEach(command));
+            reporter.publishEntry(Map.of("completion", Boolean.toString(completion), "smallQueries", Integer.toString(smallQueries),
+                    "largeQueries", Integer.toString(largeQueries)));
+            assertThat(smallQueries).isPositive();
+            assertThat(largeQueries).as("three preloaded parents: eight answers versus one").isLessThanOrEqualTo(smallQueries).isLessThan(100);
+            java.util.stream.Stream.concat(small.stream(), large.stream()).forEach(f ->
+                    assertThat(entityManager.contains(attempts.findById(f.attemptId()).orElseThrow())).isTrue());
+        });
+        assertThat(large).allSatisfy(f -> {
+            assertThat(state(f).answers()).isEqualTo(completion ? 8 : 9);
+            if (completion) assertThat(state(f).score()).isEqualTo(8.0);
+        });
     }
 
     @Test
@@ -250,7 +486,7 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
                     String.class, f.attemptId().toString())).isEqualTo("COMPLETED");
             reached.set(true);
             throw new IllegalStateException("Injected failure after completion flush");
-        }).when(attemptMapper).toResultDto(any(), anyLong(), anyInt());
+        }).when(attemptMapper).toResultDto(any(), anyLong(), anyInt(), anyList());
         assertThatThrownBy(() -> service.completeAttempt(f.owner(), f.attemptId()))
                 .hasMessage("Injected failure after completion flush");
         assertThat(reached).isTrue();
@@ -261,10 +497,22 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
     @Test
     void batchRemainsAtomicAndOneByOneKeepsItsOrdering() {
         Fixture batch = fixture(AttemptMode.ALL_AT_ONCE, true, 2);
+        AtomicBoolean firstInsertReached = new AtomicBoolean();
+        doAnswer(invocation -> {
+            Answer answer = invocation.getArgument(0);
+            if (answer.getAttempt().getId().equals(batch.attemptId())) {
+                entityManager.flush();
+                assertThat(answerCount(batch)).isEqualTo(1);
+                firstInsertReached.set(true);
+            }
+            return invocation.callRealMethod();
+        }).when(answerMapper).toDto(any(Answer.class));
         var bad = new AnswerSubmissionRequest(batch.questions().get(1), json.createObjectNode(), true, true, true);
         assertThatThrownBy(() -> service.submitBatch(batch.owner(), batch.attemptId(),
                 new BatchAnswerSubmissionRequest(List.of(request(batch, 0), bad)))).isInstanceOf(RuntimeException.class);
+        assertThat(firstInsertReached).as("rollback follows a real successful INSERT").isTrue();
         assertThat(state(batch).answers()).isZero();
+        reset(answerMapper);
         var accepted = service.submitBatch(batch.owner(), batch.attemptId(),
                 new BatchAnswerSubmissionRequest(List.of(request(batch, 0), request(batch, 1))));
         assertThat(accepted).hasSize(2);
@@ -276,6 +524,47 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
         assertThat(service.submitAnswer(sequential.owner(), sequential.attemptId(), request(sequential, 0)).nextQuestion()).isNotNull();
         service.submitAnswer(sequential.owner(), sequential.attemptId(), request(sequential, 1));
         assertThat(service.completeAttempt(sequential.owner(), sequential.attemptId()).totalScore()).isEqualTo(2.0);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"ALL_AT_ONCE,true", "ALL_AT_ONCE,false", "ONE_BY_ONE,true", "ONE_BY_ONE,false", "TIMED,true", "TIMED,false"})
+    void onTimeAnswerAndCompletionKeepTheCommittedWinnerAndOneCompletionEvent(AttemptMode mode, boolean answerFirst) throws Exception {
+        Fixture f = fixture(mode, true, 1);
+        CountDownLatch firstHasLock = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch secondReachedLockQuery = new CountDownLatch(1);
+        sqlGate.secondQuery.set(secondReachedLockQuery);
+        AtomicBoolean gated = new AtomicBoolean();
+        when(clock.instant()).thenAnswer(invocation -> {
+            if (Thread.currentThread().getName().equals("legacy-time-first") && gated.compareAndSet(false, true)) {
+                firstHasLock.countDown(); await(releaseFirst);
+            }
+            return now.get();
+        });
+        ExecutorService first = Executors.newSingleThreadExecutor(r -> new Thread(r, "legacy-time-first"));
+        ExecutorService second = Executors.newSingleThreadExecutor(r -> new Thread(r, "legacy-time-second"));
+        try {
+            Future<Outcome> one = first.submit(() -> command(f, answerFirst));
+            assertThat(firstHasLock.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Outcome> two = second.submit(() -> command(f, !answerFirst));
+            assertThat(secondReachedLockQuery.await(10, TimeUnit.SECONDS)).isTrue();
+            releaseFirst.countDown();
+            assertThat(one.get(10, TimeUnit.SECONDS).success()).isTrue();
+            Outcome following = two.get(10, TimeUnit.SECONDS);
+            assertThat(following.success()).isEqualTo(answerFirst);
+            if (!answerFirst) assertThat(following.error()).isEqualTo("Cannot submit answer to attempt with status COMPLETED");
+            assertThat(state(f)).isEqualTo(new State(AttemptStatus.COMPLETED, now.get(), answerFirst ? 1.0 : 0.0, answerFirst ? 1 : 0));
+            assertThat(completions.ids).containsExactly(f.attemptId());
+            assertThatThrownBy(() -> service.completeAttempt(f.owner(), f.attemptId())).isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> service.submitAnswer(f.owner(), f.attemptId(), request(f, 0))).isInstanceOf(IllegalStateException.class);
+            assertThat(completions.ids).containsExactly(f.attemptId());
+            assertThat(state(f).answers()).isEqualTo(answerFirst ? 1 : 0);
+        } finally {
+            releaseFirst.countDown(); first.shutdownNow(); second.shutdownNow();
+            assertThat(first.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(second.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+            sqlGate.secondQuery.set(null);
+        }
     }
 
     @ParameterizedTest
@@ -428,9 +717,13 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
             manager.setDataSource(dataSource);
             var em = SharedEntityManagerCreator.createSharedEntityManager(factory.getObject());
             AttemptRepository reopened = new JpaRepositoryFactory(em).getRepository(AttemptRepository.class);
+            AnswerRepository reopenedAnswers = new JpaRepositoryFactory(em).getRepository(AnswerRepository.class);
             var constructor = AttemptServiceImpl.class.getConstructors()[0];
             Object[] dependencies = Arrays.stream(constructor.getParameterTypes()).map(type -> {
                 if (type == AttemptRepository.class) return reopened;
+                if (type == AnswerRepository.class) return reopenedAnswers;
+                if (type == CurrentAnswerRepository.class) return new JsonCurrentAnswerRepository(json);
+                if (type == jakarta.persistence.EntityManager.class) return em;
                 if (type == ApplicationEventPublisher.class) return context;
                 return context.getBean(type);
             }).toArray();
@@ -517,10 +810,16 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
     }
     static class SqlGate implements StatementInspector {
         final AtomicReference<CountDownLatch> secondQuery = new AtomicReference<>();
+        final AtomicReference<Runnable> beforeSharedLock = new AtomicReference<>();
         final AtomicReference<Thread> countingThread = new AtomicReference<>();
         final AtomicInteger statementCount = new AtomicInteger();
         @Override public String inspect(String sql) {
             if (Thread.currentThread() == countingThread.get()) statementCount.incrementAndGet();
+            if (Thread.currentThread().getName().equals("stale-shared") && sql.toLowerCase(Locale.ROOT).contains("for update")
+                    && sql.toLowerCase(Locale.ROOT).contains("attempts")) {
+                Runnable gate = beforeSharedLock.getAndSet(null);
+                if (gate != null) gate.run();
+            }
             CountDownLatch latch = secondQuery.get();
             if (latch != null && Thread.currentThread().getName().equals("legacy-time-second")
                     && sql.toLowerCase(Locale.ROOT).contains("for update") && sql.toLowerCase(Locale.ROOT).contains("attempts")) latch.countDown();

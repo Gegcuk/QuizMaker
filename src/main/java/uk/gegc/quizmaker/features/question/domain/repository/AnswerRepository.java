@@ -14,7 +14,7 @@ public interface AnswerRepository extends JpaRepository<Answer, UUID> {
     
     @Query("SELECT COUNT(a) FROM Answer a WHERE a.attempt.id = :attemptId")
     long countByAttemptId(@Param("attemptId") UUID attemptId);
-    
+
     @Modifying
     @Query("DELETE FROM Answer a WHERE a.attempt.id = :attemptId")
     void deleteByAttemptId(@Param("attemptId") UUID attemptId);

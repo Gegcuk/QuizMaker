@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.Attempt;
+import uk.gegc.quizmaker.features.attempt.domain.model.AcceptedAnswerFact;
 import uk.gegc.quizmaker.features.question.domain.model.Answer;
 import uk.gegc.quizmaker.features.question.infra.mapping.AnswerMapper;
 import uk.gegc.quizmaker.features.quiz.domain.model.Quiz;
@@ -69,6 +70,13 @@ public class AttemptMapper {
                 totalQuestions,
                 answers
         );
+    }
+
+    public AttemptResultDto toResultDto(Attempt attempt, long correctCount, int totalQuestions, List<AcceptedAnswerFact> accepted) {
+        List<AnswerSubmissionDto> answers = accepted.stream().sorted(Comparator.comparing(AcceptedAnswerFact::answeredAt))
+                .map(answerMapper::toDto).toList();
+        return new AttemptResultDto(attempt.getId(), attempt.getQuiz().getId(), attempt.getUser().getId(),
+                attempt.getStartedAt(), attempt.getCompletedAt(), attempt.getTotalScore(), Math.toIntExact(correctCount), totalQuestions, answers);
     }
 
     /**

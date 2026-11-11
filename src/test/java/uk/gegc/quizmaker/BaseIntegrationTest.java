@@ -12,6 +12,8 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import jakarta.persistence.EntityManager;
+import org.springframework.context.annotation.Import;
+import uk.gegc.quizmaker.config.LegacyAnswerMembershipTestConfig;
 
 /**
  * Base class for all integration tests providing standardized configuration.
@@ -26,6 +28,7 @@ import jakarta.persistence.EntityManager;
 @Tag("db-serial")
 @SpringBootTest
 @AutoConfigureMockMvc
+@Import(LegacyAnswerMembershipTestConfig.class)
 @ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Transactional

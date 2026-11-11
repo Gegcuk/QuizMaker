@@ -13,6 +13,9 @@ import java.util.UUID;
 
 @Repository
 public interface QuestionRepository extends JpaRepository<Question, UUID> {
+
+    @Query("SELECT q FROM Question q JOIN q.quizId quiz WHERE quiz.id = :quizId AND q.id IN :ids")
+    List<Question> findBatchQuestions(@Param("quizId") UUID quizId, @Param("ids") List<UUID> ids);
     Page<Question> findAllByQuizId_Id(UUID quizId, Pageable page);
     
     Page<Question> findAllByQuizId_IdIn(List<UUID> quizIds, Pageable page);
