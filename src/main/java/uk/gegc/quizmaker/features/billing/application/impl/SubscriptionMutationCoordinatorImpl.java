@@ -104,6 +104,17 @@ public class SubscriptionMutationCoordinatorImpl implements SubscriptionMutation
         SubscriptionStatus localStatus = lockLocalStatus(userId);
         verifyLocalMapping(localStatus, subscriptionId);
 
+        // The provider snapshot can predate a cancellation that committed before this claim.
+        // Check durable terminal history under the same lock used by completion, before replay
+        // or acquiring an update. Scope it to this exact subscription, not the user's block flag.
+        if (operationType == SubscriptionMutationType.UPDATE && operationRepository
+                .findFirstByUserIdAndSubscriptionIdAndRequestHashAndStateOrderByCreatedAtDesc(
+                        userId, subscriptionId, requestHash(subscriptionId, SubscriptionMutationType.CANCEL, null),
+                        SubscriptionMutationState.SUCCEEDED)
+                .isPresent()) {
+            throw new SubscriptionMutationConflictException("Cancelled subscriptions cannot be updated");
+        }
+
         if (keyHash != null) {
             Optional<SubscriptionMutationOperation> keyed =
                     operationRepository.findByUserIdAndIdempotencyKeyHash(userId, keyHash);

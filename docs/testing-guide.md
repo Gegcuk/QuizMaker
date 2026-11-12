@@ -22,7 +22,7 @@ Use `BaseIntegrationTest` only when the test genuinely needs the full Spring con
 
 ### Shared MySQL Schema Isolation
 
-The `test` and `test-mysql` profiles share CI MySQL schemas. A Spring Boot or JPA test that uses either schema must be marked `@Tag("db-serial")`. Maven Surefire runs these tests in the dedicated `tests-db-serial` lane with JUnit parallel execution disabled; all other tests stay in the parallel lane. This is required because several legacy integration tests use Hibernate `create` or `create-drop`, which changes the complete shared schema.
+The `test` and `test-mysql` profiles share schemas within one test JVM. A Spring Boot or JPA test that uses either schema must be marked `@Tag("db-serial")`. Without `context-forks`, Maven Surefire runs these tests in the dedicated `tests-db-serial` lane with JUnit parallel execution disabled. With `context-forks`, manifest-selected suites run sequentially within each isolated worker, each with its own MySQL server. The tag does not serialize different workers globally. Several legacy integration tests use Hibernate `create` or `create-drop`, which changes the complete shared schema within their worker.
 
 - Plain JUnit and Mockito tests remain eligible for parallel execution. Do not disable JUnit parallelism globally to address a database failure.
 - Add the tag to tests using `@SpringBootTest` or `@DataJpaTest`; `@WebMvcTest` normally does not create a database context and should remain in the parallel lane unless it deliberately connects to MySQL.
@@ -46,7 +46,7 @@ The release-quality command is `./mvnw verify`. It runs the bounded parallel lan
 - Builds require JDK 17. Maven fails during `validate` with a clear message on another JDK. Set `JAVA_HOME` to a JDK 17 installation before running a build.
 - The non-database JUnit lane uses a fixed pool of four workers. Do not change it to unlimited workers or disable parallelism globally. The `db-serial` lane remains one-at-a-time because legacy tests change the shared MySQL schema.
 - Default and CI verification are offline with respect to third-party providers. Tests must use fakes, stubs, WireMock, or local test infrastructure; a nonblank environment variable must never be enough to authorize a paid provider call.
-- CI preloads Maven dependencies before removing network access. The JUnit Platform provider is declared as a Surefire plugin dependency using Surefire's managed version. Because `dependency:go-offline` does not discover compiler `annotationProcessorPaths` or fully initialize the provider's runtime closure, CI then runs only `MavenVerificationContractTest`. This plain JUnit file/POM/workflow contract uses no Spring context, database, or external provider client; executing it resolves the exact provider engine, launcher, and commons artifacts selected by Maven. CI then runs `clean verify` in Maven offline mode inside a Linux network namespace with no default route, rebuilding and executing the complete suite without provider access. Only namespace loopback port `3306` is bridged to the CI MySQL service. The Actions runner remains online so logs and artifacts can still be uploaded.
+- CI preloads Maven dependencies before removing network access. The JUnit Platform provider is declared as a Surefire plugin dependency using Surefire's managed version. Because `dependency:go-offline` does not discover compiler `annotationProcessorPaths` or fully initialize the provider's runtime closure, CI then runs only `MavenVerificationContractTest`. This plain JUnit file/POM/workflow contract uses no Spring context, database, or external provider client; executing it resolves the exact provider engine, launcher, and commons artifacts selected by Maven. CI then runs `clean verify` in Maven offline mode inside a Linux network namespace with no default route, rebuilding and executing the complete suite without provider access. Namespace loopback port `3306` reaches the baseline MySQL service; accelerated runs also bridge the isolated workers' loopback ports `33901`–`33904`. The Actions runner remains online so logs and artifacts can still be uploaded.
 - The isolated Maven process receives the job's captured environment through NUL-delimited stdin and `run_with_ci_environment.py` after returning to the runner user. This preserves the JDK 17 selected by `setup-java`, `HOME`, `PATH` and test settings even when `sudo` ignores `-E`. Values are neither shell-evaluated nor placed in command arguments or diagnostic output. An invalid capture or missing `JAVA_HOME` fails before Maven; Maven's exit status still propagates through the verification log pipeline. Python regression tests exercise the actual workflow command with simulated environment loss; Linux namespace execution remains covered by CI.
 - Every test capable of contacting OpenAI, Stripe, Stripe CLI, or another live provider must use the test-only `@RealProviderTest` annotation. It assigns the `db-serial` and `real-provider` tags and disables direct IDE/class execution unless the manual Maven profile sets the explicit opt-in property.
 - `live-provider-tests` is an explicit human-only Maven profile for tagged provider smoke tests. It is never enabled in CI and requires non-production credentials supplied securely in the local environment. It is not required for normal verification and must not use production user content.
@@ -491,7 +491,7 @@ commands still use the existing fast and shared-database serial executions.
 
 One resource-sensitive suite, `LegacyAnswerMembershipMySqlIntegrationTest`, runs in a
 separate JVM after the pool finishes, reusing the first isolated MySQL server. The pool
-contains 242 suites; the exclusive execution retains all 38 scenarios, including concurrent
+contains the remaining manifest-selected suites; the exclusive execution retains all 38 scenarios, including concurrent
 participants, the 2,048-answer fixture, rollback checks, and original timeouts. This avoids
 other suites competing for CPU during the large write-cost scenario: on a four-worker CI
 run the independent writer committed successfully in 33.6 seconds but exceeded the test's
@@ -521,6 +521,63 @@ Read `BaseIntegrationTest`, `DatabaseTestExecutionTagTest`, and
 annotations, cleanup, or `@DirtiesContext` to improve timings. For example, a change to
 Anna's attempt completion must still prove that Boris can write independently, that old
 REPEATABLE_READ reads are correct, and that a caller rollback undoes every write.
+
+### Writing suites that remain reliable with multiple workers
+
+Surefire assigns whole classes dynamically to available JVMs; there is no fixed class-to-worker
+mapping. Each JVM runs its classes sequentially, but the predecessor of a class can change.
+More workers also change CPU scheduling inside a test's own executors. A locally green run
+does not prove independence from either class order or thread timing.
+
+- **Own schema preparation.** Every class must run on an empty disposable server and after
+  another class has closed a `create-drop` context. Do not rely on a predecessor's Flyway
+  tables or on Hibernate `update` preserving non-entity tables, triggers and constraints.
+  Tests needing these objects should use a generated, class-owned catalog with Flyway and
+  Hibernate `validate`. Read `NormalizedDocumentOwnershipMySqlIntegrationTest` for dynamic
+  datasource wiring and pool-close-before-drop cleanup. Always honor `TEST_MYSQL_PORT`;
+  hard-coded port `3306` bypasses worker isolation. Never drop a shared catalog.
+- **Prepare every selected scenario.** Apply required migrations in class setup, not in the
+  first ordered test. For upgrade tests, capture pre-upgrade rows before migrating and keep
+  assertions about preserved rows and repeated migration. `AssignmentSchemaMySqlIntegrationTest`
+  demonstrates this while allowing rollback and concurrency methods to run independently.
+- **Synchronize the state the assertion requires.** A Mockito invocation count proves that
+  a method was entered, not that it returned, read a row, acquired a lock or committed.
+  Place bounded latches/hooks after the real relevant event; delegate to the real method
+  rather than manufacturing its result. For database lock claims, observe the lock/wait
+  or the actual SQL boundary. Sleeps and larger timeouts do not establish ordering.
+- **Cover the other valid order too.** In `SubscriptionMutationConcurrencyMySqlIntegrationTest`,
+  one scenario waits until the competing command actually observes `IN_PROGRESS`. Another
+  pauses after it captured an active provider snapshot, lets cancellation commit, and then
+  resumes the stale command. Both must preserve cancellation. Merely delaying cancellation
+  until the competitor reaches `WAIT` would hide the stale-snapshot bug exposed by CI.
+- **Finish workers before cleanup.** Release all scenario barriers in `finally`, stop the
+  executor and assert bounded `awaitTermination` before deleting rows or resetting mocks.
+  `shutdownNow()` requests interruption; it does not prove that a worker has stopped.
+  Reset hooks/counters between scenarios. Preserve committed fixtures, independent connections,
+  actual transaction boundaries and fresh reads proving rollback before cleanup.
+- **Keep isolation and assertions.** Do not mask a failure with retries, disabled scenarios,
+  weaker expected outcomes, a new global lock or a smaller worker count. First distinguish a
+  resource timeout from a broken ordering assumption or a genuine application race. Keep
+  authorization negatives, exact-repeat checks and reached-write rollback assertions intact.
+
+For a changed concurrent suite, run the specific failing method on a fresh database, then
+the entire class and related feature tests. For a schema-lifecycle change, also run after a
+destructive schema class in the same JVM and run relevant methods independently. Repeat the
+deterministic interleavings before the full four-worker gate. Do not run concurrent Maven
+commands against the same checkout's `target` directory.
+
+```bash
+./mvnw test '-Dtest=SubscriptionMutationConcurrencyMySqlIntegrationTest#cancellationRacingUpdateRejectsUpdateAfterTerminalState+cancellationCommittedBeforeUpdateClaimRejectsStaleSnapshot'
+./mvnw test -Dtest=SubscriptionMutationConcurrencyMySqlIntegrationTest,SubscriptionMutationServiceImplTest,BillingSubscriptionMutationControllerWebMvcTest
+python3 tools/testing/context_benchmark.py verify --workers 4 \
+  --output /tmp/quizmaker-billing-full-verify
+```
+
+The scoped commands require the existing disposable test MySQL and fake test environment;
+they do not enable `context-forks`. The launcher provisions isolated databases for the full
+gate. Compare executed test identities, failures/skips and merged coverage evidence, not
+just the green exit code. PR and post-merge `clean verify` remain required; scoped repetitions
+are additional diagnostic evidence, not a replacement.
 
 ### Local commands
 
