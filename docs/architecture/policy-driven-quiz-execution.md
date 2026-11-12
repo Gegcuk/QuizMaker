@@ -2027,6 +2027,49 @@ Changing material assignment behaviour creates a new version or assignment. It d
 
 Under [#672 A08](https://github.com/Gegcuk/QuizMaker/issues/672), revocation blocks new starts by default while active attempts retain their snapshots. Cancelling active attempts requires the separately explicit, authorized and audited `cancelActiveAttempts` decision; checking current assignment state must not silently turn ordinary revocation into cancellation.
 
+### Authenticated assignment eligibility (#532)
+
+`AssignmentEligibilityService` is an internal, read-only preflight over the real #531 immutable
+snapshot and #535/#536 subject contracts. Its facade re-resolves the current authenticated
+principal through `AuthenticatedSubjectResolver`; a claimed foreign subject, anonymous/string
+principal or unavailable active-user lookup cannot establish identity. It samples the injected
+`Clock` once after identity validation. Lookup conflict/unavailability denies without retries;
+clock failure denies without client-time fallback. No HTTP operation or security rule changes.
+
+The pure decision requires independently verified resource authority, visibility and applicable
+organization membership, bound to the exact assignment ID, snapshot ID/version, participant,
+owner and scope. Personal scope explicitly marks organization membership not applicable.
+Ownership/admin roles do not bypass captured roster/group membership; an empty audience denies.
+Draft, superseded, revoked, missing or unknown current-publication observations deny. Current
+publication/revocation and access observations are trusted reader inputs, not client fields or
+state transitions implemented here. Structurally valid IDs alone never establish source existence
+or authority. Unknown input/fact versions deny; #531 rejects unknown assignment/audience versions
+before they can become a snapshot.
+
+The [approved availability boundary](decision-register.md#assignment-eligibility-window) is
+`[opensAt, closesAt)`, with absent bounds unbounded. Persisted bounds use #531 UTC microseconds;
+the clock is not rounded. For a 10:00–11:00 window, eligibility begins exactly at 10:00 and ends
+exactly at 11:00. This does not expire/cancel an existing attempt or allocate a place/allowance.
+
+An internal allow names the exact eligible assignment version. `publicDecision()` returns only
+decision version and ALLOW/DENY; every denial has the same shape, without internal reason,
+resource identity, window or audience. Future API adapters must use this projection and their
+own approved HTTP contract. Internal diagnostic strings redact identifiers. Metrics use only
+bounded version/outcome/reason dimensions; metric failure cannot alter eligibility.
+
+`AssignmentEligibilityTest` covers the decision table, exact time boundaries, scope/reference
+mismatches, immutable membership, version rejection, non-enumerating projection and legacy-link
+classification. `AssignmentEligibilityServiceTest` composes the real #536 resolver with a fake
+active-user query to prove authentication/claimed-subject isolation, Spring interface wiring,
+server-clock behavior and bounded telemetry. These are local contract/composition proofs, not
+real publication, organization grants, assignment start, revocation persistence or guest execution.
+
+#621 supplies publication/current-pointer readers and #798 revocation; #534 must reload current
+access/publication/audience facts and locking authenticated identity in its atomic start boundary.
+An old allow cannot authorize a later start or offline replay. #611/#625 remain required only for
+guest capabilities. No assignment repository, migration, write, provider, mapper or JPA relationship
+read is added; N+1 does not apply to this slice. Existing APIs, attempts and share links are unchanged.
+
 ### Assignment storage foundation (#531)
 
 `AssignmentContract` defines a version-1 draft/published snapshot with its own stable ID,
