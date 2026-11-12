@@ -1,6 +1,11 @@
 package uk.gegc.quizmaker.features.quiz.revision;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
@@ -13,9 +18,11 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.slf4j.LoggerFactory;
 import uk.gegc.quizmaker.features.attempt.application.FixedFormMaterializer;
 import uk.gegc.quizmaker.features.attempt.application.impl.FixedFormMaterializerImpl;
 import uk.gegc.quizmaker.features.attempt.application.impl.FormOptionOrderServiceImpl;
@@ -135,6 +142,80 @@ class QuizRevisionSectionsMySqlIntegrationTest {
         assertThat(reader.read(OWNER, new RevisionReference(null))).contains(RevisionStructure.legacy());
         assertThat(source.selects).hasValue(0);
         assertThat(repository.findByIds(id("another-owner"), List.of(revision.id(), FLAT.id()))).isEmpty();
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"single", "batch"})
+    void readFailureIsSanitizedBeforeNestedTransactionLoggingAndRollsBackCaughtOuterWrites(String path) {
+        var revision = structured("read-diagnostics-" + path); repository.insert(revision);
+        var before = quiz("read-outer-before-" + path, question("read-outer-before-" + path));
+        var after = quiz("read-outer-after-" + path, question("read-outer-after-" + path));
+        Runnable read = path.equals("single")
+                ? () -> assertThat(reader.read(OWNER, new RevisionReference(revision.id()))).contains(RevisionStructure.from(revision))
+                : () -> assertThat(repository.findByIds(OWNER, List.of(revision.id()))).containsExactly(revision);
+        read.run(); // Positive control through the same real repository/service proxies.
+        String marker = "section-private-driver-diagnostic-" + path;
+        var reached = new AtomicBoolean();
+        Thread requestThread = Thread.currentThread();
+        var captured = new ListAppender<ILoggingEvent>() {
+            @Override protected void append(ILoggingEvent event) {
+                if (Thread.currentThread() == requestThread) {
+                    event.prepareForDeferredProcessing(); super.append(event);
+                }
+            }
+        };
+        var loggers = List.of((Logger) LoggerFactory.getLogger(TransactionInterceptor.class),
+                (Logger) LoggerFactory.getLogger(TransactionTemplate.class),
+                (Logger) LoggerFactory.getLogger(DataSourceTransactionManager.class));
+        var levels = new HashMap<Logger, Level>();
+        captured.setContext(loggers.get(0).getLoggerContext()); captured.start();
+        loggers.forEach(logger -> { levels.put(logger, logger.getLevel()); logger.addAppender(captured); logger.setLevel(Level.TRACE); });
+        try {
+            source.after = (statement, connection) -> {
+                if (statement.stripLeading().startsWith("SELECT * FROM quiz_revision_sections")) {
+                    reached.set(true);
+                    var failure = new SQLException(marker, "08006");
+                    failure.initCause(new IllegalStateException(marker + "-cause"));
+                    failure.addSuppressed(new IllegalStateException(marker + "-suppressed"));
+                    failure.setNextException(new SQLException(marker + "-next", "08006"));
+                    throw failure;
+                }
+            };
+            assertThatThrownBy(() -> fresh("REPEATABLE_READ").executeWithoutResult(status -> {
+                repository.insert(before);
+                assertThat(repository.findById(OWNER, before.id())).contains(before);
+                Throwable outward = catchThrowable(read::run);
+                assertThat(outward).isInstanceOf(path.equals("single") ? RevisionIntegrityException.class : DataAccessException.class)
+                        .hasNoCause().hasMessageNotContaining(marker);
+                assertThat(outward.getSuppressed()).isEmpty();
+                if (path.equals("single")) assertThat(((RevisionIntegrityException) outward).reason())
+                        .isEqualTo(RevisionIntegrityException.Reason.PERSISTENCE_UNAVAILABLE);
+                assertThat(reached).isTrue();
+                assertThat(status.isRollbackOnly()).isTrue();
+                repository.insert(after); // Even writes made after a caught failure must not commit.
+                assertThat(repository.findById(OWNER, after.id())).contains(after);
+            })).isInstanceOf(UnexpectedRollbackException.class);
+            source.reset();
+            fresh("READ_COMMITTED").executeWithoutResult(status -> {
+                assertThat(repository.findById(OWNER, before.id())).isEmpty();
+                assertThat(repository.findById(OWNER, after.id())).isEmpty();
+                assertThat(repository.findById(OWNER, revision.id())).contains(revision);
+            });
+            read.run(); // Recovery uses the same captured revision, without rebuilding its structure.
+            String method = path.equals("single") ? "findById]" : "findByIds]";
+            assertThat(captured.list).anySatisfy(event -> assertThat(event.getFormattedMessage())
+                    .contains("JdbcQuizRevisionRepository." + method, "after exception"));
+            if (path.equals("single")) assertThat(captured.list).anySatisfy(event -> assertThat(event.getFormattedMessage())
+                    .contains("QuizRevisionStructureServiceImpl.read]", "PERSISTENCE_UNAVAILABLE"));
+            assertThat(captured.list).allSatisfy(event -> {
+                assertThat(event.getFormattedMessage()).doesNotContain(marker, "SQL [", "SELECT * FROM quiz_revision_sections");
+                if (event.getThrowableProxy() != null) assertThat(ThrowableProxyUtil.asString(event.getThrowableProxy()))
+                        .doesNotContain(marker, "SQL [", "SELECT * FROM quiz_revision_sections");
+            });
+        } finally {
+            source.reset();
+            loggers.forEach(logger -> { logger.detachAppender(captured); logger.setLevel(levels.get(logger)); });
+            captured.stop();
+        }
     }
 
     @Test void databaseRejectsPublishedChangesDowngradeLateSectionsAndLateMembership() {

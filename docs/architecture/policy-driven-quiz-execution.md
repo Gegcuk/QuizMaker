@@ -2931,6 +2931,8 @@ title or instructions and persists no backfill. A missing historical revision re
 `LEGACY` with no fabricated revision, sections or mutable-authoring lookup. Neither adapter output
 grants participant delivery access. Section structures contain no copied answers, question payloads,
 contacts or case stimulus. Metrics expose only bounded version/outcome labels.
+Repository read failures discard driver diagnostics before transaction interception; the service's
+bounded outward error alone is insufficient to protect nested transactional logs.
 
 Reads batch authorized roots before loading sections/membership. Multiple structured parents in
 one repository batch use five physical SQL queries including questions/options; flat-only reads

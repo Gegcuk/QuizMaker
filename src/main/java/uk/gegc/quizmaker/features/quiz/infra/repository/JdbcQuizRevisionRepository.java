@@ -153,6 +153,9 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
                         root.schemaVersion(), root.title(), root.description(), root.createdAt(), byRoot.getOrDefault(root.id(), List.of()),
                         layouts.getOrDefault(root.id(), List.of()))));
             }
+        } catch (DataAccessException failure) {
+            // Sanitize before any public read exits through the repository transaction interceptor.
+            throw SafeDataAccess.sanitize(failure);
         } catch (IllegalArgumentException exception) {
             throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
         }

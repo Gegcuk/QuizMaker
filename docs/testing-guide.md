@@ -140,6 +140,14 @@ insert and require one successful complete winner. RC/RR old-snapshot fixtures u
 worker writes and real current reads. These are internal storage/adapter proofs, not author HTTP
 or section-runtime conformance.
 
+Real JDBC section-read faults also cross the actual service/repository transaction proxies with
+transaction logging enabled at TRACE. Single/batch regressions require bounded outward failures
+and no driver message, SQL, nested cause or suppressed diagnostic in transaction logs. They prove
+rollback-only after a caught read failure, fresh-transaction absence of writes made before/after
+that failure, and successful recovery through the same read path. Sanitization must occur inside
+the repository, before its transaction interceptor can log the exception; a mock repository does
+not establish this boundary.
+
 The real flat materializer, baseline response/scoring contracts and persistence provide a
 successful control; the same flat command shape cannot reinterpret a structured revision or
 persist a partial form. Five revisions with multiple sections are read and serialized while
