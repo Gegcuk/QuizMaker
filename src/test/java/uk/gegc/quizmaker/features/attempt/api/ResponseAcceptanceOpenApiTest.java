@@ -42,9 +42,9 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {ResponseAcceptanceController.class, ApiDiscoveryController.class})
-@TestPropertySource(properties = "quizmaker.attempts.response-acceptance-enabled=true")
-@Import({SecurityConfig.class, ResponseAcceptanceErrorHandler.class, ResponseAcceptanceJsonConfig.class, OpenApiConfig.class, OpenApiGroupConfig.class, ApiDocumentationService.class,
+@WebMvcTest(controllers = {ResponseAcceptanceController.class, ResponseBatchController.class, ApiDiscoveryController.class})
+@TestPropertySource(properties = {"quizmaker.attempts.response-acceptance-enabled=true", "quizmaker.attempts.response-batch-enabled=true"})
+@Import({SecurityConfig.class, ResponseBatchErrorHandler.class, ResponseBatchJsonConfig.class, ResponseAcceptanceErrorHandler.class, ResponseAcceptanceJsonConfig.class, OpenApiConfig.class, OpenApiGroupConfig.class, ApiDocumentationService.class,
         SpringDocConfiguration.class, SpringDocWebMvcConfiguration.class, MultipleOpenApiSupportConfiguration.class,
         ResponseAcceptanceOpenApiTest.DocConfig.class})
 class ResponseAcceptanceOpenApiTest {
@@ -55,6 +55,7 @@ class ResponseAcceptanceOpenApiTest {
     @Autowired ObjectMapper json;
     @Autowired List<org.springdoc.core.models.GroupedOpenApi> groups;
     @MockitoBean uk.gegc.quizmaker.features.attempt.application.ResponseAcceptanceService responses;
+    @MockitoBean uk.gegc.quizmaker.features.attempt.application.ResponseBatchAcceptanceService batches;
     @MockitoBean AuthSessionService authSessions;
     @MockitoBean AuthSessionMetricsService authMetrics;
     @MockitoBean(name = "corsConfigurationSource") org.springframework.web.cors.CorsConfigurationSource cors;
@@ -69,6 +70,123 @@ class ResponseAcceptanceOpenApiTest {
     private static final String BODY = """
             {"formItemId":"00000000-0000-0000-0000-000000000002","expectedStateVersion":1,"response":{"type":"TRUE_FALSE","answer":true}}
             """;
+
+    private static final String BATCH_PATH = "/api/v1/attempts/{attemptId}/responses/batch";
+    private static final String BATCH_BODY = """
+            {"expectedStateVersion":1,"responses":[{"formItemId":"00000000-0000-0000-0000-000000000002","response":{"type":"TRUE_FALSE","answer":true}}]}
+            """;
+
+    @Test @WithMockUser void batchHasTypedAcknowledgementAndUsesOnlyTheNewCommand() throws Exception {
+        var attempt=UUID.randomUUID(); var item=UUID.fromString("00000000-0000-0000-0000-000000000002"); var accepted=UUID.randomUUID();
+        when(batches.acceptBatch(any())).thenReturn(new uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatch.BatchResult(
+                attempt,List.of(new uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatch.AcceptedItem(item,accepted)),2,false));
+        String body=mvc.perform(post(BATCH_PATH,attempt).header("Idempotency-Key","batch-key").contentType("application/json").content(BATCH_BODY))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control","no-store"))
+                .andExpect(jsonPath("$.responses[0].acceptedResponseId").value(accepted.toString())).andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain("correct","score","explanation","batch-key"); verifyNoInteractions(responses);
+        var capture=org.mockito.ArgumentCaptor.forClass(uk.gegc.quizmaker.features.attempt.application.ResponseBatchAcceptanceService.BatchCommand.class);
+        verify(batches).acceptBatch(capture.capture()); assertThat(capture.getValue().responses()).hasSize(1);
+        assertThat(capture.getValue().expectedStateVersion()).isEqualTo(1);
+    }
+
+    @Test void unauthenticatedBatchNeverInvokesTheCommand() throws Exception {
+        mvc.perform(post(BATCH_PATH,UUID.randomUUID()).header("Idempotency-Key","batch-key").contentType("application/json").content(BATCH_BODY))
+                .andExpect(status().isUnauthorized()); verifyNoInteractions(batches);
+    }
+
+    @ParameterizedTest @WithMockUser
+    @org.junit.jupiter.params.provider.ValueSource(strings={"{", "{\"expectedStateVersion\":1,\"expectedStateVersion\":1,\"responses\":[]}",
+            "{\"expectedStateVersion\":1,\"responses\":[],\"includeCorrectness\":true}",
+            "{\"expectedStateVersion\":\"1\",\"responses\":[]}"})
+    void malformedBatchIsSanitizedBeforeTheService(String body) throws Exception {
+        mvc.perform(post(BATCH_PATH,UUID.randomUUID()).header("Idempotency-Key","batch-key").contentType("application/json").content(body))
+                .andExpect(status().isBadRequest()).andExpect(content().contentType("application/problem+json"));
+        verifyNoInteractions(batches);
+    }
+
+    @ParameterizedTest @WithMockUser
+    @org.junit.jupiter.params.provider.ValueSource(strings={"TRUE_FALSE","MCQ_MULTI","FILL_GAP"})
+    void semanticBatchResponseValidationUses422RatherThanMalformedRequest(String type) throws Exception {
+        var body=json.readTree(BATCH_BODY); var response=json.createObjectNode().put("type",type);
+        switch (type) {
+            case "TRUE_FALSE" -> response.putNull("answer");
+            case "FILL_GAP" -> response.putArray("answers").addObject().put("gapId",0).putNull("answer");
+            case "MCQ_MULTI" -> {
+                var ids=response.putArray("selectedOptionIds");
+                for (int i=0;i<101;i++) ids.add(new UUID(0,i+1).toString());
+            }
+            default -> throw new AssertionError(type);
+        }
+        ((com.fasterxml.jackson.databind.node.ObjectNode)body.path("responses").get(0)).set("response",response);
+        when(batches.acceptBatch(any())).thenThrow(new uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatchException(
+                uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatchException.Reason.INVALID_ITEMS,
+                List.of(new uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatchException.ItemError(0,
+                        uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatchException.Code.INVALID_RESPONSE))));
+        mvc.perform(post(BATCH_PATH,UUID.randomUUID()).header("Idempotency-Key","invalid-response").contentType("application/json").content(body.toString()))
+                .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.errors[0].index").value(0))
+                .andExpect(jsonPath("$.errors[0].code").value("INVALID_RESPONSE"));
+        verify(batches).acceptBatch(any());
+    }
+
+    @Test @WithMockUser void batchBodyAndItemLimitsReturn413BeforeInvocation() throws Exception {
+        var body=json.readTree(BATCH_BODY); var array=(com.fasterxml.jackson.databind.node.ArrayNode)body.path("responses");
+        var first=array.get(0).deepCopy(); for(int i=1;i<=500;i++) array.add(first);
+        mvc.perform(post(BATCH_PATH,UUID.randomUUID()).header("Idempotency-Key","key").contentType("application/json").content(body.toString()))
+                .andExpect(status().isPayloadTooLarge());
+        mvc.perform(post(BATCH_PATH,UUID.randomUUID()).header("Idempotency-Key","key").contentType("application/json")
+                .content(" ".repeat(5*1024*1024)+BATCH_BODY)).andExpect(status().isPayloadTooLarge());
+        verifyNoInteractions(batches);
+    }
+
+    @Test @WithMockUser void exactBatchLimitsHaveSuccessfulControls() throws Exception {
+        var attempt=UUID.randomUUID(); var single=json.readTree(BATCH_BODY);
+        var many=single.deepCopy(); var responses=(com.fasterxml.jackson.databind.node.ArrayNode)many.path("responses"); responses.removeAll();
+        var accepted=new java.util.ArrayList<uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatch.AcceptedItem>();
+        for(int i=0;i<500;i++) {
+            var item=UUID.randomUUID(); responses.addObject().put("formItemId",item.toString()).putObject("response").put("type","TRUE_FALSE").put("answer",true);
+            accepted.add(new uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatch.AcceptedItem(item,UUID.randomUUID()));
+        }
+        when(batches.acceptBatch(any())).thenReturn(new uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatch.BatchResult(attempt,accepted,501,false));
+        mvc.perform(post(BATCH_PATH,attempt).header("Idempotency-Key","maximum").contentType("application/json").content(many.toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.responses.length()").value(500));
+        var item=UUID.fromString("00000000-0000-0000-0000-000000000002");
+        when(batches.acceptBatch(any())).thenReturn(new uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatch.BatchResult(attempt,
+                List.of(new uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatch.AcceptedItem(item,UUID.randomUUID())),2,false));
+        String exact=" ".repeat(5*1024*1024-BATCH_BODY.getBytes(java.nio.charset.StandardCharsets.UTF_8).length)+BATCH_BODY;
+        mvc.perform(post(BATCH_PATH,attempt).header("Idempotency-Key","exact-bytes").contentType("application/json").content(exact))
+                .andExpect(status().isOk());
+    }
+
+    @Test @WithMockUser void batchErrorEnvelopeContainsOnlyIndexesAndBoundedCodes() throws Exception {
+        when(batches.acceptBatch(any())).thenThrow(new uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatchException(
+                uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatchException.Reason.INVALID_ITEMS,
+                List.of(new uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatchException.ItemError(0,
+                        uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatchException.Code.INVALID_RESPONSE))));
+        mvc.perform(post(BATCH_PATH,UUID.randomUUID()).header("Idempotency-Key","key").contentType("application/json").content(BATCH_BODY))
+                .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.errors[0].index").value(0))
+                .andExpect(jsonPath("$.errors[0].code").value("INVALID_RESPONSE"));
+    }
+
+    @Test @WithMockUser void batchAppearsInExactlyOneGroupAndApiSummary() throws Exception {
+        String path="/api/v1/attempts/{attemptId}/responses/batch";
+        var full=json.readTree(mvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        var grouped=json.readTree(mvc.perform(get("/v3/api-docs/attempts")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(full.path("paths").has(path)).isTrue(); assertThat(grouped.path("paths").has(path)).isTrue();
+        assertThat(groups.stream().filter(g -> java.util.Arrays.stream(g.getPathsToMatch().toArray(new String[0]))
+                .anyMatch(pattern -> new org.springframework.util.AntPathMatcher().match(pattern,"/api/v1/attempts/id/responses/batch"))).count()).isEqualTo(1);
+        assertThat(grouped.path("paths").path(path).path("post").path("responses").has("413")).isTrue();
+        assertThat(grouped.path("components").path("schemas").has("AcceptResponseBatchRequest")).isTrue();
+        assertThat(grouped.path("components").path("schemas").has("ResponseBatchAcknowledgement")).isTrue();
+        assertThat(grouped.path("components").path("schemas").has("ResponseBatchProblem")).isTrue();
+        var operation=grouped.path("paths").path(path).path("post");
+        var requestExample=operation.path("requestBody").path("content").path("application/json").path("example");
+        var responseExample=operation.path("responses").path("200").path("content").path("application/json").path("example");
+        assertThat(json.treeToValue(requestExample, uk.gegc.quizmaker.features.attempt.api.dto.AcceptResponseBatchRequest.class).responses()).hasSize(1);
+        assertThat(json.treeToValue(responseExample, uk.gegc.quizmaker.features.attempt.api.dto.ResponseBatchAcknowledgement.class).responses()).hasSize(1);
+
+        String summary=mvc.perform(get("/api/v1/api-summary")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(summary).contains("attempts");
+    }
 
     @Test @WithMockUser void typedCommandReturnsOnlyBoundedAcknowledgementAndPassesStableInput() throws Exception {
         var attempt = UUID.randomUUID(); var answer = UUID.randomUUID();

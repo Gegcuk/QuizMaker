@@ -3343,6 +3343,57 @@ remains on its existing path.
 
 ## Answer Lifecycle
 
+### Atomic online response batches (#629)
+
+`ResponseBatchAcceptanceService` accepts a nonempty set of confirmed responses for an
+already authorized target `ALL_AT_ONCE` form. `POST /api/v1/attempts/{attemptId}/responses/batch`
+uses the named `AcceptResponseBatchRequest` and `ResponseBatchAcknowledgement` schemas in the
+attempts OpenAPI group. The separate `quizmaker.attempts.response-batch-enabled` switch defaults
+to false: an absent/false switch registers neither this route nor its strict JSON converter.
+The existing `/answers/batch`, request/response envelopes, frontend and single-response route
+retain their contracts. This implementation does not activate target routing or require a client
+rollout for existing operations; exposing the new capability remains a separate activation gate.
+
+D09 limits are 500 items, 5 MiB of request JSON and 32 KiB per text, with stricter existing family
+limits retained (100 elements and 10,000 code points where applicable). The parser bounds the
+body before deserialization and rejects duplicate object keys, coercions and unknown properties.
+Duplicate item IDs or response elements, unknown form items and any invalid response reject the
+whole batch. Input order is part of command identity; object-key order is canonicalized. Results
+follow immutable form order. Item errors contain only a zero-based request index and a closed
+code, sorted by form order, with unknown items last in request order. Malformed requests use 400,
+body/item-count overflow 413, deterministic item failures 422 and state/idempotency/accepted-answer
+conflicts 409. Authentication and non-enumerating attempt access failures retain 401/404;
+corrupt saved evidence is 500 and storage/unknown-commit outcomes are bounded 503 responses.
+
+For example, a participant can send twenty answers in one command: either all twenty accepted
+responses, lifecycle advances and trace facts commit, or none do. Acceptance does not submit the
+attempt, grade it, reveal feedback or change require-all completion rules. Existing immutable
+answers cannot be overwritten. Both single and batch commands use `AcceptedResponseWork` for
+validation, normalization, immutable insertion, lifecycle advancement and trace append. The batch
+loads its frozen form, question contracts and existing response references once before writes;
+all its items are validated before any accepted response is inserted. The injected server receipt
+time follows the existing timing boundary even when lock processing crosses a deadline.
+
+One parent receipt encloses the transaction. It uses the existing `SUBMIT_ANSWER` receipt operation,
+targets the attempt and includes the `RESPONSE_BATCH_V1` discriminator and ordered component hashes
+in its canonical fingerprint. This cannot replay a single-item command or alter public allowed-actions.
+Each response retains a bounded deterministic child command identity derived from that parent and
+form item. Additive V112 stores only the parent acknowledgement projection (IDs and final state
+version), never answer content. The projection is validated against the actual accepted rows and
+saved form order with a bounded query before returning it. Identical replay rechecks current
+permission/ownership and returns the original IDs/version without accepting or tracing again.
+Receipt cleanup may cascade into this projection under the existing D08 policy; retained accepted
+responses and their natural uniqueness are independent. No new retention or automatic retry policy
+is introduced. After an unknown commit, repeat the exact same command through a fresh transaction.
+
+The acceptance MySQL suite exercises all five baseline families, real rollback checkpoints,
+recreated-service replay, overlapping/identical command races, current permission and private-owner
+negatives, maximum-size acceptance, timing and corrupt projections. Multi-parent fixtures compare
+source relationship reads for different batch sizes; per-response persistence guards still perform
+their required writes/locking reads. HTTP tests cover strict parsing, exact body/item bounds,
+security, named schemas/examples, single-group/API-summary discovery and the disabled route.
+
+
 Candidate answer states:
 
 ```text
