@@ -2951,6 +2951,54 @@ The migration does not reclassify existing attempts or rewrite flat revision con
 format-2 writes, unused code can be disabled. After such writes, retain this schema/evidence and
 use an additive forward fix; an old reader must reject format 2, not treat it as a flat revision.
 
+### Immutable case storage (#552)
+
+Revision format 3 adds ordered `RevisionCaseBlock` values to the existing complete revision
+aggregate. Formats 1 (flat) and 2 (sections without cases) retain their storage semantics.
+Each case records its stable ID, case schema version 1, exact section ID, authored position,
+opaque immutable stimulus-revision ID, explicitly supplied atomicity and nonempty ordered
+revision-item IDs. Case positions are unique within a section; canonical case order follows
+section order and then case position. Member order is retained exactly, including authored
+order different from the enclosing section's item order. Members must belong to that exact
+revision and section, and an item cannot belong to two cases. Ordinary items outside cases
+remain representable. Atomicity is stored evidence, not new runtime selection eligibility.
+
+The stimulus ID is a reference, not stimulus bytes, a mutable document URL or a promise that
+the content has been resolved. This slice neither ingests stimulus material nor grants access
+to it. An authorized future author/content boundary must supply the actual immutable source
+and its applicable access/retention evidence before content delivery can be activated.
+`QuizRevision` is the internal author-side value; `RevisionStructure.CaseBlock` omits the
+stimulus reference and all question/answer payloads. Neither representation authorizes
+participant reads. #554/#632/#615/#711 retain their materialization, API and runtime proof.
+
+`QuizRevisionCaseService` is an internal interface for an already authorized publication
+caller. It requires trusted owner context matching the aggregate, reads current evidence
+and inserts the entire aggregate through `QuizRevisionRepository`. An identical committed
+replay is read-only; the same identity with different content conflicts. Concurrent missing
+publications may return a bounded conflict/storage failure to a losing caller; a later
+same-input retry reads the winner rather than rewriting it. There is no automatic retry
+policy. The service joins an enclosing transaction, so a failure in a consumer's subsequent
+reference write also rolls publication back. It does not replace #700's authoring command,
+advance a current pointer, activate a route or create an attempt.
+
+V111 adds nullable `case_count` on revision roots and case/member tables. Composite foreign
+keys enforce both case-section and actual section-item membership. Counts, unique ordinal
+slots and immutable triggers seal complete aggregates against updates, deletion, downgrade
+and late insertion. There is no backfill, cascade deletion or change to retention policy.
+After format-3 writes, retain the schema/evidence and recover through an additive forward fix.
+MySQL DDL is not a multi-statement transaction: a failed migration stops startup; inspect its
+actual committed DDL and Flyway state before an explicit recovery. No automatic repair or
+destructive downgrade is introduced.
+
+Reads batch authorized roots and use seven physical SQL queries per case-bearing root batch
+(at most 500 requested root IDs), independent of case/member count. Flat-only and section-only
+batches retain three and five respectively. Current shared reads include all case/member rows
+while retaining the caller's isolation and older nonlocking snapshot. Missing counts/slots,
+invalid bindings and noncanonical persisted order fail closed. Read and format-3 write
+diagnostics are sanitized inside the repository before transaction interception. The bounded
+`quiz.revision.case.publish` outcome counter describes boundary execution, not an enclosing
+caller's eventual commit. No full document read or digest is used for version comparisons.
+
 Sections deserve explicit revision and form models.
 
 ```text

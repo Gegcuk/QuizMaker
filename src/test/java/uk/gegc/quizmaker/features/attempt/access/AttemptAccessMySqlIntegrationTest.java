@@ -434,12 +434,12 @@ class AttemptAccessMySqlIntegrationTest {
         Map<String, String> constraints = Map.of("subject", "chk_attempt_subject_version", "stream", "chk_trace_stream",
                 "form", "chk_form_version", "policy", "chk_policy_snapshot_version",
                 "revision", "chk_quiz_revision_version", "lifecycle", "chk_attempt_lifecycle_version");
-        // Future-version corruption fixture in the test-owned catalogue, following the existing trace/snapshot tests.
+        // Unsupported-version corruption fixture in the test-owned catalogue, following trace/snapshot tests.
         String check = constraints.get(root);
         sql.execute("ALTER TABLE " + table + " ALTER CHECK " + check + " NOT ENFORCED");
         try {
-            // Revision format 2 is the sectioned contract; it is no longer an unknown version.
-            int unsupportedVersion = root.equals("revision") ? 3 : 2;
+            // Formats 2/3 are immutable structured revisions. Zero stays unsupported without bypassing their guards.
+            int unsupportedVersion = root.equals("revision") ? 0 : 2;
             tx.executeWithoutResult(status -> sql.update("UPDATE " + table + " SET " + column + "=?", unsupportedVersion));
             denied(() -> guarded(started.attemptId(), Operation.VIEW), DENIED);
         } finally {

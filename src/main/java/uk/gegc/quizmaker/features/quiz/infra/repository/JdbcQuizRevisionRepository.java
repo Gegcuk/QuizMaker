@@ -36,15 +36,26 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
     private static final int SQL_BATCH = 500;
     private final NamedParameterJdbcTemplate jdbc;
     private final JdbcRevisionSections sections;
+    private final JdbcRevisionCases cases;
 
     public JdbcQuizRevisionRepository(NamedParameterJdbcTemplate jdbc) {
         this.jdbc = jdbc;
         this.sections = new JdbcRevisionSections(jdbc);
+        this.cases = new JdbcRevisionCases(jdbc);
     }
 
     @Override
     public void insert(QuizRevision revision) {
         Objects.requireNonNull(revision, "revision must not be null");
+        try {
+            insertAggregate(revision);
+        } catch (DataAccessException failure) {
+            if (revision.schemaVersion() == 3) throw SafeDataAccess.sanitize(failure);
+            throw failure;
+        }
+    }
+
+    private void insertAggregate(QuizRevision revision) {
         Map<UUID, QuestionRevision> questions = new LinkedHashMap<>();
         revision.items().forEach(item -> questions.put(item.question().id(), item.question()));
         Map<UUID, QuestionRevision> existing = readQuestions(new ArrayList<>(questions.keySet()));
@@ -73,13 +84,16 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
         // Flat writes retain their v1 SQL shape; structured writes explicitly declare sealed slots.
         String sectionColumn = revision.structured() ? ", section_count" : "";
         String sectionValue = revision.structured() ? ", :sectionCount" : "";
+        String caseColumn = revision.schemaVersion() == 3 ? ", case_count" : "";
+        String caseValue = revision.schemaVersion() == 3 ? ", :caseCount" : "";
         jdbc.update("INSERT INTO quiz_revisions (id, quiz_id, owner_id, schema_version, title, description, created_at"
-                + sectionColumn + ") VALUES (:id, :quizId, :ownerId, :version, :title, :description, :created"
-                + sectionValue + ")", new MapSqlParameterSource().addValue("id", bytes(revision.id()))
+                + sectionColumn + caseColumn + ") VALUES (:id, :quizId, :ownerId, :version, :title, :description, :created"
+                + sectionValue + caseValue + ")", new MapSqlParameterSource().addValue("id", bytes(revision.id()))
                 .addValue("quizId", bytes(revision.quizId())).addValue("ownerId", bytes(revision.ownerId()))
                 .addValue("version", revision.schemaVersion()).addValue("title", revision.title())
                 .addValue("description", revision.description())
-                .addValue("created", Timestamp.from(revision.createdAt())).addValue("sectionCount", revision.sections().size()));
+                .addValue("created", Timestamp.from(revision.createdAt())).addValue("sectionCount", revision.sections().size())
+                .addValue("caseCount", revision.caseBlocks().size()));
         batch("""
                 INSERT INTO quiz_revision_items (id, quiz_revision_id, question_revision_id, authored_position)
                 VALUES (:id, :quizId, :questionId, :position)
@@ -88,6 +102,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
                 .addValue("questionId", bytes(item.question().id()))
                 .addValue("position", item.authoredPosition())).toList());
         sections.insert(revision);
+        cases.insert(revision);
     }
 
     @Override
@@ -127,7 +142,8 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
                         """ + lock, parameters, (rs, row) -> new Root(uuid(rs, "id"), uuid(rs, "quiz_id"),
                         uuid(rs, "owner_id"), rs.getInt("schema_version"), rs.getString("title"), rs.getString("description"),
                         rs.getTimestamp("created_at").toInstant(),
-                        rs.getInt("schema_version") == 2 ? rs.getInt("section_count") : 0));
+                        rs.getInt("schema_version") >= 2 ? rs.getInt("section_count") : 0,
+                        rs.getInt("schema_version") == 3 ? rs.getInt("case_count") : 0));
                 if (roots.isEmpty()) continue;
                 Map<String, Object> scoped = Map.of("ids", binaryIds(roots.stream().map(Root::id).toList()));
                 List<ItemRow> items = jdbc.query("""
@@ -147,11 +163,20 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
                         .add(new QuizRevision.Item(item.id(), item.position(),
                                 withOptions(item.question(), options.getOrDefault(item.question().id(), List.of())))));
                 Map<UUID, Integer> structured = new LinkedHashMap<>();
-                roots.stream().filter(root -> root.schemaVersion() == 2).forEach(root -> structured.put(root.id(), root.sectionCount()));
+                roots.stream().filter(root -> root.schemaVersion() >= 2).forEach(root -> structured.put(root.id(), root.sectionCount()));
                 var layouts = sections.read(structured, current);
-                roots.forEach(root -> result.put(root.id(), new QuizRevision(root.id(), root.quizId(), root.ownerId(),
+                Map<UUID, Integer> cased = new LinkedHashMap<>();
+                roots.stream().filter(root -> root.schemaVersion() == 3).forEach(root -> cased.put(root.id(), root.caseCount()));
+                var blocks = cases.read(cased, current);
+                roots.forEach(root -> {
+                    var storedCases = blocks.getOrDefault(root.id(), List.of());
+                    var revision = new QuizRevision(root.id(), root.quizId(), root.ownerId(),
                         root.schemaVersion(), root.title(), root.description(), root.createdAt(), byRoot.getOrDefault(root.id(), List.of()),
-                        layouts.getOrDefault(root.id(), List.of()))));
+                        layouts.getOrDefault(root.id(), List.of()), storedCases);
+                    if (!revision.caseBlocks().equals(storedCases))
+                        throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
+                    result.put(root.id(), revision);
+                });
             }
         } catch (DataAccessException failure) {
             // Sanitize before any public read exits through the repository transaction interceptor.
@@ -244,5 +269,5 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
 
     private record ItemRow(UUID rootId, UUID id, int position, QuestionRevision question) { }
     private record Root(UUID id, UUID quizId, UUID ownerId, int schemaVersion, String title, String description,
-                        java.time.Instant createdAt, int sectionCount) { }
+                        java.time.Instant createdAt, int sectionCount, int caseCount) { }
 }
