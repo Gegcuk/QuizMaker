@@ -35,9 +35,11 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
     // SQL parameter batching only; this does not limit the size of a published quiz.
     private static final int SQL_BATCH = 500;
     private final NamedParameterJdbcTemplate jdbc;
+    private final JdbcRevisionSections sections;
 
     public JdbcQuizRevisionRepository(NamedParameterJdbcTemplate jdbc) {
         this.jdbc = jdbc;
+        this.sections = new JdbcRevisionSections(jdbc);
     }
 
     @Override
@@ -68,14 +70,16 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
                 INSERT INTO question_option_revisions (id, question_revision_id, source_key, authored_position)
                 VALUES (:id, :questionId, :key, :position)
                 """, options);
-        jdbc.update("""
-                INSERT INTO quiz_revisions (id, quiz_id, owner_id, schema_version, title, description, created_at)
-                VALUES (:id, :quizId, :ownerId, :version, :title, :description, :created)
-                """, new MapSqlParameterSource().addValue("id", bytes(revision.id()))
+        // Flat writes retain their v1 SQL shape; structured writes explicitly declare sealed slots.
+        String sectionColumn = revision.structured() ? ", section_count" : "";
+        String sectionValue = revision.structured() ? ", :sectionCount" : "";
+        jdbc.update("INSERT INTO quiz_revisions (id, quiz_id, owner_id, schema_version, title, description, created_at"
+                + sectionColumn + ") VALUES (:id, :quizId, :ownerId, :version, :title, :description, :created"
+                + sectionValue + ")", new MapSqlParameterSource().addValue("id", bytes(revision.id()))
                 .addValue("quizId", bytes(revision.quizId())).addValue("ownerId", bytes(revision.ownerId()))
                 .addValue("version", revision.schemaVersion()).addValue("title", revision.title())
                 .addValue("description", revision.description())
-                .addValue("created", Timestamp.from(revision.createdAt())));
+                .addValue("created", Timestamp.from(revision.createdAt())).addValue("sectionCount", revision.sections().size()));
         batch("""
                 INSERT INTO quiz_revision_items (id, quiz_revision_id, question_revision_id, authored_position)
                 VALUES (:id, :quizId, :questionId, :position)
@@ -83,6 +87,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
                 .addValue("id", bytes(item.id())).addValue("quizId", bytes(revision.id()))
                 .addValue("questionId", bytes(item.question().id()))
                 .addValue("position", item.authoredPosition())).toList());
+        sections.insert(revision);
     }
 
     @Override
@@ -117,13 +122,14 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
             for (int start = 0; start < ids.size(); start += SQL_BATCH) {
                 List<UUID> part = ids.subList(start, Math.min(start + SQL_BATCH, ids.size()));
                 Map<String, Object> parameters = Map.of("owner", bytes(ownerId), "ids", binaryIds(part));
-                List<QuizRevision> roots = jdbc.query("""
+                List<Root> roots = jdbc.query("""
                         SELECT * FROM quiz_revisions WHERE owner_id = :owner AND id IN (:ids)
-                        """ + lock, parameters, (rs, row) -> new QuizRevision(uuid(rs, "id"), uuid(rs, "quiz_id"),
+                        """ + lock, parameters, (rs, row) -> new Root(uuid(rs, "id"), uuid(rs, "quiz_id"),
                         uuid(rs, "owner_id"), rs.getInt("schema_version"), rs.getString("title"), rs.getString("description"),
-                        rs.getTimestamp("created_at").toInstant(), List.of()));
+                        rs.getTimestamp("created_at").toInstant(),
+                        rs.getInt("schema_version") == 2 ? rs.getInt("section_count") : 0));
                 if (roots.isEmpty()) continue;
-                Map<String, Object> scoped = Map.of("ids", binaryIds(roots.stream().map(QuizRevision::id).toList()));
+                Map<String, Object> scoped = Map.of("ids", binaryIds(roots.stream().map(Root::id).toList()));
                 List<ItemRow> items = jdbc.query("""
                         SELECT i.id AS item_id, i.quiz_revision_id, i.authored_position AS item_position, q.*
                         FROM quiz_revision_items i JOIN question_revisions q ON q.id = i.question_revision_id
@@ -140,9 +146,16 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
                 items.forEach(item -> byRoot.computeIfAbsent(item.rootId(), ignored -> new ArrayList<>())
                         .add(new QuizRevision.Item(item.id(), item.position(),
                                 withOptions(item.question(), options.getOrDefault(item.question().id(), List.of())))));
+                Map<UUID, Integer> structured = new LinkedHashMap<>();
+                roots.stream().filter(root -> root.schemaVersion() == 2).forEach(root -> structured.put(root.id(), root.sectionCount()));
+                var layouts = sections.read(structured, current);
                 roots.forEach(root -> result.put(root.id(), new QuizRevision(root.id(), root.quizId(), root.ownerId(),
-                        root.schemaVersion(), root.title(), root.description(), root.createdAt(), byRoot.getOrDefault(root.id(), List.of()))));
+                        root.schemaVersion(), root.title(), root.description(), root.createdAt(), byRoot.getOrDefault(root.id(), List.of()),
+                        layouts.getOrDefault(root.id(), List.of()))));
             }
+        } catch (DataAccessException failure) {
+            // Sanitize before any public read exits through the repository transaction interceptor.
+            throw SafeDataAccess.sanitize(failure);
         } catch (IllegalArgumentException exception) {
             throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
         }
@@ -230,4 +243,6 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
     }
 
     private record ItemRow(UUID rootId, UUID id, int position, QuestionRevision question) { }
+    private record Root(UUID id, UUID quizId, UUID ownerId, int schemaVersion, String title, String description,
+                        java.time.Instant createdAt, int sectionCount) { }
 }

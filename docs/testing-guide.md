@@ -120,6 +120,42 @@ checks for existing API, training, migration and shared-reader compatibility.
 
 ## Unit Tests
 
+### Immutable revision sections (#551)
+
+With JDK 17 and the existing disposable test MySQL configuration, run:
+
+```bash
+./mvnw test -Dtest=QuizRevisionSectionsTest,QuizRevisionStructureServiceTest,ParticipantFormProjectorTest
+./mvnw test -Dtest=QuizRevisionSectionsMySqlIntegrationTest,QuizRevisionMySqlIntegrationTest,QuizRevisionAuthoringMySqlIntegrationTest,FixedFormMaterializerMySqlIntegrationTest
+```
+
+The new MySQL suite creates/drops only its own generated `revision_sections_<id>` catalog. It
+migrates through V109, inserts a real flat revision, then applies V110 and checks repeat migration
+without backfill. Real repository/adapter calls cover exact structured round trips, a later
+revision with edited section metadata, wrong-owner absence, legacy classification without SQL,
+immutable database guards, foreign membership, and incomplete-evidence rejection. Faults occur
+after actual section/member inserts; fresh transactions verify whole-aggregate rollback before
+the same input succeeds. Two independent publication contenders synchronize before the root
+insert and require one successful complete winner. RC/RR old-snapshot fixtures use committed
+worker writes and real current reads. These are internal storage/adapter proofs, not author HTTP
+or section-runtime conformance.
+
+Real JDBC section-read faults also cross the actual service/repository transaction proxies with
+transaction logging enabled at TRACE. Single/batch regressions require bounded outward failures
+and no driver message, SQL, nested cause or suppressed diagnostic in transaction logs. They prove
+rollback-only after a caught read failure, fresh-transaction absence of writes made before/after
+that failure, and successful recovery through the same read path. Sanitization must occur inside
+the repository, before its transaction interceptor can log the exception; a mock repository does
+not establish this boundary.
+
+The real flat materializer, baseline response/scoring contracts and persistence provide a
+successful control; the same flat command shape cannot reinterpret a structured revision or
+persist a partial form. Five revisions with multiple sections are read and serialized while
+counting physical JDBC statements: five per structured batch, three for flat-only reads. MySQL
+`EXPLAIN` verifies indexed parent/membership lookup. No JPA associations or external providers
+are substituted in these new tests. Run the full `./mvnw verify` gate for existing API, training,
+publication, authorization and OpenAPI compatibility before handoff.
+
 Use real input values and narrow collaborator doubles. A unit test should describe a rule in observable terms, for example:
 
 ```java

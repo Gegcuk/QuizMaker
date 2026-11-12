@@ -210,6 +210,7 @@ uk/gegc/quizmaker/features/quiz/repository/QuizGenerationJobRepositoryTaskProgre
 uk/gegc/quizmaker/features/quiz/revision/QuizPublicationMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/quiz/revision/QuizRevisionAuthoringMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/quiz/revision/QuizRevisionMySqlIntegrationTest.java
+uk/gegc/quizmaker/features/quiz/revision/QuizRevisionSectionsMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/quizgroup/QuizGroupIntegrationTest.java
 uk/gegc/quizmaker/features/quizgroup/api/QuizGroupControllerTest.java
 uk/gegc/quizmaker/features/quizgroup/domain/repository/QuizGroupMembershipRepositoryTest.java

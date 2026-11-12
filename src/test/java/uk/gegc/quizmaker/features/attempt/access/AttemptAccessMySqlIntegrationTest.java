@@ -438,7 +438,9 @@ class AttemptAccessMySqlIntegrationTest {
         String check = constraints.get(root);
         sql.execute("ALTER TABLE " + table + " ALTER CHECK " + check + " NOT ENFORCED");
         try {
-            tx.executeWithoutResult(status -> sql.update("UPDATE " + table + " SET " + column + "=2"));
+            // Revision format 2 is the sectioned contract; it is no longer an unknown version.
+            int unsupportedVersion = root.equals("revision") ? 3 : 2;
+            tx.executeWithoutResult(status -> sql.update("UPDATE " + table + " SET " + column + "=?", unsupportedVersion));
             denied(() -> guarded(started.attemptId(), Operation.VIEW), DENIED);
         } finally {
             tx.executeWithoutResult(status -> sql.update("UPDATE " + table + " SET " + column + "=1"));

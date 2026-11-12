@@ -20,6 +20,18 @@ import static uk.gegc.quizmaker.features.attempt.form.FixedFormFixtures.*;
 import static uk.gegc.quizmaker.features.attempt.form.MaterializationFixtures.*;
 
 class ParticipantFormProjectorTest {
+    @Test
+    void sectionedRevisionCannotBeSilentlyFlattenedByTheExistingParticipantProjector() {
+        var flat = quiz("section-guard", question("visible", QuestionType.TRUE_FALSE));
+        var form = command("section-guard-form", flat, AUTHORED).form();
+        assertThat(project(form, flat, MaterializationFixtures::presentation).items()).hasSize(1);
+        var structured = new QuizRevision(flat.id(), flat.quizId(), flat.ownerId(), 2, flat.title(), flat.description(),
+                flat.createdAt(), flat.items(), List.of(new RevisionSection(id("section"), 1, 0, "Section", null,
+                flat.items().stream().map(QuizRevision.Item::id).toList())));
+        assertThatThrownBy(() -> project(form, structured, MaterializationFixtures::presentation))
+                .isInstanceOf(FormMaterializationException.class).hasMessageContaining("INPUT_MISMATCH");
+    }
+
     @ParameterizedTest
     @EnumSource(value = QuestionType.class, names = {"MCQ_SINGLE", "MCQ_MULTI", "TRUE_FALSE", "FILL_GAP", "ORDERING"})
     void supportedPresentationsContainOnlySafeFieldsAndExactStableIds(QuestionType type) throws Exception {
