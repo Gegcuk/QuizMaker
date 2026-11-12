@@ -107,6 +107,8 @@ uk/gegc/quizmaker/features/article/application/ArticleServiceImplIntegrationTest
 uk/gegc/quizmaker/features/article/application/ArticleServiceImplIntegrationTest$*.java
 uk/gegc/quizmaker/features/article/domain/repository/ArticleRepositoryTest.java
 uk/gegc/quizmaker/features/article/domain/repository/ArticleRepositoryTest$*.java
+uk/gegc/quizmaker/features/assignment/AssignmentSchemaMySqlIntegrationTest.java
+uk/gegc/quizmaker/features/assignment/AssignmentSchemaMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/attempt/access/AttemptAccessMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/attempt/access/AttemptAccessMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/attempt/api/AttemptControllerReviewTest.java

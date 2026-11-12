@@ -11,6 +11,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -21,6 +23,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.billing.application.BillingMetricsService;
@@ -41,6 +44,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -55,9 +59,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.timeout;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @Tag("db-serial")
@@ -94,7 +97,7 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
     @Autowired
     private SubscriptionMutationService mutationService;
 
-    @Autowired
+    @MockitoSpyBean
     private SubscriptionMutationCoordinator mutationCoordinator;
 
     @Autowired
@@ -120,6 +123,7 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
     private AtomicReference<CountDownLatch> releaseMutation;
     private AtomicReference<CountDownLatch> secondOwnershipLookupEntered;
     private AtomicReference<CountDownLatch> releaseSecondOwnershipLookup;
+    private CountDownLatch waitingForActiveOperation;
 
     @BeforeEach
     void setUp() throws StripeException {
@@ -136,6 +140,16 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
         releaseMutation = new AtomicReference<>(new CountDownLatch(0));
         secondOwnershipLookupEntered = new AtomicReference<>(new CountDownLatch(0));
         releaseSecondOwnershipLookup = new AtomicReference<>(new CountDownLatch(0));
+        waitingForActiveOperation = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            var state = (Optional<SubscriptionMutationState>) invocation.callRealMethod();
+            // A provider invocation alone does not prove that the competitor reached WAIT.
+            if (state.orElse(null) == SubscriptionMutationState.IN_PROGRESS) {
+                waitingForActiveOperation.countDown();
+            }
+            return state;
+        }).when(mutationCoordinator).getState(any(UUID.class), any(UUID.class));
 
         SubscriptionStatus status = new SubscriptionStatus();
         status.setUserId(userId);
@@ -192,9 +206,7 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
             releaseSecondOwnershipLookup.get().countDown();
             assertThat(second.get(5, TimeUnit.SECONDS).getStatus()).isEqualTo("canceled");
         } finally {
-            releaseMutation.get().countDown();
-            releaseSecondOwnershipLookup.get().countDown();
-            executor.shutdownNow();
+            stopWorkers(executor);
         }
 
         assertThat(cancelCalls).hasValue(1);
@@ -217,13 +229,13 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
 
             Future<Subscription> second = executor.submit(() -> mutationService.updateSubscription(
                     userId, SUBSCRIPTION_ID, "price_pro", "same-update-key"));
-            verify(stripeService, timeout(2_000).atLeast(2)).retrieveSubscription(SUBSCRIPTION_ID);
+            assertThat(waitingForActiveOperation.await(5, TimeUnit.SECONDS)).isTrue();
             releaseMutation.get().countDown();
 
             assertThat(priceId(first.get(5, TimeUnit.SECONDS))).isEqualTo("price_pro");
             assertThat(priceId(second.get(5, TimeUnit.SECONDS))).isEqualTo("price_pro");
         } finally {
-            executor.shutdownNow();
+            stopWorkers(executor);
         }
 
         assertThat(updateCalls).hasValue(1);
@@ -242,13 +254,13 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
 
             Future<Subscription> cancel = executor.submit(() -> mutationService.cancelSubscription(
                     userId, SUBSCRIPTION_ID, "terminal-cancel"));
-            verify(stripeService, timeout(2_000).atLeast(2)).retrieveSubscription(SUBSCRIPTION_ID);
+            assertThat(waitingForActiveOperation.await(5, TimeUnit.SECONDS)).isTrue();
             releaseMutation.get().countDown();
 
             assertThat(priceId(update.get(5, TimeUnit.SECONDS))).isEqualTo("price_pro");
             assertThat(cancel.get(5, TimeUnit.SECONDS).getStatus()).isEqualTo("canceled");
         } finally {
-            executor.shutdownNow();
+            stopWorkers(executor);
         }
 
         assertThat(updateCalls).hasValue(1);
@@ -269,19 +281,104 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
             Future<Throwable> updateFailure = executor.submit(() -> captureFailure(() ->
                     mutationService.updateSubscription(
                             userId, SUBSCRIPTION_ID, "price_pro", "update-after-cancel")));
-            verify(stripeService, timeout(2_000).atLeast(2)).retrieveSubscription(SUBSCRIPTION_ID);
+            assertThat(waitingForActiveOperation.await(5, TimeUnit.SECONDS)).isTrue();
             releaseMutation.get().countDown();
 
             assertThat(cancel.get(5, TimeUnit.SECONDS).getStatus()).isEqualTo("canceled");
             assertThat(updateFailure.get(5, TimeUnit.SECONDS))
                     .isInstanceOf(SubscriptionMutationConflictException.class);
         } finally {
-            executor.shutdownNow();
+            stopWorkers(executor);
         }
 
         assertThat(cancelCalls).hasValue(1);
         assertThat(updateCalls).hasValue(0);
         assertThat(remoteState.get().status()).isEqualTo("canceled");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"legacy", "new-key", "completed-key"})
+    @DisplayName("A stale active snapshot cannot authorize an update after cancellation commits")
+    void cancellationCommittedBeforeUpdateClaimRejectsStaleSnapshot(String keyKind) throws Exception {
+        String key = "legacy".equals(keyKind) ? null : keyKind;
+        if ("completed-key".equals(keyKind)) {
+            mutationService.updateSubscription(userId, SUBSCRIPTION_ID, "price_pro", key);
+            ownershipLookups.set(0);
+        }
+        int priorUpdates = updateCalls.get();
+        long priorOperations = operationRepository.count();
+        pauseNextMutation();
+        pauseSecondOwnershipLookup();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Subscription> cancel = executor.submit(() -> mutationService.cancelSubscription(
+                    userId, SUBSCRIPTION_ID, "cancel-before-claim"));
+            assertThat(mutationEntered.get().await(2, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> updateFailure = executor.submit(() -> captureFailure(() ->
+                    mutationService.updateSubscription(userId, SUBSCRIPTION_ID, "price_pro", key)));
+            // The update has captured an active provider snapshot but has not claimed its operation.
+            assertThat(secondOwnershipLookupEntered.get().await(2, TimeUnit.SECONDS)).isTrue();
+            releaseMutation.get().countDown();
+            assertThat(cancel.get(5, TimeUnit.SECONDS).getStatus()).isEqualTo("canceled");
+            // Completion includes the real coordinator transaction's commit.
+            releaseSecondOwnershipLookup.get().countDown();
+            assertThat(updateFailure.get(5, TimeUnit.SECONDS))
+                    .isInstanceOf(SubscriptionMutationConflictException.class);
+        } finally {
+            stopWorkers(executor);
+        }
+        assertThat(cancelCalls).hasValue(1);
+        assertThat(updateCalls).hasValue(priorUpdates);
+        assertThat(operationRepository.count()).isEqualTo(priorOperations + 1);
+        assertThat(operationRepository.findAll()).allSatisfy(operation ->
+                assertThat(operation.getState()).isEqualTo(SubscriptionMutationState.SUCCEEDED));
+        assertThat(remoteState.get().status()).isEqualTo("canceled");
+        assertThat(statusRepository.findByUserId(userId)).get().satisfies(status -> {
+            assertThat(status.isBlocked()).isTrue();
+            assertThat(status.getBlockReason()).isEqualTo("subscription_cancelled_by_user");
+        });
+    }
+
+    @Test
+    @DisplayName("Completed cancellation protects the exact subscription independently of mutable block flags")
+    void completedCancellationDoesNotBlockReplacementSubscription() throws Exception {
+        mutationService.cancelSubscription(userId, SUBSCRIPTION_ID, "cancel-old-subscription");
+        SubscriptionStatus status = statusRepository.findByUserId(userId).orElseThrow();
+        status.setBlocked(false);
+        status.setBlockReason(null);
+        statusRepository.saveAndFlush(status);
+
+        assertThatThrownBy(() -> mutationCoordinator.claim(userId, SUBSCRIPTION_ID,
+                SubscriptionMutationType.UPDATE, "price_pro", "stale-update", false))
+                .isInstanceOf(SubscriptionMutationConflictException.class);
+        assertThat(operationRepository.count()).isEqualTo(1);
+
+        status.setSubscriptionId("sub_replacement");
+        statusRepository.saveAndFlush(status);
+        SubscriptionMutationClaim replacement = mutationCoordinator.claim(userId, "sub_replacement",
+                SubscriptionMutationType.UPDATE, "price_pro", "replacement-update", false);
+        assertThat(replacement.action()).isEqualTo(SubscriptionMutationClaim.Action.EXECUTE);
+        assertThat(mutationCoordinator.getState(replacement.operationId(), userId))
+                .contains(SubscriptionMutationState.IN_PROGRESS);
+        assertThat(operationRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("An unrelated billing block does not act as a completed cancellation")
+    void unrelatedBlockDoesNotPreventUpdate() throws Exception {
+        SubscriptionStatus status = statusRepository.findByUserId(userId).orElseThrow();
+        status.setBlocked(true);
+        status.setBlockReason("payment_failed");
+        statusRepository.saveAndFlush(status);
+
+        assertThat(priceId(mutationService.updateSubscription(
+                userId, SUBSCRIPTION_ID, "price_pro", "update-blocked"))).isEqualTo("price_pro");
+        assertThat(updateCalls).hasValue(1);
+        assertThat(operationRepository.count()).isEqualTo(1);
+        assertThat(statusRepository.findByUserId(userId)).get().satisfies(stored -> {
+            assertThat(stored.isBlocked()).isTrue();
+            assertThat(stored.getBlockReason()).isEqualTo("payment_failed");
+        });
     }
 
     @Test
@@ -328,6 +425,15 @@ class SubscriptionMutationConcurrencyMySqlIntegrationTest {
         mutationEntered.set(new CountDownLatch(1));
         releaseMutation.set(new CountDownLatch(1));
         pauseNextMutation.set(true);
+    }
+
+    private void stopWorkers(ExecutorService executor) throws InterruptedException {
+        releaseMutation.get().countDown();
+        releaseSecondOwnershipLookup.get().countDown();
+        executor.shutdownNow();
+        assertThat(executor.awaitTermination(5, TimeUnit.SECONDS))
+                .as("Scenario workers must stop before database cleanup and Mockito reset")
+                .isTrue();
     }
 
     private void pauseSecondOwnershipLookup() {

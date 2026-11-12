@@ -53,6 +53,7 @@ uk/gegc/quizmaker/features/article/application/ArticleE2ETest.java
 uk/gegc/quizmaker/features/article/application/ArticlePublicImageQueryIntegrationTest.java
 uk/gegc/quizmaker/features/article/application/ArticleServiceImplIntegrationTest.java
 uk/gegc/quizmaker/features/article/domain/repository/ArticleRepositoryTest.java
+uk/gegc/quizmaker/features/assignment/AssignmentSchemaMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/attempt/access/AttemptAccessMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/attempt/api/AttemptControllerReviewTest.java
 uk/gegc/quizmaker/features/attempt/api/AttemptControllerSummaryTest.java
