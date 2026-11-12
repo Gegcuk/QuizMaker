@@ -21,13 +21,14 @@ import static uk.gegc.quizmaker.features.assignment.AssignmentFixtures.*;
 
 /** Real migration/constraints, not proof of #621 publication or #534 starts. Own isolated MySQL catalog. */
 @Tag("db-serial")
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class AssignmentSchemaMySqlIntegrationTest {
     private static final String SCHEMA = "assignment_contract_" + UUID.randomUUID().toString().replace("-", "");
     private static JdbcTemplate admin, sql;
     private static NamedParameterJdbcTemplate named;
     private static DriverManagerDataSource source;
     private static boolean created;
+    private static Map<String, Object> legacyLinkBeforeUpgrade, revisionBeforeUpgrade;
+    private static Map<String, Integer> assignmentsAfterUpgrade;
     private static final UUID LEGACY_QUIZ = UUID.randomUUID(), LEGACY_LINK = UUID.randomUUID();
 
     @BeforeAll
@@ -59,6 +60,10 @@ class AssignmentSchemaMySqlIntegrationTest {
                 INSERT INTO quiz_revisions(id,quiz_id,owner_id,schema_version,title,created_at)
                 VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),1,'Captured revision',?)
                 """, CONTENT.toString(), LEGACY_QUIZ.toString(), OWNER.toString(), Timestamp.from(TIME));
+        legacyLinkBeforeUpgrade = sql.queryForMap("SELECT * FROM share_links WHERE id=UUID_TO_BIN(?)", LEGACY_LINK.toString());
+        revisionBeforeUpgrade = sql.queryForMap("SELECT * FROM quiz_revisions WHERE id=UUID_TO_BIN(?)", CONTENT.toString());
+        migrate("109");
+        assignmentsAfterUpgrade = assignmentCounts();
     }
 
     @AfterAll static void drop() { if (created) admin.execute("DROP DATABASE " + SCHEMA); }
@@ -66,19 +71,19 @@ class AssignmentSchemaMySqlIntegrationTest {
         Flyway.configure().dataSource(source).locations("classpath:db/migration").target(target).load().migrate();
     }
 
-    @Test @Order(1)
+    @Test
     void upgradeAndRepeatPreserveActualLegacyLinkAndRevisionWithoutInventingAssignments() {
-        var beforeLink = sql.queryForMap("SELECT * FROM share_links WHERE id=UUID_TO_BIN(?)", LEGACY_LINK.toString());
-        var beforeRevision = sql.queryForMap("SELECT * FROM quiz_revisions WHERE id=UUID_TO_BIN(?)", CONTENT.toString());
+        var beforeRepeat = assignmentCounts();
         migrate("109");
         migrate("109");
-        assertThat(sql.queryForMap("SELECT * FROM share_links WHERE id=UUID_TO_BIN(?)", LEGACY_LINK.toString())).usingRecursiveComparison().isEqualTo(beforeLink);
-        assertThat(sql.queryForMap("SELECT * FROM quiz_revisions WHERE id=UUID_TO_BIN(?)", CONTENT.toString())).usingRecursiveComparison().isEqualTo(beforeRevision);
-        for (String table : List.of("assignments", "assignment_drafts", "assignment_versions")) assertThat(count(table)).isZero();
+        assertThat(sql.queryForMap("SELECT * FROM share_links WHERE id=UUID_TO_BIN(?)", LEGACY_LINK.toString())).usingRecursiveComparison().isEqualTo(legacyLinkBeforeUpgrade);
+        assertThat(sql.queryForMap("SELECT * FROM quiz_revisions WHERE id=UUID_TO_BIN(?)", CONTENT.toString())).usingRecursiveComparison().isEqualTo(revisionBeforeUpgrade);
+        assertThat(assignmentsAfterUpgrade.values()).containsOnly(0);
+        assertThat(assignmentCounts()).isEqualTo(beforeRepeat);
         assertThat(sql.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE version='109' AND success=1", Integer.class)).isEqualTo(1);
     }
 
-    @ParameterizedTest @ValueSource(strings = {"assignment_drafts", "assignment_versions"}) @Order(2)
+    @ParameterizedTest @ValueSource(strings = {"assignment_drafts", "assignment_versions"})
     void storesExactVersionAndAllIndependentConfigurationFacts(String table) {
         var row = row(table);
         insert(table, row);
@@ -98,7 +103,7 @@ class AssignmentSchemaMySqlIntegrationTest {
         assertThat(stored.get("opens_at").toString()).startsWith("2026-11-11");
     }
 
-    @ParameterizedTest @ValueSource(strings = {"assignment_drafts", "assignment_versions"}) @Order(3)
+    @ParameterizedTest @ValueSource(strings = {"assignment_drafts", "assignment_versions"})
     void constraintsRejectUnknownVersionsMissingReferencesAndContradictoryConfiguration(String table) {
         var mutations = new ArrayList<Map<String, Object>>();
         for (String version : List.of("schema_version", "content_schema_version", "policy_schema_version", "audience_schema_version", "preset_version"))
@@ -139,7 +144,7 @@ class AssignmentSchemaMySqlIntegrationTest {
         insert(table, row(table));
     }
 
-    @Test @Order(4)
+    @Test
     void supportsApprovedBoundsUnboundedCapacityEmptyRosterAndEveryGuestIdentityCombination() {
         for (var name : List.of("NONE", "OPTIONAL", "REQUIRED")) for (var email : List.of("NONE", "OPTIONAL", "REQUIRED", "REQUIRED_VERIFIED")) {
             var row = row("assignment_versions");
@@ -155,7 +160,7 @@ class AssignmentSchemaMySqlIntegrationTest {
         }
     }
 
-    @Test @Order(5)
+    @Test
     void publishedSnapshotsRejectMutationAndDeletionIncludingCapturedAudience() {
         var row = row("assignment_versions"); insert("assignment_versions", row);
         var before = sql.queryForMap("SELECT * FROM assignment_versions WHERE id=UUID_TO_BIN(?)", row.get("id"));
@@ -171,7 +176,7 @@ class AssignmentSchemaMySqlIntegrationTest {
                 .isInstanceOf(DataAccessException.class);
     }
 
-    @Test @Order(6)
+    @Test
     void reachedWriteRollsBackIdentityAndSnapshotAndFreshRetrySucceeds() {
         var row = row("assignment_versions");
         // row() creates a committed parent for ordinary tests. Use a new parent created inside this transaction.
@@ -192,7 +197,7 @@ class AssignmentSchemaMySqlIntegrationTest {
         assertThat(sql.queryForObject("SELECT COUNT(*) FROM assignment_versions WHERE id=UUID_TO_BIN(?)", Integer.class, row.get("id"))).isEqualTo(1);
     }
 
-    @Test @Order(7)
+    @Test
     void concurrentDuplicateVersionHasOneWinnerAndCannotOverwriteAfterReconnect() throws Exception {
         var a = row("assignment_versions"); var b = new LinkedHashMap<>(a);
         b.put("id", UUID.randomUUID().toString());
@@ -210,7 +215,7 @@ class AssignmentSchemaMySqlIntegrationTest {
         } finally { workers.shutdownNow(); }
     }
 
-    @Test @Order(8)
+    @Test
     void indexesAndForeignKeysAreLocalToIdentityAndImmutableContent() {
         for (String table : List.of("assignment_drafts", "assignment_versions")) {
             assertThat(sql.queryForList("SELECT DISTINCT index_name FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=?", String.class, table))
@@ -223,7 +228,7 @@ class AssignmentSchemaMySqlIntegrationTest {
         }
     }
 
-    @Test @Order(9)
+    @Test
     void aLaterSnapshotAndMutableQuizEditsDoNotRebindCapturedVersion() {
         var first = row("assignment_versions"); insert("assignment_versions", first);
         var later = new LinkedHashMap<>(first);
@@ -253,6 +258,10 @@ class AssignmentSchemaMySqlIntegrationTest {
         start.await(10, TimeUnit.SECONDS);
         try { new TransactionTemplate(new DataSourceTransactionManager(source)).executeWithoutResult(s -> insert("assignment_versions", row)); return true; }
         catch (org.springframework.dao.DuplicateKeyException expected) { return false; }
+    }
+    private static Map<String, Integer> assignmentCounts() {
+        return Map.of("assignments", count("assignments"), "assignment_drafts", count("assignment_drafts"),
+                "assignment_versions", count("assignment_versions"));
     }
     private static int count(String table) { return sql.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class); }
     private static void parent(UUID id) { sql.update("INSERT INTO assignments VALUES(UUID_TO_BIN(?),?)", id.toString(), Timestamp.from(TIME)); }
