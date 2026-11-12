@@ -156,6 +156,44 @@ counting physical JDBC statements: five per structured batch, three for flat-onl
 are substituted in these new tests. Run the full `./mvnw verify` gate for existing API, training,
 publication, authorization and OpenAPI compatibility before handoff.
 
+### Immutable revision cases (#552)
+
+With the existing offline fake environment, JDK 17 and disposable test MySQL:
+
+```bash
+./mvnw test -Dtest=QuizRevisionCasesTest,QuizRevisionCaseServiceTest,QuizRevisionSectionsTest,QuizRevisionStructureServiceTest
+./mvnw test -Dtest=QuizRevisionCasesMySqlIntegrationTest,QuizRevisionSectionsMySqlIntegrationTest,QuizRevisionMySqlIntegrationTest,QuizRevisionAuthoringMySqlIntegrationTest,FixedFormMaterializerMySqlIntegrationTest
+```
+
+The case suite uses its own generated `revision_cases_<id>` catalog. It first persists real
+format-1/2 revisions at V110, then upgrades to V111 without changing those rows or inventing
+cases. It asserts exact case/stimulus-reference/member/atomicity round trips, read-only replay,
+later revision B with a retained FK reference to A, fresh-transaction/restarted-component reads,
+ownership denial, database immutability and invalid/missing/foreign/overlapping membership.
+Administrator-created partial rows test corruption refusal separately from real publication.
+
+Write faults occur after real case/member inserts and assert the checkpoint was reached.
+Fresh transactions check absence of roots, sections, cases, members and newly inserted question
+evidence before a successful retry. A consumer-reference write and subsequent outer failure
+prove shared transaction rollback. Concurrent contenders synchronize before the real root
+insert, require a complete successful winner and replay it after replacing the components.
+RC/RR fixtures compare current shared reads with an older nonlocking snapshot. Actual nested
+transaction proxies with TRACE enabled must not expose injected private JDBC diagnostics.
+
+The measured read fixture serializes five parents with one and twelve cases per section:
+seven statements per case-bearing batch, with indexed parent lookups; flat/section-only controls
+remain three/five. The real existing flat materializer has a successful flat control and must
+reject a case-bearing revision without writing a partial form. The case suite passes on both
+the CI MySQL 8.4 line and the Compose MySQL 8.0 line. This is JDBC persistence evidence, not JPA association loading or proof of
+participant delivery. Stimulus IDs are fixture references; no real content-source writer,
+attempt start, section runtime or external provider is simulated as an integrated capability.
+The separately owned temporary upgrade catalog exercises atomic refusal of invalid existing
+version data and explicit test-fixture correction/Flyway repair before a successful retry;
+it does not provide automatic production migration recovery.
+
+Run the complete `verify` gate using the established launcher below before handoff. The new
+MySQL suite is registered as a database companion in the existing context manifest.
+
 Use real input values and narrow collaborator doubles. A unit test should describe a rule in observable terms, for example:
 
 ```java

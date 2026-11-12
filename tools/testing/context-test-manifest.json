@@ -251,6 +251,7 @@
     "uk.gegc.quizmaker.features.question.application.QuestionSourceMigrationMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.question.contract.QuestionRevisionContractsMigrationMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.question.contract.QuestionRevisionContractsMySqlIntegrationTest",
+    "uk.gegc.quizmaker.features.quiz.revision.QuizRevisionCasesMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.quiz.revision.QuizRevisionMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.quiz.revision.QuizRevisionSectionsMySqlIntegrationTest"
   ],

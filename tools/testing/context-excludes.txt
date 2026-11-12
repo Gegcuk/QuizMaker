@@ -419,6 +419,8 @@ uk/gegc/quizmaker/features/quiz/revision/QuizPublicationMySqlIntegrationTest.jav
 uk/gegc/quizmaker/features/quiz/revision/QuizPublicationMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/quiz/revision/QuizRevisionAuthoringMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/quiz/revision/QuizRevisionAuthoringMySqlIntegrationTest$*.java
+uk/gegc/quizmaker/features/quiz/revision/QuizRevisionCasesMySqlIntegrationTest.java
+uk/gegc/quizmaker/features/quiz/revision/QuizRevisionCasesMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/quiz/revision/QuizRevisionMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/quiz/revision/QuizRevisionMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/quiz/revision/QuizRevisionSectionsMySqlIntegrationTest.java

@@ -10,8 +10,13 @@ import java.util.UUID;
 /** Stored delivery content. Publication, current pointers and attempt binding are separate use cases. */
 public record QuizRevision(
         UUID id, UUID quizId, UUID ownerId, int schemaVersion, String title, String description,
-        Instant createdAt, List<Item> items, List<RevisionSection> sections
+        Instant createdAt, List<Item> items, List<RevisionSection> sections, List<RevisionCaseBlock> caseBlocks
 ) {
+    /** The section-only format remains unchanged; cases require explicit format 3. */
+    public QuizRevision(UUID id, UUID quizId, UUID ownerId, int schemaVersion, String title, String description,
+                        Instant createdAt, List<Item> items, List<RevisionSection> sections) {
+        this(id, quizId, ownerId, schemaVersion, title, description, createdAt, items, sections, List.of());
+    }
     /** Existing callers create the original flat format only. Structured content must be explicit. */
     public QuizRevision(UUID id, UUID quizId, UUID ownerId, int schemaVersion, String title, String description,
                         Instant createdAt, List<Item> items) {
@@ -20,7 +25,7 @@ public record QuizRevision(
 
     public QuizRevision {
         RevisionValues.require(id != null && quizId != null && ownerId != null);
-        if (schemaVersion != 1 && schemaVersion != 2)
+        if (schemaVersion != 1 && schemaVersion != 2 && schemaVersion != 3)
             throw new RevisionIntegrityException(RevisionIntegrityException.Reason.UNSUPPORTED_VERSION);
         title = RevisionValues.text(title, 100, true);
         description = RevisionValues.text(description, 1000, false);
@@ -43,11 +48,30 @@ public record QuizRevision(
                 && sectionPositions.add(section.authoredPosition())));
         sections = sections.stream().sorted(Comparator.comparingInt(RevisionSection::authoredPosition)).toList();
         // Exactly one binding per item, in the same total order. No hidden reordering or partial partition.
-        if (schemaVersion == 2) RevisionValues.require(sections.stream().flatMap(section -> section.itemIds().stream())
+        if (schemaVersion >= 2) RevisionValues.require(sections.stream().flatMap(section -> section.itemIds().stream())
                 .toList().equals(items.stream().map(Item::id).toList()));
+        RevisionValues.require(caseBlocks != null && caseBlocks.stream().allMatch(block -> block != null)
+                && (schemaVersion == 3 ? !caseBlocks.isEmpty() : caseBlocks.isEmpty()));
+        var bySection = new HashMap<UUID, RevisionSection>();
+        sections.forEach(section -> bySection.put(section.id(), section));
+        var sectionMembers = new HashMap<UUID, HashSet<UUID>>();
+        sections.forEach(section -> sectionMembers.put(section.id(), new HashSet<>(section.itemIds())));
+        var blockIds = new HashSet<UUID>();
+        var blockPositions = new HashMap<UUID, HashSet<Integer>>();
+        var boundItems = new HashSet<UUID>();
+        caseBlocks.forEach(block -> {
+            var section = bySection.get(block.sectionId());
+            RevisionValues.require(blockIds.add(block.id()) && section != null
+                    && blockPositions.computeIfAbsent(block.sectionId(), ignored -> new HashSet<>()).add(block.authoredPosition()));
+            var members = sectionMembers.get(block.sectionId());
+            block.itemIds().forEach(item -> RevisionValues.require(members.contains(item) && boundItems.add(item)));
+        });
+        caseBlocks = caseBlocks.stream().sorted(Comparator
+                .comparingInt((RevisionCaseBlock block) -> bySection.get(block.sectionId()).authoredPosition())
+                .thenComparingInt(RevisionCaseBlock::authoredPosition)).toList();
     }
 
-    public boolean structured() { return schemaVersion == 2; }
+    public boolean structured() { return schemaVersion >= 2; }
 
     private static int flatVersion(int version) { RevisionValues.version(version); return version; }
 

@@ -5,7 +5,10 @@ import java.util.List;
 import java.util.UUID;
 
 /** Internal author-side structure view, not participant delivery or reconstructed legacy history. */
-public record RevisionStructure(Provenance provenance, UUID revisionId, List<Section> sections) {
+public record RevisionStructure(Provenance provenance, UUID revisionId, List<Section> sections, List<CaseBlock> caseBlocks) {
+    public RevisionStructure(Provenance provenance, UUID revisionId, List<Section> sections) {
+        this(provenance, revisionId, sections, List.of());
+    }
     public enum Provenance { LEGACY, IMPLICIT_FLAT, EXPLICIT }
     public record Section(UUID id, int schemaVersion, int authoredPosition, boolean implicit,
                           String title, String instructions, List<UUID> itemIds) {
@@ -13,7 +16,13 @@ public record RevisionStructure(Provenance provenance, UUID revisionId, List<Sec
         @Override public String toString() { return "StructureSection[implicit=" + implicit + "]"; }
     }
 
-    public RevisionStructure { sections = List.copyOf(sections); }
+    /** Safe structure only; author-side stimulus references and question payloads are intentionally absent. */
+    public record CaseBlock(UUID id, int schemaVersion, UUID sectionId, int authoredPosition,
+                            boolean atomic, List<UUID> itemIds) {
+        public CaseBlock { itemIds = List.copyOf(itemIds); }
+    }
+
+    public RevisionStructure { sections = List.copyOf(sections); caseBlocks = List.copyOf(caseBlocks); }
 
     public static RevisionStructure legacy() { return new RevisionStructure(Provenance.LEGACY, null, List.of()); }
 
@@ -27,7 +36,9 @@ public record RevisionStructure(Provenance provenance, UUID revisionId, List<Sec
         }
         return new RevisionStructure(Provenance.EXPLICIT, revision.id(), revision.sections().stream()
                 .map(section -> new Section(section.id(), section.schemaVersion(), section.authoredPosition(), false,
-                        section.title(), section.instructions(), section.itemIds())).toList());
+                        section.title(), section.instructions(), section.itemIds())).toList(),
+                revision.caseBlocks().stream().map(block -> new CaseBlock(block.id(), block.schemaVersion(), block.sectionId(),
+                        block.authoredPosition(), block.atomic(), block.itemIds())).toList());
     }
 
     @Override public String toString() { return "RevisionStructure[provenance=" + provenance + "]"; }
