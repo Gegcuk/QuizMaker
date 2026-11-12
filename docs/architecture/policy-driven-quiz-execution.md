@@ -2027,6 +2027,52 @@ Changing material assignment behaviour creates a new version or assignment. It d
 
 Under [#672 A08](https://github.com/Gegcuk/QuizMaker/issues/672), revocation blocks new starts by default while active attempts retain their snapshots. Cancelling active attempts requires the separately explicit, authorized and audited `cancelActiveAttempts` decision; checking current assignment state must not silently turn ordinary revocation into cancellation.
 
+### Assignment storage foundation (#531)
+
+`AssignmentContract` defines a version-1 draft/published snapshot with its own stable ID,
+assignment ID and positive version, captured owner and personal/organization scope. The
+configuration names an immutable quiz revision, exact preset and schema versions, a resolved
+roster/group membership snapshot and its source-version ID, optional UTC availability bounds,
+explicit capacity/enforcement and independent guest name/email requirements. Membership is
+copied into an immutable collection; diagnostics redact resource and participant identifiers.
+An empty roster is empty membership, never implicit public access. Guest configuration records
+requirements only; it does not issue a capability or authorize a start.
+
+V109 adds empty `assignments`, `assignment_drafts` and `assignment_versions` storage. Foreign keys
+bind snapshot identity and retained quiz revision; unique assignment/version keys prevent two
+competing versions from silently replacing one another. Check constraints reject unknown schema
+versions, malformed/duplicate member IDs, inconsistent scope, invalid availability and capacity,
+and contradictory guest identity fields. Published configuration and membership occupy one row;
+update/delete guards preserve that immutable evidence. Draft mutation and publication/current
+pointer orchestration are not provided by this migration.
+
+The only delivered policy reference is the exact code-defined `FREE_PRACTICE/v1` tuple from #516.
+This is a supported storage fixture, not a formal-assessment preset, default release rule or proof
+of guest/assignment execution. Unknown preset versions and mutable/current aliases are rejected.
+Additional preset/policy sources require their own typed validation and schema evolution; #621
+must resolve current source authority, exact revision/policy and roster provenance before writing.
+A structurally valid snapshot, source UUID, owner UUID or organization UUID never grants access.
+Formal publication must also satisfy the approved explicit release-configuration contract;
+that integration remains outside this storage foundation.
+
+No existing rows or share links are converted, no production writer/endpoint is registered and
+no new start is routed here. #621 owns publication, #532 eligibility, #534 start binding and #623
+the legacy-link adapter. The retained identity fields deliberately have no cascading dependency
+on mutable users/organizations. These guards do not select a retention period: #664/#699 retain
+their record-class rules, and a future authorized erasure implementation must explicitly reconcile
+them with immutable storage. Disable unused code before target writes; after writes use forward
+fixes rather than destructive downgrade. MySQL DDL is not transactional; inspect Flyway history
+and any partially created objects before a reviewed repair/retry, never automatic repair.
+
+`AssignmentContractTest` verifies immutable values, versions, bounds, independent identity fields,
+redacted failures and existing legacy-link classification. `AssignmentSchemaMySqlIntegrationTest`
+upgrades a private real MySQL catalog from V108, preserves an actual legacy link and quiz revision,
+checks FK/unique/check/index behavior, published immutability, reached-write rollback with fresh
+reads, and a two-writer version race with exactly one successful winner. These are schema tests,
+not publication/start integration evidence. No JPA relationship read, mapper or serialization path
+is introduced, so N+1 is not applicable to this increment. Existing HTTP/OpenAPI contracts remain
+authoritative; this feature adds no endpoint or API group.
+
 ### Legacy share links
 
 Existing share links remain supported through an adapter.
