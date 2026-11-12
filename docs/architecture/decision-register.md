@@ -6,6 +6,15 @@ Synchronized: **23 October 2026**. This register summarizes approved issue claus
 
 Use [open questions](open-questions.md) for unresolved choices, conflicting clauses, engineering preparation, and ownership gaps. The [target architecture](policy-driven-quiz-execution.md) explains the model.
 
+<a id="assignment-eligibility-window"></a>
+## Assignment start availability boundaries — DECIDED
+
+**Decision date/source:** 12 November 2026, explicit repository-owner confirmation of #532 in the implementation chat; option A.
+
+- An assignment start window is `[opensAt, closesAt)`: the exact opening instant is eligible; the exact closing instant is not. Either absent bound is unbounded on that side. Compare the injected server clock against the captured UTC microsecond bounds without rounding the clock or adding grace.
+- For a 10:00–11:00 assignment, an otherwise eligible participant can pass the check at 10:00 and before 11:00, but not at 11:00. Other permission, visibility, organization, audience and current-publication checks remain independent.
+- #532 owns the read-only internal decision. #534 must revalidate at atomic start; an earlier allow is not a reservation. This does not change existing attempt deadlines, active attempts, guest access, or legacy routes.
+
 <a id="random-percentage-selection-ceiling"></a>
 ## Random-percentage selection size — DECIDED
 
