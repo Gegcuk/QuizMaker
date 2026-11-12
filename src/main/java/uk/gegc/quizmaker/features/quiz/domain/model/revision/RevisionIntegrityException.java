@@ -3,7 +3,8 @@ package uk.gegc.quizmaker.features.quiz.domain.model.revision;
 /** Bounded failure categories; messages never include stored question content. */
 public final class RevisionIntegrityException extends IllegalArgumentException {
     public enum Reason {
-        INVALID_CONTENT, UNSUPPORTED_VERSION, IDENTITY_CONFLICT, LEGACY_IDENTITY, INVALID_STORED_REVISION
+        INVALID_CONTENT, UNSUPPORTED_VERSION, IDENTITY_CONFLICT, LEGACY_IDENTITY, INVALID_STORED_REVISION,
+        PERSISTENCE_UNAVAILABLE
     }
 
     private final Reason reason;

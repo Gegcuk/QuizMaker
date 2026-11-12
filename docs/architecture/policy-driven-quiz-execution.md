@@ -2903,6 +2903,52 @@ The reason code should explain the category of decision without exposing protect
 
 ## Sections and Case Blocks
 
+### Immutable section storage (#551)
+
+`QuizRevision` format 1 remains the original flat aggregate. Format 2 explicitly carries
+ordered `RevisionSection` values: stable identity, section schema version 1, authored position,
+title, optional instructions and exact revision-item identities. Titles/instructions use the
+existing revision metadata bounds of 100/1000 characters. Authored positions may have gaps;
+they are preserved, not renumbered. Every item belongs to exactly one section, and concatenating
+the sections in authored order reproduces the revision's authored item order. Empty structural
+sections are representable; this does not establish executable eligibility or permit an empty attempt.
+
+V110 adds nullable `section_count` to `quiz_revisions`, permits the explicit format 2, and adds
+`quiz_revision_sections` / `quiz_revision_section_items`. The existing revision repository inserts
+the entire aggregate in one transaction. Section and member ordinal slots are bounded by their
+declared counts and unique within the parent. A complete aggregate has no free slots for later
+insertion. Composite foreign keys reject cross-revision membership. Triggers reject section/member
+updates/deletes and format-2 root updates/deletes, including downgrade to format 1. Supported ports
+cannot attach sections to an existing flat revision. A later author edit uses a new revision ID;
+it does not mutate an earlier publication or its retained bindings. This is internal persistence
+for an already authorized publication caller, not a new publication HTTP command or permission grant.
+
+`QuizRevisionStructureService` is the internal author-side adapter. Its owner ID must come from
+the caller's authenticated publication/author boundary, never a request field. Missing and
+wrong-owner revision reads both return absence. A known flat revision maps to one `IMPLICIT_FLAT`
+section with exact item order and a stable ID derived only from the revision UUID. It invents no
+title or instructions and persists no backfill. A missing historical revision reference returns
+`LEGACY` with no fabricated revision, sections or mutable-authoring lookup. Neither adapter output
+grants participant delivery access. Section structures contain no copied answers, question payloads,
+contacts or case stimulus. Metrics expose only bounded version/outcome labels.
+
+Reads batch authorized roots before loading sections/membership. Multiple structured parents in
+one repository batch use five physical SQL queries including questions/options; flat-only reads
+retain three. Current shared reads preserve caller transaction/isolation semantics, including an
+older `REPEATABLE_READ` snapshot. Missing slots/members, inconsistent counts, unknown versions and
+invalid partitions fail closed rather than falling back to implicit-flat structure. Administrator
+corruption is not repaired or reinterpreted. No document content is read or hashed for identity.
+
+Existing publication/participant REST contracts stay unchanged. Current canonical policy/start
+contracts accept revision format 1; flat materialization and participant projection also reject
+structured content explicitly. Case blocks #552, section overrides #553, section-aware forms #554,
+author/participant APIs #632 and runtime/timers #659/#660 retain their separate scopes and activation
+gates. This storage slice does not activate any of them or change retention/erasure policy.
+
+The migration does not reclassify existing attempts or rewrite flat revision content. Before
+format-2 writes, unused code can be disabled. After such writes, retain this schema/evidence and
+use an additive forward fix; an old reader must reject format 2, not treat it as a flat revision.
+
 Sections deserve explicit revision and form models.
 
 ```text
