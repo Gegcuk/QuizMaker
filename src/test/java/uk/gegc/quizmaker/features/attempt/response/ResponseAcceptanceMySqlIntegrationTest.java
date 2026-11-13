@@ -789,6 +789,190 @@ class ResponseAcceptanceMySqlIntegrationTest {
                 context.getBean(Clock.class), metrics, manager);
     }
 
+    @ParameterizedTest @CsvSource({"2,false","4,false","2,true","4,true"})
+    void independentParticipantsAndQuizzesBothCommitWithoutAnswerGapLocks(int isolation, boolean populated) throws Exception {
+        var left=starts.start(command(prepared(),AnswerOrder.AUTHORED,"independent-left-start"));
+        var leftItems=delivery.read(left.attemptId()).form().items(); String leftUser=username;
+        if(populated) responses.accept(answer(left.attemptId(),leftItems.get(0),1,"left-existing"));
+        var a=batch(left.attemptId(),leftItems.subList(populated?1:0,5),populated?2:1,"independent-left");
+        username="independent-"+UUID.randomUUID().toString().substring(0,12); ownerId=user(username,true);
+        grant(ownerId,"ATTEMPT_READ","ATTEMPT_CREATE"); quizId=newQuiz(); authenticate(username);
+        var right=starts.start(command(prepared(),AnswerOrder.AUTHORED,"independent-right-start"));
+        var rightItems=delivery.read(right.attemptId()).form().items(); String rightUser=username;
+        if(populated) responses.accept(answer(right.attemptId(),rightItems.get(0),1,"right-existing"));
+        var b=batch(right.attemptId(),rightItems.subList(populated?1:0,5),populated?2:1,"independent-right");
+        var ready=new CountDownLatch(2); var release=new CountDownLatch(1);
+        var seen=ConcurrentHashMap.<Integer>newKeySet(); var workers=Executors.newFixedThreadPool(2);
+        observer().beforeSql=(statement,connection)->{
+            if(statement.startsWith("INSERT INTO attempt_accepted_response") && seen.add(connection)) {
+                ready.countDown(); await(release);
+            }
+        };
+        try {
+            java.util.function.BiFunction<BatchCommand,String,Object> run=(request,user)->{
+                authenticate(user); var transaction=new TransactionTemplate(manager); transaction.setIsolationLevel(isolation);
+                try { return transaction.execute(s->batches.acceptBatch(request)); }
+                catch(ResponseAcceptanceException e) { return e.reason(); }
+                finally { SecurityContextHolder.clearContext(); }
+            };
+            var first=workers.submit(()->run.apply(a,leftUser)); var second=workers.submit(()->run.apply(b,rightUser));
+            if(!ready.await(10,TimeUnit.SECONDS)) {
+                release.countDown();
+                assertThat(first.get(20,TimeUnit.SECONDS)).as("left reached insert; driver codes %s",observer().sqlErrorCodes).isInstanceOf(BatchResult.class);
+                assertThat(second.get(20,TimeUnit.SECONDS)).as("right reached insert; driver codes %s",observer().sqlErrorCodes).isInstanceOf(BatchResult.class);
+                fail("Both independent commands must reach their real insert checkpoint");
+            }
+            var locks=sql.queryForList("SELECT LOCK_MODE,LOCK_DATA FROM performance_schema.data_locks "
+                    +"WHERE OBJECT_SCHEMA=? AND OBJECT_NAME='attempt_accepted_response' AND LOCK_TYPE='RECORD'",SCHEMA);
+            release.countDown();
+            assertThat(first.get(30,TimeUnit.SECONDS)).isInstanceOfSatisfying(BatchResult.class,
+                    result->assertThat(result.responses()).hasSize(populated?4:5));
+            assertThat(second.get(30,TimeUnit.SECONDS)).isInstanceOfSatisfying(BatchResult.class,
+                    result->assertThat(result.responses()).hasSize(populated?4:5));
+            assertThat(locks).allSatisfy(lock->assertThat(lock.get("LOCK_MODE").toString()).contains("REC_NOT_GAP"));
+            assertThat(observer().sqlErrorCodes).doesNotContain(1213);
+            assertThat(count("attempt_accepted_response")).isEqualTo(10);
+            assertThat(count("attempt_trace_event")).isEqualTo(14);
+            assertThat(count("attempt_command_receipt")).isEqualTo(populated?6:4);
+        } finally {
+            release.countDown(); workers.shutdownNow();
+            assertThat(workers.awaitTermination(15,TimeUnit.SECONDS)).isTrue(); observer().reset();
+        }
+    }
+
+    @ParameterizedTest @ValueSource(booleans={false,true})
+    void acceptedInsertFailureIsSanitizedBeforeTransactionTraceAndRollsBackCaller(boolean batch) {
+        var started=starts.start(command(prepared(),AnswerOrder.AUTHORED,"safe-insert-start"));
+        var items=delivery.read(started.attemptId()).form().items(); var request=batch(started.attemptId(),items,1,"safe-insert");
+        var before=targetSnapshot(); String original=sql.queryForObject("SELECT description FROM quizzes WHERE quiz_id=UUID_TO_BIN(?)",String.class,quizId.toString());
+        String marker="private-accepted-insert-"+UUID.randomUUID(); var reached=new AtomicInteger();
+        observer().afterSql=(statement,connection)->{
+            if(statement.startsWith("INSERT INTO attempt_accepted_response") && reached.incrementAndGet()==(batch?2:1)) {
+                var failure=new SQLException(marker,"08006"); failure.initCause(new IllegalArgumentException(marker+"-cause"));
+                failure.addSuppressed(new IllegalStateException(marker+"-suppressed")); throw failure;
+            }
+        };
+        try(var logs=new TransactionLogs()) {
+            assertThatThrownBy(()->tx.executeWithoutResult(s->{
+                sql.update("UPDATE quizzes SET description='caller-before' WHERE quiz_id=UUID_TO_BIN(?)",quizId.toString());
+                assertThatThrownBy(()->{ if(batch) batches.acceptBatch(request); else responses.accept(answer(started.attemptId(),items.get(0),1,"safe-single")); })
+                        .isInstanceOfSatisfying(ResponseAcceptanceException.class,e->assertThat(e.getSuppressed()).isEmpty()).hasNoCause()
+                        .hasMessageNotContaining(marker);
+                sql.update("UPDATE quizzes SET description='caller-after' WHERE quiz_id=UUID_TO_BIN(?)",quizId.toString());
+            })).isInstanceOf(org.springframework.transaction.UnexpectedRollbackException.class);
+            assertThat(reached).hasValue(batch?2:1);
+            assertThat(logs.events.list).anyMatch(e->e.getLoggerName().contains("TransactionInterceptor")
+                    && e.getLevel()==ch.qos.logback.classic.Level.TRACE);
+            assertThat(logs.rendered()).doesNotContain(marker,"PreparedStatementCallback; SQL [INSERT INTO attempt_accepted_response");
+        } finally { observer().reset(); }
+        assertThat(targetSnapshot()).isEqualTo(before);
+        assertThat(sql.queryForObject("SELECT description FROM quizzes WHERE quiz_id=UUID_TO_BIN(?)",String.class,quizId.toString())).isEqualTo(original);
+        if(batch) assertThat(freshBatch().acceptBatch(request).responses()).hasSize(5);
+        else assertThat(recreated().accept(answer(started.attemptId(),items.get(0),1,"safe-single")).replayed()).isFalse();
+    }
+
+    @Test void currentIdentityReadPreservesOlderRrSnapshotOwnWritesAndCallerRollback() throws Exception {
+        var started=starts.start(command(prepared(),AnswerOrder.AUTHORED,"index-rr-start"));
+        var items=delivery.read(started.attemptId()).form().items();
+        var request=batch(started.attemptId(),items.subList(1,5),2,"index-rr-batch");
+        var reader=context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository.class);
+        var workers=Executors.newSingleThreadExecutor(); var outer=new TransactionTemplate(manager); outer.setIsolationLevel(4);
+        try {
+            outer.executeWithoutResult(status->{
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_accepted_response",Integer.class)).isZero();
+                try {
+                    workers.submit(()->{ authenticate(username); try { return responses.accept(answer(started.attemptId(),items.get(0),1,"index-rr-peer")); }
+                        finally { SecurityContextHolder.clearContext(); } }).get(20,TimeUnit.SECONDS);
+                } catch(Exception failure) { throw new AssertionError(failure); }
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_accepted_response",Integer.class)).isZero();
+                assertThat(reader.references(started.attemptId())).extracting(uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository.Reference::formItemId)
+                        .containsExactly(items.get(0).id());
+                assertThat(batches.acceptBatch(request).responses()).hasSize(4);
+                assertThat(reader.references(started.attemptId())).hasSize(5);
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_accepted_response",Integer.class)).isEqualTo(4);
+                assertThat(sql.queryForObject("SELECT @@transaction_isolation",String.class)).isEqualTo("REPEATABLE-READ");
+                status.setRollbackOnly();
+            });
+        } finally { workers.shutdownNow(); assertThat(workers.awaitTermination(15,TimeUnit.SECONDS)).isTrue(); }
+        assertThat(count("attempt_accepted_response")).isEqualTo(1); assertThat(count("attempt_command_receipt")).isEqualTo(2);
+        assertThat(count("attempt_trace_event")).isEqualTo(3); assertThat(count("attempt_response_batch_result")).isZero();
+        assertResponseIndexMatchesSource(started.attemptId());
+        assertThat(freshBatch().acceptBatch(request).replayed()).isFalse(); assertResponseIndexMatchesSource(started.attemptId());
+    }
+
+    @Test void identityIndexMigrationBackfillsExistingAcceptedRowsAndTracksSourceIdentityChanges() throws Exception {
+        var started=starts.start(command(prepared(),AnswerOrder.AUTHORED,"index-upgrade-start"));
+        var items=delivery.read(started.attemptId()).form().items();
+        // Recreate the previous schema in this disposable test database. Populate it through
+        // the real single-response writer before applying the actual new Flyway migration.
+        for(String name:List.of("accepted_response_index_insert","accepted_response_index_delete","accepted_response_index_update"))
+            sql.execute("DROP TRIGGER "+name);
+        sql.execute("DROP PROCEDURE change_accepted_response_index");
+        sql.execute("ALTER TABLE attempt_trace_stream DROP CHECK chk_trace_response_index, DROP COLUMN response_index");
+        sql.update("DELETE FROM flyway_schema_history WHERE version='113'");
+        var duringMigration=new AtomicReference<UUID>(); var reachedDefault=new AtomicBoolean();
+        try {
+            for(int i=0;i<items.size();i++) responses.accept(answer(started.attemptId(),items.get(i),i+1,"index-upgrade-"+i));
+            observer().afterSql=(statement,connection)->{
+                if(statement.contains("ALTER COLUMN response_index") && statement.contains("SET DEFAULT")
+                        && reachedDefault.compareAndSet(false,true)) {
+                    quizId=newQuiz();
+                    var concurrent=starts.start(command(prepared(),AnswerOrder.AUTHORED,"index-upgrade-during"));
+                    var item=delivery.read(concurrent.attemptId()).form().items().get(0);
+                    responses.accept(answer(concurrent.attemptId(),item,1,"index-upgrade-during-answer"));
+                    duringMigration.set(concurrent.attemptId());
+                }
+            };
+        } finally {
+            try { context.getBean(org.flywaydb.core.Flyway.class).migrate(); }
+            finally { observer().reset(); }
+        }
+        assertThat(reachedDefault).isTrue(); assertThat(duringMigration.get()).isNotNull();
+        assertResponseIndexMatchesSource(duringMigration.get());
+        assertResponseIndexMatchesSource(started.attemptId());
+        var backfilled=tx.execute(s->context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository.class)
+                .references(started.attemptId()));
+        assertThat(backfilled).hasSize(5);
+        // Adapter-level source maintenance, not a reachable participant edit of immutable evidence.
+        String original=sql.queryForObject("SELECT BIN_TO_UUID(id) FROM attempt_accepted_response WHERE attempt_id=UUID_TO_BIN(?) LIMIT 1",String.class,started.attemptId().toString());
+        UUID replacement=UUID.randomUUID();
+        sql.update("UPDATE attempt_accepted_response SET id=UUID_TO_BIN(?) WHERE id=UUID_TO_BIN(?)",replacement.toString(),original);
+        assertResponseIndexMatchesSource(started.attemptId());
+        sql.update("DELETE FROM attempt_accepted_response WHERE id=UUID_TO_BIN(?)",replacement.toString());
+        assertResponseIndexMatchesSource(started.attemptId());
+        var remaining=tx.execute(s->context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository.class)
+                .references(started.attemptId()));
+        assertThat(remaining).hasSize(4);
+    }
+
+    private void assertResponseIndexMatchesSource(UUID attempt) throws Exception {
+        var expected=sql.queryForList("SELECT BIN_TO_UUID(id) FROM attempt_accepted_response WHERE attempt_id=UUID_TO_BIN(?)",String.class,attempt.toString());
+        var index=json.readTree(sql.queryForObject("SELECT response_index FROM attempt_trace_stream WHERE attempt_id=UUID_TO_BIN(?)",String.class,attempt.toString()));
+        assertThat(index.path("version").intValue()).isEqualTo(1);
+        var actual=new ArrayList<String>(); index.path("ids").fieldNames().forEachRemaining(actual::add);
+        assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+    }
+
+    private static final class TransactionLogs implements AutoCloseable {
+        final ch.qos.logback.classic.Logger root=(ch.qos.logback.classic.Logger)org.slf4j.LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
+        final ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> events=new ch.qos.logback.core.read.ListAppender<>();
+        final Map<ch.qos.logback.classic.Logger,ch.qos.logback.classic.Level> levels=new HashMap<>();
+        TransactionLogs() {
+            events.start(); root.addAppender(events);
+            for(String name:List.of("org.springframework.transaction","org.springframework.orm.jpa.JpaTransactionManager",
+                    "uk.gegc.quizmaker.shared.transaction.SafeJpaTransactionManager")) {
+                var logger=(ch.qos.logback.classic.Logger)org.slf4j.LoggerFactory.getLogger(name);
+                levels.put(logger,logger.getLevel()); logger.setLevel(ch.qos.logback.classic.Level.TRACE);
+            }
+        }
+        String rendered() {
+            return events.list.stream().map(e->e.getFormattedMessage()+"\n"+(e.getThrowableProxy()==null?"":
+                    ch.qos.logback.classic.spi.ThrowableProxyUtil.asString(e.getThrowableProxy())))
+                    .collect(java.util.stream.Collectors.joining("\n"));
+        }
+        @Override public void close() { levels.forEach(ch.qos.logback.classic.Logger::setLevel); root.detachAppender(events); events.stop(); }
+    }
+
     @Test void batchAcceptsFiveRealFamiliesAndReplaysAfterServiceRecreationWithoutMoreWrites() {
         var started = starts.start(command(prepared(), AnswerOrder.SHUFFLED_PER_ATTEMPT, "batch-start"));
         var items = delivery.read(started.attemptId()).form().items();

@@ -9,7 +9,7 @@ import uk.gegc.quizmaker.features.question.domain.model.contract.ContractVersion
 public interface AcceptedResponseRepository {
     boolean lockOwnBinding(UUID userId, UUID attemptId);
     boolean exists(UUID attemptId, UUID formItemId);
-    /** Current locking metadata read; never loads answer payloads for completeness. */
+    /** Current metadata read through the per-stream identity index; no answer payloads or absent answer ranges. */
     List<Reference> references(UUID attemptId);
     void insert(Value value);
     record Reference(UUID formId, UUID formItemId, UUID questionRevisionId, ContractVersion contract) { }

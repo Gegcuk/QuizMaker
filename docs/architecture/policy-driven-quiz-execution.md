@@ -3393,6 +3393,25 @@ source relationship reads for different batch sizes; per-response persistence gu
 their required writes/locking reads. HTTP tests cover strict parsing, exact body/item bounds,
 security, named schemas/examples, single-group/API-summary discovery and the disabled route.
 
+Accepted-reference reads use V113's versioned ID-only `response_index` on the existing trace
+stream. Source INSERT/DELETE/identity UPDATE triggers maintain membership in the same transaction;
+the migration backfills existing target rows without inferring legacy history. The initialized
+default is installed only after every source trigger; per-stream seed transactions lock the
+parent before a nonlocking source read and never overwrite an initialized stream. Uninitialized
+membership rejects identity changes until populated, and backfill never replaces initialized
+streams. Current reads lock the existing stream PK and then bulk-fetch the actual accepted rows
+by known primary keys, verifying exact membership and attempt binding. An empty accepted set
+does not issue a locking read against an absent answer range. This preserves an older caller's
+RR snapshot, sees the caller's own uncommitted inserts, and rolls back with that caller without
+changing isolation or opening another transaction/connection. Independent-participant fixtures
+cover both empty and populated sets under RC/RR and inspect the actual record locks.
+
+Accepted-response repository methods sanitize database failures before returning through their
+transactional proxy, including insert failures after a real write. TRACE-level transaction-log
+tests cover single and batch acceptance, cause/suppressed diagnostics and caught failures that
+must still mark the caller rollback-only. The public contracts, default-disabled activation,
+retry policy and single-response business rules remain unchanged.
+
 
 Candidate answer states:
 

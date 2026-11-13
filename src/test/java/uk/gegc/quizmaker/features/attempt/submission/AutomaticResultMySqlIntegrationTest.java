@@ -532,7 +532,7 @@ class AutomaticResultMySqlIntegrationTest {
                 case "policy"->statement.contains("FROM attempt_policy_snapshot s");
                 case "declare"->statement.contains("FROM quiz_revisions r LEFT JOIN quiz_revision_items i");
                 case "resolve"->statement.contains("FROM question_revision_contract_bindings b");
-                default->statement.contains("FROM attempt_accepted_response");
+                default->statement.contains("attempt_accepted_response");
             };
             if(selected && reached.compareAndSet(false,true)) {
                 org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(

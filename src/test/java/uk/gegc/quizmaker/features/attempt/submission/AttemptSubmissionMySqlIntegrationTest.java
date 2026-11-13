@@ -609,7 +609,7 @@ class AttemptSubmissionMySqlIntegrationTest {
             var commands = new ArrayList<AttemptSubmissionService.Command>();
             for (int parent = 0; parent < 3; parent++) { quizId = newQuiz(); commands.add(submit(fixture(false, size, size), "submit-" + UUID.randomUUID())); }
             observer().selects.clear(); commands.forEach(submissions::submit); measured.add(observer().selects.size());
-            assertThat(observer().selects.stream().filter(q -> q.contains("FROM attempt_accepted_response")))
+            assertThat(observer().selects.stream().filter(q -> q.contains("attempt_accepted_response")))
                     .hasSize(3).noneMatch(q -> q.contains("normalized_response"));
         }
         assertThat(measured.get(0)).isPositive(); assertThat(measured.get(1)).isEqualTo(measured.get(0));
@@ -981,7 +981,7 @@ class AttemptSubmissionMySqlIntegrationTest {
             expiryClock().now=effective(commands.get(0).attempt()); observer().selects.clear();
             for(var f:commands) assertThat(expiry().expire(f.attempt()).outcome()).isEqualTo(AttemptExpiryService.Outcome.EXPIRED);
             counts.add(observer().selects.size());
-            assertThat(observer().selects.stream().filter(q->q.contains("FROM attempt_accepted_response"))).hasSize(3)
+            assertThat(observer().selects.stream().filter(q->q.contains("attempt_accepted_response"))).hasSize(3)
                     .noneMatch(q->q.contains("normalized_response"));
         }
         assertThat(counts.get(0)).isPositive(); assertThat(counts.get(1)).isEqualTo(counts.get(0));
@@ -1081,7 +1081,7 @@ class AttemptSubmissionMySqlIntegrationTest {
                 "FROM attempt_timing WHERE", "SELECT f.id,f.schema_version", "SELECT form_id,id,source_item_id,position",
                 "SELECT o.* FROM attempt_form_option_order", "SELECT i.*,b.binding_hash", "SELECT form_id,item_id,option_id,position",
                 "SELECT * FROM quiz_revisions WHERE", "SELECT i.id AS item_id", "SELECT o.* FROM question_option_revisions",
-                "FROM question_revision_contract_bindings b", "FROM attempt_accepted_response",
+                "FROM question_revision_contract_bindings b", "JOIN attempt_accepted_response",
                 "UPDATE attempt_lifecycle_state", "INSERT INTO attempt_trace_stream", "SELECT * FROM attempt_trace_stream",
                 "SELECT e.*, s.policy_snapshot_id", "INSERT INTO attempt_trace_identity", "SELECT attempt_id,sequence_number FROM attempt_trace_identity",
                 "INSERT INTO attempt_trace_event", "UPDATE attempt_trace_identity", "UPDATE attempt_trace_stream",
@@ -1139,7 +1139,7 @@ class AttemptSubmissionMySqlIntegrationTest {
     @Test void expiryRepositoryFailureStillMarksCallerRollbackOnlyWhenCaughtInsideOwnerTransaction() {
         var f=timedFixture(false,2,1); var before=targetSnapshot(); var reached=new AtomicBoolean();
         observer().afterSql=(statement,connection)->{
-            if(statement.contains("FROM attempt_accepted_response") && reached.compareAndSet(false,true))
+            if(statement.contains("JOIN attempt_accepted_response") && reached.compareAndSet(false,true))
                 throw new SQLException("private-rollback-only-marker","HY000");
         };
         try(var logs=new TransactionLogs()) {
