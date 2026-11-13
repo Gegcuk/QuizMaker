@@ -3379,8 +3379,8 @@ targets the attempt and includes the `RESPONSE_BATCH_V1` discriminator and order
 in its canonical fingerprint. This cannot replay a single-item command or alter public allowed-actions.
 Each response retains a bounded deterministic child command identity derived from that parent and
 form item. Additive V112 stores only the parent acknowledgement projection (IDs and final state
-version), never answer content. The projection is validated against the actual accepted rows and
-saved form order with a bounded query before returning it. Identical replay rechecks current
+version), never answer content. Before returning it, the reader verifies the IDs, child command
+identities and frozen form order against the synchronous accepted-reference projection described below. Identical replay rechecks current
 permission/ownership and returns the original IDs/version without accepting or tracing again.
 Receipt cleanup may cascade into this projection under the existing D08 policy; retained accepted
 responses and their natural uniqueness are independent. No new retention or automatic retry policy
@@ -3393,18 +3393,33 @@ source relationship reads for different batch sizes; per-response persistence gu
 their required writes/locking reads. HTTP tests cover strict parsing, exact body/item bounds,
 security, named schemas/examples, single-group/API-summary discovery and the disabled route.
 
-Accepted-reference reads use V113's versioned ID-only `response_index` on the existing trace
-stream. Source INSERT/DELETE/identity UPDATE triggers maintain membership in the same transaction;
-the migration backfills existing target rows without inferring legacy history. The initialized
-default is installed only after every source trigger; per-stream seed transactions lock the
-parent before a nonlocking source read and never overwrite an initialized stream. Uninitialized
-membership rejects identity changes until populated, and backfill never replaces initialized
-streams. Current reads lock the existing stream PK and then bulk-fetch the actual accepted rows
-by known primary keys, verifying exact membership and attempt binding. An empty accepted set
-does not issue a locking read against an absent answer range. This preserves an older caller's
-RR snapshot, sees the caller's own uncommitted inserts, and rolls back with that caller without
-changing isolation or opening another transaction/connection. Independent-participant fixtures
-cover both empty and populated sets under RC/RR and inspect the actual record locks.
+Accepted-reference reads and batch replay use V114's versioned metadata projection on the existing
+trace stream. V113's published ID index and checksum remain unchanged. Source INSERT/DELETE/UPDATE
+triggers maintain both indexes synchronously in the source transaction. The reference projection
+contains only response, form/item, question and contract identities, child command identity and
+frozen item position; it never copies answer content. Readers lock their existing stream PK,
+validate the complete versioned metadata and ID membership, and perform no locking accepted-row
+range reads. Malformed or unknown metadata fails closed. Source rows remain authoritative;
+trigger maintenance and exact migration reconciliation establish correspondence. This does not
+claim to detect every structurally valid administrative alteration of derived metadata or frozen
+form positions: such bypass requires exact source reconciliation before reuse.
+
+V114 installs all source triggers before initializing new-stream defaults. Its per-stream backfill
+locks the parent before a nonlocking RC source read, reconciles existing V113 membership and current
+reference facts, then verifies the complete projection. Concurrent source writes use that same
+parent lock, including while an old stream is uninitialized. The retained
+`reconcile_accepted_reference_index(FALSE)` verifies exact source correspondence;
+`reconcile_accepted_reference_index(TRUE)` rebuilds reference metadata from source after checking
+ID membership. These are explicit maintenance transactions, never invoked inside caller work.
+
+Request-time current reads preserve an older caller's RR snapshot, see the caller's own uncommitted
+writes and roll back with that caller without changing isolation or opening another connection.
+Independent-participant fixtures hold the filled accepted-set read or the replay verifier while
+another participant commits 500 responses, under RC/RR, and inspect `data_lock_waits`. Both
+readers are held independently of the other command stages. Shared question-revision reads can
+also lock unrelated question rows, and receipt upserts can retain insertion-gap locks during an
+outer RR transaction. This accepted-reference correction does not remove those pre-existing
+question/receipt locks; full command acceptance and replay remain covered separately.
 
 Accepted-response repository methods sanitize database failures before returning through their
 transactional proxy, including insert failures after a real write. TRACE-level transaction-log

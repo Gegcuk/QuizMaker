@@ -15,7 +15,6 @@ import uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepo
 @Repository
 @Transactional(propagation = Propagation.MANDATORY)
 public class JdbcAcceptedResponseRepository implements AcceptedResponseRepository {
-    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
     private final NamedParameterJdbcTemplate jdbc;
     public JdbcAcceptedResponseRepository(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
 
@@ -51,54 +50,9 @@ public class JdbcAcceptedResponseRepository implements AcceptedResponseRepositor
 
     @Override public List<Reference> references(UUID attemptId) {
         try {
-            // An existing stream is the current-read anchor, including for an empty accepted set.
-            // Reading a missing answer range under RR would lock a shared gap across attempts.
-            var roots = jdbc.query("""
-                    SELECT response_index FROM attempt_trace_stream WHERE attempt_id=UUID_TO_BIN(:attempt) FOR SHARE
-                    """, Map.of("attempt", attemptId.toString()), (row, n) -> row.getString("response_index"));
-            if (roots.size() != 1) throw corrupt();
-            var ids = responseIds(roots.get(0));
-            if (ids.isEmpty()) return List.of();
-            var found = new java.util.HashSet<UUID>();
-            // Drive existing primary-key lookups from the trigger-maintained ID set. No absent
-            // range, answer payload, new connection, isolation change or independent transaction.
-            var result = jdbc.query("""
-                    SELECT BIN_TO_UUID(r.id) id, BIN_TO_UUID(r.form_id) form_id, BIN_TO_UUID(r.form_item_id) item_id,
-                           BIN_TO_UUID(r.question_revision_id) question_id, r.response_contract_id, r.response_contract_version
-                    FROM JSON_TABLE(:ids, '$[*]' COLUMNS (id CHAR(36) PATH '$')) known
-                    STRAIGHT_JOIN attempt_accepted_response r FORCE INDEX (PRIMARY) ON r.id=UUID_TO_BIN(known.id)
-                    WHERE r.attempt_id=UUID_TO_BIN(:attempt) ORDER BY r.form_item_id FOR SHARE OF r
-                    """, Map.of("attempt", attemptId.toString(), "ids", JSON.writeValueAsString(ids.stream().map(UUID::toString).toList())), (row, n) -> {
-                if (!found.add(UUID.fromString(row.getString("id")))) throw corrupt();
-                return new Reference(UUID.fromString(row.getString("form_id")), UUID.fromString(row.getString("item_id")),
-                        UUID.fromString(row.getString("question_id")), new uk.gegc.quizmaker.features.question.domain.model.contract.ContractVersion(
-                        row.getString("response_contract_id"), row.getInt("response_contract_version")));
-            });
-            if (!found.equals(ids)) throw corrupt();
-            return result;
+            return AcceptedResponseReadIndex.all(jdbc, attemptId).stream().map(AcceptedResponseReadIndex.Stored::reference).toList();
         } catch (DataAccessException failure) {
             throw SafeDataAccess.sanitize(failure);
-        } catch (java.io.IOException failure) { throw corrupt(); }
-    }
-
-    private static java.util.Set<UUID> responseIds(String raw) {
-        try {
-            var root = JSON.readTree(raw);
-            if (!root.isObject() || root.size() != 2 || !root.path("version").isInt() || root.path("version").intValue() != 1
-                    || !root.path("ids").isObject()) throw corrupt();
-            var result = new java.util.HashSet<UUID>();
-            var fields = root.path("ids").fields();
-            while (fields.hasNext()) {
-                var entry = fields.next(); var id = UUID.fromString(entry.getKey());
-                if (!id.toString().equals(entry.getKey()) || !entry.getValue().isInt() || entry.getValue().intValue() != 1
-                        || !result.add(id)) throw corrupt();
-            }
-            return result;
-        } catch (java.io.IOException | RuntimeException failure) { throw corrupt(); }
-    }
-
-    private static uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException corrupt() {
-        return new uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException(
-                uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException.Reason.CORRUPT);
+        }
     }
 }

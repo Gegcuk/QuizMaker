@@ -55,23 +55,14 @@ public class JdbcResponseBatchResultRepository implements ResponseBatchResultRep
             });
             if (rows.size() != 1) throw new ResponseAcceptanceException(CORRUPT);
             var result = rows.get(0);
-            var parameters = new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("attempt", attemptId.toString());
-            var placeholders = new ArrayList<String>();
-            for (int i = 0; i < result.responses().size(); i++) {
-                placeholders.add("UUID_TO_BIN(:id" + i + ")");
-                parameters.addValue("id" + i, result.responses().get(i).formItemId().toString());
-            }
-            var verified = jdbc.query("""
-                    SELECT r.schema_version, BIN_TO_UUID(r.id) id, BIN_TO_UUID(r.form_item_id) item, BIN_TO_UUID(r.command_id) command_id
-                    FROM attempt_accepted_response r FORCE INDEX (uq_accepted_attempt_item)
-                    JOIN attempt_form_item f ON f.form_id=r.form_id AND f.id=r.form_item_id
-                    WHERE r.attempt_id=UUID_TO_BIN(:attempt) AND r.form_item_id IN (
-                    """ + String.join(",", placeholders) + ") ORDER BY f.position FOR SHARE", parameters, (row, n) -> {
-                var item = UUID.fromString(row.getString("item"));
-                if (row.getInt("schema_version") != 1 || !uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatch.itemCommand(commandId,item)
-                        .toString().equals(row.getString("command_id"))) throw new ResponseAcceptanceException(CORRUPT);
-                return new AcceptedItem(item, UUID.fromString(row.getString("id")));
-            });
+            var verified = AcceptedResponseReadIndex.selected(jdbc, attemptId,
+                    result.responses().stream().map(AcceptedItem::acceptedResponseId).toList()).stream()
+                    .sorted(Comparator.comparingInt(AcceptedResponseReadIndex.Stored::position)).map(value -> {
+                        var item = value.reference().formItemId();
+                        if (!uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatch.itemCommand(commandId,item)
+                                .equals(value.commandId())) throw new ResponseAcceptanceException(CORRUPT);
+                        return new AcceptedItem(item, value.id());
+                    }).toList();
             if (!verified.equals(result.responses())) throw new ResponseAcceptanceException(CORRUPT);
             return result;
         } catch (org.springframework.dao.DataAccessException failure) { throw uk.gegc.quizmaker.shared.exception.SafeDataAccess.sanitize(failure); }

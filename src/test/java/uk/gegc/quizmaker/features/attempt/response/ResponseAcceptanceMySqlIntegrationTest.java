@@ -703,7 +703,10 @@ class ResponseAcceptanceMySqlIntegrationTest {
         });
     }
     private static void await(CountDownLatch latch) {
-        try { if (!latch.await(10, TimeUnit.SECONDS)) throw new AssertionError("Test barrier timeout"); }
+        await(latch,10);
+    }
+    private static void await(CountDownLatch latch,int seconds) {
+        try { if (!latch.await(seconds, TimeUnit.SECONDS)) throw new AssertionError("Test barrier timeout"); }
         catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new AssertionError(failure); }
     }
 
@@ -840,6 +843,72 @@ class ResponseAcceptanceMySqlIntegrationTest {
         }
     }
 
+    @ParameterizedTest @CsvSource({"4,499,false","4,500,true","2,499,false","2,500,true","4,37,false","4,37,true"})
+    void populatedReadAndReplayDoNotBlockAnotherParticipants500Responses(int isolation,int acceptedCount,boolean replay) throws Exception {
+        var revision=publish(0,IntStream.range(0,500).mapToObj(i->draft(QuestionType.TRUE_FALSE)).toList()); binding.bind(quizId,revision);
+        var started=starts.start(command(revision,AnswerOrder.AUTHORED,"held-read-start"));
+        var items=delivery.read(started.attemptId()).form().items(); String readerUser=username;
+        var initial=batch(started.attemptId(),items.subList(0,acceptedCount),1,"held-read-initial"); var original=batches.acceptBatch(initial);
+        UUID receipt=UUID.fromString(sql.queryForObject("SELECT BIN_TO_UUID(command_id) FROM attempt_response_batch_result WHERE attempt_id=UUID_TO_BIN(?)",String.class,started.attemptId().toString()));
+        var readCommand=replay?initial:batch(started.attemptId(),items.subList(acceptedCount,acceptedCount+1),acceptedCount+1,"held-read-next");
+        username="independent-large-"+UUID.randomUUID().toString().substring(0,10);ownerId=user(username,true);
+        grant(ownerId,"ATTEMPT_READ","ATTEMPT_CREATE");quizId=newQuiz();authenticate(username);String writerUser=username;
+        var otherRevision=publish(0,IntStream.range(0,500).mapToObj(i->draft(QuestionType.TRUE_FALSE)).toList());binding.bind(quizId,otherRevision);
+        var other=starts.start(command(otherRevision,AnswerOrder.AUTHORED,"independent-large-start"));
+        var request=batch(other.attemptId(),delivery.read(other.attemptId()).form().items(),1,"independent-large");
+        var held=new CountDownLatch(1);var release=new CountDownLatch(1);var workers=Executors.newFixedThreadPool(2);
+        try {
+            var reader=workers.submit(()->{
+                authenticate(readerUser);var outer=new TransactionTemplate(manager);outer.setIsolationLevel(isolation);
+                try{return outer.execute(s->{
+                    // Isolate both accepted-reference readers. The complete command also
+                    // holds question-revision and receipt locks unrelated to this regression.
+                    if(replay) {
+                        var result=context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.ResponseBatchResultRepository.class)
+                                .read(receipt,started.attemptId(),original.stateVersion());
+                        assertThat(result.responses()).isEqualTo(original.responses());
+                    } else {
+                        var references=context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository.class)
+                                .references(started.attemptId());
+                        assertThat(references).extracting(uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository.Reference::formItemId)
+                                .containsExactlyInAnyOrderElementsOf(items.subList(0,acceptedCount).stream().map(ParticipantForm.Item::id).toList());
+                    }
+                    held.countDown();await(release,30);return true;
+                });}finally{SecurityContextHolder.clearContext();}
+            });
+            await(held,20);
+            var writer=workers.submit(()->{
+                authenticate(writerUser);var outer=new TransactionTemplate(manager);outer.setIsolationLevel(isolation);
+                try{return outer.execute(s->{
+                    Integer timeout=sql.queryForObject("SELECT @@session.innodb_lock_wait_timeout",Integer.class);
+                    try{sql.execute("SET SESSION innodb_lock_wait_timeout=2");return (Object)batches.acceptBatch(request);}
+                    finally{sql.execute("SET SESSION innodb_lock_wait_timeout="+timeout);}
+                });}catch(ResponseAcceptanceException e){return e.reason();}finally{SecurityContextHolder.clearContext();}
+            });
+            var waits=new LinkedHashSet<Map<String,Object>>();long until=System.nanoTime()+TimeUnit.SECONDS.toNanos(20);
+            while(!writer.isDone() && System.nanoTime()<until){
+                waits.addAll(sql.queryForList("SELECT r.OBJECT_NAME,r.INDEX_NAME,r.LOCK_MODE requested,b.LOCK_MODE held,b.LOCK_DATA "
+                        +"FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks r ON r.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID "
+                        +"JOIN performance_schema.data_locks b ON b.ENGINE_LOCK_ID=w.BLOCKING_ENGINE_LOCK_ID "
+                        +"WHERE r.OBJECT_SCHEMA=?",SCHEMA));
+                Thread.sleep(10);
+            }
+            Object result=writer.get(5,TimeUnit.SECONDS);
+            int beforeRelease=sql.queryForObject("SELECT COUNT(*) FROM attempt_accepted_response WHERE attempt_id=UUID_TO_BIN(?)",Integer.class,other.attemptId().toString());
+            assertThat(reader.isDone()).as("reader must still hold its transaction when the independent writer finishes").isFalse();
+            release.countDown();reader.get(20,TimeUnit.SECONDS);
+            // Successful control for the old blocking implementation; it still fails the
+            // unconditional first-attempt assertion below rather than treating retry as success.
+            authenticate(writerUser);assertThat(freshBatch().acceptBatch(request).responses()).hasSize(500);
+            authenticate(readerUser);
+            if(!replay) assertThat(freshBatch().acceptBatch(readCommand).responses()).hasSize(1);
+            assertThat(freshBatch().acceptBatch(initial).replayed()).isTrue();
+            assertThat(result).as("first independent command; observed waits %s; driver codes %s",waits,observer().sqlErrorCodes)
+                    .isInstanceOfSatisfying(BatchResult.class,r->assertThat(r.responses()).hasSize(500));
+            assertThat(beforeRelease).isEqualTo(500);assertThat(waits).isEmpty();assertThat(observer().sqlErrorCodes).doesNotContain(1205,1213);
+        }finally{release.countDown();workers.shutdownNow();assertThat(workers.awaitTermination(20,TimeUnit.SECONDS)).isTrue();observer().reset();}
+    }
+
     @ParameterizedTest @ValueSource(booleans={false,true})
     void acceptedInsertFailureIsSanitizedBeforeTransactionTraceAndRollsBackCaller(boolean batch) {
         var started=starts.start(command(prepared(),AnswerOrder.AUTHORED,"safe-insert-start"));
@@ -900,35 +969,40 @@ class ResponseAcceptanceMySqlIntegrationTest {
         assertThat(freshBatch().acceptBatch(request).replayed()).isFalse(); assertResponseIndexMatchesSource(started.attemptId());
     }
 
-    @Test void identityIndexMigrationBackfillsExistingAcceptedRowsAndTracksSourceIdentityChanges() throws Exception {
+    @Test void referenceIndexMigrationBackfillsExistingRowsAndTracksSourceMetadataChanges() throws Exception {
         var started=starts.start(command(prepared(),AnswerOrder.AUTHORED,"index-upgrade-start"));
         var items=delivery.read(started.attemptId()).form().items();
         // Recreate the previous schema in this disposable test database. Populate it through
         // the real single-response writer before applying the actual new Flyway migration.
-        for(String name:List.of("accepted_response_index_insert","accepted_response_index_delete","accepted_response_index_update"))
+        for(String name:List.of("accepted_reference_insert","accepted_reference_delete","accepted_reference_update",
+                "accepted_response_index_insert","accepted_response_index_delete","accepted_response_index_update"))
             sql.execute("DROP TRIGGER "+name);
+        sql.execute("DROP PROCEDURE change_accepted_reference_index");
+        sql.execute("DROP PROCEDURE reconcile_accepted_reference_index");
+        sql.execute("DROP FUNCTION accepted_response_reference_fact");
+        sql.execute("ALTER TABLE attempt_trace_stream DROP CHECK chk_trace_reference_index, DROP COLUMN response_reference_index");
         sql.execute("DROP PROCEDURE change_accepted_response_index");
         sql.execute("ALTER TABLE attempt_trace_stream DROP CHECK chk_trace_response_index, DROP COLUMN response_index");
-        sql.update("DELETE FROM flyway_schema_history WHERE version='113'");
-        var duringMigration=new AtomicReference<UUID>(); var reachedDefault=new AtomicBoolean();
+        sql.update("DELETE FROM flyway_schema_history WHERE version IN ('113','114')");
+        var duringMigration=new ArrayList<UUID>(); var reachedDefaults=new HashSet<String>();
         try {
             for(int i=0;i<items.size();i++) responses.accept(answer(started.attemptId(),items.get(i),i+1,"index-upgrade-"+i));
             observer().afterSql=(statement,connection)->{
-                if(statement.contains("ALTER COLUMN response_index") && statement.contains("SET DEFAULT")
-                        && reachedDefault.compareAndSet(false,true)) {
+                if((statement.contains("ALTER COLUMN response_index") || statement.contains("ALTER COLUMN response_reference_index"))
+                        && statement.contains("SET DEFAULT") && reachedDefaults.add(statement)) {
                     quizId=newQuiz();
-                    var concurrent=starts.start(command(prepared(),AnswerOrder.AUTHORED,"index-upgrade-during"));
+                    var concurrent=starts.start(command(prepared(),AnswerOrder.AUTHORED,"index-upgrade-during-"+reachedDefaults.size()));
                     var item=delivery.read(concurrent.attemptId()).form().items().get(0);
-                    responses.accept(answer(concurrent.attemptId(),item,1,"index-upgrade-during-answer"));
-                    duringMigration.set(concurrent.attemptId());
+                    responses.accept(answer(concurrent.attemptId(),item,1,"index-upgrade-during-answer-"+reachedDefaults.size()));
+                    duringMigration.add(concurrent.attemptId());
                 }
             };
         } finally {
             try { context.getBean(org.flywaydb.core.Flyway.class).migrate(); }
             finally { observer().reset(); }
         }
-        assertThat(reachedDefault).isTrue(); assertThat(duringMigration.get()).isNotNull();
-        assertResponseIndexMatchesSource(duringMigration.get());
+        assertThat(reachedDefaults).hasSize(2); assertThat(duringMigration).hasSize(2);
+        for(var attempt:duringMigration) assertResponseIndexMatchesSource(attempt);
         assertResponseIndexMatchesSource(started.attemptId());
         var backfilled=tx.execute(s->context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository.class)
                 .references(started.attemptId()));
@@ -938,6 +1012,12 @@ class ResponseAcceptanceMySqlIntegrationTest {
         UUID replacement=UUID.randomUUID();
         sql.update("UPDATE attempt_accepted_response SET id=UUID_TO_BIN(?) WHERE id=UUID_TO_BIN(?)",replacement.toString(),original);
         assertResponseIndexMatchesSource(started.attemptId());
+        sql.update("UPDATE attempt_accepted_response SET response_contract_version=2,command_id=UUID_TO_BIN(?) WHERE id=UUID_TO_BIN(?)",UUID.randomUUID().toString(),replacement.toString());
+        assertResponseIndexMatchesSource(started.attemptId());
+        var changed=tx.execute(s->context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository.class)
+                .references(started.attemptId()));
+        assertThat(changed).anySatisfy(reference->assertThat(reference.contract().version()).isEqualTo(2));
+        sql.execute("CALL reconcile_accepted_reference_index(FALSE)");
         sql.update("DELETE FROM attempt_accepted_response WHERE id=UUID_TO_BIN(?)",replacement.toString());
         assertResponseIndexMatchesSource(started.attemptId());
         var remaining=tx.execute(s->context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository.class)
@@ -951,6 +1031,41 @@ class ResponseAcceptanceMySqlIntegrationTest {
         assertThat(index.path("version").intValue()).isEqualTo(1);
         var actual=new ArrayList<String>(); index.path("ids").fieldNames().forEachRemaining(actual::add);
         assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+        var references=json.readTree(sql.queryForObject("SELECT response_reference_index FROM attempt_trace_stream WHERE attempt_id=UUID_TO_BIN(?)",String.class,attempt.toString()));
+        var facts=json.createObjectNode();
+        sql.query("""
+                SELECT BIN_TO_UUID(r.id) id,r.schema_version,BIN_TO_UUID(r.form_id) form_id,
+                    BIN_TO_UUID(r.form_item_id) item_id,BIN_TO_UUID(r.question_revision_id) question_id,
+                    r.response_contract_id,r.response_contract_version,BIN_TO_UUID(r.command_id) command_id,f.position
+                FROM attempt_accepted_response r JOIN attempt_form_item f ON f.form_id=r.form_id AND f.id=r.form_item_id
+                WHERE r.attempt_id=UUID_TO_BIN(?)
+                """,row->{
+            facts.putObject(row.getString("id")).put("schemaVersion",row.getInt("schema_version"))
+                    .put("formId",row.getString("form_id")).put("formItemId",row.getString("item_id"))
+                    .put("questionRevisionId",row.getString("question_id")).put("responseContractId",row.getString("response_contract_id"))
+                    .put("responseContractVersion",row.getInt("response_contract_version")).put("commandId",row.getString("command_id"))
+                    .put("position",row.getInt("position"));
+        },attempt.toString());
+        assertThat(references).isEqualTo(json.createObjectNode().put("version",1).set("responses",facts));
+    }
+
+    @Test void corruptReferenceMetadataFailsClosedAndExplicitSourceReconciliationRestoresReplay() throws Exception {
+        var started=starts.start(command(prepared(),AnswerOrder.AUTHORED,"reference-corrupt-start"));
+        var request=batch(started.attemptId(),delivery.read(started.attemptId()).form().items(),1,"reference-corrupt");
+        var original=batches.acceptBatch(request);assertResponseIndexMatchesSource(started.attemptId());
+        String raw=sql.queryForObject("SELECT response_reference_index FROM attempt_trace_stream WHERE attempt_id=UUID_TO_BIN(?)",String.class,started.attemptId().toString());
+        var broken=json.readTree(raw);((ObjectNode)broken.path("responses").elements().next()).put("schemaVersion",2);
+        sql.update("UPDATE attempt_trace_stream SET response_reference_index=? WHERE attempt_id=UUID_TO_BIN(?)",broken.toString(),started.attemptId().toString());
+        var before=targetSnapshot();
+        assertThatThrownBy(()->tx.execute(s->context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository.class)
+                .references(started.attemptId()))).isInstanceOf(ResponseAcceptanceException.class).hasMessage("Response acceptance rejected: CORRUPT").hasNoCause();
+        assertThatThrownBy(()->freshBatch().acceptBatch(request)).isInstanceOf(ResponseAcceptanceException.class).hasMessage("Response acceptance rejected: CORRUPT").hasNoCause();
+        assertThat(targetSnapshot()).isEqualTo(before);
+        assertThatThrownBy(()->sql.execute("CALL reconcile_accepted_reference_index(FALSE)")).isInstanceOf(org.springframework.dao.DataAccessException.class);
+        sql.execute("CALL reconcile_accepted_reference_index(TRUE)");sql.execute("CALL reconcile_accepted_reference_index(FALSE)");
+        assertResponseIndexMatchesSource(started.attemptId());
+        var replay=freshBatch().acceptBatch(request);assertThat(replay.replayed()).isTrue();assertThat(replay.responses()).isEqualTo(original.responses());
+        assertThat(count("attempt_accepted_response")).isEqualTo(5);
     }
 
     private static final class TransactionLogs implements AutoCloseable {
