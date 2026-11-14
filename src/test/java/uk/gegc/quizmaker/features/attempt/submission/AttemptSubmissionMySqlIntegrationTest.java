@@ -572,7 +572,7 @@ class AttemptSubmissionMySqlIntegrationTest {
                 new uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionController(submissions))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionErrorHandler())
                 .setMessageConverters(converters.toArray(org.springframework.http.converter.HttpMessageConverter[]::new)).build();
-        var path = "/api/v1/attempts/" + f.attempt() + "/submit";
+        var path = "/api/v2/attempts/" + f.attempt() + "/submit";
         var body = json.createObjectNode().put("expectedStateVersion", 9).put("completionConfirmed", true);
         var before = targetSnapshot();
         String result = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path)

@@ -64,7 +64,7 @@ class AttemptFormOpenApiContractTest {
     @MockitoBean OAuth2AuthenticationFailureHandler oauthFailure;
     @MockitoBean OAuth2LoginAuthorizationRequestResolver oauthResolver;
     @MockitoBean OAuth2AuthorizationRequestContextRepository oauthRequests;
-    static final String PATH = "/api/v1/attempts/{attemptId}/form";
+    static final String PATH = "/api/v2/attempts/{attemptId}/form";
 
     @Test @WithMockUser
     void allContentVariantsHaveTypedStableSafeJsonAndIgnoreIncludeFlags() throws Exception {
@@ -107,9 +107,10 @@ class AttemptFormOpenApiContractTest {
 
     @Test @WithMockUser
     void namedSchemasExampleErrorsAndSecurityBelongToExactlyOneDiscoverableGroup() throws Exception {
-        for (String url : List.of("/v3/api-docs", "/v3/api-docs/attempts")) {
+        for (String url : List.of("/v3/api-docs", "/v3/api-docs/attempts-v2")) {
             JsonNode spec = json.readTree(mvc.perform(get(url)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
             var operation = spec.path("paths").path(PATH).path("get");
+            assertThat(operation.path("tags")).isEqualTo(json.valueToTree(List.of("Policy-driven Attempts")));
             assertThat(operation.path("operationId").asText()).isEqualTo("readAttemptForm");
             assertThat(operation.path("security").get(0).has("bearerAuth")).isTrue();
             var schemas = spec.path("components").path("schemas");
@@ -143,9 +144,9 @@ class AttemptFormOpenApiContractTest {
         }
         var matcher = new org.springframework.util.AntPathMatcher();
         assertThat(groups.stream().filter(g -> g.getPathsToMatch().stream().anyMatch(p -> matcher.match(p, PATH)))
-                .map(org.springdoc.core.models.GroupedOpenApi::getGroup)).containsExactly("attempts");
+                .map(org.springdoc.core.models.GroupedOpenApi::getGroup)).containsExactly("attempts-v2");
         var summary = json.readTree(mvc.perform(get("/api/v1/api-summary")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-        assertThat(summary.path("groups").findValuesAsText("specUrl")).contains("/v3/api-docs/attempts");
+        assertThat(summary.path("groups").findValuesAsText("specUrl")).contains("/v3/api-docs/attempts-v2");
     }
 
     /** The response's schema keywords, including exclusive unions and a recursive-schema guard. */
@@ -202,4 +203,15 @@ class AttemptFormOpenApiContractTest {
     private static List<ParticipantContent.Option> options(String... texts) {
         return java.util.Arrays.stream(texts).map(text -> new ParticipantContent.Option(UUID.randomUUID(), text)).toList();
     }
+    @Test @WithMockUser void targetRouteHasNoLegacyV1Alias() throws Exception {
+        String retired = PATH.replace("/api/v2/", "/api/v1/");
+        for (String specPath : List.of("/v3/api-docs", "/v3/api-docs/attempts")) {
+            String spec = mvc.perform(get(specPath)).andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            assertThat(spec).doesNotContain("\"" + retired + "\"");
+        }
+        mvc.perform(get(retired, UUID.randomUUID(), UUID.randomUUID()).accept("application/json"))
+                .andExpect(status().isNotFound());
+    }
+
 }

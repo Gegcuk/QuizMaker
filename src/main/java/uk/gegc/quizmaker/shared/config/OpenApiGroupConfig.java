@@ -62,6 +62,15 @@ public class OpenApiGroupConfig {
     }
 
     @Bean
+    public GroupedOpenApi policyDrivenAttemptsGroup() {
+        return GroupedOpenApi.builder()
+                .group("attempts-v2")
+                .displayName("Policy-driven Attempts")
+                .pathsToMatch("/api/v2/attempts/**")
+                .build();
+    }
+
+    @Bean
     public GroupedOpenApi repetitionGroup() {
         return GroupedOpenApi.builder()
                 .group("repetition")

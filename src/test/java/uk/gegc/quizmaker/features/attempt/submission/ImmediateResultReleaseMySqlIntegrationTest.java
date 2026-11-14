@@ -303,7 +303,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
     }
     private MockMvc mvc() {
         return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new AttemptController(legacy, context.getBeanProvider(ParticipantAttemptViewService.class)))
+                new ParticipantAttemptViewController(context.getBean(ParticipantAttemptViewService.class)))
                 .setControllerAdvice(new ParticipantAttemptViewErrorHandler())
                 .setMessageConverters(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(json)).build();
     }
@@ -318,7 +318,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         assertThat(view(fixture.attempt()).result()).isNull();
         var result = results.finalizeSubmission(fixture.submission());
         assertThat(view(fixture.attempt()).result()).isNull();
-        mvc().perform(get("/api/v1/attempts/{id}/review", fixture.attempt()).principal(SecurityContextHolder.getContext().getAuthentication())
+        mvc().perform(get("/api/v2/attempts/{id}/review", fixture.attempt()).principal(SecurityContextHolder.getContext().getAuthentication())
                 .param("includeCorrectAnswers", "true")).andExpect(status().isConflict());
         var first = releases.release(fixture.submission());
         assertThat(first.replayed()).isFalse();
@@ -379,22 +379,22 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         var fixture = fixture(FAMILIES, 5, 5);
         results.finalizeSubmission(fixture.submission());
         var mvc = mvc(); var principal = SecurityContextHolder.getContext().getAuthentication();
-        mvc.perform(get("/api/v1/attempts/{id}", fixture.attempt()).principal(principal)
+        mvc.perform(get("/api/v2/attempts/{id}", fixture.attempt()).principal(principal)
                         .param("includeCorrectAnswers", "true").param("includeCorrectness", "true"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.result").doesNotExist()).andExpect(jsonPath("$.items").doesNotExist());
         releases.release(fixture.submission());
-        String plain = mvc.perform(get("/api/v1/attempts/{id}", fixture.attempt()).principal(principal))
+        String plain = mvc.perform(get("/api/v2/attempts/{id}", fixture.attempt()).principal(principal))
                 .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
                 .andReturn().getResponse().getContentAsString();
-        String flags = mvc.perform(get("/api/v1/attempts/{id}", fixture.attempt()).principal(principal)
+        String flags = mvc.perform(get("/api/v2/attempts/{id}", fixture.attempt()).principal(principal)
                         .param("includeCorrectAnswer", "true").param("includeExplanation", "true").param("passed", "true")
                         .param("userId", UUID.randomUUID().toString()))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(flags).isEqualTo(plain);
-        mvc.perform(get("/api/v1/attempts/{id}/review", fixture.attempt()).principal(principal))
+        mvc.perform(get("/api/v2/attempts/{id}/review", fixture.attempt()).principal(principal))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.representation").value("POLICY_DRIVEN"))
                 .andExpect(jsonPath("$.result.items[0].correctAnswer.kind").value("OPTIONS"));
-        mvc.perform(get("/api/v1/attempts/{id}/review", fixture.attempt()).principal(principal)
+        mvc.perform(get("/api/v2/attempts/{id}/review", fixture.attempt()).principal(principal)
                         .param("includeUserAnswers", "false").param("includeCorrectAnswers", "false").param("includeQuestionContext", "false"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.items").doesNotExist())
                 .andExpect(jsonPath("$.result.items[0].submittedAnswer").doesNotExist())
@@ -402,7 +402,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
                 .andExpect(jsonPath("$.result.items[0].explanation").doesNotExist())
                 .andExpect(jsonPath("$.result.items[0].responseState").doesNotExist())
                 .andExpect(jsonPath("$.result.totalScore.earned").value(5));
-        mvc.perform(get("/api/v1/attempts/{id}/answer-key", fixture.attempt()).principal(principal))
+        mvc.perform(get("/api/v2/attempts/{id}/answer-key", fixture.attempt()).principal(principal))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.result.items[0].submittedAnswer").doesNotExist())
                 .andExpect(jsonPath("$.result.items[0].correctAnswer").exists());
         verifyNoInteractions(legacy);
@@ -411,21 +411,21 @@ class ImmediateResultReleaseMySqlIntegrationTest {
     @Test void currentAuthorizationIsRequiredBeforeEveryReleasedRead() throws Exception {
         var fixture = fixture(2, 2, 2); results.finalizeSubmission(fixture.submission()); releases.release(fixture.submission());
         var mvc = mvc();
-        mvc.perform(get("/api/v1/attempts/{id}", fixture.attempt()).principal(SecurityContextHolder.getContext().getAuthentication()))
+        mvc.perform(get("/api/v2/attempts/{id}", fixture.attempt()).principal(SecurityContextHolder.getContext().getAuthentication()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.result.totalScore.earned").value(2));
         var foreign = "acceptance-other-" + UUID.randomUUID().toString().substring(0, 8);
         var id = user(foreign, true); grant(id, "ATTEMPT_READ", "ATTEMPT_CREATE");
         authenticate(foreign);
         for (String suffix : List.of("", "/review", "/answer-key"))
-            mvc.perform(get("/api/v1/attempts/" + fixture.attempt() + suffix).principal(SecurityContextHolder.getContext().getAuthentication()))
+            mvc.perform(get("/api/v2/attempts/" + fixture.attempt() + suffix).principal(SecurityContextHolder.getContext().getAuthentication()))
                     .andExpect(status().isNotFound()).andExpect(jsonPath("$.status").value(404));
         SecurityContextHolder.clearContext();
-        mvc.perform(get("/api/v1/attempts/{id}", fixture.attempt())).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v2/attempts/{id}", fixture.attempt())).andExpect(status().isUnauthorized());
         authenticate(username);
         tx.executeWithoutResult(s -> sql.update("DELETE rp FROM role_permissions rp JOIN roles r ON r.role_id=rp.role_id "
                 + "JOIN user_roles ur ON ur.role_id=r.role_id JOIN permissions p ON p.permission_id=rp.permission_id "
                 + "WHERE ur.user_id=UUID_TO_BIN(?) AND p.permission_name='ATTEMPT_READ'", ownerId.toString()));
-        mvc.perform(get("/api/v1/attempts/{id}", fixture.attempt()).principal(SecurityContextHolder.getContext().getAuthentication()))
+        mvc.perform(get("/api/v2/attempts/{id}", fixture.attempt()).principal(SecurityContextHolder.getContext().getAuthentication()))
                 .andExpect(status().isNotFound());
         assertThat(count("attempt_result_release")).isEqualTo(1); verifyNoInteractions(legacy);
     }

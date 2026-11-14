@@ -209,7 +209,7 @@ class AttemptDeliveryMySqlIntegrationTest {
                 .standaloneSetup(new uk.gegc.quizmaker.features.attempt.api.AttemptFormController(delivery))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.AttemptDeliveryErrorHandler()).build();
         var http = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                        .get("/api/v1/attempts/{id}/form", started.attemptId()))
+                        .get("/api/v2/attempts/{id}/form", started.attemptId()))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Cache-Control", "no-store"))
                 .andReturn().getResponse();

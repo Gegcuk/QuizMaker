@@ -39,6 +39,6 @@ public record AttemptReviewDto(
 
         @Schema(description = "Detailed review of each answer with user responses and correct answers")
         List<AnswerReviewDto> answers
-) implements AttemptReviewResponse {
+) {
 }
 

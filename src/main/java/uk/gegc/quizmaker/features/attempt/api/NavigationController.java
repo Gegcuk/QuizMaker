@@ -16,8 +16,8 @@ import uk.gegc.quizmaker.features.attempt.application.NavigationService;
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt;
 
 @RestController
-@RequestMapping("/api/v1/attempts")
-@Tag(name = "Attempts")
+@RequestMapping("/api/v2/attempts")
+@Tag(name = "Policy-driven Attempts")
 @ConditionalOnProperty(name = "quizmaker.attempts.navigation-commands-enabled", havingValue = "true")
 public class NavigationController {
     private final NavigationService navigation;

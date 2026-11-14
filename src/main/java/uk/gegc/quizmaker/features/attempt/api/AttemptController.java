@@ -25,7 +25,6 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.attempt.application.AttemptService;
-import uk.gegc.quizmaker.features.attempt.application.ParticipantAttemptViewService;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus;
 
@@ -40,7 +39,6 @@ import java.util.UUID;
 public class AttemptController {
 
     private final AttemptService attemptService;
-    private final org.springframework.beans.factory.ObjectProvider<ParticipantAttemptViewService> participantViews;
 
     @Operation(
             summary = "Start an attempt for a quiz",
@@ -189,43 +187,16 @@ public class AttemptController {
         return ResponseEntity.ok(result);
     }
 
-    @Operation(summary = "Get attempt details", description = "Retrieve own attempt details. Legacy retains its existing successful envelope. " +
-            "The optional participant-view adapter returns POLICY_DRIVEN/v1 for persisted target attempts: saved revision/form/order, " +
-            "current state and server-derived actions; no keys, scores, answers, explanations or private provenance. " +
-            "Target reads require ATTEMPT_READ, the bound authenticated participant, and current quiz ownership/full editing authority. " +
-            "Unknown/foreign/unavailable target roots share 404; include flags never grant disclosure. " +
-            "No pagination/filter/sort or idempotency key. Online only; adapter responses use Cache-Control: no-store. " +
-            "Adapter disabled by default pending #609. TIMED views add timingDetails with the saved UTC deadline, server time and zero grace; " +
-            "expiry shown there does not assert terminal processing. Timed activation requires #702/#668. " +
-            "Completed result categories require committed release and current RESULT access. Media starts retain their separate integration gate.")
+    @Operation(summary = "Get attempt details", description = "Read the authenticated owner's legacy attempt details. Retains the legacy mode, status and answer envelope. New policy-driven attempts use the v2 API. Online only; no pagination, filters or idempotency key.")
     @ApiResponse(responseCode = "200", description = "Attempt details returned",
             content = @Content(
                     mediaType = "application/json",
-                    schema = @Schema(implementation = AttemptDetailsResponse.class), examples = {
+                    schema = @Schema(implementation = AttemptDetailsDto.class), examples = {
                         @ExampleObject(name = "legacy", value = """
                             {"attemptId":"10000000-0000-0000-0000-000000000001","quizId":"20000000-0000-0000-0000-000000000001",
                              "userId":"30000000-0000-0000-0000-000000000001","startedAt":"2026-11-06T12:00:00Z",
                              "completedAt":null,"status":"IN_PROGRESS","mode":"ALL_AT_ONCE","answers":[]}
-                            """),
-                        @ExampleObject(name = "policyDriven", value = """
-                            {"representation":"POLICY_DRIVEN","schemaVersion":1,"attemptId":"10000000-0000-0000-0000-000000000001",
-                             "quizId":"20000000-0000-0000-0000-000000000001","quizRevisionId":"30000000-0000-0000-0000-000000000001",
-                             "formId":"40000000-0000-0000-0000-000000000001","stateVersion":1,"policyVersion":1,
-                             "execution":"IN_PROGRESS","answerCollection":"NOT_STARTED","startedAt":"2026-11-06T12:00:00Z",
-                             "timing":"UNTIMED","contentVisibility":"VISIBLE","items":[{"id":"50000000-0000-0000-0000-000000000001",
-                             "position":0,"type":"TRUE_FALSE","questionText":"Water is a liquid at room temperature.","content":{"kind":"TRUE_FALSE"}}],
-                             "allowedActions":["VIEW_ATTEMPT"]}
-                            """),
-                        @ExampleObject(name = "timedFoundation", value = """
-                            {"representation":"POLICY_DRIVEN","schemaVersion":1,"attemptId":"10000000-0000-0000-0000-000000000001",
-                             "quizId":"20000000-0000-0000-0000-000000000001","quizRevisionId":"30000000-0000-0000-0000-000000000001",
-                             "formId":"40000000-0000-0000-0000-000000000001","stateVersion":1,"policyVersion":1,
-                             "execution":"IN_PROGRESS","answerCollection":"NOT_STARTED","startedAt":"2026-11-06T17:45:00Z",
-                             "timing":"TIMED","timingDetails":{"version":1,"startedAt":"2026-11-06T17:45:00Z",
-                             "effectiveDeadline":"2026-11-06T18:00:00Z","graceSeconds":0,"serverTime":"2026-11-06T17:50:00Z","expired":false},
-                             "contentVisibility":"WITHHELD","allowedActions":["VIEW_ATTEMPT"]}
-                            """),
-                        @ExampleObject(name = "releasedPractice", value = ParticipantReviewExamples.REVIEW)
+                            """)
                     }
             )
     )
@@ -234,20 +205,14 @@ public class AttemptController {
     @io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
     @ApiResponse(responseCode = "400", description = "Invalid attempt identifier", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
-    @ApiResponse(responseCode = "403", description = "Legacy ownership denial while the adapter is disabled", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
-    @ApiResponse(responseCode = "409", description = "Target attempt is currently busy", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
-    @ApiResponse(responseCode = "422", description = "Unsupported saved target representation or media integration", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
-    @ApiResponse(responseCode = "500", description = "Corrupt target evidence; no partial view", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
-    @ApiResponse(responseCode = "503", description = "Target read temporarily unavailable; no partial view", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "403", description = "Legacy ownership denial", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     @GetMapping("/{attemptId}")
-    public ResponseEntity<AttemptDetailsResponse> getAttempt(
+    public ResponseEntity<AttemptDetailsDto> getAttempt(
             @Parameter(description = "UUID of the attempt to retrieve", required = true)
             @PathVariable UUID attemptId,
 
             Authentication authentication
     ) {
-        var reader = participantViews.getIfAvailable();
-        if (reader != null) return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore()).body(reader.read(attemptId));
         return ResponseEntity.ok(attemptService.getAttemptDetail(authentication.getName(), attemptId));
     }
 
@@ -501,22 +466,17 @@ public class AttemptController {
         return ResponseEntity.ok(questions);
     }
 
-    @Operation(
-            summary = "Get attempt review",
-            description = """
-                    Retrieve the owner's completed review. Requires ATTEMPT_READ and current resource access.
-                    Legacy AttemptReviewDto is unchanged. With the participant-view adapter enabled, target attempts
-                    return POLICY_DRIVEN/v1 from the saved form only after committed release and current RESULT checks.
-                    Include parameters only narrow authorized fields. Unknown, foreign and unavailable target roots
-                    share 404; pending review returns 409. Online only, no pagination/sort/filter or idempotency key.
-                    """
-    )
+    @Operation(summary = "Get attempt review", description = "Read the authenticated owner's completed legacy attempt review. Include parameters retain their existing legacy semantics. New policy-driven reviews use the v2 API. Online only; no pagination, sorting or idempotency key.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Attempt review returned",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = AttemptReviewResponse.class),
-                            examples = @ExampleObject(name = "releasedPractice", value = ParticipantReviewExamples.REVIEW)
+                            schema = @Schema(implementation = AttemptReviewDto.class),
+                            examples = @ExampleObject(name = "legacyReview", value = """
+                                    {"attemptId":"10000000-0000-0000-0000-000000000001","quizId":"20000000-0000-0000-0000-000000000001",
+                                     "userId":"30000000-0000-0000-0000-000000000001","startedAt":"2026-11-06T12:00:00Z",
+                                     "completedAt":"2026-11-06T12:10:00Z","totalScore":1.0,"correctCount":1,"totalQuestions":1,"answers":[]}
+                                    """)
                     )
             ),
             @ApiResponse(responseCode = "403", description = "Forbidden - User does not own the attempt",
@@ -526,14 +486,11 @@ public class AttemptController {
             @ApiResponse(responseCode = "409", description = "Conflict - Attempt is not completed yet",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "400", description = "Invalid attempt identifier", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "422", description = "Unsupported saved target contract", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "500", description = "Corrupt target evidence; no partial review", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "503", description = "Target read temporarily unavailable", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+            @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
     @GetMapping("/{attemptId}/review")
-    public ResponseEntity<AttemptReviewResponse> getAttemptReview(
+    public ResponseEntity<AttemptReviewDto> getAttemptReview(
             @Parameter(description = "UUID of the attempt to review", required = true)
             @PathVariable UUID attemptId,
 
@@ -560,9 +517,6 @@ public class AttemptController {
 
             Authentication authentication
     ) {
-        var reader = participantViews.getIfAvailable();
-        if (reader != null) return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore())
-                .body(reader.review(attemptId, includeUserAnswers, includeCorrectAnswers, includeQuestionContext));
         String username = authentication.getName();
         AttemptReviewDto review = attemptService.getAttemptReview(
                 username,
@@ -574,21 +528,17 @@ public class AttemptController {
         return ResponseEntity.ok(review);
     }
 
-    @Operation(
-            summary = "Get attempt answer key",
-            description = """
-                    Owner-only completed answer key; requires ATTEMPT_READ and current resource access.
-                    Target attempts use the same committed release, exact saved form and per-category RESULT checks
-                    as review. No submitted responses are included. Legacy envelope remains unchanged.
-                    Online only; no pagination/sort/filter or idempotency key. Enabled target responses use no-store.
-                    """
-    )
+    @Operation(summary = "Get attempt answer key", description = "Read the authenticated owner's completed legacy answer key without submitted answers. New policy-driven answer keys use the v2 API. Online only; no pagination, sorting or idempotency key.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Answer key returned",
                     content = @Content(
                             mediaType = "application/json",
-                            schema = @Schema(implementation = AttemptReviewResponse.class),
-                            examples = @ExampleObject(name = "releasedPractice", value = ParticipantReviewExamples.ANSWER_KEY)
+                            schema = @Schema(implementation = AttemptReviewDto.class),
+                            examples = @ExampleObject(name = "legacyReview", value = """
+                                    {"attemptId":"10000000-0000-0000-0000-000000000001","quizId":"20000000-0000-0000-0000-000000000001",
+                                     "userId":"30000000-0000-0000-0000-000000000001","startedAt":"2026-11-06T12:00:00Z",
+                                     "completedAt":"2026-11-06T12:10:00Z","totalScore":1.0,"correctCount":1,"totalQuestions":1,"answers":[]}
+                                    """)
                     )
             ),
             @ApiResponse(responseCode = "403", description = "Forbidden - User does not own the attempt",
@@ -598,22 +548,16 @@ public class AttemptController {
             @ApiResponse(responseCode = "409", description = "Conflict - Attempt is not completed yet",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "400", description = "Invalid attempt identifier", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "422", description = "Unsupported saved target contract", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "500", description = "Corrupt target evidence; no partial answer key", content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "503", description = "Target read temporarily unavailable", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+            @ApiResponse(responseCode = "401", description = "Authentication required", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
     @io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
     @GetMapping("/{attemptId}/answer-key")
-    public ResponseEntity<AttemptReviewResponse> getAttemptAnswerKey(
+    public ResponseEntity<AttemptReviewDto> getAttemptAnswerKey(
             @Parameter(description = "UUID of the attempt", required = true)
             @PathVariable UUID attemptId,
 
             Authentication authentication
     ) {
-        var reader = participantViews.getIfAvailable();
-        if (reader != null) return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore())
-                .body(reader.review(attemptId, false, true, true));
         String username = authentication.getName();
         AttemptReviewDto answerKey = attemptService.getAttemptAnswerKey(username, attemptId);
         return ResponseEntity.ok(answerKey);

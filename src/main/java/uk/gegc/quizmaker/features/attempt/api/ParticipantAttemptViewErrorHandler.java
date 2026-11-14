@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException;
 
 /** Only the new typed read failure; legacy errors and unrelated controller methods retain their advice. */
-@RestControllerAdvice(assignableTypes = AttemptController.class)
+@RestControllerAdvice(assignableTypes = ParticipantAttemptViewController.class)
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class ParticipantAttemptViewErrorHandler {
     @ExceptionHandler(AttemptDeliveryException.class)

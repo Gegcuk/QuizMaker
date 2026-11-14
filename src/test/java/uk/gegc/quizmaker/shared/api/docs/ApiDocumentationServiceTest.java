@@ -11,6 +11,13 @@ class ApiDocumentationServiceTest {
     private final ApiDocumentationService service = new ApiDocumentationService();
 
     @Test
+    void attemptVersionsHaveSeparateDiscoverableSpecs() {
+        assertThat(service.listGroups().stream().filter(group -> group.group().startsWith("attempts")))
+                .extracting(ApiGroupSummary::specUrl)
+                .containsExactly("/v3/api-docs/attempts", "/v3/api-docs/attempts-v2");
+    }
+
+    @Test
     @DisplayName("API discovery lists the media OpenAPI group")
     void listGroups_includesMediaContract() {
         ApiGroupSummary media = service.listGroups().stream()

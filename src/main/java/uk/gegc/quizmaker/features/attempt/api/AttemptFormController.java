@@ -17,8 +17,8 @@ import uk.gegc.quizmaker.features.attempt.api.dto.AttemptFormResponse;
 import uk.gegc.quizmaker.features.attempt.application.AttemptDeliveryService;
 
 @RestController
-@RequestMapping("/api/v1/attempts")
-@Tag(name = "Attempts")
+@RequestMapping("/api/v2/attempts")
+@Tag(name = "Policy-driven Attempts")
 @ConditionalOnProperty(name = "quizmaker.attempts.flat-delivery-enabled", havingValue = "true")
 public class AttemptFormController {
     private final AttemptDeliveryService delivery;

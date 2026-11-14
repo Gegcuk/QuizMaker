@@ -222,11 +222,11 @@ class ParticipantAttemptViewMySqlIntegrationTest {
         var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
         beans.registerSingleton("views", views);
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new uk.gegc.quizmaker.features.attempt.api.AttemptController(legacy, beans.getBeanProvider(ParticipantAttemptViewService.class)))
+                new uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewController(beans.getBean(ParticipantAttemptViewService.class)))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewErrorHandler())
                 .setMessageConverters(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(json)).build();
         String body = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                        .get("/api/v1/attempts/{id}", started.attemptId()).param("includeCorrectAnswers", "true"))
+                        .get("/api/v2/attempts/{id}", started.attemptId()).param("includeCorrectAnswers", "true"))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Cache-Control", "no-store"))
                 .andReturn().getResponse().getContentAsString();
@@ -282,10 +282,10 @@ class ParticipantAttemptViewMySqlIntegrationTest {
         grant(user(other, true), "ATTEMPT_READ", "ATTEMPT_READ_ALL", "QUESTION_UPDATE", "QUESTION_ADMIN"); authenticate(other);
         var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory(); beans.registerSingleton("views", views);
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new uk.gegc.quizmaker.features.attempt.api.AttemptController(legacy, beans.getBeanProvider(ParticipantAttemptViewService.class)))
+                new uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewController(beans.getBean(ParticipantAttemptViewService.class)))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewErrorHandler()).build();
         for (var candidate : List.of(id, UUID.randomUUID())) {
-            String body = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/attempts/{id}", candidate))
+            String body = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v2/attempts/{id}", candidate))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound())
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Cache-Control", "no-store"))
                     .andReturn().getResponse().getContentAsString();
@@ -541,7 +541,7 @@ class ParticipantAttemptViewMySqlIntegrationTest {
             if (statement.startsWith("DELETE rp FROM role_permissions")) revokeIssued.countDown();
         };
         var workers = Executors.newFixedThreadPool(2);
-        Future<AttemptDetailsResponse> reader = workers.submit(() -> {
+        Future<ParticipantAttemptView> reader = workers.submit(() -> {
             authenticate(username);
             try { return views.read(started.attemptId()); }
             finally { SecurityContextHolder.clearContext(); }
@@ -596,10 +596,10 @@ class ParticipantAttemptViewMySqlIntegrationTest {
         var restarted = reader(released, images, metrics);
         var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory(); beans.registerSingleton("views", restarted);
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new uk.gegc.quizmaker.features.attempt.api.AttemptController(legacy, beans.getBeanProvider(ParticipantAttemptViewService.class)))
+                new uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewController(beans.getBean(ParticipantAttemptViewService.class)))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewErrorHandler())
                 .setMessageConverters(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(json)).build();
-        var body = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/attempts/{id}", id))
+        var body = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v2/attempts/{id}", id))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
                 .andReturn().getResponse().getContentAsString();
         var payload = json.readTree(body); var item = payload.path("items").get(0);
@@ -693,7 +693,7 @@ class ParticipantAttemptViewMySqlIntegrationTest {
     private ParticipantAttemptViewService reader(ParticipantViewDisclosureReader disclosure, ParticipantViewMediaReader media,
                                                  io.micrometer.core.instrument.MeterRegistry meter) {
         return new ParticipantAttemptViewServiceImpl(context.getBean(AuthenticatedSubjectResolver.class),
-                context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AttemptViewRouteRepository.class), legacy,
+                context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AttemptViewRouteRepository.class),
                 context.getBean(AttemptReadFactsService.class), disclosure, media, manager, meter, context.getBean(Clock.class));
     }
     private void submitStateFixture(UUID id) {
@@ -780,7 +780,7 @@ class ParticipantAttemptViewMySqlIntegrationTest {
         tx.executeWithoutResult(status -> sql.update("UPDATE quizzes SET timer_duration_min=99 WHERE quiz_id=UUID_TO_BIN(?)",quizId.toString()));
         assertThat(((ParticipantAttemptView)views.read(result.attemptId())).timingDetails()).isEqualTo(view.timingDetails());
         var later = new ParticipantAttemptViewServiceImpl(context.getBean(AuthenticatedSubjectResolver.class),
-                context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AttemptViewRouteRepository.class),legacy,
+                context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AttemptViewRouteRepository.class),
                 context.getBean(AttemptReadFactsService.class),context.getBean(ParticipantViewDisclosureReader.class),context.getBean(ParticipantViewMediaReader.class),
                 manager,metrics,Clock.fixed(view.timingDetails().effectiveDeadline(),ZoneOffset.UTC));
         var expired=(ParticipantAttemptView)later.read(result.attemptId());

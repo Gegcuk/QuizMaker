@@ -5,7 +5,6 @@ import io.micrometer.core.instrument.Timer;
 import java.util.*;
 import java.util.stream.Collectors;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -24,7 +23,6 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDelive
 public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptViewService {
     private final AuthenticatedSubjectResolver identity;
     private final AttemptViewRouteRepository routes;
-    private final AttemptService legacy;
     private final AttemptReadFactsService facts;
     private final ParticipantViewDisclosureReader disclosure;
     private final ParticipantViewMediaReader media;
@@ -33,21 +31,21 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
     private final java.time.Clock clock;
 
     public ParticipantAttemptViewServiceImpl(AuthenticatedSubjectResolver identity, AttemptViewRouteRepository routes,
-            AttemptService legacy, AttemptReadFactsService facts, ParticipantViewDisclosureReader disclosure,
+            AttemptReadFactsService facts, ParticipantViewDisclosureReader disclosure,
             ParticipantViewMediaReader media, PlatformTransactionManager manager, MeterRegistry metrics, java.time.Clock clock) {
-        this.identity = identity; this.routes = routes; this.legacy = legacy; this.facts = facts;
+        this.identity = identity; this.routes = routes; this.facts = facts;
         this.disclosure = disclosure; this.media = media; this.metrics = metrics; this.clock = clock;
         transaction = new TransactionTemplate(manager); transaction.setReadOnly(true);
     }
 
-    @Override public AttemptDetailsResponse read(UUID attemptId) {
+    @Override public ParticipantAttemptView read(UUID attemptId) {
         Timer.Sample timer = Timer.start(); String outcome = "unavailable";
         try {
             var result = transaction.execute(status -> {
                 try { return readAuthorized(attemptId); }
                 catch (RuntimeException failure) { throw AttemptReadFailures.translate(failure); }
             });
-            outcome = result instanceof AttemptDetailsDto ? "legacy" : "view";
+            outcome = "view";
             return result;
         } catch (RuntimeException failure) {
             var safe = AttemptReadFailures.translate(failure);
@@ -58,16 +56,11 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
         }
     }
 
-    private AttemptDetailsResponse readAuthorized(UUID attemptId) {
+    private ParticipantAttemptView readAuthorized(UUID attemptId) {
         if (attemptId == null) throw new AttemptDeliveryException(NOT_FOUND);
         var subject = identity.resolveCurrent(attemptId);
         if (routes.isOwnedLegacyOnly(attemptId, subject.userId())) {
-            // The server principal was resolved above. No request-supplied username/subject is used.
-            try { return legacy.getAttemptDetail(SecurityContextHolder.getContext().getAuthentication().getName(), attemptId); }
-            catch (org.springframework.security.access.AccessDeniedException
-                   | uk.gegc.quizmaker.shared.exception.ResourceNotFoundException denied) {
-                throw new AttemptDeliveryException(NOT_FOUND);
-            }
+            throw new AttemptDeliveryException(NOT_FOUND);
         }
         var saved = facts.read(attemptId, AttemptReadFactsService.Purpose.PARTICIPANT_VIEW);
         var granted = saved.access();
@@ -125,23 +118,9 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
                 visibility, items, actions, disclosed.result(), NavigationPosition.from(saved.navigation().cursor()), timingDetails);
     }
 
-    @Override public AttemptReviewResponse review(UUID attemptId, boolean includeUserAnswers,
+    @Override public ParticipantAttemptView review(UUID attemptId, boolean includeUserAnswers,
             boolean includeCorrectAnswers, boolean includeQuestionContext) {
-        boolean legacyOnly;
-        try {
-            legacyOnly = Boolean.TRUE.equals(transaction.execute(status -> {
-                try {
-                    if (attemptId == null) throw new AttemptDeliveryException(NOT_FOUND);
-                    var subject = identity.resolveCurrent(attemptId);
-                    return routes.isOwnedLegacyOnly(attemptId, subject.userId());
-                } catch (RuntimeException failure) { throw AttemptReadFailures.translate(failure); }
-            }));
-        } catch (RuntimeException failure) { throw AttemptReadFailures.translate(failure); }
-        // Historical success/error envelopes remain owned by the existing legacy service.
-        if (legacyOnly) return legacy.getAttemptReview(SecurityContextHolder.getContext().getAuthentication().getName(),
-                attemptId, includeUserAnswers, includeCorrectAnswers, includeQuestionContext);
-        var response = read(attemptId);
-        if (!(response instanceof ParticipantAttemptView view)) throw new AttemptDeliveryException(CORRUPT);
+        var view = read(attemptId);
         var result = view.result();
         if (result == null || !Boolean.TRUE.equals(result.reviewAvailable())) throw new AttemptDeliveryException(INACTIVE);
         var filtered = new uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView(result.releaseVersion(), result.releasedAt(),

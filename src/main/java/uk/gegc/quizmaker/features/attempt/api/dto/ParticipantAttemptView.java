@@ -34,7 +34,7 @@ public record ParticipantAttemptView(
         uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView result,
         @Schema(description = "Saved sequential position; absent for FREE. Does not imply an answer or a change to finality.") NavigationPosition navigation,
         @Schema(description = "Absent for UNTIMED; saved overall timing for TIMED. Additive web/iOS field; no client clock authority.") ParticipantAttemptTiming timingDetails
-) implements AttemptDetailsResponse, AttemptReviewResponse {
+) {
     public enum Representation { POLICY_DRIVEN }
     public enum Timing { UNTIMED, TIMED }
     public ParticipantAttemptView {

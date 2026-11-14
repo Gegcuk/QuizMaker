@@ -304,8 +304,9 @@ one and twenty children. `PARTICIPANT-VIEW-MEDIA` explicitly uses persisted cano
 and typed disclosure/media reader doubles: it proves projection of available/unavailable/restricted
 images after service recreation, not completed-review release, a real storage backend, media
 start or timing compensation. Full/grouped OpenAPI validates both legacy and target examples;
-default/false activation leaves the existing controller on its legacy reader. Run `./mvnw verify`
-after these checks for shared-controller/family-contract regressions; real providers remain excluded.
+v1 stays on its legacy reader with the participant-view flag absent, false or true, while v2
+requires the flag. Run `./mvnw verify` after these checks for API/family-contract regressions;
+real providers remain excluded.
 
 Reserve integration tests for behavior that crosses real boundaries: service transactions, `AFTER_COMMIT` listeners, migration wiring, security configuration, serialization, or asynchronous job orchestration.
 
@@ -389,6 +390,38 @@ empty MCQ_MULTI/ORDERING/FILL_GAP arrays and preserve their zero-credit accepted
 
 No public endpoint, release, notification, scheduler or offline activation is claimed. Run the
 full `./mvnw verify` gate for existing API/training/OpenAPI compatibility after focused checks.
+
+## Separate attempt API versions (#904)
+
+The legacy `AttemptController` owns `/api/v1/attempts` regardless of target flags.
+`ParticipantAttemptViewController`, form, response, submission, navigation and draft
+controllers own `/api/v2/attempts` and retain their existing feature gates. The public
+v2 start belongs to #609 and is not introduced here. The #629 batch branch must use
+`POST /api/v2/attempts/{attemptId}/responses/batch` when integrated.
+
+Verify both full and grouped OpenAPI: legacy responses are `AttemptDetailsDto` or
+`AttemptReviewDto`; target views are `ParticipantAttemptView`. `attempts` and `attempts-v2`
+are disjoint groups, both listed by `/api/v1/api-summary`. HTTP version 2 is independent
+of persisted schema version 1. Include flags never expand target disclosure.
+
+```bash
+./mvnw test -Dtest=ParticipantAttemptViewActivationTest,ParticipantAttemptViewOpenApiContractTest,AttemptFormOpenApiContractTest,ResponseAcceptanceOpenApiTest,AttemptSubmissionOpenApiTest,NavigationOpenApiTest,DraftCommandOpenApiTest,ApiDocumentationTest,ApiDocumentationServiceTest
+./mvnw test -Dtest=ParticipantViewLegacyHttpIntegrationTest,ParticipantAttemptViewMySqlIntegrationTest,AttemptDeliveryMySqlIntegrationTest,ResponseAcceptanceMySqlIntegrationTest,AttemptSubmissionMySqlIntegrationTest,NavigationMySqlIntegrationTest,DraftCommandMySqlIntegrationTest,ImmediateResultReleaseMySqlIntegrationTest
+```
+
+Keep the real legacy all-family/mode/read/review fixtures and their SQL bounds. The target
+fixtures retain old-RR reads, concurrent access, revocation, rollback, restart and released
+content checks; #904 does not weaken those contracts. Reject legacy IDs at v2 without
+fallback, and prove v1 still returns its own successful envelopes with target enabled.
+Wrong-version detail/review/answer-key failures must mark a joined caller transaction
+rollback-only even when caught; check the rollback of an unrelated caller write under RR.
+Scoped tests precede full `verify`; the isolated context worker launcher and post-merge
+verification remain unchanged.
+
+The checked frontend attempt endpoints still use legacy start/answers/complete and
+v1 reads. On 13 November 2026 the owner confirmed that no clients/environments consume
+the target v1 routes, so #904 introduces no temporary aliases. A future v2 frontend must
+retain each attempt's engine/version and must not retry a failed v2 command through v1.
 
 ## External Systems And AI
 
