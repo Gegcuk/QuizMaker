@@ -50,7 +50,7 @@ class ParticipantViewLegacyHttpIntegrationTest extends BaseIntegrationTest {
         org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
                 new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(principal, null, List.of()));
         var outer = new TransactionTemplate(transactions);
-        outer.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        outer.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED);
         try {
             assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
                 assertThat(jdbcTemplate.queryForObject("SELECT title FROM quizzes WHERE quiz_id=UUID_TO_BIN(?)",

@@ -108,6 +108,59 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         CommandReceiptServiceImpl.class, JdbcCommandReceiptRepository.class,
         ParticipantAttemptViewMySqlIntegrationTest.Config.class})
 class ParticipantAttemptViewMySqlIntegrationTest {
+    @ParameterizedTest @ValueSource(ints = {-1, 1, 4, 8})
+    void rejectsIncompatibleCallerBeforeIdentityOrReservation(int isolation) {
+        var f = starts.start(command(prepared(), AnswerOrder.AUTHORED, "context-start"));
+        var before = targetSnapshot();
+        for (Runnable action : java.util.List.<Runnable>of(() -> views.read(f.attemptId()), () -> views.review(f.attemptId(), true, true, true))) {
+            var caller = new TransactionTemplate(manager); caller.setIsolationLevel(isolation);
+            caller.setReadOnly(isolation == 2);
+            caller.executeWithoutResult(status -> {
+                sql.queryForObject("SELECT COUNT(*) FROM attempt_command_receipt", Integer.class);
+                observer().reset();
+                assertThatThrownBy(action::run).isInstanceOfSatisfying(
+                        uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException.class, failure -> {
+                            assertThat(failure.reason().name()).isEqualTo(isolation == 2 ? "READ_ONLY" : "INCOMPATIBLE_ISOLATION");
+                            assertThat(failure.getCause()).isNull(); assertThat(failure.getSuppressed()).isEmpty();
+                        });
+                assertThat(observer().selects).isEmpty(); status.setRollbackOnly();
+            });
+        }
+        assertThat(targetSnapshot()).isEqualTo(before);
+    }
+
+    @Test void allOwnedTransactionsIncludingIdentityAndFollowUpUseActualRc() {
+        var f = starts.start(command(prepared(), AnswerOrder.AUTHORED, "context-start"));
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+        var observed = new java.util.concurrent.atomic.AtomicInteger();
+        observer().beforeSql = (statement, connection) -> {
+            if (statement.startsWith("SELECT @@transaction_isolation")) return;
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+            observed.incrementAndGet();
+        };
+        try { views.read(f.attemptId()); } finally { observer().reset(); }
+        assertThat(observed.get()).isPositive();
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+    }
+
+    @Test void rcReadOnlyReadsAreAllowedAndPostReadInactiveDoesNotPoisonCaller() {
+        var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "read-only"));
+        var readOnly = new TransactionTemplate(manager); readOnly.setIsolationLevel(2); readOnly.setReadOnly(true);
+        readOnly.executeWithoutResult(status -> {
+            assertThat(views.read(started.attemptId()).items()).hasSize(5);
+            assertThat(status.isRollbackOnly()).isFalse();
+        });
+        tx.executeWithoutResult(status -> {
+            sql.update("UPDATE quizzes SET title='caller-survives-inactive' WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString());
+            assertThatThrownBy(() -> views.review(started.attemptId(), true, true, true))
+                    .isInstanceOfSatisfying(AttemptDeliveryException.class, e -> assertThat(e.reason().name()).isEqualTo("INACTIVE"));
+            assertThat(status.isRollbackOnly()).isFalse();
+        });
+        assertThat(sql.queryForObject("SELECT title FROM quizzes WHERE quiz_id=UUID_TO_BIN(?)", String.class, quizId.toString()))
+                .isEqualTo("caller-survives-inactive");
+    }
+
     static final String SCHEMA = "attempt_view_" + UUID.randomUUID().toString().replace("-", "");
     static JdbcTemplate admin;
     static boolean schemaCreated;
@@ -179,7 +232,7 @@ class ParticipantAttemptViewMySqlIntegrationTest {
 
 
     @BeforeEach void setup() {
-        tx = new TransactionTemplate(manager); observer().reset();
+        tx = new TransactionTemplate(manager); tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED); observer().reset();
         username = "delivery-" + UUID.randomUUID().toString().substring(0, 12);
         ownerId = user(username, true);
         grant(ownerId, "ATTEMPT_READ", "ATTEMPT_CREATE");
@@ -330,8 +383,8 @@ class ParticipantAttemptViewMySqlIntegrationTest {
         }
     }
 
-    @ParameterizedTest @CsvSource({"2,false", "4,false", "2,true", "4,true"})
-    void oldCallerSnapshotStillReadsARealNewlyCommittedStart(int isolation, boolean publishAfterSnapshot) {
+    @ParameterizedTest @CsvSource({"2,false", "2,true"})
+    void rcCallerReadsARealNewlyCommittedStart(int isolation, boolean publishAfterSnapshot) {
         UUID revision = publishAfterSnapshot ? null : prepared();
         var old = new TransactionTemplate(manager); old.setIsolationLevel(isolation);
         var separate = new TransactionTemplate(manager); separate.setPropagationBehavior(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
@@ -346,7 +399,7 @@ class ParticipantAttemptViewMySqlIntegrationTest {
         assertThat(recreated().read(started.get().attemptId())).isEqualTo(result);
     }
 
-    @ParameterizedTest @ValueSource(ints = {2, 4})
+    @ParameterizedTest @ValueSource(ints = {2})
     void currentTerminalStateIsVisibleWithoutInventingGradingOrReviewRelease(int isolation) throws Exception {
         var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "view"));
         assertThat(view(started.attemptId()).items()).hasSize(5);
@@ -425,8 +478,7 @@ class ParticipantAttemptViewMySqlIntegrationTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"2,false,false", "2,false,true", "2,true,false", "2,true,true",
-            "4,false,false", "4,false,true", "4,true,false", "4,true,true"})
+    @CsvSource({"2,false,false", "2,false,true", "2,true,false", "2,true,true"})
     void completedUntimedViewAndNewStartBothCommitWithoutTimingGapDeadlock(
             int isolation, boolean readOnly, boolean timedStart) throws Exception {
         UUID revision = prepared();
@@ -498,16 +550,9 @@ class ParticipantAttemptViewMySqlIntegrationTest {
             assertThat(readerConnection.get()).isNotEqualTo(writerConnection.get());
             allowWriter.countDown();
 
-            // Phase A does not remove the existing RR missing-timing gap lock. It must not
-            // form a cycle: the view has already projected through the start's shared locks.
-            if (isolation == TransactionDefinition.ISOLATION_REPEATABLE_READ && timedStart) {
-                awaitTimingLockWait(writerConnection.get(), readerConnection.get());
-                assertThat(writing.isDone()).isFalse();
-                allowReader.countDown();
-            }
+            // Compatible RC reads do not retain a missing-timing gap lock.
             var created = writing.get(5, TimeUnit.SECONDS);
-            if (isolation != TransactionDefinition.ISOLATION_REPEATABLE_READ || !timedStart)
-                assertThat(reading.isDone()).as("Start commits before the view releases its database locks").isFalse();
+            assertThat(reading.isDone()).as("Start commits before the view releases its database locks").isFalse();
             allowReader.countDown();
             try { assertThat(reading.get(20, TimeUnit.SECONDS)).isEqualTo(expected); }
             catch (ExecutionException failure) {
@@ -535,22 +580,6 @@ class ParticipantAttemptViewMySqlIntegrationTest {
             allowWriter.countDown(); allowReader.countDown(); pool.shutdownNow();
             assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); observer().reset();
         }
-    }
-
-    private void awaitTimingLockWait(int writerConnection, int readerConnection) throws InterruptedException {
-        long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-        do {
-            if (admin.queryForObject("""
-                    SELECT COUNT(*) FROM performance_schema.data_lock_waits w
-                    JOIN performance_schema.data_locks l ON l.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID
-                    JOIN information_schema.innodb_trx waiting ON waiting.trx_id=w.REQUESTING_ENGINE_TRANSACTION_ID
-                    JOIN information_schema.innodb_trx holding ON holding.trx_id=w.BLOCKING_ENGINE_TRANSACTION_ID
-                    WHERE l.OBJECT_SCHEMA=? AND l.OBJECT_NAME='attempt_timing'
-                      AND waiting.trx_mysql_thread_id=? AND holding.trx_mysql_thread_id=?
-                    """, Integer.class, SCHEMA, writerConnection, readerConnection) > 0) return;
-            Thread.sleep(10);
-        } while (System.nanoTime() < until);
-        throw new AssertionError("RR timed start never entered the expected timing gap wait on the held view");
     }
 
     @Test void authorityRemainsLockedThroughActualContentProjection() throws Exception {

@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.attempt.application.impl;
 
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.util.Locale;
@@ -23,11 +24,12 @@ public class AttemptDeliveryServiceImpl implements AttemptDeliveryService {
 
     public AttemptDeliveryServiceImpl(AttemptReadFactsService facts, PlatformTransactionManager manager, MeterRegistry metrics, java.time.Clock clock) {
         this.facts = facts; this.metrics = metrics; this.clock = clock;
-        this.transaction = new TransactionTemplate(manager);
+        this.transaction = AttemptTransactions.readCommitted(manager);
         this.transaction.setReadOnly(true);
     }
 
     @Override public View read(UUID attemptId) {
+        AttemptTransactions.requireCompatible(transaction.getTransactionManager(), false);
         Timer.Sample timer = Timer.start();
         String outcome = "unavailable";
         try {

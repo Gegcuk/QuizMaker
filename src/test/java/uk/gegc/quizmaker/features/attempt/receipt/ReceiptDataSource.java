@@ -22,6 +22,7 @@ final class ReceiptDataSource extends DelegatingDataSource {
     volatile CommitHook beforeCommit;
     volatile CommitHook afterCommit;
     volatile boolean failConnection;
+    final AtomicInteger isolationReads = new AtomicInteger();
     final List<String> selects = new CopyOnWriteArrayList<>();
     final List<Integer> sqlErrorCodes = new CopyOnWriteArrayList<>();
     private final AtomicInteger connections = new AtomicInteger();
@@ -35,6 +36,7 @@ final class ReceiptDataSource extends DelegatingDataSource {
         int connectionId = connections.incrementAndGet();
         return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(), new Class<?>[]{Connection.class},
                 (proxy, method, arguments) -> {
+                    if (method.getName().equals("getTransactionIsolation")) isolationReads.incrementAndGet();
                     if (method.getName().equals("commit") && beforeCommit != null) beforeCommit.run(target);
                     try {
                         Object result = method.invoke(target, arguments);
@@ -70,6 +72,6 @@ final class ReceiptDataSource extends DelegatingDataSource {
 
     void reset() {
         beforeSql = null; afterSql = null; beforeCommit = null; afterCommit = null; failConnection = false;
-        selects.clear(); sqlErrorCodes.clear();
+        selects.clear(); sqlErrorCodes.clear(); isolationReads.set(0);
     }
 }

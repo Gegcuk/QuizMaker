@@ -36,6 +36,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.*;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.*;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.attempt.application.*;
@@ -202,7 +203,7 @@ class AttemptStartMySqlIntegrationTest {
 
 
     @BeforeEach void setup() {
-        tx = new TransactionTemplate(manager); observer().reset();
+        tx = new TransactionTemplate(manager); tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED); observer().reset();
         username = "start-" + UUID.randomUUID().toString().substring(0, 12);
         ownerId = user(username, true);
         quizId = newQuiz();
@@ -357,7 +358,7 @@ class AttemptStartMySqlIntegrationTest {
         if (committed) assertThat(targetSnapshot()).isEqualTo(durable);
     }
 
-    @ParameterizedTest @CsvSource({"2,false", "4,false", "2,true", "4,true"})
+    @ParameterizedTest @CsvSource({"2,false", "2,true"})
     void independentTransactionsHaveARealWinnerAndDeterministicDuplicateOutcome(int isolation, boolean conflicting) throws Exception {
         var original = command(prepared(), AnswerOrder.AUTHORED, "race");
         var other = command(original.content().quizRevisionId(), conflicting ? AnswerOrder.SHUFFLED_PER_ATTEMPT : AnswerOrder.AUTHORED, "race");
@@ -494,7 +495,7 @@ class AttemptStartMySqlIntegrationTest {
         reporter.publishEntry("startSelectCountsFor5_10_20Items", reads.toString());
         reporter.publishEntry("replaySelectCountsFor5_10_20Items", replayReads.toString());
     }
-    @ParameterizedTest @CsvSource({"2,false", "4,false", "2,true", "4,true"})
+    @ParameterizedTest @CsvSource({"2,false", "2,true"})
     void freshPublicationIsVisibleToStartInsideExistingSnapshot(int isolation, boolean rollback) throws Exception {
         var questions = FAMILIES.stream().map(this::draft).toList();
         UUID oldRevision = publish(0, questions); binding.bind(quizId, oldRevision);
@@ -541,7 +542,7 @@ class AttemptStartMySqlIntegrationTest {
         } finally { pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
     }
 
-    @ParameterizedTest @ValueSource(ints = {2, 4})
+    @ParameterizedTest @ValueSource(ints = {2})
     void differentKeysConcurrentStartHaveOneActiveWinner(int isolation) throws Exception {
         UUID revision = prepared();
         var a = command(revision, AnswerOrder.AUTHORED, "independent-A");
@@ -567,7 +568,7 @@ class AttemptStartMySqlIntegrationTest {
         } finally { observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
     }
 
-    @ParameterizedTest @ValueSource(ints = {-1, 2, 4})
+    @ParameterizedTest @ValueSource(ints = {-1, 2})
     void realAuthorizationDeadlockRetainsRetryableReasonAndNoPartialWrites(int isolation) throws Exception {
         var command = command(prepared(), AnswerOrder.AUTHORED, "deadlock");
         sql.execute("CREATE TABLE start_deadlock_weight (id INT PRIMARY KEY, value INT) ENGINE=InnoDB");
@@ -610,7 +611,7 @@ class AttemptStartMySqlIntegrationTest {
         }
     }
 
-    @ParameterizedTest @ValueSource(ints = {2, 4})
+    @ParameterizedTest @ValueSource(ints = {2})
     void realAuthorizationLockTimeoutRetainsInProgressWithoutRetryOrWrites(int isolation) throws Exception {
         var command = command(prepared(), AnswerOrder.AUTHORED, "access-timeout");
         var locked = new CountDownLatch(1); var release = new CountDownLatch(1);
@@ -645,7 +646,7 @@ class AttemptStartMySqlIntegrationTest {
         }
     }
 
-    @ParameterizedTest @ValueSource(ints = {2, 4})
+    @ParameterizedTest @ValueSource(ints = {2})
     void nestedContractLockTimeoutPreservesInProgressAndRollback(int isolation) throws Exception {
         UUID revision = prepared();
         var command = command(revision, AnswerOrder.AUTHORED, "contract-timeout");
@@ -686,7 +687,7 @@ class AttemptStartMySqlIntegrationTest {
         }
     }
 
-    @ParameterizedTest @ValueSource(ints = {2, 4})
+    @ParameterizedTest @ValueSource(ints = {2})
     void nestedContractDeadlockPreservesRetryableAndRollback(int isolation) throws Exception {
         UUID revision = prepared();
         var command = command(revision, AnswerOrder.AUTHORED, "contract-deadlock");
@@ -1039,7 +1040,7 @@ class AttemptStartMySqlIntegrationTest {
         reporter.publishEntry("selectedStartSelectCountsFor5_10_20Items", counts.toString());
     }
 
-    @ParameterizedTest @CsvSource({"2,false", "4,false", "2,true", "4,true"})
+    @ParameterizedTest @CsvSource({"2,false", "2,true"})
     void finiteLastAllowanceRaceCommitsOnceAndSameKeyReplays(int isolation, boolean identical) throws Exception {
         var base = limited(command(prepared(), AnswerOrder.AUTHORED, "last-A"), 1L, Duration.ZERO);
         var other = identical ? base : limited(command(base.content().quizRevisionId(), AnswerOrder.AUTHORED, "last-B"), 1L, Duration.ZERO);
@@ -1161,7 +1162,7 @@ class AttemptStartMySqlIntegrationTest {
         }
     }
 
-    @ParameterizedTest @ValueSource(ints = {2, 4})
+    @ParameterizedTest @ValueSource(ints = {2})
     void realScopeLockTimeoutDoesNotRetryOrConsumeAndExplicitRetrySucceeds(int isolation) throws Exception {
         var firstCommand = limited(command(prepared(), AnswerOrder.AUTHORED, "scope-first"), 2L, Duration.ZERO);
         var first = starts.start(firstCommand); finish(first.attemptId());
@@ -1205,7 +1206,7 @@ class AttemptStartMySqlIntegrationTest {
         assertCoherent(restarted().start(command), 5);
     }
 
-    @ParameterizedTest @CsvSource({"2,false", "4,false", "2,true", "4,true"})
+    @ParameterizedTest @CsvSource({"2,false", "2,true"})
     void distinctPublicationScopesCanReachTheirGuardsTogetherAndBothCommit(int isolation, boolean history) throws Exception {
         UUID firstRevision = prepared();
         if (history) finish(starts.start(command(firstRevision, AnswerOrder.AUTHORED, "scope-A-history")).attemptId());
@@ -1232,8 +1233,8 @@ class AttemptStartMySqlIntegrationTest {
         } finally { observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
     }
 
-    @ParameterizedTest @CsvSource({"2,1", "4,1", "2,2", "4,2"})
-    void allowanceReadsCurrentDirectoryAndTerminalFactsInsideAnOlderSnapshot(int isolation, long maximum) throws Exception {
+    @ParameterizedTest @CsvSource({"2,1", "2,2"})
+    void allowanceReadsCurrentDirectoryAndTerminalFactsAfterConcurrentCommit(int isolation, long maximum) throws Exception {
         var first = limited(command(prepared(), AnswerOrder.AUTHORED, "snapshot-A"), maximum, Duration.ZERO);
         var next = limited(command(first.content().quizRevisionId(), AnswerOrder.AUTHORED, "snapshot-B"), maximum, Duration.ZERO);
         var outer = new TransactionTemplate(manager); outer.setIsolationLevel(isolation);
@@ -1319,8 +1320,7 @@ class AttemptStartMySqlIntegrationTest {
                         .map(code -> org.junit.jupiter.params.provider.Arguments.of(checkpoint, code)));
     }
 
-    @ParameterizedTest @CsvSource({"2,1,EMPTY", "4,1,EMPTY", "2,2,FIRST", "4,2,FIRST", "2,2,LAST", "4,2,LAST",
-            "2,-1,EMPTY", "4,-1,EMPTY", "2,-1,FIRST", "4,-1,FIRST", "2,-1,LAST", "4,-1,LAST"})
+    @ParameterizedTest @CsvSource({"2,1,EMPTY", "2,2,FIRST", "2,2,LAST", "2,-1,EMPTY", "2,-1,FIRST", "2,-1,LAST"})
     void incompleteDirectoryCannotHideAuthoritativeBindings(int isolation, long maximum, String loss) {
         Long limit = maximum < 0 ? null : maximum;
         UUID revision = prepared();
@@ -1351,7 +1351,7 @@ class AttemptStartMySqlIntegrationTest {
     }
 
     @ParameterizedTest @ValueSource(booleans = {true, false})
-    void incompleteDirectoryCannotHideAStartCommittedAfterAnOlderRepeatableReadSnapshot(boolean finite) throws Exception {
+    void incompleteDirectoryCannotHideAConcurrentCommittedStartInRc(boolean finite) throws Exception {
         Long limit = finite ? 2L : null;
         UUID revision = prepared();
         var first = starts.start(limited(command(revision, AnswerOrder.AUTHORED, "old-drift-first"), limit, Duration.ZERO));
@@ -1360,7 +1360,7 @@ class AttemptStartMySqlIntegrationTest {
         var expected = new AtomicReference<Map<String, List<String>>>();
         var original = new AtomicReference<String>(); var active = new AtomicReference<UUID>();
         var pool = Executors.newSingleThreadExecutor();
-        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED);
         try {
             denied(() -> outer.execute(status -> {
                 assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_start_binding", Integer.class)).isEqualTo(1);
@@ -1503,7 +1503,7 @@ class AttemptStartMySqlIntegrationTest {
     private AttemptStartService withGate(AttemptAllowanceService gate, Clock at) {
         return new AttemptStartServiceImpl(identity, sources, presets, policies, snapshots, contracts, selector, materializer, subjects, lifecycle, trace,
                 new CommandReceiptServiceImpl(new JdbcCommandReceiptRepository(new NamedParameterJdbcTemplate(source)), manager, at, metrics),
-                metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), gate, timing);
+                metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), gate, timing, manager);
     }
 
     private AttemptStartService randomStarts() {
@@ -1513,7 +1513,7 @@ class AttemptStartMySqlIntegrationTest {
     private AttemptStartService withSelector(QuestionSelectionService configured) {
         var receipt = new CommandReceiptServiceImpl(new JdbcCommandReceiptRepository(new NamedParameterJdbcTemplate(source)), manager, clock, metrics);
         return new AttemptStartServiceImpl(identity, sources, presets, policies, snapshots, contracts, configured, materializer,
-                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), allowance, timing);
+                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), allowance, timing, manager);
     }
     private static AttemptStartService.Command selected(AttemptStartService.Command c, Configuration selection) {
         return new AttemptStartService.Command(c.version(), c.quizId(), c.content(), c.publicationVersion(), c.key(), c.preset(),
@@ -1529,7 +1529,7 @@ class AttemptStartMySqlIntegrationTest {
     private AttemptStartService restarted() {
         var receipt = new CommandReceiptServiceImpl(new JdbcCommandReceiptRepository(new NamedParameterJdbcTemplate(source)), manager, clock, metrics);
         return new AttemptStartServiceImpl(identity, sources, presets, policies, snapshots, contracts, selector, materializer,
-                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), allowance, timing);
+                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), allowance, timing, manager);
     }
     private Object raced(AttemptStartService.Command command, int isolation) {
         authenticate(username);

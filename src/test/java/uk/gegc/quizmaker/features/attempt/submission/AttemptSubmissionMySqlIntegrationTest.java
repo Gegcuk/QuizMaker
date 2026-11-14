@@ -119,6 +119,65 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         CommandReceiptServiceImpl.class, JdbcCommandReceiptRepository.class,
         AttemptSubmissionMySqlIntegrationTest.Config.class})
 class AttemptSubmissionMySqlIntegrationTest {
+    @ParameterizedTest @ValueSource(ints = {-1, 1, 4, 8, 2})
+    void rejectsIncompatibleCallerBeforeIdentityOrReservation(int isolation) {
+        var f = fixture(false, 3, 1);
+        var before = targetSnapshot();
+        for (Runnable action : java.util.List.<Runnable>of(() -> submissions.submit(submit(f, "context")))) {
+            var caller = new TransactionTemplate(manager); caller.setIsolationLevel(isolation);
+            caller.setReadOnly(isolation == 2);
+            caller.executeWithoutResult(status -> {
+                sql.queryForObject("SELECT COUNT(*) FROM attempt_command_receipt", Integer.class);
+                observer().reset();
+                assertThatThrownBy(action::run).isInstanceOfSatisfying(
+                        uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException.class, failure -> {
+                            assertThat(failure.reason().name()).isEqualTo(isolation == 2 ? "READ_ONLY" : "INCOMPATIBLE_ISOLATION");
+                            assertThat(failure.getCause()).isNull(); assertThat(failure.getSuppressed()).isEmpty();
+                        });
+                assertThat(observer().selects).isEmpty(); status.setRollbackOnly();
+            });
+        }
+        assertThat(targetSnapshot()).isEqualTo(before);
+    }
+
+    @Test void allOwnedTransactionsIncludingIdentityAndFollowUpUseActualRc() {
+        var f = fixture(false, 3, 1);
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+        var observed = new java.util.concurrent.atomic.AtomicInteger();
+        observer().beforeSql = (statement, connection) -> {
+            if (statement.startsWith("SELECT @@transaction_isolation")) return;
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+            observed.incrementAndGet();
+        };
+        try { submissions.submit(submit(f, "actual-rc")); } finally { observer().reset(); }
+        assertThat(observed.get()).isPositive();
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+    }
+
+    @Test void expiryReadAndWriteOwnRcAndSurviveRollbackOfSuspendedRrCaller() {
+        var f = timedFixture(false, 2, 1); var deadline = effective(f.attempt()); expiryClock().now = deadline;
+        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        var observed = new java.util.concurrent.atomic.AtomicInteger();
+        outer.executeWithoutResult(status -> {
+            sql.update("UPDATE categories SET category_name='uncommitted-expiry-caller'");
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_expiry_receipt", Integer.class)).isZero();
+            observer().beforeSql = (statement, connection) -> {
+                if (statement.startsWith("SELECT @@transaction_isolation")) return;
+                assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+                observed.incrementAndGet();
+            };
+            try { assertThat(expiry().runBatch(100, null).expired()).isEqualTo(1); }
+            finally { observer().reset(); }
+            assertThat(observed.get()).isPositive();
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_expiry_receipt", Integer.class)).isZero();
+            status.setRollbackOnly();
+        });
+        assertExpiry(f.attempt(), deadline, 1, 1);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM categories WHERE category_name='uncommitted-expiry-caller'", Integer.class)).isZero();
+    }
+
     static final String SCHEMA = "attempt_submission_" + UUID.randomUUID().toString().replace("-", "");
     static JdbcTemplate admin;
     static boolean schemaCreated;
@@ -199,7 +258,7 @@ class AttemptSubmissionMySqlIntegrationTest {
 
     @BeforeEach void setup() {
         ((AdjustableClock)context.getBean(Clock.class)).now=Instant.parse("2026-11-05T12:00:00Z");
-        tx = new TransactionTemplate(manager); observer().reset();
+        tx = new TransactionTemplate(manager); tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED); observer().reset();
         username = "acceptance-" + UUID.randomUUID().toString().substring(0, 12);
         ownerId = user(username, true);
         grant(ownerId, "ATTEMPT_READ", "ATTEMPT_CREATE");
@@ -295,7 +354,7 @@ class AttemptSubmissionMySqlIntegrationTest {
                 context.getBean(AcceptedResponseRepository.class), lifecycle,
                 facts, finalizer, terminal, new CommandReceiptServiceImpl(
                         context.getBean(CommandReceiptRepository.class),
-                        manager, context.getBean(Clock.class), metrics), meter, context.getBean(Clock.class));
+                        manager, context.getBean(Clock.class), metrics), meter, context.getBean(Clock.class), manager);
     }
     private void reject(AttemptSubmissionService service, AttemptSubmissionService.Command c, String reason) {
         assertThatThrownBy(() -> service.submit(c)).isInstanceOfSatisfying(
@@ -414,7 +473,7 @@ class AttemptSubmissionMySqlIntegrationTest {
         assertThat(count("attempt_submission")).isEqualTo(1); assertThat(count("attempt_finalization_intent")).isEqualTo(1);
     }
 
-    @ParameterizedTest @CsvSource({"2,true", "4,true", "2,false", "4,false"})
+    @ParameterizedTest @CsvSource({"2,true", "2,false"})
     void concurrentSubmitCommandsHaveOneRealWinner(int isolation, boolean identical) throws Exception {
         var f = fixture(false, 10, 8); var one = submit(f, "submit"); var two = submit(f, identical ? "submit" : "other");
         var ready = new CountDownLatch(2); var go = new CountDownLatch(1); var workers = Executors.newFixedThreadPool(2);
@@ -436,7 +495,7 @@ class AttemptSubmissionMySqlIntegrationTest {
         finally { SecurityContextHolder.clearContext(); }
     }
 
-    @ParameterizedTest @CsvSource({"2,true", "4,true", "2,false", "4,false"})
+    @ParameterizedTest @CsvSource({"2,true", "2,false"})
     void answerVersusSubmitBothOrderingsPreserveTheAcceptedSet(int isolation, boolean answerFirst) throws Exception {
         var f = fixture(false, 10, 8); var held = new CountDownLatch(1); var release = new CountDownLatch(1);
         var waiting = new CountDownLatch(1); var workers = Executors.newFixedThreadPool(2); var firstConnection = new AtomicInteger(-1);
@@ -508,7 +567,7 @@ class AttemptSubmissionMySqlIntegrationTest {
         var future = Clock.offset(context.getBean(Clock.class), Duration.ofDays(31));
         var receipts = new CommandReceiptServiceImpl(context.getBean(CommandReceiptRepository.class), manager, future, metrics);
         var later = new AttemptSubmissionServiceImpl(context.getBean(AuthenticatedSubjectResolver.class), access,
-                context.getBean(AcceptedResponseRepository.class), lifecycle, facts, finalizer, terminal, receipts, metrics, context.getBean(Clock.class));
+                context.getBean(AcceptedResponseRepository.class), lifecycle, facts, finalizer, terminal, receipts, metrics, context.getBean(Clock.class), manager);
         reject(later, request, "EXPIRED");
         Integer purged = tx.execute(s -> receipts.purgeExpired(started.attemptId(), result.stateVersion(), 100));
         assertThat(purged).isEqualTo(7);
@@ -616,8 +675,8 @@ class AttemptSubmissionMySqlIntegrationTest {
         reporter.publishEntry("submission-selects-three-parents-1-vs-20-items", measured.toString());
     }
 
-    @ParameterizedTest @ValueSource(ints = {2, 4})
-    void anOlderCallerSnapshotUsesCurrentAcceptedSetAndVersion(int isolation) throws Exception {
+    @ParameterizedTest @ValueSource(ints = {2})
+    void rcCallerUsesCurrentAcceptedSetAndVersion(int isolation) throws Exception {
         var f = fixture(false, 10, 8); var snapshot = new CountDownLatch(1); var changed = new CountDownLatch(1);
         var workers = Executors.newSingleThreadExecutor();
         try {

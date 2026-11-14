@@ -5,7 +5,11 @@ import java.util.UUID;
 import uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm;
 
-/** Authenticated flat delivery. Reads committed availability without moving the cursor or activating routes. */
+/** Authenticated flat delivery. Reads committed availability without moving the cursor or activating routes.
+ * <p>V2 composition requires actual READ_COMMITTED; standalone owners set it explicitly.
+ * See {@link uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions}
+ * for ownership, rejection and JPA caller obligations. Legacy contracts are separate.
+ */
 public interface AttemptDeliveryService {
     View read(UUID attemptId);
 

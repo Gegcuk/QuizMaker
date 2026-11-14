@@ -300,6 +300,32 @@ class AutomaticResultMySqlIntegrationTest {
         assertThat(recreated().finalizeSubmission(f.submission()).id()).isEqualTo(result.id());
     }
 
+    @Test void resultReadAndWriteOwnRcAndSurviveRollbackOfSuspendedRrCaller() {
+        var f = fixture(FAMILIES, 5, 5);
+        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        var observed = new AtomicInteger();
+        outer.executeWithoutResult(status -> {
+            sql.update("UPDATE categories SET category_name='uncommitted-result-caller' ORDER BY category_id LIMIT 1");
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_automatic_result", Integer.class)).isZero();
+            observer().beforeSql = (statement, connection) -> {
+                if (statement.startsWith("SELECT @@transaction_isolation")) return;
+                assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+                observed.incrementAndGet();
+            };
+            try {
+                assertThat(results.pending(100)).contains(f.submission());
+                assertThat(results.finalizeSubmission(f.submission()).score().earned()).isEqualTo(5);
+            } finally { observer().reset(); }
+            assertThat(observed.get()).isPositive();
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_automatic_result", Integer.class)).isZero();
+            status.setRollbackOnly();
+        });
+        assertThat(count("attempt_automatic_result")).isEqualTo(1);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM categories WHERE category_name='uncommitted-result-caller'", Integer.class)).isZero();
+        assertThat(results.finalizeSubmission(f.submission()).score().earned()).isEqualTo(5);
+    }
+
     @Test void realConnectionsUseTheRequestedIsolation() {
         String actual=tx.execute(s->sql.queryForObject("SELECT @@transaction_isolation",String.class));
         String expected=System.getProperty("result.test.isolation","TRANSACTION_REPEATABLE_READ")

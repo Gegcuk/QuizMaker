@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.result.application.impl;
 
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -42,8 +43,8 @@ public class AutomaticResultServiceImpl implements AutomaticResultService {
     public AutomaticResultServiceImpl(SubmittedAttemptSource source,AutomaticResultRepository results,ExecutionTraceService trace,
             Clock clock,MeterRegistry metrics,PlatformTransactionManager transactions) {
         this.source=source; this.results=results; this.trace=trace; this.clock=clock; this.metrics=metrics;
-        write=new TransactionTemplate(transactions); write.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-        read=new TransactionTemplate(transactions); read.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW); read.setReadOnly(true);
+        write=AttemptTransactions.readCommitted(transactions); write.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        read=AttemptTransactions.readCommitted(transactions); read.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW); read.setReadOnly(true);
     }
     @Override public AutomaticResult finalizeSubmission(UUID id) {
         require(id!=null,INVALID_INPUT);

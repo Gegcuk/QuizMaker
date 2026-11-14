@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.attempt.application.impl;
 
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
+import org.springframework.transaction.PlatformTransactionManager;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -24,6 +26,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDelive
 @Transactional(propagation = Propagation.MANDATORY)
 public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
     private final AttemptAccessService access;
+    private final PlatformTransactionManager transactions;
     private final PolicySnapshotService snapshots;
     private final FixedFormRepository forms;
     private final FormOptionOrderRepository orders;
@@ -35,12 +38,14 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
 
     public AttemptReadFactsServiceImpl(AttemptAccessService access, PolicySnapshotService snapshots,
             FixedFormRepository forms, FormOptionOrderRepository orders, QuizRevisionRepository revisions,
-            QuestionRevisionContractService contracts, NavigationRepository navigation, AcceptedResponseRepository answers, AttemptTimingService timing) {
+            QuestionRevisionContractService contracts, NavigationRepository navigation, AcceptedResponseRepository answers, AttemptTimingService timing, PlatformTransactionManager transactions) {
+        this.transactions = transactions;
         this.access = access; this.snapshots = snapshots; this.forms = forms; this.orders = orders;
         this.revisions = revisions; this.contracts = contracts; this.navigation = navigation; this.answers = answers; this.timing = timing;
     }
 
     @Override public Facts read(UUID attemptId, Purpose purpose) {
+        AttemptTransactions.requireCompatible(transactions, false);
         try {
             var granted = access.requireAccess(attemptId, purpose == Purpose.ACCEPT_RESPONSE || purpose == Purpose.SUBMIT_ATTEMPT
                     || purpose == Purpose.DRAFT_COMMAND
@@ -55,7 +60,7 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
                     || policy.content().sections() != SectionMode.IMPLICIT_FLAT)
                 throw new AttemptDeliveryException(UNSUPPORTED);
             if (!policy.content().quizRevisionId().equals(granted.quizRevisionId())) throw new AttemptDeliveryException(CORRUPT);
-            // Preserve #524's lock order and current reads, including all child rows in an older RR caller.
+            // Preserve #524's lock order/current reads; freshness-only lock removal belongs to #906 phase B.
             contracts.declareScope(owner, Set.of(granted.quizRevisionId()));
             // An absent timing row can gap-lock under RR: acquire question locks first, as start does.
             var capturedTiming = timing.read(granted, snapshot);

@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.attempt.application.impl;
 
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -39,10 +41,11 @@ public class DraftCommandServiceImpl implements DraftCommandService {
             ExecutionTraceService trace, PlatformTransactionManager manager, MeterRegistry metrics, java.time.Clock clock) {
         this.identity = identity; this.access = access; this.facts = facts; this.lifecycle = lifecycle;
         this.binding = binding; this.drafts = drafts; this.receipts = receipts; this.results = results;
-        this.trace = trace; this.read = new TransactionTemplate(manager); this.read.setReadOnly(true); this.metrics = metrics; this.clock = clock;
+        this.trace = trace; this.read = AttemptTransactions.readCommitted(manager); this.read.setReadOnly(true); this.metrics = metrics; this.clock = clock;
     }
 
     @Override public Result execute(Command c) {
+        AttemptTransactions.requireCompatible(read.getTransactionManager(), true);
         String outcome = "unavailable";
         try {
             var receivedAt = clock.instant();
@@ -51,7 +54,10 @@ public class DraftCommandServiceImpl implements DraftCommandService {
                     && c.expectedDraftVersion() >= 0 && c.expectedDraftVersion() < Long.MAX_VALUE && c.key() != null, Reason.INVALID_INPUT);
             boolean delete = c.operation() == AttemptCommands.Type.DELETE_DRAFT;
             require(!delete || c.type() == null && c.response() == null, Reason.INVALID_INPUT);
-            var subject = identity.resolve(c.attemptId());
+            var subject = read.execute(status -> {
+                try { return identity.resolve(c.attemptId()); }
+                catch (RuntimeException failure) { throw translate(failure); }
+            });
             var stable = delete ? null : StableResponseNormalizer.canonical(c.type(), c.response());
             var input = JsonNodeFactory.instance.objectNode().put("expectedDraftVersion", c.expectedDraftVersion());
             if (!delete) input.put("type", c.type().name()).set("response", stable);
@@ -131,6 +137,7 @@ public class DraftCommandServiceImpl implements DraftCommandService {
     }
 
     private static DraftCommandException translate(RuntimeException failure) {
+        AttemptTransactionException.preserve(failure);
         if (failure instanceof DraftCommandException known) return new DraftCommandException(known.reason());
         if (failure instanceof AnswerDraftException draft) return new DraftCommandException(switch (draft.reason()) {
             case INVALID_INPUT -> Reason.INVALID_INPUT; case NOT_FOUND -> Reason.NOT_FOUND; case CONFLICT -> Reason.CONFLICT;

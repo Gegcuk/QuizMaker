@@ -16,7 +16,11 @@ import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPol
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.NavigationMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.DeliveryMode;
 
-/** Internal authenticated fixed-form start. No controller, routing or participant delivery is activated. */
+/** Internal authenticated fixed-form start. No controller, routing or participant delivery is activated.
+ * <p>V2 composition requires actual READ_COMMITTED; standalone owners set it explicitly.
+ * See {@link uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions}
+ * for ownership, rejection and JPA caller obligations. Legacy contracts are separate.
+ */
 public interface AttemptStartService {
     /**
      * Requested configuration is never authority; the server resolves user, access and publication.
@@ -66,9 +70,9 @@ public interface AttemptStartService {
      * provisional until its commit. Retry unknown outcomes with the exact same key and command.
      * Access is rechecked on every call; a new publication invalidates fresh starts on the old
      * reference, but does not reinterpret an already committed receipt. No automatic retry/fallback.
-     * Existing READ_COMMITTED and REPEATABLE_READ transactions are supported, including an
-     * older snapshot: publication membership, revision contents and write eligibility use current
-     * reads. Database lock conflicts keep #599's RETRYABLE / IN_PROGRESS classification.
+     * Existing callers must use actual READ_COMMITTED; unsupported/unknown isolation and read-only
+     * writes fail before identity/domain work. JPA callers flush inputs and refresh stale outputs.
+     * Database conflicts retain #599's RETRYABLE / IN_PROGRESS classification.
      */
     Result start(Command command);
 }
