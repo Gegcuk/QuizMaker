@@ -2,6 +2,16 @@
 
 Reconciled: **23 October 2026** against approved issue clauses and current architecture contracts. Read the [decision register](decision-register.md) first: this file does not reopen an approved choice or turn a proposal into a default.
 
+## Participant contention follow-up (#905–#907)
+
+**14 November 2026:** #906 phase A selects explicit READ/shared and WRITE/exclusive question
+contract scopes, independent of the outer read-only flag. Same-revision independence is proved
+with explicit RC fixtures; production isolation and old-RR guarantees are unchanged at this stage.
+The remaining order is #905's actual RC boundary, then #906 phase B's freshness-only read
+simplification, then #629/#907 integration and measured response write cost. Whole-quiz read
+volume, allowance history and legacy analytics remain separate measured work. Phase A alone
+does not establish activation readiness or remove RR gap coupling.
+
 ## Learning clean-start refinement
 
 The owner confirms that no current quizzes/questions use repetitions. Plan new Learning without SM-2 import or mandatory legacy repetition adapters; ordinary quiz/API/training compatibility remains separate. The [approved clean-start contract](decision-register.md#learning-clean-start) supersedes earlier preservation/migration assumptions for the unused repetition subsystem. Verify the target-scope assumption before any later destructive cleanup; do not invent migration work or reset unexpected records.

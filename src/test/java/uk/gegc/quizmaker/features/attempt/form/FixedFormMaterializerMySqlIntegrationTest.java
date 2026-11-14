@@ -422,12 +422,11 @@ class FixedFormMaterializerMySqlIntegrationTest {
         var cmd = command("race-form", revision, SHUFFLED);
         var secondCommand = identical ? cmd : new Command(cmd.form(), cmd.selection(), cmd.questionOrder(), AUTHORED);
         var inserted = new CountDownLatch(1); var competing = new CountDownLatch(1); var release = new CountDownLatch(1);
-        var scopeLockAttempts = new AtomicInteger(); var pause = new AtomicBoolean(true);
+        var formInsertAttempts = new AtomicInteger(); var pause = new AtomicBoolean(true);
         source.beforeSql = (statement, connection) -> {
-            // #598 serializes the complete declared scope before form insertion. Observe the
-            // second caller at that actual wait point, rather than waiting for its later INSERT.
-            if (statement.startsWith("SELECT locked.id") && statement.contains("FOR UPDATE")
-                    && scopeLockAttempts.incrementAndGet() == 2) competing.countDown();
+            // READ question scopes overlap; duplicate form creation waits on the unique form root.
+            if (statement.stripLeading().startsWith("INSERT INTO attempt_form (")
+                    && formInsertAttempts.incrementAndGet() == 2) competing.countDown();
             if (statement.startsWith("SELECT o.* FROM attempt_form_option_order o ") && pause.getAndSet(false)) {
                 assertThat(count("attempt_form_option")).isPositive(); inserted.countDown();
                 await(release);
@@ -439,6 +438,7 @@ class FixedFormMaterializerMySqlIntegrationTest {
             var second = workers.submit(() -> race(secondCommand, isolation)); assertThat(competing.await(10, TimeUnit.SECONDS)).isTrue();
             assertThat(second.isDone()).isFalse(); release.countDown();
             var a = first.get(20, TimeUnit.SECONDS); var b = second.get(20, TimeUnit.SECONDS);
+            assertThat(formInsertAttempts).hasValue(2);
             assertThat(a.failure()).isNull(); assertThat(a.result()).isNotNull();
             if (identical) { assertThat(b.failure()).isNull(); assertThat(b.result()).isEqualTo(a.result()); }
             else { assertThat(b.result()).isNull(); assertThat(b.failure()).isEqualTo("Option order rejected: ORDER_CONFLICT"); }

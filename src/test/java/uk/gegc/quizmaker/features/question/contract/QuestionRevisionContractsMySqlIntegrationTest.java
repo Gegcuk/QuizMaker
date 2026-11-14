@@ -168,7 +168,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         source.bindingWrites.set(0);
         rejected(() -> new TransactionTemplate(manager).executeWithoutResult(status -> {
             revisions.insert(revision);
-            service.declareScope(OWNER, Set.of(revision.id()));
+            service.declareScope(OWNER, Set.of(revision.id()), ContractScopeIntent.WRITE);
             service.bind(OWNER, revision.id(), List.of(binding(1, 1), binding(2, 99)));
         }), UNSUPPORTED_CONTRACT);
         assertThat(source.bindingWrites).as("The supported first binding reached real SQL before the failure").hasValue(1);
@@ -179,7 +179,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         });
         new TransactionTemplate(manager).executeWithoutResult(status -> {
             revisions.insert(revision);
-            service.declareScope(OWNER, Set.of(revision.id()));
+            service.declareScope(OWNER, Set.of(revision.id()), ContractScopeIntent.WRITE);
             service.bind(OWNER, revision.id(), List.of(binding(1, 1), binding(2, 2)));
         });
         assertThat(service(registry(), manager).resolve(OWNER, revision.id())).hasSize(2);
@@ -205,7 +205,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         var revision = quiz(10, question(1, "{\"answer\":true}"), question(2, "{\"answer\":false}"));
         assertThatThrownBy(() -> new TransactionTemplate(manager).executeWithoutResult(status -> {
             revisions.insert(revision);
-            service.declareScope(OWNER, Set.of(revision.id()));
+            service.declareScope(OWNER, Set.of(revision.id()), ContractScopeIntent.WRITE);
             rejected(() -> service.bind(OWNER, revision.id(), List.of(binding(1, 1), binding(2, 99))),
                     UNSUPPORTED_CONTRACT);
             assertThat(source.bindingWrites).hasValue(1);
@@ -215,7 +215,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         assertThat(revisions.findById(OWNER, revision.id())).isEmpty();
         new TransactionTemplate(manager).executeWithoutResult(status -> {
             revisions.insert(revision);
-            service.declareScope(OWNER, Set.of(revision.id()));
+            service.declareScope(OWNER, Set.of(revision.id()), ContractScopeIntent.WRITE);
             service.bind(OWNER, revision.id(), List.of(binding(1, 1), binding(2, 2)));
         });
         assertThat(service.resolve(OWNER, revision.id())).hasSize(2);
@@ -260,7 +260,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         tx.setIsolationLevelName("ISOLATION_" + isolation);
         try {
             tx.executeWithoutResult(status -> {
-                service.declareScope(OWNER, Set.of(id(10)));
+                service.declareScope(OWNER, Set.of(id(10)), ContractScopeIntent.WRITE);
                 service.bind(OWNER, id(10), List.of(binding(1, version)));
             });
             return null;
@@ -282,7 +282,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
                     assertThat(countBindings()).as("Establish the loser's snapshot before the winner commits").isZero();
                     snapshotEstablished.countDown();
                     await(winnerCommitted);
-                    service.declareScope(OWNER, Set.of(id(10)));
+                    service.declareScope(OWNER, Set.of(id(10)), ContractScopeIntent.WRITE);
                     service.bind(OWNER, id(10), List.of(binding(1, 1)));
                     return service.resolve(OWNER, id(10)).get(id(1)).binding();
                 });
@@ -345,7 +345,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         tx.setIsolationLevelName("ISOLATION_" + isolation);
         try {
             tx.executeWithoutResult(status -> {
-                service.declareScope(OWNER, Set.of(id(quiz)));
+                service.declareScope(OWNER, Set.of(id(quiz)), ContractScopeIntent.WRITE);
                 service.bind(OWNER, id(quiz), bindings);
                 assertThat(service.resolve(OWNER, id(quiz)).values().stream().map(value -> value.binding()).toList())
                         .containsExactlyInAnyOrderElementsOf(bindings);
@@ -421,7 +421,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         var scoped = service(registry(), transactions);
         try {
             tx.executeWithoutResult(status -> {
-                scoped.declareScope(OWNER, Set.of(id(readQuiz), id(bindQuiz)));
+                scoped.declareScope(OWNER, Set.of(id(readQuiz), id(bindQuiz)), ContractScopeIntent.WRITE);
                 sql.update("INSERT INTO contract_transaction_receipts (writer) VALUES (?)", writer);
                 assertThat(scoped.resolve(OWNER, id(readQuiz))).hasSize(bindings.size());
                 resolved.countDown();
@@ -536,6 +536,121 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         assertThat(service(registry(), manager).resolve(OWNER, id(10))).hasSize(1);
     }
 
+    @ParameterizedTest
+    @CsvSource({"false,READ_COMMITTED,bind", "false,REPEATABLE_READ,bind",
+            "true,READ_COMMITTED,bind", "true,REPEATABLE_READ,bind",
+            "false,READ_COMMITTED,declare", "false,REPEATABLE_READ,declare",
+            "true,READ_COMMITTED,declare", "true,REPEATABLE_READ,declare"})
+    void readScopeRejectsBindingAndUpgradeBeforeWritesAndRollsBackCaller(boolean jpa, String isolation, String operation) {
+        revisions.insert(quiz(10, question(1, "{}")));
+        service.bind(OWNER, id(10), List.of(binding(1, 1)));
+        source.reset();
+        var factory = jpa ? jpaFactory() : null;
+        var transactions = transactionManager(factory);
+        try {
+            Runnable outer = () -> transaction(transactions, isolation).executeWithoutResult(status -> {
+                var reader = service(registry(), transactions);
+                reader.declareScope(OWNER, Set.of(id(10)));
+                assertThat(reader.resolve(OWNER, id(10))).hasSize(1);
+                sql.update("INSERT INTO contract_transaction_receipts VALUES (1)");
+                var restarted = service(registry(), transactions);
+                rejected(() -> {
+                    if (operation.equals("bind")) restarted.bind(OWNER, id(10), List.of(binding(1, 1)));
+                    else restarted.declareScope(OWNER, Set.of(id(10)), ContractScopeIntent.WRITE);
+                }, SCOPE_VIOLATION);
+                assertThat(source.bindingWrites).hasValue(0);
+                assertThat(status.isRollbackOnly()).isTrue();
+            });
+            if (jpa) rejected(outer, SCOPE_VIOLATION);
+            else assertThatThrownBy(outer::run).isInstanceOf(org.springframework.transaction.UnexpectedRollbackException.class);
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM contract_transaction_receipts", Integer.class)).isZero();
+            assertThat(service.resolve(OWNER, id(10)).get(id(1)).binding()).isEqualTo(binding(1, 1));
+            service.bind(OWNER, id(10), List.of(binding(1, 1))); // A fresh WRITE scope still replays normally.
+        } finally { if (factory != null) factory.destroy(); }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"READ_COMMITTED,false", "REPEATABLE_READ,false", "READ_COMMITTED,true", "REPEATABLE_READ,true"})
+    void readScopeUpgradeViolationSurvivesSavepointRollback(String isolation, boolean nested) {
+        revisions.insert(quiz(10)); // Even an empty scope cannot be silently upgraded.
+        rejected(() -> transaction(manager, isolation).executeWithoutResult(status -> {
+            service.declareScope(OWNER, Set.of(id(10)));
+            sql.update("INSERT INTO contract_transaction_receipts VALUES (1)");
+            Runnable upgrade = () -> service.declareScope(OWNER, Set.of(id(10)), ContractScopeIntent.WRITE);
+            if (nested) {
+                var child = transaction(manager, isolation);
+                child.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_NESTED);
+                rejected(() -> child.executeWithoutResult(s -> upgrade.run()), SCOPE_VIOLATION);
+            } else {
+                var point = status.createSavepoint();
+                rejected(upgrade, SCOPE_VIOLATION);
+                status.rollbackToSavepoint(point);
+                status.releaseSavepoint(point);
+            }
+            assertThat(status.isRollbackOnly()).isFalse();
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM contract_transaction_receipts", Integer.class)).isEqualTo(1);
+        }), SCOPE_VIOLATION);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM contract_transaction_receipts", Integer.class)).isZero();
+        service.bind(OWNER, id(10), List.of());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,READ_COMMITTED", "false,REPEATABLE_READ", "true,READ_COMMITTED", "true,REPEATABLE_READ"})
+    void requiresNewRestoresReadIntentAfterAnIndependentWrite(boolean jpa, String isolation) {
+        separateAndCombinedRevisions();
+        service.bind(OWNER, id(10), List.of(binding(1, 1)));
+        var factory = jpa ? jpaFactory() : null;
+        var transactions = transactionManager(factory);
+        var scoped = service(registry(), transactions);
+        try {
+            Runnable outer = () -> transaction(transactions, isolation).executeWithoutResult(status -> {
+                scoped.declareScope(OWNER, Set.of(id(10)));
+                sql.update("INSERT INTO contract_transaction_receipts VALUES (1)");
+                var child = transaction(transactions, isolation);
+                child.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+                child.executeWithoutResult(s -> {
+                    scoped.declareScope(OWNER, Set.of(id(11)), ContractScopeIntent.WRITE);
+                    scoped.bind(OWNER, id(11), List.of(binding(-1, 1)));
+                });
+                assertThat(scoped.resolve(OWNER, id(10))).hasSize(1);
+                rejected(() -> scoped.bind(OWNER, id(10), List.of(binding(1, 1))), SCOPE_VIOLATION);
+            });
+            if (jpa) rejected(outer, SCOPE_VIOLATION);
+            else assertThatThrownBy(outer::run).isInstanceOf(org.springframework.transaction.UnexpectedRollbackException.class);
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM contract_transaction_receipts", Integer.class)).isZero();
+            assertThat(service.resolve(OWNER, id(12))).hasSize(2);
+        } finally { if (factory != null) factory.destroy(); }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"READ_COMMITTED", "REPEATABLE_READ"})
+    void bindingWaitsForTheSharedReaderAndKeepsExactMetadata(String isolation) throws Exception {
+        revisions.insert(quiz(10, question(1, "{}")));
+        service.bind(OWNER, id(10), List.of(binding(1, 1)));
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var reader = workers.submit(() -> transaction(manager, isolation).executeWithoutResult(status -> {
+                service.declareScope(OWNER, Set.of(id(10)));
+                assertThat(service.resolve(OWNER, id(10))).hasSize(1);
+                entered.countDown(); await(release);
+            }));
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            source.scopeLockAttempt = new CountDownLatch(1);
+            var writer = workers.submit(() -> service.bind(OWNER, id(10), List.of(binding(1, 1))));
+            assertThat(source.scopeLockAttempt.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> writer.get(250, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+            release.countDown();
+            reader.get(10, TimeUnit.SECONDS); writer.get(10, TimeUnit.SECONDS);
+            assertThat(service.resolve(OWNER, id(10)).get(id(1)).binding()).isEqualTo(binding(1, 1));
+            assertThat(countBindings()).isEqualTo(1);
+        } finally {
+            release.countDown(); source.scopeLockAttempt = null; workers.shutdownNow();
+            assertThat(workers.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
     private static void await(CountDownLatch latch) {
         try { assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue(); }
         catch (InterruptedException failure) {
@@ -568,7 +683,10 @@ class QuestionRevisionContractsMySqlIntegrationTest {
             source.scopeLockAttempt = new CountDownLatch(1);
             var second = executor.submit(() -> composedOperation(transactions, isolation, 2, bind, secondRead, release));
             assertThat(source.scopeLockAttempt.await(10, TimeUnit.SECONDS)).isTrue();
-            assertThat(secondRead.await(1, TimeUnit.SECONDS)).as("Full union is reserved before either subset read").isFalse();
+            if (bind) assertThat(secondRead.await(1, TimeUnit.SECONDS))
+                    .as("WRITE reserves the union before any subset read/bind").isFalse();
+            else assertThat(secondRead.await(5, TimeUnit.SECONDS))
+                    .as("READ scopes overlap even inside read-write transactions").isTrue();
             assertThat(source.bindingWrites).hasValue(0);
             source.scopeLockAttempt = null;
             release.countDown();
@@ -595,7 +713,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         transaction(transactions, isolation).executeWithoutResult(status -> {
             var roots = new LinkedHashSet<UUID>(writer == 1 ? List.of(id(10), id(11), id(12))
                     : List.of(id(12), id(11), id(10)));
-            scoped.declareScope(OWNER, roots);
+            scoped.declareScope(OWNER, roots, bind ? ContractScopeIntent.WRITE : ContractScopeIntent.READ);
             sql.update("INSERT INTO contract_transaction_receipts VALUES (?)", writer);
             assertThat(scoped.resolve(OWNER, id(writer == 1 ? 10 : 11))).hasSize(1);
             firstRead.countDown();
@@ -635,7 +753,8 @@ class QuestionRevisionContractsMySqlIntegrationTest {
                     var scoped = service(registry(), transactions);
                     tx.executeWithoutResult(status -> {
                         long root = number == 1 ? 10 : 11;
-                        scoped.declareScope(OWNER, readOnly ? Set.of(id(10), id(11)) : Set.of(id(root)));
+                        scoped.declareScope(OWNER, readOnly ? Set.of(id(10), id(11)) : Set.of(id(root)),
+                                readOnly ? ContractScopeIntent.READ : ContractScopeIntent.WRITE);
                         if (readOnly) {
                             assertThat(scoped.resolve(OWNER, id(root))).hasSize(2);
                             assertThat(scoped.resolve(OWNER, id(number == 1 ? 11 : 10))).hasSize(2);
@@ -681,7 +800,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
                 int number = writer;
                 futures.add(executor.submit(() -> transaction(transactions, isolation).executeWithoutResult(status -> {
                     var scoped = service(registry(), transactions);
-                    scoped.declareScope(OWNER, Set.of(id(10), id(11)));
+                    scoped.declareScope(OWNER, Set.of(id(10), id(11)), ContractScopeIntent.WRITE);
                     for (long root : number == 1 ? List.of(10L, 11L) : List.of(11L, 10L)) {
                         scoped.bind(OWNER, id(root), List.of(binding(root == 10 ? 1 : -1, 1)));
                         assertThat(scoped.resolve(OWNER, id(root))).hasSize(1);
@@ -718,7 +837,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         try {
             var scoped = service(registry(), transactions);
             Runnable outer = () -> transaction(transactions, isolation).executeWithoutResult(status -> {
-                scoped.declareScope(OWNER, Set.of(id(10), id(11)));
+                scoped.declareScope(OWNER, Set.of(id(10), id(11)), ContractScopeIntent.WRITE);
                 scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
                 assertThat(source.bindingWrites).hasValue(1);
                 // Root 12 contains exactly the same question union, but was not declared.
@@ -740,7 +859,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
             assertThat(countBindings()).isZero();
             transaction(transactions, isolation).executeWithoutResult(status -> {
                 var requested = new HashSet<>(Set.of(id(10), id(11), id(12)));
-                scoped.declareScope(OWNER, requested);
+                scoped.declareScope(OWNER, requested, ContractScopeIntent.WRITE);
                 requested.clear();
                 scoped.declareScope(OWNER, Set.of(id(10))); // Idempotent subset does not shrink the original.
                 scoped.bind(OWNER, id(11), List.of(binding(-1, 1)));
@@ -760,11 +879,11 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         var scoped = service(registry(), transactions);
         try {
             transaction(transactions, isolation).executeWithoutResult(status -> {
-                scoped.declareScope(OWNER, Set.of(id(10)));
+                scoped.declareScope(OWNER, Set.of(id(10)), ContractScopeIntent.WRITE);
                 var inner = transaction(transactions, isolation);
                 inner.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
                 inner.executeWithoutResult(child -> {
-                    scoped.declareScope(OWNER, Set.of(id(11)));
+                    scoped.declareScope(OWNER, Set.of(id(11)), ContractScopeIntent.WRITE);
                     scoped.bind(OWNER, id(11), List.of(binding(-1, 1)));
                 });
                 scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
@@ -791,7 +910,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         var transactions = manager;
         var scoped = service(registry(), transactions);
         rejected(() -> transaction(transactions, isolation).executeWithoutResult(status -> {
-            scoped.declareScope(OWNER, Set.of(id(10)));
+            scoped.declareScope(OWNER, Set.of(id(10)), ContractScopeIntent.WRITE);
             scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
             assertThat(source.bindingWrites).hasValue(1);
             Runnable violation = () -> {
@@ -835,13 +954,13 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         var scoped = service(registry(), transactions);
         try {
             Runnable outer = () -> transaction(transactions, isolation).executeWithoutResult(status -> {
-                scoped.declareScope(OWNER, Set.of(id(10)));
+                scoped.declareScope(OWNER, Set.of(id(10)), ContractScopeIntent.WRITE);
                 scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
                 if (poisonOuter) violateScope(status, scoped, 11, jpa);
                 var inner = transaction(transactions, isolation);
                 inner.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
                 Runnable child = () -> inner.executeWithoutResult(childStatus -> {
-                    scoped.declareScope(OWNER, Set.of(id(11)));
+                    scoped.declareScope(OWNER, Set.of(id(11)), ContractScopeIntent.WRITE);
                     scoped.bind(OWNER, id(11), List.of(binding(-1, 1)));
                     if (!poisonOuter) violateScope(childStatus, scoped, 10, jpa);
                 });
@@ -883,7 +1002,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         var transactions = manager;
         var scoped = service(registry(), transactions);
         transaction(transactions, isolation).executeWithoutResult(status -> {
-            scoped.declareScope(OWNER, Set.of(id(10), id(11)));
+            scoped.declareScope(OWNER, Set.of(id(10), id(11)), ContractScopeIntent.WRITE);
             scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
             var nested = transaction(transactions, isolation);
             nested.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_NESTED);
@@ -910,7 +1029,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         var scoped = service(registry(), transactions);
         try {
             transaction(transactions, isolation).executeWithoutResult(status -> {
-                scoped.declareScope(OWNER, Set.of(id(10)));
+                scoped.declareScope(OWNER, Set.of(id(10)), ContractScopeIntent.WRITE);
                 scoped.bind(OWNER, id(10), List.of(binding(1, 1)));
                 if (nested) {
                     var step = transaction(transactions, isolation);
@@ -991,7 +1110,7 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         new TransactionTemplate(manager).executeWithoutResult(status -> {
             service.declareScope(OWNER, Set.of(id(12), id(11), id(10)));
             assertThat(source.selects).hasSize(2);
-            assertThat(source.selects.get(1)).contains("FOR UPDATE");
+            assertThat(source.selects.get(1)).contains("FOR SHARE").doesNotContain("FOR UPDATE");
             for (long root : List.of(10L, 11L, 12L)) service.resolve(OWNER, id(root));
             assertThat(source.selects).hasSize(8);
         });
@@ -1158,14 +1277,14 @@ class QuestionRevisionContractsMySqlIntegrationTest {
             var first = quiz(10, question(1, "{\"answer\":true}"));
             new TransactionTemplate(jpa).executeWithoutResult(status -> {
                 jpaRevisions.insert(first);
-                jpaService.declareScope(OWNER, Set.of(first.id()));
+                jpaService.declareScope(OWNER, Set.of(first.id()), ContractScopeIntent.WRITE);
                 jpaService.bind(OWNER, first.id(), List.of(binding(1, 1)));
             });
             source.bindingWrites.set(0);
             new TransactionTemplate(jpa).executeWithoutResult(status -> {
                 var second = quiz(11, question(2, "{\"answer\":false}"));
                 jpaRevisions.insert(second);
-                jpaService.declareScope(OWNER, Set.of(second.id()));
+                jpaService.declareScope(OWNER, Set.of(second.id()), ContractScopeIntent.WRITE);
                 jpaService.bind(OWNER, second.id(), List.of(binding(2, 2)));
                 assertThat(source.bindingWrites).hasValue(1);
                 status.setRollbackOnly();

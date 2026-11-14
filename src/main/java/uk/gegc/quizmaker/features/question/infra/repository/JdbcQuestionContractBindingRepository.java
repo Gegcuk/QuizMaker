@@ -8,8 +8,8 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
+import uk.gegc.quizmaker.features.question.domain.model.contract.ContractScopeIntent;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractVersion;
 import uk.gegc.quizmaker.features.question.domain.model.contract.QuestionContractBinding;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionContractBindingRepository;
@@ -88,10 +88,11 @@ public class JdbcQuestionContractBindingRepository implements QuestionContractBi
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public void lockQuestionRevisions(Set<UUID> questionRevisionIds) {
+    public void lockQuestionRevisions(Set<UUID> questionRevisionIds, ContractScopeIntent intent) {
         try {
+            if (intent == null) throw new ContractResolutionException(INVALID_SCOPE);
             var ordered = questionRevisionIds.stream().sorted(Comparator.comparing(UUID::toString)).toList();
-            String lock = TransactionSynchronizationManager.isCurrentTransactionReadOnly() ? "FOR SHARE" : "FOR UPDATE";
+            String lock = intent == ContractScopeIntent.READ ? "FOR SHARE" : "FOR UPDATE";
             for (int start = 0; start < ordered.size(); start += SQL_BATCH) {
                 var batch = ordered.subList(start, Math.min(start + SQL_BATCH, ordered.size()));
                 // Every identity exists before declaration, including questions with no binding.

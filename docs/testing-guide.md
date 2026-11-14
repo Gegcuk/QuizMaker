@@ -423,6 +423,45 @@ v1 reads. On 13 November 2026 the owner confirmed that no clients/environments c
 the target v1 routes, so #904 introduces no temporary aliases. A future v2 frontend must
 retain each attempt's engine/version and must not retry a failed v2 command through v1.
 
+## Question-contract lock intent (#906 phase A)
+
+Use the default `QuestionRevisionContractService.declareScope(owner, revisions)` for READ.
+Any composition that will bind must pass `ContractScopeIntent.WRITE` on its first declaration,
+before resolving a subset. A read-write transaction is not evidence of binding intent.
+Tests deliberately blocking participants behind a binder must declare WRITE explicitly.
+Do not silently replace a binding race with concurrent shared reads.
+
+`ResponseAcceptanceMySqlIntegrationTest` holds a real answer transaction open while a different
+authorized user answers, reads a form, or starts on the **same** revision. These fixtures set and
+assert actual RC on their own connections; no application default is changed. The start fixture
+has no pre-existing active attempt for the second user. Require the second operation to commit
+before releasing the first and inspect durable data from a fresh transaction. The held reader's
+question-record locks are inspected through `ENGINE_TRANSACTION_ID` and `innodb_trx`, not the
+lock structure creator's `THREAD_ID`. Current eligibility is owner/full editor, not general students.
+
+`QuestionRevisionContractsMySqlIntegrationTest` keeps the JDBC/JPA and RC/RR matrices for
+canonical order, exact bindings, owner scope, retries and rollback. It additionally rejects
+READ-to-WRITE upgrades/direct bind, including empty revisions, and proves that savepoints cannot
+erase the terminal violation and REQUIRES_NEW restores the outer READ intent. A binder still
+waits for an active shared reader. Existing bounded metadata/query and multi-parent response
+tests remain; identical query shapes select the same columns in the same batch sizes.
+
+The view/start timing regression retains its RC/RR, read-only/read-write and timed/untimed
+matrix. The view must project while the start is paused with shared question locks. RC starts
+must then commit with the view transaction still open. RR timed starts can still wait on the
+view's missing-timing gap lock; assert the actual waiter/holder, release the completed view,
+and require both commits without a deadlock or retry. Phase A does not claim to remove that gap.
+Form replay tests synchronize at the unique form-root insert, where contenders now serialize,
+instead of expecting participant question scopes to take an exclusive lock.
+
+```bash
+./mvnw test -Dtest=QuestionRevisionContractServiceTest,QuestionRevisionContractsMySqlIntegrationTest,QuestionRevisionContractsMigrationMySqlIntegrationTest,PublishedFamilyContractsMySqlIntegrationTest,ResponseAcceptanceMySqlIntegrationTest,AttemptStartMySqlIntegrationTest,FixedFormMaterializerMySqlIntegrationTest,FormOptionOrderMySqlIntegrationTest,ParticipantAttemptViewMySqlIntegrationTest
+```
+
+Run full `./mvnw verify` after the scoped suites; keep post-merge verification. Phase A is not
+an RR gap-lock fix: retain old-RR regressions, current-read queries and isolation settings until
+the separately owned #905/phase B changes.
+
 ## External Systems And AI
 
 Automated tests must never call real OpenAI, Stripe, email, storage, transcription, or other paid/remote services.

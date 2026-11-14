@@ -11,6 +11,7 @@ import uk.gegc.quizmaker.features.question.application.QuestionContractRegistry;
 import uk.gegc.quizmaker.features.question.application.QuestionRevisionContractService;
 import uk.gegc.quizmaker.features.question.application.contract.ResolvedQuestionContracts;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
+import uk.gegc.quizmaker.features.question.domain.model.contract.ContractScopeIntent;
 import uk.gegc.quizmaker.features.question.domain.model.contract.QuestionContractBinding;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionContractBindingRepository;
 import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
@@ -46,35 +47,37 @@ public class QuestionRevisionContractServiceImpl implements QuestionRevisionCont
     }
 
     @Override
-    public void declareScope(UUID ownerId, Set<UUID> quizRevisionIds) {
+    public void declareScope(UUID ownerId, Set<UUID> quizRevisionIds, ContractScopeIntent intent) {
         if (!TransactionSynchronizationManager.isActualTransactionActive()
                 || !TransactionSynchronizationManager.isSynchronizationActive()) {
             throw new ContractResolutionException(TRANSACTION_REQUIRED);
         }
         execute(readTransaction, () -> {
-            declare(ownerId, quizRevisionIds);
+            declare(ownerId, quizRevisionIds, intent);
             return null;
         });
     }
 
-    private void declare(UUID ownerId, Set<UUID> quizRevisionIds) {
+    private void declare(UUID ownerId, Set<UUID> quizRevisionIds, ContractScopeIntent intent) {
         if (ownerId == null || quizRevisionIds != null && quizRevisionIds.stream().anyMatch(Objects::isNull)) {
             throw new ContractResolutionException(REVISION_UNAVAILABLE);
         }
-        if (quizRevisionIds == null) throw new ContractResolutionException(INVALID_SCOPE);
+        if (quizRevisionIds == null || intent == null) throw new ContractResolutionException(INVALID_SCOPE);
         var requested = Set.copyOf(quizRevisionIds);
         var existing = currentScope();
         if (existing != null) {
             if (!existing.ownerId().equals(ownerId)) throw new ContractResolutionException(REVISION_UNAVAILABLE);
             if (!existing.revisions().keySet().containsAll(requested)) throw new ContractResolutionException(SCOPE_VIOLATION);
+            if (intent == ContractScopeIntent.WRITE && existing.intent == ContractScopeIntent.READ)
+                throw new ContractResolutionException(SCOPE_VIOLATION);
             return;
         }
         var revisions = repository.findQuestionRevisionIds(ownerId, requested);
         if (!revisions.keySet().equals(requested)) throw new ContractResolutionException(REVISION_UNAVAILABLE);
         var questions = new HashSet<UUID>();
         revisions.values().forEach(questions::addAll);
-        repository.lockQuestionRevisions(questions);
-        var scope = new Scope(ownerId, revisions);
+        repository.lockQuestionRevisions(questions, intent);
+        var scope = new Scope(ownerId, revisions, intent);
         TransactionSynchronizationManager.bindResource(SCOPE_KEY, scope);
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void beforeCommit(boolean readOnly) {
@@ -95,8 +98,9 @@ public class QuestionRevisionContractServiceImpl implements QuestionRevisionCont
     public void bind(UUID ownerId, UUID quizRevisionId, List<QuestionContractBinding> bindings) {
         boolean standalone = !TransactionSynchronizationManager.isActualTransactionActive();
         execute(writeTransaction, () -> {
-            if (standalone) declare(ownerId, Collections.singleton(quizRevisionId));
+            if (standalone) declare(ownerId, Collections.singleton(quizRevisionId), ContractScopeIntent.WRITE);
             var declared = requireRevision(ownerId, quizRevisionId);
+            if (currentScope().intent != ContractScopeIntent.WRITE) throw new ContractResolutionException(SCOPE_VIOLATION);
             var actual = repository.findQuestionRevisionIds(ownerId, quizRevisionId)
                     .orElseThrow(() -> new ContractResolutionException(REVISION_UNAVAILABLE));
             requireMembership(declared, actual);
@@ -122,7 +126,7 @@ public class QuestionRevisionContractServiceImpl implements QuestionRevisionCont
     public Map<UUID, ResolvedQuestionContracts> resolve(UUID ownerId, UUID quizRevisionId) {
         boolean standalone = !TransactionSynchronizationManager.isActualTransactionActive();
         return execute(readTransaction, () -> {
-            if (standalone) declare(ownerId, Collections.singleton(quizRevisionId));
+            if (standalone) declare(ownerId, Collections.singleton(quizRevisionId), ContractScopeIntent.READ);
             var declared = requireRevision(ownerId, quizRevisionId);
             var snapshot = repository.findForRevision(ownerId, quizRevisionId)
                     .orElseThrow(() -> new ContractResolutionException(REVISION_UNAVAILABLE));
@@ -182,14 +186,16 @@ public class QuestionRevisionContractServiceImpl implements QuestionRevisionCont
     private static final class Scope {
         private final UUID ownerId;
         private final Map<UUID, Set<UUID>> revisions;
+        private final ContractScopeIntent intent;
         // Savepoints must not restore this terminal flag; only transaction completion discards it.
         private boolean violated;
 
-        private Scope(UUID ownerId, Map<UUID, Set<UUID>> revisions) {
+        private Scope(UUID ownerId, Map<UUID, Set<UUID>> revisions, ContractScopeIntent intent) {
             var copy = new HashMap<UUID, Set<UUID>>();
             revisions.forEach((id, questions) -> copy.put(id, Set.copyOf(questions)));
             this.ownerId = ownerId;
             this.revisions = Map.copyOf(copy);
+            this.intent = intent;
         }
 
         private UUID ownerId() { return ownerId; }

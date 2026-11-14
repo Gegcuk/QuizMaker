@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.question.domain.repository;
 
 import uk.gegc.quizmaker.features.question.domain.model.contract.QuestionContractBinding;
+import uk.gegc.quizmaker.features.question.domain.model.contract.ContractScopeIntent;
 
 import java.util.Map;
 import java.util.Optional;
@@ -22,7 +23,7 @@ public interface QuestionContractBindingRepository {
     Map<UUID, Set<UUID>> findQuestionRevisionIds(UUID ownerId, Set<UUID> quizRevisionIds);
 
     /** Locks existing immutable question identities in canonical order for the whole transaction. */
-    void lockQuestionRevisions(Set<UUID> questionRevisionIds);
+    void lockQuestionRevisions(Set<UUID> questionRevisionIds, ContractScopeIntent intent);
 
     /**
      * Reads current binding rows, including a winner absent from an older transaction snapshot.

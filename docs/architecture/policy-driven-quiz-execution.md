@@ -1908,40 +1908,53 @@ Binding format v1 is fixed-order JSON encoded in UTF-8: `bindingFormatVersion`,
 Identifiers use bounded lowercase ASCII names, positive integer versions and no class-name lookup.
 SHA-256 covers only this bounded metadata; the saved digest is checked on read. No document,
 question payload, media or source text is loaded/hashed to resolve or compare versions.
-An external transaction must call `declareScope(ownerId, quizRevisionIds)` before any bind or
-resolve. The declaration covers the entire outer transaction. The service checks ownership of
+An external transaction must declare its scope before any bind or resolve. Use
+`declareScope(ownerId, quizRevisionIds)` (READ) for resolution, or the overload with
+`ContractScopeIntent.WRITE` when any binding will occur later. The declaration covers the
+entire outer transaction. The service checks ownership of
 **all** declared quiz revisions, reads their immutable membership in bulk and computes the union
 of question-revision IDs itself. It reserves existing question identity rows, including unbound
-questions, in canonical BINARY(16) primary-key order. Read-write transactions use FOR UPDATE;
-read-only transactions use FOR SHARE. Disjoint question sets remain parallel and overlapping
-read-only scopes can proceed together. Lock queries select IDs only, without payloads/options.
-Standalone bind/resolve creates its own transaction and declares the single requested revision.
+questions, in canonical BINARY(16) primary-key order. READ uses FOR SHARE even inside a
+read-write transaction; WRITE uses FOR UPDATE and also permits resolution. This intent is
+independent of Spring's read-only flag. Disjoint question sets remain parallel and overlapping
+READ scopes can proceed together. Lock queries select IDs only, without payloads/options.
+Standalone bind/resolve creates its own transaction with a singleton WRITE/READ scope respectively.
 Declaring a scope without an active external transaction fails with `TRANSACTION_REQUIRED`;
 using an external transaction without a declaration fails with `SCOPE_REQUIRED`.
 
-The first declaration freezes the owner and quiz-revision set until that transaction completes.
+The first declaration freezes the owner, quiz-revision set and lock intent until completion.
 Repeated declarations of the same set or a subset are idempotent and do not shrink the scope.
+READ cannot upgrade to WRITE, and even an identical bind in a READ scope fails before binding
+SQL. A repeated READ declaration inside WRITE does not downgrade the original reservation.
 Every later bind/resolve must name a declared quiz revision, even when another undeclared revision
-contains the same question union. An attempted expansion fails with `SCOPE_VIOLATION` and marks
+contains the same question union. An attempted expansion or READ-to-WRITE upgrade fails with `SCOPE_VIOLATION` and marks
 the whole transaction rollback-only, including when the caller catches the exception. The scope
 also retains a terminal violation flag outside JDBC savepoint state. Its `beforeCommit` callback
 rejects the outer commit with `SCOPE_VIOLATION` even if a manual or NESTED savepoint rollback cleared
 Spring's rollback-only marker. Ordinary savepoint rollback without a scope violation remains valid.
-REQUIRES_NEW owns an independent flag and restores the suspended outer flag on return. A missing
-scope argument fails with `INVALID_SCOPE`; null identity, unavailable or foreign-owner revisions
+REQUIRES_NEW owns an independent scope/intent/flag and restores the suspended outer state on return. A missing
+scope or intent argument fails with `INVALID_SCOPE`; null identity, unavailable or foreign-owner revisions
 fail with `REVISION_UNAVAILABLE`. Scope state follows the actual Spring transaction: inner
 REQUIRED calls and recreated service components share it, REQUIRES_NEW suspends/restores it, and
 completion clears it. Each operation rechecks persisted owner/membership, so a savepoint rollback
 cannot turn cached membership into authorization for a revision that no longer exists.
 
 For example, two callers both declare quiz revisions containing A, B and A+B. One then resolves
-A followed by B; the other resolves B followed by A and binds A+B. Their traversal order cannot
+A followed by B under READ; the other declares WRITE before resolving B followed by A and binding A+B. Their traversal order cannot
 create the former lock cycle: the second writer waits for the full union before its first read.
 Declaring only A and later requesting B is a transaction error, not an implicit scope extension.
 This addresses contract-operation lock cycles, not every possible deadlock in an arbitrary outer
 transaction. #700 must coordinate publication/current-pointer and revision-creation/FK locks with
 this declaration order; callers must not first acquire overlapping identity locks in a conflicting
 order. There is no global quiz mutex and no automatic transaction retry.
+
+Phase A of #906 changes only scope intent. For example, an authorized owner's answer and a
+full editor's answer/start/form read on the same revision can complete independently inside
+explicit RC caller transactions. Binding still waits for an active reader. Existing authorization,
+per-attempt/receipt serialization, isolation defaults and old-RR support remain unchanged.
+RR range/gap coupling at other reads is not resolved here: #905 owns the new RC boundary,
+and #906 phase B owns the subsequent freshness-only read simplification. No schema, index,
+projection or extra SQL query is introduced by the intent switch.
 
 Scope setup uses two metadata queries for up to 500 quiz revisions and 500 distinct questions;
 larger declarations use bounded batches in the same canonical order. Locking reads use
@@ -1983,7 +1996,8 @@ exercise real Spring transaction boundaries; fresh reads distinguish rollback fr
 Additional JDBC/JPA races cover same-set resolve-then-bind, opposite-order subset reads followed
 by a superset bind, resolve-only A/B composition and opposite-order binds of initially unbound
 questions. Both outer transactions must commit and preserve the binding. Separate races prove
-parallel disjoint writers and overlapping read-only scopes while both transactions stay open.
+parallel disjoint writers and overlapping READ scopes in read-only or write transactions while
+both transactions stay open. Resolve-then-bind compositions declare WRITE from the beginning.
 Caught declaration/resolve/bind expansions must roll back a binding that already reached SQL.
 Scope lifecycle checks cover component recreation, input mutation, subset redeclaration,
 REQUIRES_NEW suspension/restoration, completion and savepoint rollback. JDBC regressions prove
@@ -4143,9 +4157,13 @@ can still replay after the deadline. No client timestamp participates in this de
 
 Participant reads declare and lock question-revision scope before reading the timing checkpoint,
 matching the starter's lock order. A missing untimed checkpoint can acquire a gap lock under
-`REPEATABLE_READ`; reading it first would allow a cycle with a concurrent timed start. SQL-barrier
-fixtures prove actual question-lock waiting and two successful outcomes under `READ_COMMITTED`
-and `REPEATABLE_READ`, for read-only and ordinary reads, with timed and untimed new starts.
+`REPEATABLE_READ`. After #906 phase A, participant question scopes are shared: a view can project
+while a start holds the same question identities. SQL-barrier fixtures retain two successful
+outcomes under `READ_COMMITTED` and `REPEATABLE_READ`, for read-only and ordinary reads, with
+timed and untimed new starts. RC starts commit while the view transaction remains open. An RR
+timed start can still wait on the completed view's missing-timing gap lock; the fixture verifies
+that actual wait and releases the view before requiring both commits, without a deadlock or retry.
+Removing that RR freshness-lock coupling is outside phase A.
 
 The participant projection adds `TIMED` and the named optional `ParticipantAttemptTiming` field
 `timingDetails`: version, start, effective deadline, zero grace seconds, server time and an expired

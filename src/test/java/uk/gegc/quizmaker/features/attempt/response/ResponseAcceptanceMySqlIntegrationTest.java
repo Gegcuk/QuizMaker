@@ -766,6 +766,91 @@ class ResponseAcceptanceMySqlIntegrationTest {
         binding.bind(quizId, revision);
         return revision;
     }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"answer", "form", "start"})
+    void sameRevisionParticipantsCommitWhileAnotherAnswerTransactionRemainsOpen(String operation) throws Exception {
+        var revision = prepared();
+        var anna = starts.start(command(revision, AnswerOrder.AUTHORED, "anna-start"));
+        var annaItem = delivery.read(anna.attemptId()).form().items().get(2);
+        String borisName = "acceptance-boris-" + UUID.randomUUID().toString().substring(0, 8);
+        var borisId = user(borisName, false);
+        // The current target policy admits the owner or a full editor, not arbitrary students.
+        grant(borisId, "ATTEMPT_READ", "ATTEMPT_CREATE", "QUESTION_UPDATE", "QUIZ_MODERATE");
+        authenticate(borisName);
+        // The start case must have no existing active attempt for Boris.
+        var boris = operation.equals("start") ? null : starts.start(command(revision, AnswerOrder.AUTHORED, "boris-start"));
+        var borisItem = boris == null ? null : delivery.read(boris.attemptId()).form().items().get(2);
+        var annaDone = new CountDownLatch(1);
+        var releaseAnna = new CountDownLatch(1);
+        var annaConnection = new AtomicLong();
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var first = workers.submit(() -> {
+                authenticate(username);
+                try {
+                    var outer = new TransactionTemplate(manager);
+                    outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+                    outer.executeWithoutResult(status -> {
+                        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+                        annaConnection.set(sql.queryForObject("SELECT CONNECTION_ID()", Long.class));
+                        assertThat(responses.accept(answer(anna.attemptId(), annaItem, 1, "anna-answer")).replayed()).isFalse();
+                        annaDone.countDown();
+                        await(releaseAnna);
+                    });
+                } finally { SecurityContextHolder.clearContext(); }
+            });
+            assertThat(annaDone.await(10, TimeUnit.SECONDS)).isTrue();
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(3)).untilAsserted(() -> {
+                // ENGINE_TRANSACTION_ID identifies the lock owner; THREAD_ID can identify its creator instead.
+                var locks = admin.queryForList("""
+                        SELECT l.LOCK_MODE FROM performance_schema.data_locks l
+                        JOIN information_schema.innodb_trx t ON t.trx_id=l.ENGINE_TRANSACTION_ID
+                        WHERE t.trx_mysql_thread_id=? AND l.OBJECT_SCHEMA=?
+                          AND l.OBJECT_NAME='question_revisions' AND l.LOCK_TYPE='RECORD'
+                        """, String.class, annaConnection.get(), SCHEMA);
+                assertThat(locks).isNotEmpty().allSatisfy(mode -> assertThat(mode).startsWith("S"));
+            });
+            var second = workers.submit(() -> {
+                authenticate(borisName);
+                try {
+                    var outer = new TransactionTemplate(manager);
+                    outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+                    return outer.execute(status -> {
+                        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+                        return switch (operation) {
+                            case "answer" -> {
+                                var accepted = responses.accept(answer(boris.attemptId(), borisItem, 1, "boris-answer"));
+                                assertThat(accepted.replayed()).isFalse();
+                                yield boris.attemptId();
+                            }
+                            case "form" -> {
+                                var form = delivery.read(boris.attemptId()).form();
+                                assertThat(form.items()).hasSize(FAMILIES.size());
+                                yield boris.attemptId();
+                            }
+                            case "start" -> starts.start(command(revision, AnswerOrder.AUTHORED, "boris-new-start")).attemptId();
+                            default -> throw new AssertionError(operation);
+                        };
+                    });
+                } finally { SecurityContextHolder.clearContext(); }
+            });
+            var committedAttempt = second.get(5, TimeUnit.SECONDS);
+            assertThat(first.isDone()).as("Anna's transaction must still hold its locks").isFalse();
+            assertThat(count("attempt_accepted_response")).isEqualTo(operation.equals("answer") ? 1 : 0);
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_lifecycle_state WHERE attempt_id=UUID_TO_BIN(?)",
+                    Integer.class, committedAttempt.toString())).isEqualTo(1);
+            assertThat(observer().sqlErrorCodes).doesNotContain(1205, 1213);
+            releaseAnna.countDown();
+            first.get(10, TimeUnit.SECONDS);
+            assertThat(count("attempt_accepted_response")).isEqualTo(operation.equals("answer") ? 2 : 1);
+        } finally {
+            releaseAnna.countDown();
+            workers.shutdownNow();
+            assertThat(workers.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
+            authenticate(username);
+        }
+    }
     private static ContentPolicy content(UUID revision) {
         return new ContentPolicy(revision, 1, FormMode.PRECOMPUTED, SectionMode.IMPLICIT_FLAT, CaseMode.NOT_CONFIGURED);
     }
