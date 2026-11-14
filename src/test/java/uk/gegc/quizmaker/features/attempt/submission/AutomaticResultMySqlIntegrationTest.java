@@ -515,7 +515,7 @@ class AutomaticResultMySqlIntegrationTest {
                 uk.gegc.quizmaker.features.question.domain.repository.QuestionContractBindingRepository.class),catalogue,manager);
         var sourceReader=new SubmittedAttemptSourceImpl(context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.SubmittedAttemptRepository.class),
                 lifecycle,context.getBean(PolicySnapshotService.class),context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.FixedFormRepository.class),
-                context.getBean(QuizRevisionRepository.class),contracts);
+                context.getBean(QuizRevisionRepository.class),contracts,manager);
         var unavailable=new AutomaticResultServiceImpl(sourceReader,context.getBean(AutomaticResultRepository.class),
                 context.getBean(ExecutionTraceService.class),context.getBean(Clock.class),metrics,manager);
         assertThatThrownBy(()->unavailable.finalizeSubmission(f.submission())).isInstanceOfSatisfying(AutomaticResultException.class,

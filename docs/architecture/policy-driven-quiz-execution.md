@@ -38,13 +38,15 @@ The [approved Q13–Q15 tag scope](./decision-register.md#quiz-certificate-batch
 The [approved RC contract](decision-register.md#v2-read-committed) applies to policy-driven
 execution only. It does not change v1 routes, legacy `AttemptService`, V108, billing/auth,
 publication/binding, or the independent RR compatibility report. No pool/server isolation
-setting is changed, no retries are added, and all existing SQL lock clauses remain for #906 B.
+setting is changed and no retries are added. #906 B simplifies only the immutable aggregate
+reads listed below; authorization, command identity and canonical binding remain synchronized.
 
 | Caller/entry | Ownership and isolation |
 |---|---|
 | Start, response, submit, draft and navigation | Identity read, receipt-owned REQUIRED command, and any follow-up read explicitly use RC when standalone. With an outer RC they all join that physical transaction. |
 | Delivery, participant view/review | Read-only REQUIRED RC; a compatible read-only RC caller is permitted. |
-| AttemptReadFactsService | MANDATORY compatible RC through projection; the enclosing owner retains locks. |
+| AttemptReadFactsService, expiry facts, submitted result source | MANDATORY compatible RC through projection; the enclosing owner retains its required locks. |
+| Fixed form, option-order creation and materialization | REQUIRED writable RC with early rejection of incompatible callers; exact replay retains exclusive aggregate roots. Metadata-only bulk reads continue to follow their caller snapshot. |
 | Expiry page/command, automatic-result pending/finalization, immediate release | Existing REQUIRES_NEW boundaries, explicitly RC; suspend caller state and commit independently. |
 | Receipt cleanup primitive | Requires an existing writable RC transaction and unchanged cleanup authority. |
 | Future #534/#834 and #629 batch | One writable RC owner for all effects; batch does not open a transaction per item. |
@@ -77,8 +79,45 @@ isolation lookup on an already-RC connection. DEFAULT participation validates on
 500 boundary checks; explicit RC metadata needs no boundary lookup. The receipt integration
 suite measures these commands separately from application SELECT budgets. Connection
 restoration and reuse must preserve the default used by a subsequent legacy transaction.
-Changing the server default is not required. Activation, reduced immutable-content locks and
-large-quiz read/write-volume optimization remain separately owned work.
+Changing the server default is not required. Activation and large-quiz read/write-volume
+optimization remain separately owned work.
+
+
+<a id="immutable-read-lock-inventory"></a>
+### Immutable read lock inventory (#906 phase B)
+
+Participants, expiry and grading read complete immutable content in RC. Start also uses ordinary
+revision content reads; form/option materializers explicitly own/join RC rather than preserving
+stale-RR write composition. A later commit becomes visible on the next statement, but cannot
+replace previously read immutable identities. Readers keep all existing cardinality, identity,
+policy, option ordering, contract hash and owner checks; missing/corrupt evidence fails closed.
+
+| Removed scan protection | Root and atomic completeness | Actual writers and immutability | Deletion/reference protection |
+|---|---|---|---|
+| `attempt_form_item` delivery/result/expiry reads and exact-replay comparison | `attempt_form.item_count`; root and every item inserted in one transaction. Replay owns the unique form root exclusively and compares all persisted items. | `JdbcFixedFormRepository.createOrReplay` inserts or performs a no-op duplicate write; mismatched cardinality/identity fails. There is no application UPDATE/DELETE path for content. | V85 composite FKs to the form and exact revision item are restrictive; streams/order/response evidence retain referenced identities. |
+| `attempt_form_item_option_order` and `attempt_form_option` reads/comparison | Order root `item_count` and per-item `option_count`; form/order creation shares one transaction. The exclusive order root serializes writers. | `JdbcFormOptionOrderRepository.createOrReplay` never overwrites policy, versions or order; a conflicting replay rolls back. Reads verify counts, contiguous positions and retained binding hash. | V89 composite FKs retain exact form/item/question/contract/option identities; these do not permit substitution with a new version. |
+| `quiz_revision_items` content joins, nested membership subquery and `question_option_revisions` content reads | `JdbcQuizRevisionRepository.insertAggregate` writes questions/options/root/items atomically; publication exposes the completed revision and bound contracts in its transaction. Structured roots additionally validate declared section/case cardinality. | Only insert APIs exist. Reusing a question identity with different content/options fails. Authoring edits mutate legacy drafts; new publication gets new retained revision identities. Flat v1 UPDATE immutability is an application invariant. V110/V111 protect structured roots/sections/cases, not every question/option row. | V81/V85/V89 foreign keys prohibit referenced deletion. Question scope also holds the exact question identities while resolving bindings. Author removal does not rewrite retained revision content. |
+
+Root/authority synchronization is unchanged: access locks active user/permissions/quiz, commands
+lock their lifecycle and semantic receipt, form/order writers own their roots, publication locks
+its source/current pointer, and #598 uses its declared canonical question scope and current
+membership/binding checks. The latter remains a separate RR-capable contract; it is not an
+isolation-dependent fallback in the new readers. FK checks can still take a shared lock on the
+single item referenced by an accepted response. That integrity lock must not be confused with
+locking every child while reading the entire form.
+
+Existing policy-snapshot, timing, trace, accepted-response and result/receipt persistence reads
+are outside this child-content change. Their cost and remaining purpose must be assessed in
+their owning slices (#629/#907 where applicable); this is not a claim that all SQL is lock-free.
+No indexes, triggers, caches, global defaults, response projections or retries are added.
+Standalone internal form writers pay the same explicit-RC driver overhead described for #905;
+when invoked inside the v2 RC owner they join it without a new transaction or isolation lookup.
+
+For example, Anna and an authorized full editor Boris can answer or read the same revision
+independently. Anna's response protects its own lifecycle, receipt and referenced item; it no
+longer locks every form item and option merely to project immutable content. A concurrent second
+command for Anna's *same attempt* still waits and then observes the committed state. If Anna's
+outer RC transaction rolls back, its answer, trace and receipt all disappear together.
 
 ---
 
@@ -2002,7 +2041,7 @@ full editor's answer/start/form read on the same revision can complete independe
 explicit RC caller transactions. Binding still waits for an active reader. Existing authorization,
 per-attempt/receipt serialization, isolation defaults and old-RR support remain unchanged.
 RR range/gap coupling at other reads is not resolved here: #905 owns the new RC boundary,
-and #906 phase B owns the subsequent freshness-only read simplification. No schema, index,
+and #906 phase B supplies the subsequent freshness-only aggregate read simplification. No schema, index,
 projection or extra SQL query is introduced by the intent switch.
 
 Scope setup uses two metadata queries for up to 500 quiz revisions and 500 distinct questions;
@@ -2806,8 +2845,8 @@ fingerprint/legacy-read interpretation is #613, and canonical start is #600.
 Create/replay is atomic and keyed by the form ID. Identical immutable metadata replays successfully;
 changed revision, cardinality, item identity, source or position conflicts. The root's immutable
 item count prevents a larger retry from appending items. Unique-key no-op inserts serialize
-competing writers without overwriting the winner; a final current read compares all item metadata
-before commit. Any late mismatch rolls back provisional inserts. Different forms do not require
+competing writers without overwriting the winner; a final ordinary RC read compares all item
+metadata before commit while the root is exclusively owned. Any late mismatch rolls back provisional inserts. Different forms do not require
 an exclusive quiz lock. These guarantees cover the supported service/repository boundary, not
 privileged SQL updates/deletes. No trigger or database access-policy change is introduced.
 
@@ -2815,11 +2854,9 @@ privileged SQL updates/deletes. No trigger or database access-policy change is i
 order. It reads two metadata queries per batch of up to 500 visible form IDs, independently of
 item count; an entirely missing batch needs only the root query. Parameter batching is not a
 quiz-size or selection limit. Both queries are ordinary non-locking reads governed by transaction
-isolation. An older `REPEATABLE READ` snapshot may still omit a form committed by another transaction
-after that snapshot, even after an identical replay succeeds; `READ COMMITTED` sees the committed
-form, and a new transaction sees it after commit. A transaction sees its own new insert immediately.
-Callers needing the verified form after creation/replay use the result of `createOrReplay` directly,
-rather than requiring a subsequent `findByIds` to refresh a snapshot. Successful return inside an
+isolation. An older `REPEATABLE READ` metadata-only reader may omit a later committed form;
+create/replay now rejects such a caller before work. Writes own/join writable RC and see the
+complete committed winner and their own inserts. The returned form is already verified. Successful return inside an
 enclosing transaction does not commit it; a later rollback still cancels the new form and its items.
 Write serialization and exact comparison remain inside `createOrReplay`. Ordinary reads take no
 shared row/gap locks that would need upgrading when concurrent callers subsequently create/replay.
@@ -2861,7 +2898,9 @@ does not commit that transaction. A projection failure after actual inserts roll
 form/order together. A caller cannot catch that failure and commit partial rows. Identical retries
 reuse all identities; changed form/order conflicts without overwriting retained evidence. An
 unknown commit acknowledgement is reconciled with the same command, not a new form identity.
-Current write comparisons support replay even inside an older REPEATABLE_READ snapshot.
+Materialization and option-order creation now own/join writable RC. Incompatible callers reject
+before scope/content work. Exclusive unique roots protect exact replay; ordinary RC child reads
+see both the committed winner and the transaction's own writes.
 
 The returned `ParticipantForm` is separate from `FixedForm`, `QuestionRevision` and contract
 evidence. It exposes only form/item identity, display position, question family, question text and
@@ -3155,9 +3194,10 @@ private source references or raw author JSON. Client include flags do not expand
 The service holds current access and contract locks until its read transaction finishes. Access
 requires the bound participant, `ATTEMPT_READ` and current ownership/full-editor authority under
 the [authenticated self-attempt access decision](./decision-register.md#authenticated-self-attempt-access).
-The locked lifecycle returned by #537 supplies the current version/state in the RC owner. Delivery also reads the policy snapshot, form roots/items and option-order roots/items/options
-through explicit current shared reads. This includes attempts committed after an earlier RC read; incompatible caller isolation is
-rejected before access/content work.
+The locked lifecycle returned by #537 supplies current version/state in the RC owner. Policy
+snapshots retain their existing current-read contract. Complete immutable form/order/revision
+content uses ordinary RC reads, including attempts committed after an earlier RC statement.
+Incompatible caller isolation is rejected before access/content work.
 Question guards precede contract-binding locks, and shared read locks allow simultaneous readers.
 The operation joins a compatible RC caller, or owns a standalone RC read. It does not silently
 suspend an incompatible caller. Existing ordinary repository reads retain their snapshot semantics.
@@ -4209,7 +4249,8 @@ matching the starter's lock order. After #906 phase A, participant question scop
 a view can project while a start holds the same question identities. #905's RC fixtures require
 timed and untimed starts to commit while the view transaction remains open, for read-only and
 ordinary compatible callers. Old-RR target composition is rejected before work; no waiting RR
-fallback remains. Existing locking SQL is unchanged until #906 phase B.
+fallback remains. Immutable aggregate content reads are non-locking under #906 phase B; mutable authorization
+and canonical binding synchronization retain their existing locks.
 
 The participant projection adds `TIMED` and the named optional `ParticipantAttemptTiming` field
 `timingDetails`: version, start, effective deadline, zero grace seconds, server time and an expired

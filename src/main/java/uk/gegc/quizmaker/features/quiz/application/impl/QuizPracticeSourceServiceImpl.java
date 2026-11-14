@@ -55,7 +55,8 @@ public class QuizPracticeSourceServiceImpl implements QuizPracticeSourceService 
 
     @Override public QuizRevision readRevision(Access access, UUID revisionId) {
         if (access == null || revisionId == null) throw new PublicationException(UNAVAILABLE);
-        var revision = revisions.findByIdForShare(access.ownerId(), revisionId).orElseThrow(() -> new PublicationException(UNAVAILABLE));
+        // Called by the RC start owner after lockAccess has stabilized publication and authority.
+        var revision = revisions.findById(access.ownerId(), revisionId).orElseThrow(() -> new PublicationException(UNAVAILABLE));
         if (!revision.quizId().equals(access.quizId())) throw new PublicationException(UNAVAILABLE);
         return revision;
     }

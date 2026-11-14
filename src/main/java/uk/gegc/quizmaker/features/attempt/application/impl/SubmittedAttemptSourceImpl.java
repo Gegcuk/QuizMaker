@@ -1,6 +1,8 @@
 package uk.gegc.quizmaker.features.attempt.application.impl;
 
 import java.util.*;
+import org.springframework.transaction.PlatformTransactionManager;
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.*;
@@ -16,17 +18,20 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAtt
 public class SubmittedAttemptSourceImpl implements SubmittedAttemptSource {
     private final SubmittedAttemptRepository repository;
     private final AttemptLifecycleService lifecycle;
+    private final PlatformTransactionManager transactions;
     private final PolicySnapshotService snapshots;
     private final FixedFormRepository forms;
     private final QuizRevisionRepository revisions;
     private final QuestionRevisionContractService contracts;
     public SubmittedAttemptSourceImpl(SubmittedAttemptRepository repository, AttemptLifecycleService lifecycle,
             PolicySnapshotService snapshots, FixedFormRepository forms, QuizRevisionRepository revisions,
-            QuestionRevisionContractService contracts) {
+            QuestionRevisionContractService contracts, PlatformTransactionManager transactions) {
+        this.transactions=transactions;
         this.repository=repository; this.lifecycle=lifecycle; this.snapshots=snapshots;
         this.forms=forms; this.revisions=revisions; this.contracts=contracts;
     }
     @Override public Facts lock(UUID submissionId) {
+        AttemptTransactions.requireCompatible(transactions, true);
         check(submissionId != null, INVALID_INPUT);
         var h=repository.lock(submissionId).orElseThrow(() -> new Failure(NOT_FOUND));
         var s=h.submission();
@@ -41,8 +46,8 @@ public class SubmittedAttemptSourceImpl implements SubmittedAttemptSource {
                 && p.answerChange().mode()==AnswerChangeMode.LOCK_ON_ACCEPTANCE, UNSUPPORTED);
         check(p.content().quizRevisionId().equals(s.quizRevisionId()), CORRUPT);
         contracts.declareScope(h.revisionOwnerId(),Set.of(s.quizRevisionId()));
-        var form=forms.findByIdsForShare(h.revisionOwnerId(),List.of(s.formId()));
-        var revision=revisions.findByIdForShare(h.revisionOwnerId(),s.quizRevisionId()).orElseThrow(() -> new Failure(CORRUPT));
+        var form=forms.findByIds(h.revisionOwnerId(),List.of(s.formId()));
+        var revision=revisions.findById(h.revisionOwnerId(),s.quizRevisionId()).orElseThrow(() -> new Failure(CORRUPT));
         check(form.size()==1 && form.get(0).quizRevisionId().equals(revision.id()) && !form.get(0).items().isEmpty(),CORRUPT);
         var fixed=form.get(0);
         check(fixed.items().stream().map(i->i.sourceItemId()).collect(Collectors.toSet())

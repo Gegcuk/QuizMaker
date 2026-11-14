@@ -7,9 +7,9 @@ Reconciled: **23 October 2026** against approved issue clauses and current archi
 **14 November 2026:** #906 phase A supplies explicit READ/shared and WRITE/exclusive question
 contract scopes. #905 implements the actual v2 RC boundary: compatible outer RC participates,
 incompatible/unknown isolation rejects before work, independent workers retain their boundaries.
-Legacy and the compatibility inventory retain their own RR guarantees. Remaining delivery order:
-#906 phase B's freshness-only read simplification, then #629/#907 integration and measured response
-write cost. Whole-quiz read volume, allowance history and legacy analytics remain separate measured
+Legacy and the compatibility inventory retain their own RR guarantees. #906 phase B removes
+freshness-only aggregate scans behind the RC boundary while keeping canonical binding and write
+serialization. Remaining delivery order: #629/#907 integration and measured response write cost. Whole-quiz read volume, allowance history and legacy analytics remain separate measured
 work. #609 still owns deployment pool/OSIV inventory and activation readiness. This change does
 not claim that all locks or all contention have disappeared.
 

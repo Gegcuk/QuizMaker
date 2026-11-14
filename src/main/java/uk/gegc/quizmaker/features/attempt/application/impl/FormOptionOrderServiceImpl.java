@@ -5,6 +5,7 @@ import io.micrometer.core.instrument.Timer;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -44,11 +45,12 @@ public class FormOptionOrderServiceImpl implements FormOptionOrderService {
     public FormOptionOrderServiceImpl(QuizRevisionRepository revisions, QuestionRevisionContractService contracts,
             FixedFormRepository forms, FormOptionOrderRepository orders, PlatformTransactionManager manager, MeterRegistry metrics) {
         this.revisions = revisions; this.contracts = contracts; this.forms = forms; this.orders = orders; this.metrics = metrics;
-        write = new TransactionTemplate(manager); read = new TransactionTemplate(manager); read.setReadOnly(true);
+        write = AttemptTransactions.readCommitted(manager); read = new TransactionTemplate(manager); read.setReadOnly(true);
     }
 
     @Override
     public FormOptionOrder createOrReplay(UUID ownerId, FixedForm form, AnswerOrderingPolicy policy) {
+        AttemptTransactions.requireCompatible(write.getTransactionManager(), true);
         boolean standalone = !TransactionSynchronizationManager.isActualTransactionActive();
         return execute("create_or_replay", write, () -> {
             if (ownerId == null) throw new FixedFormException(FixedFormException.Reason.REVISION_UNAVAILABLE);
@@ -62,7 +64,7 @@ public class FormOptionOrderServiceImpl implements FormOptionOrderService {
                     throw failure;
                 }
             }
-            var revision = revisions.findByIdForShare(ownerId, form.quizRevisionId()).orElseThrow(() ->
+            var revision = revisions.findById(ownerId, form.quizRevisionId()).orElseThrow(() ->
                     new FixedFormException(FixedFormException.Reason.REVISION_UNAVAILABLE));
             var resolved = contracts.resolve(ownerId, revision.id());
             var sources = new HashMap<UUID, uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision.Item>();

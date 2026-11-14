@@ -860,18 +860,22 @@ class ResponseAcceptanceMySqlIntegrationTest {
     }
 
     @ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(strings = {"answer", "form", "start"})
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"answer", "form", "start", "neighbour-form", "neighbour-revision"})
     void sameRevisionParticipantsCommitWhileAnotherAnswerTransactionRemainsOpen(String operation) throws Exception {
         var revision = prepared();
         var anna = starts.start(command(revision, AnswerOrder.AUTHORED, "anna-start"));
         var annaItem = delivery.read(anna.attemptId()).form().items().get(2);
+        var formStore = context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.FixedFormRepository.class);
+        var retainedForm = tx.execute(status -> formStore.findByIds(ownerId, List.of(anna.formId())).get(0));
+        var revisionStore = context.getBean(QuizRevisionRepository.class);
+        var retainedRevision = revisionStore.findById(ownerId, revision).orElseThrow();
         String borisName = "acceptance-boris-" + UUID.randomUUID().toString().substring(0, 8);
         var borisId = user(borisName, false);
         // The current target policy admits the owner or a full editor, not arbitrary students.
         grant(borisId, "ATTEMPT_READ", "ATTEMPT_CREATE", "QUESTION_UPDATE", "QUIZ_MODERATE");
         authenticate(borisName);
         // The start case must have no existing active attempt for Boris.
-        var boris = operation.equals("start") ? null : starts.start(command(revision, AnswerOrder.AUTHORED, "boris-start"));
+        var boris = (!operation.equals("answer") && !operation.equals("form")) ? null : starts.start(command(revision, AnswerOrder.AUTHORED, "boris-start"));
         var borisItem = boris == null ? null : delivery.read(boris.attemptId()).form().items().get(2);
         var annaDone = new CountDownLatch(1);
         var releaseAnna = new CountDownLatch(1);
@@ -903,14 +907,29 @@ class ResponseAcceptanceMySqlIntegrationTest {
                         """, String.class, annaConnection.get(), SCHEMA);
                 assertThat(locks).isNotEmpty().allSatisfy(mode -> assertThat(mode).startsWith("S"));
             });
+            var childLocks = admin.queryForList("""
+                    SELECT l.OBJECT_NAME, l.INDEX_NAME, l.LOCK_MODE, COUNT(*) AS lock_count
+                    FROM performance_schema.data_locks l
+                    JOIN information_schema.innodb_trx t ON t.trx_id=l.ENGINE_TRANSACTION_ID
+                    WHERE t.trx_mysql_thread_id=? AND l.OBJECT_SCHEMA=? AND l.LOCK_TYPE='RECORD'
+                      AND l.OBJECT_NAME IN ('attempt_form_item','attempt_form_item_option_order',
+                          'attempt_form_option','question_option_revisions')
+                    GROUP BY l.OBJECT_NAME,l.INDEX_NAME,l.LOCK_MODE
+                    """, annaConnection.get(), SCHEMA);
+            System.out.println("906 child read lock footprint: " + childLocks);
+            // Trace and accepted-response FKs protect exactly their referenced item.
+            // No rows are locked merely to read the rest of the form/options.
+            assertThat(childLocks).hasSize(2).allSatisfy(lock -> {
+                assertThat(lock.get("OBJECT_NAME") + "/" + lock.get("INDEX_NAME")).isIn(
+                        "attempt_form_item/PRIMARY", "attempt_form_item_option_order/uq_form_option_question");
+                assertThat(lock.get("LOCK_MODE")).isEqualTo("S,REC_NOT_GAP");
+                assertThat(((Number) lock.get("lock_count")).intValue()).isEqualTo(1);
+            });
             var second = workers.submit(() -> {
                 authenticate(borisName);
                 try {
-                    var outer = new TransactionTemplate(manager);
-                    outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
-                    return outer.execute(status -> {
-                        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
-                        return switch (operation) {
+                    // Real standalone v2 owners choose RC even when this server defaults to RR.
+                    return switch (operation) {
                             case "answer" -> {
                                 var accepted = responses.accept(answer(boris.attemptId(), borisItem, 1, "boris-answer"));
                                 assertThat(accepted.replayed()).isFalse();
@@ -922,13 +941,36 @@ class ResponseAcceptanceMySqlIntegrationTest {
                                 yield boris.attemptId();
                             }
                             case "start" -> starts.start(command(revision, AnswerOrder.AUTHORED, "boris-new-start")).attemptId();
+                            case "neighbour-form" -> {
+                                var form = new uk.gegc.quizmaker.features.attempt.domain.model.form.FixedForm(
+                                        nextUuid(anna.formId()), 1, revision, retainedForm.items());
+                                context.getBean(FormOptionOrderService.class).createOrReplay(ownerId, form,
+                                        new AnswerOrderingPolicy(AnswerOrder.AUTHORED, 1));
+                                yield anna.attemptId();
+                            }
+                            case "neighbour-revision" -> {
+                                var r = retainedRevision;
+                                // A real aggregate insert with keys adjacent to Anna's retained revision/items.
+                                revisionStore.insert(new uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision(
+                                        nextUuid(r.id()), r.quizId(), r.ownerId(), r.schemaVersion(), r.title(), r.description(), r.createdAt(),
+                                        r.items().stream().map(i -> new uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision.Item(
+                                                nextUuid(i.id()), i.authoredPosition(), i.question())).toList()));
+                                yield anna.attemptId();
+                            }
                             default -> throw new AssertionError(operation);
                         };
-                    });
                 } finally { SecurityContextHolder.clearContext(); }
             });
             var committedAttempt = second.get(5, TimeUnit.SECONDS);
             assertThat(first.isDone()).as("Anna's transaction must still hold its locks").isFalse();
+            if (operation.equals("neighbour-form")) {
+                assertThat(tx.execute(status -> formStore.findByIds(ownerId, List.of(nextUuid(anna.formId())))).get(0).items())
+                        .isEqualTo(retainedForm.items());
+            }
+            if (operation.equals("neighbour-revision")) {
+                assertThat(revisionStore.findById(ownerId, nextUuid(revision)).orElseThrow().items())
+                        .hasSize(retainedRevision.items().size());
+            }
             assertThat(count("attempt_accepted_response")).isEqualTo(operation.equals("answer") ? 1 : 0);
             assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_lifecycle_state WHERE attempt_id=UUID_TO_BIN(?)",
                     Integer.class, committedAttempt.toString())).isEqualTo(1);
@@ -943,6 +985,51 @@ class ResponseAcceptanceMySqlIntegrationTest {
             authenticate(username);
         }
     }
+    private static UUID nextUuid(UUID value) {
+        long low = value.getLeastSignificantBits() + 1;
+        return new UUID(value.getMostSignificantBits() + (low == 0 ? 1 : 0), low);
+    }
+
+    @ParameterizedTest @ValueSource(ints = {1, 20})
+    void immutableReadCostRemainsBatchedAndRecordsRowsAndBytes(int items) {
+        var revision = publish(0, IntStream.range(0, items).mapToObj(i -> draft(QuestionType.MCQ_SINGLE)).toList());
+        binding.bind(quizId, revision);
+        var started = starts.start(command(revision, AnswerOrder.AUTHORED, "read-cost"));
+        var item = delivery.read(started.attemptId()).form().items().get(0);
+        tx.executeWithoutResult(status -> {
+            long connection = sql.queryForObject("SELECT CONNECTION_ID()", Long.class);
+            var before = wireCounters(connection);
+            observer().selects.clear();
+            responses.accept(answer(started.attemptId(), item, 1, "cost-answer"));
+            int selects = observer().selects.size();
+            var after = wireCounters(connection);
+            long rows = after.get("Rows_sent") - before.get("Rows_sent");
+            long bytes = after.get("Bytes_sent") - before.get("Bytes_sent");
+            System.out.printf("906 response read cost: items=%d selects=%d rows=%d bytes=%d%n", items, selects, rows, bytes);
+            assertThat(selects).isLessThanOrEqualTo(50);
+            assertThat(rows).isBetween((long) items, 20L * items + 100);
+            assertThat(bytes).isPositive();
+        });
+    }
+
+    private Map<String, Long> wireCounters(long connection) {
+        var result = new HashMap<String, Long>();
+        admin.query("""
+                SELECT s.VARIABLE_NAME,s.VARIABLE_VALUE FROM performance_schema.status_by_thread s
+                JOIN performance_schema.threads t ON t.THREAD_ID=s.THREAD_ID
+                WHERE t.PROCESSLIST_ID=? AND s.VARIABLE_NAME='Bytes_sent'
+                """, (org.springframework.jdbc.core.RowCallbackHandler) row ->
+                        result.put(row.getString(1), Long.parseLong(row.getString(2))), connection);
+        result.put("Rows_sent", admin.queryForObject("""
+                SELECT COALESCE(SUM(s.SUM_ROWS_SENT),0)
+                FROM performance_schema.events_statements_summary_by_thread_by_event_name s
+                JOIN performance_schema.threads t ON t.THREAD_ID=s.THREAD_ID
+                WHERE t.PROCESSLIST_ID=?
+                """, Long.class, connection));
+        assertThat(result).containsKeys("Rows_sent", "Bytes_sent");
+        return result;
+    }
+
     private static ContentPolicy content(UUID revision) {
         return new ContentPolicy(revision, 1, FormMode.PRECOMPUTED, SectionMode.IMPLICIT_FLAT, CaseMode.NOT_CONFIGURED);
     }

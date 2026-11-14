@@ -16,7 +16,8 @@ public interface FixedFormMaterializer {
     /**
      * Persist exact identity/order and resolve a safe presentation from retained immutable revisions.
      * Reuse all identities on retry, including after unknown commit outcome. Does not create an attempt.
-     * Joins the caller transaction: the caller must first declare its complete #598 revision scope.
+     * Owns or joins writable RC; incompatible isolation rejects before work.
+     * An outer RC caller must first declare its complete #598 revision scope.
      * A successful return does not commit an outer transaction. No HTTP, start or offline activation.
      */
     ParticipantForm materialize(UUID ownerId, Command command);

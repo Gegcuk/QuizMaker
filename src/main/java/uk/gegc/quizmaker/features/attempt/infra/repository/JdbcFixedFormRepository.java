@@ -52,7 +52,7 @@ public class JdbcFixedFormRepository implements FixedFormRepository {
             var part = sources.subList(start, Math.min(start + SQL_BATCH, sources.size()));
             parameters.addValue("sources", part.stream().map(JdbcFixedFormRepository::bytes).toList());
             var found = jdbc.queryForList("""
-                    SELECT id FROM quiz_revision_items WHERE quiz_revision_id=:revision AND id IN (:sources) FOR SHARE
+                    SELECT id FROM quiz_revision_items WHERE quiz_revision_id=:revision AND id IN (:sources)
                     """, parameters);
             if (found.size() != part.size()) throw new FixedFormException(REVISION_UNAVAILABLE);
         }
@@ -84,8 +84,9 @@ public class JdbcFixedFormRepository implements FixedFormRepository {
                     ON DUPLICATE KEY UPDATE id=attempt_form_item.id
                     """, rows.subList(start, Math.min(start + SQL_BATCH, rows.size())).toArray(MapSqlParameterSource[]::new));
         }
-        // Current reads also work when the outer REPEATABLE READ transaction has an older snapshot.
-        var saved = jdbc.query("SELECT id,source_item_id,position FROM attempt_form_item WHERE form_id=:id ORDER BY position FOR UPDATE",
+        // The RC owner sees the committed winner and its own writes. The exclusive root
+        // already serializes exact replay; immutable child rows need no additional locks.
+        var saved = jdbc.query("SELECT id,source_item_id,position FROM attempt_form_item WHERE form_id=:id ORDER BY position",
                 parameters, (row, index) -> item(row));
         if (!saved.equals(form.items())) throw new FixedFormException(FORM_CONFLICT);
     }
@@ -93,7 +94,7 @@ public class JdbcFixedFormRepository implements FixedFormRepository {
     @Override
     public void createSelectionOrReplay(UUID ownerId, FixedForm form, QuestionSelection.Result selection) {
         if (form == null || selection == null) throw new FixedFormException(INVALID_FORM);
-        var saved = findByIdsForShare(ownerId, List.of(form.id()));
+        var saved = findByIds(ownerId, List.of(form.id()));
         if (saved.size() != 1 || !saved.get(0).equals(form)) throw new FixedFormException(FORM_CONFLICT);
         if (!selection.evidence().quizRevisionId().equals(form.quizRevisionId())
                 || !selection.itemIds().equals(form.items().stream().map(FixedForm.Item::sourceItemId).toList()))
@@ -131,7 +132,8 @@ public class JdbcFixedFormRepository implements FixedFormRepository {
 
     @Override
     public List<FixedForm> findByIds(UUID ownerId, Collection<UUID> formIds) {
-        return read(ownerId, formIds, false);
+        try { return read(ownerId, formIds, false); }
+        catch (DataAccessException failure) { throw SafeDataAccess.sanitize(failure); }
     }
 
     @Override

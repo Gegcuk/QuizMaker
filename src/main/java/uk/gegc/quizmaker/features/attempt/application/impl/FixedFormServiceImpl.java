@@ -5,6 +5,7 @@ import io.micrometer.core.instrument.Timer;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -32,13 +33,14 @@ public class FixedFormServiceImpl implements FixedFormService {
                                 MeterRegistry metrics) {
         this.repository = repository;
         this.metrics = metrics;
-        this.write = new TransactionTemplate(transactions);
+        this.write = AttemptTransactions.readCommitted(transactions);
         this.read = new TransactionTemplate(transactions);
         this.read.setReadOnly(true);
     }
 
     @Override
     public FixedForm createOrReplay(UUID ownerId, FixedForm form) {
+        AttemptTransactions.requireCompatible(write.getTransactionManager(), true);
         return execute("create_or_replay", write, () -> {
             if (form == null) throw new FixedFormException(INVALID_FORM);
             repository.createOrReplay(ownerId, form);

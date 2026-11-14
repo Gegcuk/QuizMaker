@@ -60,15 +60,16 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
                     || policy.content().sections() != SectionMode.IMPLICIT_FLAT)
                 throw new AttemptDeliveryException(UNSUPPORTED);
             if (!policy.content().quizRevisionId().equals(granted.quizRevisionId())) throw new AttemptDeliveryException(CORRUPT);
-            // Preserve #524's lock order/current reads; freshness-only lock removal belongs to #906 phase B.
+            // Canonical binding protection remains. RC reads immutable, atomically published children
+            // without locking their ranges; lifecycle/access locks keep the attempt authoritative.
             contracts.declareScope(owner, Set.of(granted.quizRevisionId()));
-            // An absent timing row can gap-lock under RR: acquire question locks first, as start does.
+            // Keep the established question-before-timing acquisition order.
             var capturedTiming = timing.read(granted, snapshot);
-            var form = forms.findByIdsForShare(owner, List.of(granted.formId()));
-            var order = orders.findByIdsForShare(owner, List.of(granted.formId()));
+            var form = forms.findByIds(owner, List.of(granted.formId()));
+            var order = orders.findByIds(owner, List.of(granted.formId()));
             if (form.size() != 1 || order.size() != 1 || !order.get(0).policy().equals(policy.answerOrdering()))
                 throw new AttemptDeliveryException(CORRUPT);
-            var revision = revisions.findByIdForShare(owner, granted.quizRevisionId())
+            var revision = revisions.findById(owner, granted.quizRevisionId())
                     .orElseThrow(() -> new AttemptDeliveryException(CORRUPT));
             var resolved = contracts.resolve(owner, revision.id());
             var accepted = new java.util.HashSet<UUID>();

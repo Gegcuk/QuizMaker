@@ -54,6 +54,27 @@ class FixedFormMySqlIntegrationTest {
     private SimpleMeterRegistry metrics;
     private FixedFormService service;
 
+
+    @ParameterizedTest @ValueSource(ints = {-1, 1, 4, 8, 2})
+    void incompatibleFormWriterRejectsBeforeReadingOrWriting(int isolation) {
+        var r = savedRevision("rc-boundary", 2);
+        var f = form("rc-boundary-form", r, 2);
+        var outer = new TransactionTemplate(transactions);
+        outer.setIsolationLevel(isolation); outer.setReadOnly(isolation == 2);
+        outer.executeWithoutResult(status -> {
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form", Integer.class)).isZero();
+            source.reset();
+            assertThatThrownBy(() -> service.createOrReplay(OWNER, f)).isInstanceOfSatisfying(
+                    uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException.class, failure -> {
+                        assertThat(failure.reason().name()).isEqualTo(isolation == 2 ? "READ_ONLY" : "INCOMPATIBLE_ISOLATION");
+                        assertThat(failure.getCause()).isNull(); assertThat(failure.getSuppressed()).isEmpty();
+                    });
+            assertThat(source.selects).isEmpty();
+            status.setRollbackOnly();
+        });
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form", Integer.class)).isZero();
+    }
+
     @BeforeAll
     static void connect() {
         String port = System.getenv().getOrDefault("TEST_MYSQL_PORT", "3306");
@@ -270,7 +291,7 @@ class FixedFormMySqlIntegrationTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"READ_COMMITTED,true", "REPEATABLE_READ,true", "READ_COMMITTED,false", "REPEATABLE_READ,false"})
+    @CsvSource({"READ_COMMITTED,true", "READ_COMMITTED,false"})
     void independentConcurrentCreatesHaveStableSuccessfulWinners(String isolation, boolean identical) throws Exception {
         var r = savedRevision("race", 3);
         var first = form("race-form", r, 2);
@@ -312,7 +333,7 @@ class FixedFormMySqlIntegrationTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"READ_COMMITTED,false", "READ_COMMITTED,true", "REPEATABLE_READ,false", "REPEATABLE_READ,true"})
+    @CsvSource({"READ_COMMITTED,false", "READ_COMMITTED,true"})
     void readThenIdenticalCreateOrReplayDoesNotDeadlock(String isolation, boolean exists) throws Exception {
         var r = savedRevision("read-race", 2);
         var f = form("read-race-form", r, 2);
@@ -330,7 +351,7 @@ class FixedFormMySqlIntegrationTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"READ_COMMITTED,false", "READ_COMMITTED,true", "REPEATABLE_READ,false", "REPEATABLE_READ,true"})
+    @CsvSource({"READ_COMMITTED,false", "READ_COMMITTED,true"})
     void readThenChangedCreateRetainsOneCompleteWinnerAndReturnsFormConflict(String isolation, boolean exists) throws Exception {
         var r = savedRevision("read-conflict", 3);
         var first = form("read-conflict-form", r, 2);
@@ -391,8 +412,8 @@ class FixedFormMySqlIntegrationTest {
     private record ReadRace(List<Outcome> outcomes, Set<Integer> connections, List<Integer> sqlErrors) { }
 
     @ParameterizedTest
-    @ValueSource(strings = {"READ_COMMITTED", "REPEATABLE_READ"})
-    void replayReturnsVerifiedFormWhileOrdinaryReadHonorsTheTransactionSnapshot(String isolation) throws Exception {
+    @ValueSource(strings = {"READ_COMMITTED"})
+    void replayAndOrdinaryReadSeeTheCompleteCommittedWinner(String isolation) throws Exception {
         var r = savedRevision("old-snapshot", 2);
         var f = form("old-snapshot-form", r, 2);
         var outer = transaction(isolation);
@@ -404,7 +425,7 @@ class FixedFormMySqlIntegrationTest {
                 catch (Exception failure) { throw new AssertionError(failure); }
                 assertThat(service.createOrReplay(OWNER, f)).isEqualTo(f);
                 assertThat(service.findByIds(OWNER, List.of(f.id())))
-                        .isEqualTo(isolation.equals("REPEATABLE_READ") ? List.of() : List.of(f));
+                        .isEqualTo(List.of(f));
             });
             assertThat(service.findByIds(OWNER, List.of(f.id()))).containsExactly(f);
             assertThat(count("attempt_form")).isEqualTo(1);
@@ -415,7 +436,7 @@ class FixedFormMySqlIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"READ_COMMITTED", "REPEATABLE_READ"})
+    @ValueSource(strings = {"READ_COMMITTED"})
     void transactionSeesItsOwnNewFormButSuccessfulServiceReturnDoesNotPreventOuterRollback(String isolation) {
         var r = savedRevision("own-write", 2);
         var f = form("own-write-form", r, 2);
@@ -445,7 +466,7 @@ class FixedFormMySqlIntegrationTest {
                 throw new SQLException("Synthetic reached post-item checkpoint", "08006");
             }
         };
-        var outer = new TransactionTemplate(transactions);
+        var outer = uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions.readCommitted(transactions);
         assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
             sql.update("UPDATE form_legacy_fixture SET marker='partial' WHERE id=1");
             rejected(() -> service.createOrReplay(OWNER, f), PERSISTENCE_UNAVAILABLE);
@@ -520,7 +541,7 @@ class FixedFormMySqlIntegrationTest {
             var entityManagers = factory.getObject();
             var manager = new JpaTransactionManager(entityManagers); manager.setDataSource(source);
             var jpaService = service(manager);
-            var tx = new TransactionTemplate(manager);
+            var tx = uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions.readCommitted(manager);
             tx.executeWithoutResult(status -> {
                 EntityManagerFactoryUtils.getTransactionalEntityManager(entityManagers)
                         .createNativeQuery("UPDATE form_legacy_fixture SET marker='committed' WHERE id=1").executeUpdate();
@@ -689,7 +710,7 @@ class FixedFormMySqlIntegrationTest {
     }
 
     private static TransactionTemplate transaction(String isolation) {
-        var tx = new TransactionTemplate(transactions);
+        var tx = uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions.readCommitted(transactions);
         tx.setIsolationLevel(isolation.equals("READ_COMMITTED") ? TransactionDefinition.ISOLATION_READ_COMMITTED
                 : TransactionDefinition.ISOLATION_REPEATABLE_READ);
         tx.setTimeout(20);
