@@ -15,8 +15,8 @@ import uk.gegc.quizmaker.features.attempt.application.AttemptSubmissionService;
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt;
 
 @RestController
-@RequestMapping("/api/v1/attempts")
-@Tag(name = "Attempts")
+@RequestMapping("/api/v2/attempts")
+@Tag(name = "Policy-driven Attempts")
 @ConditionalOnProperty(name = "quizmaker.attempts.submission-enabled", havingValue = "true")
 public class AttemptSubmissionController {
     private final AttemptSubmissionService submissions;

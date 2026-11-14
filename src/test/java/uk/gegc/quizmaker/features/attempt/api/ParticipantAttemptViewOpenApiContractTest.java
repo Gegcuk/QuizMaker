@@ -44,7 +44,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {AttemptController.class, ApiDiscoveryController.class})
+@WebMvcTest(controllers = {AttemptController.class, ParticipantAttemptViewController.class, ApiDiscoveryController.class})
 @TestPropertySource(properties = "quizmaker.attempts.participant-view-enabled=true")
 @Import({SecurityConfig.class, ParticipantAttemptViewErrorHandler.class, OpenApiConfig.class, OpenApiGroupConfig.class, ApiDocumentationService.class,
         SpringDocConfiguration.class, SpringDocWebMvcConfiguration.class, MultipleOpenApiSupportConfiguration.class,
@@ -67,7 +67,7 @@ class ParticipantAttemptViewOpenApiContractTest {
     @MockitoBean OAuth2AuthenticationFailureHandler oauthFailure;
     @MockitoBean OAuth2LoginAuthorizationRequestResolver oauthResolver;
     @MockitoBean OAuth2AuthorizationRequestContextRepository oauthRequests;
-    static final String PATH = "/api/v1/attempts/{attemptId}";
+    static final String PATH = "/api/v2/attempts/{attemptId}";
 
 
     @Test @WithMockUser void typedViewIgnoresCallerDisclosureAndPreservesAllContentVariants() throws Exception {
@@ -93,13 +93,13 @@ class ParticipantAttemptViewOpenApiContractTest {
         String body=mvc.perform(get(PATH,base.attemptId())).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(json.readValue(body,ParticipantAttemptView.class)).isEqualTo(timed);
         assertThat(json.readTree(body).path("timingDetails").path("effectiveDeadline").asText()).isEqualTo(deadline.toString());
-        for(String path:List.of("/v3/api-docs","/v3/api-docs/attempts")) {
+        for(String path:List.of("/v3/api-docs","/v3/api-docs/attempts-v2")) {
             var spec=json.readTree(mvc.perform(get(path)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
             var schemas=spec.path("components").path("schemas");
             assertThat(schemas.path("ParticipantAttemptView").at("/properties/timingDetails/$ref").asText()).isEqualTo("#/components/schemas/ParticipantAttemptTiming");
             assertThat(schemas.path("ParticipantAttemptTiming").path("properties").fieldNames()).toIterable()
                     .containsExactlyInAnyOrder("version","startedAt","effectiveDeadline","graceSeconds","serverTime","expired");
-            assertThat(matchesFormSchema(spec,schemas.path("AttemptDetailsResponse"),json.readTree(body),0)).isTrue();
+            assertThat(matchesFormSchema(spec,schemas.path("ParticipantAttemptView"),json.readTree(body),0)).isTrue();
         }
     }
 
@@ -107,10 +107,65 @@ class ParticipantAttemptViewOpenApiContractTest {
         var old = new AttemptDetailsDto(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), java.time.Instant.parse("2026-11-06T12:00:00Z"),
                 null, uk.gegc.quizmaker.features.attempt.domain.model.AttemptStatus.IN_PROGRESS,
                 uk.gegc.quizmaker.features.attempt.domain.model.AttemptMode.ALL_AT_ONCE, List.of());
-        when(views.read(old.attemptId())).thenReturn(old);
-        String body = mvc.perform(get(PATH, old.attemptId())).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        when(legacy.getAttemptDetail("user", old.attemptId())).thenReturn(old);
+        String body = mvc.perform(get("/api/v1/attempts/{attemptId}", old.attemptId())).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(json.readTree(body)).isEqualTo(json.valueToTree(old));
         assertThat(body).doesNotContain("representation", "stateVersion", "allowedActions", "quizRevisionId");
+        verifyNoInteractions(views);
+    }
+
+    @Test @WithMockUser void v1ReviewAndAnswerKeyNeverDelegateToTheEnabledTargetReader() throws Exception {
+        var id = UUID.randomUUID();
+        var review = new AttemptReviewDto(id, UUID.randomUUID(), UUID.randomUUID(),
+                java.time.Instant.EPOCH, java.time.Instant.EPOCH, 1.0, 1, 1, List.of());
+        when(legacy.getAttemptReview("user", id, false, false, false)).thenReturn(review);
+        when(legacy.getAttemptAnswerKey("user", id)).thenReturn(review);
+        for (String suffix : List.of("/review", "/answer-key")) {
+            var body = mvc.perform(get("/api/v1/attempts/{id}" + suffix, id)
+                            .param("includeUserAnswers", "false").param("includeCorrectAnswers", "false")
+                            .param("includeQuestionContext", "false"))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+            assertThat(json.readTree(body)).isEqualTo(json.valueToTree(review));
+        }
+        verify(legacy).getAttemptReview("user", id, false, false, false);
+        verify(legacy).getAttemptAnswerKey("user", id);
+        verifyNoInteractions(views);
+    }
+
+    @Test @WithMockUser void versionedSpecsExposeExactlyOneConcreteEnvelopePerRoute() throws Exception {
+        var full = json.readTree(mvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+        var v1 = json.readTree(mvc.perform(get("/v3/api-docs/attempts")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+        var v2 = json.readTree(mvc.perform(get("/v3/api-docs/attempts-v2")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+        for (String suffix : List.of("", "/review", "/answer-key")) {
+            String legacyPath = "/api/v1/attempts/{attemptId}" + suffix;
+            String targetPath = PATH + suffix;
+            String legacySchema = suffix.isEmpty() ? "AttemptDetailsDto" : "AttemptReviewDto";
+            assertThat(v1.path("paths").has(targetPath)).isFalse();
+            assertThat(v2.path("paths").has(legacyPath)).isFalse();
+            for (var spec : List.of(full, v1)) {
+                assertThat(spec.path("paths").path(legacyPath).path("get").path("tags"))
+                        .isEqualTo(json.valueToTree(List.of("Attempts")));
+                var response = spec.path("paths").path(legacyPath).path("get")
+                        .at("/responses/200/content/application~1json");
+                assertThat(response.at("/schema/$ref").asText()).isEqualTo("#/components/schemas/" + legacySchema);
+                for (var example : response.path("examples"))
+                    assertThat(matchesFormSchema(spec, response.path("schema"), example.path("value"), 0)).isTrue();
+            }
+            for (var spec : List.of(full, v2)) {
+                assertThat(spec.path("paths").path(targetPath).path("get").path("tags"))
+                        .isEqualTo(json.valueToTree(List.of("Policy-driven Attempts")));
+                assertThat(spec.path("paths").path(targetPath).path("get")
+                        .at("/responses/200/content/application~1json/schema/$ref").asText())
+                        .isEqualTo("#/components/schemas/ParticipantAttemptView");
+            }
+        }
+        var ids = new java.util.ArrayList<String>();
+        for (var path : full.path("paths")) for (var operation : path)
+            if (operation.has("operationId")) ids.add(operation.path("operationId").asText());
+        assertThat(ids).doesNotHaveDuplicates();
     }
 
     @ParameterizedTest @WithMockUser
@@ -134,37 +189,36 @@ class ParticipantAttemptViewOpenApiContractTest {
     }
 
     @Test @WithMockUser void schemasExamplesSecurityErrorsAndDiscoveryMatchTheActualResponses() throws Exception {
-        for (String url : List.of("/v3/api-docs", "/v3/api-docs/attempts")) {
+        for (String url : List.of("/v3/api-docs", "/v3/api-docs/attempts-v2")) {
             JsonNode spec = json.readTree(mvc.perform(get(url)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
             var op = spec.path("paths").path(PATH).path("get"); var schemas = spec.path("components").path("schemas");
             assertThat(op.path("security").get(0).has("bearerAuth")).isTrue();
-            assertThat(op.at("/responses/200/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/AttemptDetailsResponse");
-            assertThat(schemas.path("AttemptDetailsResponse").path("oneOf").findValuesAsText("$ref"))
-                    .containsExactlyInAnyOrder("#/components/schemas/AttemptDetailsDto", "#/components/schemas/ParticipantAttemptView");
+            assertThat(op.at("/responses/200/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/ParticipantAttemptView");
+            assertThat(schemas.path("ParticipantAttemptView").has("oneOf")).isFalse();
             for (String code : List.of("400", "401", "403", "404", "409", "422", "500", "503"))
                 assertThat(op.path("responses").path(code).findValuesAsText("$ref")).contains("#/components/schemas/ProblemDetail");
             for (String name : List.of("ParticipantAttemptView", "ParticipantAttemptItem", "ParticipantAttemptImage", "AttemptFormContent",
                     "AttemptFormChoices", "AttemptFormTrueFalse", "AttemptFormFillGap", "AttemptFormOrdering")) assertThat(schemas.has(name)).as(name).isTrue();
-            var examples = op.at("/responses/200/content/application~1json/examples"); assertThat(examples).hasSize(4);
-            for (var example : examples) assertThat(matchesFormSchema(spec, schemas.path("AttemptDetailsResponse"), example.path("value"), 0)).as("Example %s", example).isTrue();
+            var examples = op.at("/responses/200/content/application~1json/examples"); assertThat(examples).hasSize(3);
+            for (var example : examples) assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), example.path("value"), 0)).as("Example %s", example).isTrue();
             var value = json.valueToTree(fixture());
-            assertThat(matchesFormSchema(spec, schemas.path("AttemptDetailsResponse"), value, 0)).isTrue();
+            assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), value, 0)).isTrue();
             var invalid = (com.fasterxml.jackson.databind.node.ObjectNode) value.deepCopy(); invalid.put("schemaVersion", 2);
-            assertThat(matchesFormSchema(spec, schemas.path("AttemptDetailsResponse"), invalid, 0)).isFalse();
+            assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), invalid, 0)).isFalse();
             invalid.put("schemaVersion", 1); invalid.remove("stateVersion");
-            assertThat(matchesFormSchema(spec, schemas.path("AttemptDetailsResponse"), invalid, 0)).isFalse();
+            assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), invalid, 0)).isFalse();
             assertThat(schemas.path("ParticipantAttemptView").path("properties").toString()).doesNotContain("correctAnswer", "score", "explanation", "subjectId");
         }
         var matcher = new org.springframework.util.AntPathMatcher();
         assertThat(groups.stream().filter(g -> g.getPathsToMatch().stream().anyMatch(p -> matcher.match(p, PATH)))
-                .map(org.springdoc.core.models.GroupedOpenApi::getGroup)).containsExactly("attempts");
+                .map(org.springdoc.core.models.GroupedOpenApi::getGroup)).containsExactly("attempts-v2");
         var summary = json.readTree(mvc.perform(get("/api/v1/api-summary")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-        assertThat(summary.path("groups").findValuesAsText("specUrl")).contains("/v3/api-docs/attempts");
+        assertThat(summary.path("groups").findValuesAsText("specUrl")).contains("/v3/api-docs/attempts-v2");
     }
 
     @Test @WithMockUser void releasedSchemasReviewRoutesAndExamplesHaveUnambiguousTypedContracts() throws Exception {
         var matcher = new org.springframework.util.AntPathMatcher();
-        for (String specPath : List.of("/v3/api-docs", "/v3/api-docs/attempts")) {
+        for (String specPath : List.of("/v3/api-docs", "/v3/api-docs/attempts-v2")) {
             var spec = json.readTree(mvc.perform(get(specPath)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
             var schemas = spec.path("components").path("schemas");
             for (String name : List.of("ParticipantResultView", "ReleasedPracticeScore", "ReleasedPracticeItem", "ReleasedPracticeAnswer",
@@ -173,25 +227,24 @@ class ParticipantAttemptViewOpenApiContractTest {
             assertThat(schemas.path("ParticipantResultView").path("properties").path("items").path("items").path("$ref").asText())
                     .isEqualTo("#/components/schemas/ReleasedPracticeItem");
             var value = json.valueToTree(releasedFixture());
-            assertThat(matchesFormSchema(spec, schemas.path("AttemptDetailsResponse"), value, 0)).isTrue();
-            assertThat(matchesFormSchema(spec, schemas.path("AttemptReviewResponse"), value, 0)).isTrue();
+            assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), value, 0)).isTrue();
             var invalid = (com.fasterxml.jackson.databind.node.ObjectNode) value.deepCopy();
             ((com.fasterxml.jackson.databind.node.ObjectNode) invalid.at("/result/items/0/correctAnswer")).put("kind", "UNKNOWN");
-            assertThat(matchesFormSchema(spec, schemas.path("AttemptReviewResponse"), invalid, 0)).isFalse();
+            assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), invalid, 0)).isFalse();
             var legacy = json.valueToTree(new AttemptReviewDto(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                     java.time.Instant.EPOCH, java.time.Instant.EPOCH, 1.0, 1, 1, List.of()));
-            assertThat(matchesFormSchema(spec, schemas.path("AttemptReviewResponse"), legacy, 0)).isTrue();
+            assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), legacy, 0)).isFalse();
             for (String suffix : List.of("/review", "/answer-key")) {
                 String path = PATH + suffix;
                 var op = spec.path("paths").path(path).path("get");
                 assertThat(op.path("security").get(0).has("bearerAuth")).isTrue();
-                assertThat(op.at("/responses/200/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/AttemptReviewResponse");
+                assertThat(op.at("/responses/200/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/ParticipantAttemptView");
                 for (String code : List.of("401", "403", "404", "409", "422", "500", "503"))
                     assertThat(op.path("responses").path(code).findValuesAsText("$ref")).contains("#/components/schemas/ProblemDetail");
                 for (var example : op.at("/responses/200/content/application~1json/examples"))
-                    assertThat(matchesFormSchema(spec, schemas.path("AttemptReviewResponse"), example.path("value"), 0)).as(path).isTrue();
+                    assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), example.path("value"), 0)).as(path).isTrue();
                 assertThat(groups.stream().filter(g -> g.getPathsToMatch().stream().anyMatch(p -> matcher.match(p, path)))
-                        .map(org.springdoc.core.models.GroupedOpenApi::getGroup)).containsExactly("attempts");
+                        .map(org.springdoc.core.models.GroupedOpenApi::getGroup)).containsExactly("attempts-v2");
             }
         }
     }

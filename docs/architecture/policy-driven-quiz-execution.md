@@ -339,7 +339,7 @@ Current constraints include:
 
 The target architecture is additive.
 
-It introduces new policy-aware application services and persistence alongside the current implementation, then adapts existing routes through explicit compatibility adapters.
+It introduces policy-aware application services and persistence alongside the retained legacy implementation. Legacy attempt execution stays on `/api/v1`; policy-driven attempt execution uses explicit `/api/v2` routes. Clients adopt v2 deliberately; enabling target capabilities does not redirect legacy requests.
 
 The [owner's preservation decision](./decision-register.md#legacy-compatibility-and-retained-fallback) retains the existing API, quizzes/user data and required legacy execution path, including its writers. It refines [#688 D10/D29](https://github.com/Gegcuk/QuizMaker/issues/688): a preproduction cleanup cannot remove that required path or treat existing retained data as disposable. Any eligible disposable-data cleanup still needs an environment check, backup evidence and exact owner-confirmed scope. Target attempts retain their evidence and execution binding. [Operator-controlled fallback](./decision-register.md#operator-controlled-legacy-fallback) is decided; the exact [coordination and readiness evidence](./open-questions.md#oq-cutover) still precede activation.
 
@@ -3077,7 +3077,7 @@ Delivery may have security, timing, or exposure consequences.
 
 `AttemptDeliveryService.read` composes real #600 start evidence, #537 current participant access,
 #522 fixed form/order, persisted question-contract bindings and #528 lifecycle state. The additive
-`GET /api/v1/attempts/{attemptId}/form` adapter is absent unless
+`GET /api/v2/attempts/{attemptId}/form` adapter is absent unless
 `quizmaker.attempts.flat-delivery-enabled=true`; public activation remains gated by #609. Existing
 attempt routes, immediate practice feedback and legacy envelopes keep their behavior.
 
@@ -3103,7 +3103,7 @@ Missing accepted-response and completion facts remain unknown: #523 currently de
 only `VIEW_ATTEMPT`. Real answer/navigation/completion consumers (#543/#525/#529) must supply and
 verify their facts before advertising their actions; this increment does not claim those integrations.
 
-The named DTOs use a discriminated content union in the `attempts` OpenAPI group and API summary.
+The named target DTOs use a discriminated content union in the `attempts-v2` OpenAPI group and API summary.
 Failures return RFC 7807 without partial form content: `400` malformed ID, `401` unauthenticated,
 uniform `404` absent/foreign/legacy/ineligible roots (including unknown root versions), `409`
 inactive/busy, `422` unsupported saved delivery contract, `500` corrupt evidence and `503` storage
@@ -3127,15 +3127,18 @@ JSON, errors, examples, full/grouped OpenAPI, discovery and default-disabled act
 
 ### Canonical participant view (#526)
 
-`GET /api/v1/attempts/{attemptId}` has an optional `ParticipantAttemptViewService` adapter,
-registered only with `quizmaker.attempts.participant-view-enabled=true`. The default remains
-legacy. With the adapter enabled, an owned legacy-only attempt still returns the exact
-`AttemptDetailsDto` envelope, including its existing answers and nullable `completedAt`;
-it gains no target-only fields or inferred immutable history. A named OpenAPI `oneOf`
-distinguishes that schema from `ParticipantAttemptView` (`representation: POLICY_DRIVEN`,
-`schemaVersion: 1`). Unknown or incomplete target roots and mixed legacy/target identity
-never trigger legacy fallback. Route selection checks only the authenticated user's legacy
-row before current target-root probes, preserving non-enumeration and legacy snapshot reads.
+`GET /api/v2/attempts/{attemptId}` is owned by `ParticipantAttemptViewController` and
+`ParticipantAttemptViewService`, registered only with
+`quizmaker.attempts.participant-view-enabled=true`. The default remains disabled. Its
+concrete response is `ParticipantAttemptView` (`representation: POLICY_DRIVEN`,
+`schemaVersion: 1`); HTTP v2 does not change persisted policy/contract versions.
+
+`GET /api/v1/attempts/{attemptId}` always uses the legacy `AttemptService` and returns
+`AttemptDetailsDto`, including its existing answers and nullable `completedAt`. It gains
+no target-only fields and never delegates to the target reader when flags change. The
+v2 reader rejects legacy IDs, unknown/incomplete target roots and mixed identity; it never
+calls legacy answer readers. Existing identity resolution, owner checks and current-root
+probes remain in place, with their existing transaction/isolation and lock behavior.
 
 The target view uses the same `AttemptReadFactsService` as #524. It holds current access,
 lifecycle, policy, form/order, revision and contract evidence through projection, including
@@ -3163,8 +3166,9 @@ The shipped media adapter rejects media with `422`, rather than pretending missi
 is a storage outage. Active-media failure from a typed reader rejects the whole read with `503`;
 it cannot pause a timer, create a grade or perform technical cancellation.
 
-Adapter responses use `Cache-Control: no-store`; the schema is online-only, with no pagination,
-filters, sorting or idempotency key. The route remains in the `attempts` group and API summary.
+Target responses use `Cache-Control: no-store`; the schema is online-only, with no pagination,
+filters, sorting or idempotency key. The route belongs to `attempts-v2`; legacy stays in
+`attempts`. Both groups are discoverable through `/api/v1/api-summary`.
 Target RFC 7807 failures are `400` malformed ID, `401` unauthenticated, uniform `404`
 absent/foreign/ineligible/unknown root version, `409` lock contention, `422` unsupported saved
 contract, `500` corrupt evidence and `503` dependency failure. Exceptions contain no private
@@ -3176,9 +3180,9 @@ Automated evidence combines actual publication/binding/#600 start and HTTP reads
 for all nine question families and all three modes, real permission-revocation contention,
 concurrent readers, older caller snapshots, service recreation, corrupt/future-version evidence,
 rollback after injected SQL failure, and full/grouped OpenAPI examples. Complete target reads
-and serialization use 63 SELECTs for three independent participants/quizzes with either one or
-twenty questions; legacy mapping uses nine JPA statements for three parents with either one or
-twenty accepted answers. Route-selection JDBC statements are constant per legacy attempt.
+and serialization use 66 SELECTs for three independent participants/quizzes with either one or
+twenty questions; legacy HTTP mapping uses six JPA statements for three parents with either one or
+twenty accepted answers after #904. The v1 reader no longer performs target route-selection probes.
 
 The `PARTICIPANT-VIEW-MEDIA` tests use real persisted publication/image bindings, form, lifecycle
 and trace evidence plus typed disclosure/availability doubles. They prove DTO projection after
@@ -3408,7 +3412,7 @@ start captures the choice through an AUTHOR-only typed resolver override. Partic
 cannot enable it. Existing preset values, disabled-start fingerprints, historical snapshots and
 active attempts remain unchanged. Automatic client autosave scheduling remains disabled.
 
-The additive HTTP contract is `PUT`/`DELETE /api/v1/attempts/{attemptId}/drafts/{formItemId}`,
+The additive HTTP contract is `PUT`/`DELETE /api/v2/attempts/{attemptId}/drafts/{formItemId}`,
 registered only with `quizmaker.attempts.draft-commands-enabled=true` (default false).
 The registration flag never grants draft permission to an existing policy. Both commands
 require `Idempotency-Key`, expected attempt version and expected draft version. PUT carries
@@ -3440,7 +3444,7 @@ The acknowledgement contains attempt/item references, original attempt/draft ver
 and replay flag, without response content. Expected failures use RFC 7807: 400 malformed input,
 401 unauthenticated, non-enumerating 404, 409 conflict/stale/inactive, 422 invalid/unsupported,
 500 inconsistent evidence, and 503 unavailable/retryable/unknown outcome. Responses are no-store.
-Both operations belong only to the `attempts` OpenAPI group and API summary discovery.
+Both target operations belong only to the `attempts-v2` OpenAPI group and API summary discovery.
 Bounded command outcome metrics and sanitized exceptions omit values and idempotency keys.
 
 The real MySQL/HTTP command tests use authorized publication and opt-in start, not fabricated
@@ -3560,7 +3564,7 @@ A batch must not apply looser policy than individual commands.
 
 `ResponseAcceptanceService` composes the real saved form/contract readers, #523 guards, #528
 lifecycle, #538 trace and #599 receipt transaction. The additive
-`POST /api/v1/attempts/{attemptId}/responses` adapter is absent unless
+`POST /api/v2/attempts/{attemptId}/responses` adapter is absent unless
 `quizmaker.attempts.response-acceptance-enabled=true`; normal configuration leaves it disabled.
 It accepts `formItemId`, `expectedStateVersion`, a named five-family `response` union and the
 existing exact `Idempotency-Key` identity. Authentication, `ATTEMPT_CREATE`, bound participant
@@ -3609,7 +3613,7 @@ allowlist must permit `Idempotency-Key`; this issue does not alter the existing 
 
 `AttemptSubmissionService` owns the participant command for the existing authenticated,
 untimed, flat `ALL_AT_ONCE` immediate-acceptance slice. Its additive
-`POST /api/v1/attempts/{attemptId}/submit` adapter is absent unless
+`POST /api/v2/attempts/{attemptId}/submit` adapter is absent unless
 `quizmaker.attempts.submission-enabled=true`. Public routing activation, including any
 adaptation of the existing `/complete` route, remains #609. Existing legacy request/response
 envelopes and immediate practice feedback are preserved; web/iOS clients need no change while
@@ -4148,7 +4152,7 @@ The participant projection adds `TIMED` and the named optional `ParticipantAttem
 indicator. `UNTIMED` envelopes omit that field. Reads retain current access checks and `no-store`;
 source limits, snapshot IDs and operator facts are not disclosed. An expired indicator does not
 mean terminal processing has committed; it removes fresh actions while preserving the actual
-lifecycle evidence. Full/grouped OpenAPI share schema-valid examples and the existing attempts group.
+lifecycle evidence. Full/grouped OpenAPI share schema-valid examples in the `attempts-v2` group.
 
 There is no historical backfill: a verified `NONE` snapshot with no checkpoint stays untimed.
 A timed snapshot with missing, corrupt, mismatched or unsupported checkpoint fails closed and
@@ -4709,14 +4713,11 @@ Released answer payloads are named typed unions: `OPTIONS`, `ORDERED_ITEMS`, `BO
 display identifiers. Authoring source keys and display indexes are not response authority.
 No current mutable authoring content or scoring recalculation is used by the projection.
 
-With the existing participant-view adapter enabled, `GET /api/v1/attempts/{attemptId}/review`
-and `/answer-key` return the target `ParticipantAttemptView` through `AttemptReviewResponse`.
-The legacy `AttemptReviewDto` envelope and its legacy error behavior remain available for
-owned legacy-only roots; a missing or broken target never falls back to legacy. Review flags
-only narrow authorized categories; canonical detail flags grant nothing. Answer-key reads
-exclude submitted responses. The `attempts` OpenAPI group and API summary expose the named
-schemas and examples, authentication and `ProblemDetail` errors. Target responses use
-`Cache-Control: no-store`. Publication is online-only; no offline access grant is created.
+With the participant-view flag enabled, `GET /api/v2/attempts/{attemptId}/review`
+and `/answer-key` return the concrete target `ParticipantAttemptView`. Their v1 equivalents
+always use the legacy service and its `AttemptReviewDto` envelope and error behavior.
+Target review requires committed release and current RESULT access; include flags only
+narrow permitted fields. Target IDs are never converted to legacy attempts.
 
 Public start/answer/complete activation remains #609. Manual/scheduled release, corrections,
 certificates, #837 notification events and #800 delivery remain separate integrations. This
@@ -5925,7 +5926,7 @@ event survives and no accepted answer appears after completion. Full verify rema
 
 ### Compatible cutover with a retained legacy path
 
-Retain the old public API and the legacy implementation needed by supported flows and fallback. Existing quizzes and retained user data must remain usable under their supported contracts; users need not recreate them for the new architecture. Backend readiness does not imply frontend readiness. Compatible adapters can translate old requests into target commands once behavior and response compatibility are proven, while flows without a safe translation retain the legacy path.
+Retain the old public API and the legacy implementation needed by supported flows and fallback. Existing quizzes and retained user data must remain usable under their supported contracts; users need not recreate them for the new architecture. Backend readiness does not imply frontend readiness. Legacy v1 requests stay on the legacy engine. New target flows use v2 explicitly after their activation gates; frontend migration is required to adopt those capabilities. API version selection never grants permission or bypasses launch policy. There is no transparent target execution behind v1.
 
 The owner refinement supersedes unconditional target-only routing and removal of required legacy writers after the conditional [#688 D10/D29](https://github.com/Gegcuk/QuizMaker/issues/688) reset. Any separate cleanup is limited to proven disposable development/test data with exact scope, backup evidence and owner confirmation. Account, billing, quiz authoring, retained attempts and other user data remain protected; current inventory cannot be inferred from the existence of a preproduction exception.
 
@@ -5941,7 +5942,7 @@ Retirement of a retained legacy boundary continues to follow #688 D30: at least 
 
 ### Legacy attempts
 
-Historical attempts remain readable through compatibility adapters.
+Historical legacy attempts remain readable through their existing v1 services; existing target attempts remain on their v2 services. Neither version reconstructs or converts the other engine's evidence.
 
 The retained writer's timeout guard (#849) preserves its existing timing rule: only `TIMED` with an enabled quiz timer expires, strictly after `startedAt + timerDuration`. Equality remains on time; a stored duration does not enable a disabled timer. Answer and completion commands serialize on the attempt row and commit `ABANDONED` plus its completion timestamp before returning the existing `422 ProblemDetail`. A later completion cannot create a score or completion event. Pause/resume use the same row guard so a concurrent command cannot overwrite terminal state. Other command failures still roll back, including failures after real answer inserts or completion writes. These are legacy compatibility repairs, not activation of target expiry/finalization policy.
 
@@ -6360,7 +6361,7 @@ Formal D38 #668 unconditionally requires #614 persisted ONE_AT_A_TIME delivery/r
 
 ### Flat navigation boundary (#525)
 
-`POST /api/v1/attempts/{attemptId}/navigation` is additive and disabled unless
+`POST /api/v2/attempts/{attemptId}/navigation` is additive and disabled unless
 `quizmaker.attempts.navigation-commands-enabled=true`. It requires `ATTEMPT_READ`, the bound
 participant and current quiz ownership/full-content-editor authority. It accepts an immutable
 `formItemId`, `expectedStateVersion`, and a positive `expectedNavigationVersion` for sequential
@@ -6416,7 +6417,7 @@ Reads/resume do not move the cursor or append another delivery event. An outer r
 failure after a real insert leaves no partial assignment, receipt or evidence. Unknown commit
 outcomes require the original request/key; there is no speculative legacy fallback.
 
-`GET /api/v1/attempts/{attemptId}/form` returns only the current readable item and an optional
+`GET /api/v2/attempts/{attemptId}/form` returns only the current readable item and an optional
 `navigation` position/version for this mode. Its existing ALL_AT_ONCE envelope is unchanged.
 The active participant view applies the same current-item filter, including media reads; future
 text, options and media URLs are absent. A current accepted item may remain unreadable under
@@ -6425,7 +6426,7 @@ Read/navigation actions do not imply permission to answer. Direct answer and dra
 reject a non-current item with the same non-enumerating 404 as an unknown item. Post-completion
 review remains governed by its separate persisted release and per-category disclosure checks.
 
-`POST /api/v1/attempts/{attemptId}/navigation/next` accepts the named `NextAttemptItemRequest`:
+`POST /api/v2/attempts/{attemptId}/navigation/next` accepts the named `NextAttemptItemRequest`:
 `expectedStateVersion` and positive `expectedNavigationVersion`, plus `Idempotency-Key`.
 It returns `NavigateAttemptAcknowledgement`. The server selects the next permitted stop, so the
 client never needs a future item ID. Default answer-before-next, captured skip/return and

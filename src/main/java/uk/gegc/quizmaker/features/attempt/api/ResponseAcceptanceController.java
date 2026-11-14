@@ -16,8 +16,8 @@ import uk.gegc.quizmaker.features.attempt.application.ResponseAcceptanceService;
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt;
 
 @RestController
-@RequestMapping("/api/v1/attempts")
-@Tag(name = "Attempts")
+@RequestMapping("/api/v2/attempts")
+@Tag(name = "Policy-driven Attempts")
 @ConditionalOnProperty(name = "quizmaker.attempts.response-acceptance-enabled", havingValue = "true")
 public class ResponseAcceptanceController {
     private final ResponseAcceptanceService responses;

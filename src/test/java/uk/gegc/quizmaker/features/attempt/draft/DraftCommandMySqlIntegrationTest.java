@@ -259,7 +259,7 @@ class DraftCommandMySqlIntegrationTest {
                 new uk.gegc.quizmaker.features.attempt.api.DraftCommandController(commands, json))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.DraftCommandErrorHandler())
                 .setMessageConverters(converters.toArray(org.springframework.http.converter.HttpMessageConverter[]::new)).build();
-        String path = "/api/v1/attempts/" + f.start().attemptId() + "/drafts/" + f.reference().formItemId();
+        String path = "/api/v2/attempts/" + f.start().attemptId() + "/drafts/" + f.reference().formItemId();
         String body = "{\"expectedStateVersion\":2,\"expectedDraftVersion\":0,\"response\":{\"type\":\"TRUE_FALSE\",\"answer\":true}}";
         var put = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(path)
                 .header("Idempotency-Key", "http-save").contentType("application/json").content(body);

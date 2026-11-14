@@ -48,6 +48,13 @@ public class ApiDocumentationService {
                     36
             ),
             ApiGroupSummary.of(
+                    "attempts-v2",
+                    "Policy-driven Attempts",
+                    "Saved forms, participant views and commands for policy-driven attempts; separately gated",
+                    "🎯",
+                    10
+            ),
+            ApiGroupSummary.of(
                     "documents",
                     "Document Processing",
                     "Document ingestion, parsing, AI analysis, and transcript retrieval",

@@ -17,8 +17,8 @@ import uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands.T
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt;
 
 @RestController
-@RequestMapping("/api/v1/attempts/{attemptId}/drafts/{formItemId}")
-@Tag(name = "Attempts")
+@RequestMapping("/api/v2/attempts/{attemptId}/drafts/{formItemId}")
+@Tag(name = "Policy-driven Attempts")
 @ConditionalOnProperty(name = "quizmaker.attempts.draft-commands-enabled", havingValue = "true")
 @SecurityRequirement(name = "bearerAuth")
 @ApiResponse(responseCode = "200", description = "Committed draft command or identical replay", content = @Content(

@@ -282,14 +282,14 @@ class NavigationMySqlIntegrationTest {
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new NavigationController(navigation))
                 .setControllerAdvice(new NavigationErrorHandler()).build();
         String body = json.writeValueAsString(new uk.gegc.quizmaker.features.attempt.api.dto.NavigationRequest(f.id(1), 1L, 1L));
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/attempts/{id}/navigation", f.start().attemptId())
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v2/attempts/{id}/navigation", f.start().attemptId())
                         .header("Idempotency-Key", "next").contentType("application/json").content(body))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isConflict())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("NAVIGATION_ANSWER_REQUIRED"));
         assertThat(snapshot()).isEqualTo(before);
         assertThat(answer(f, 0, 1, "answer").stateVersion()).isEqualTo(2);
         body = json.writeValueAsString(new uk.gegc.quizmaker.features.attempt.api.dto.NavigationRequest(f.id(1), 2L, 1L));
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/attempts/{id}/navigation", f.start().attemptId())
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v2/attempts/{id}/navigation", f.start().attemptId())
                         .header("Idempotency-Key", "next").contentType("application/json").content(body))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.navigation.currentFormItemId").value(f.id(1).toString()))
@@ -677,7 +677,7 @@ class NavigationMySqlIntegrationTest {
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new NavigationController(navigation), new AttemptFormController(delivery))
                 .setControllerAdvice(new NavigationErrorHandler(), new AttemptDeliveryErrorHandler()).build();
         for (UUID id : List.of(f.id(1), f.id(2), UUID.randomUUID())) {
-            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/attempts/{id}/navigation", f.start().attemptId())
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v2/attempts/{id}/navigation", f.start().attemptId())
                             .header("Idempotency-Key", "probe-" + id).contentType("application/json")
                             .content(json.writeValueAsString(new uk.gegc.quizmaker.features.attempt.api.dto.NavigationRequest(id, 1L, 1L))))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound())
@@ -690,18 +690,18 @@ class NavigationMySqlIntegrationTest {
                 uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands.Type.SAVE_DRAFT, f.start().attemptId(), f.id(1),
                 1, 0, CommandReceipt.Key.from("future-draft"), QuestionType.TRUE_FALSE, json.createObjectNode().put("answer", true))))
                 .isInstanceOfSatisfying(DraftCommandException.class, e -> assertThat(e.reason()).isEqualTo(DraftCommandException.Reason.NOT_FOUND));
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/attempts/{id}/navigation/next", f.start().attemptId())
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v2/attempts/{id}/navigation/next", f.start().attemptId())
                         .header("Idempotency-Key", "next").contentType("application/json").content("{\"expectedStateVersion\":1,\"expectedNavigationVersion\":1}"))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isConflict())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("NAVIGATION_ANSWER_REQUIRED"));
         assertThat(snapshot()).isEqualTo(before);
         answer(f, 0, 1, "answer-a");
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/attempts/{id}/navigation/next", f.start().attemptId())
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v2/attempts/{id}/navigation/next", f.start().attemptId())
                         .header("Idempotency-Key", "next").contentType("application/json").content("{\"expectedStateVersion\":2,\"expectedNavigationVersion\":1}"))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.formItemId").value(f.id(1).toString()));
         current(f, 1, 2); assertThat(deliveredEvents()).isEqualTo(2);
-        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/attempts/{id}/form", f.start().attemptId()))
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v2/attempts/{id}/form", f.start().attemptId()))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.items.length()").value(1))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.navigation.version").value(2));
@@ -954,7 +954,7 @@ class NavigationMySqlIntegrationTest {
     private org.springframework.test.web.servlet.MockMvc currentItemHttp() {
         return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
                         new AttemptFormController(delivery), new NavigationController(navigation),
-                        new AttemptController(context.getBean(AttemptService.class), context.getBeanProvider(ParticipantAttemptViewService.class)))
+                        new ParticipantAttemptViewController(context.getBean(ParticipantAttemptViewService.class)))
                 .setControllerAdvice(new AttemptDeliveryErrorHandler(), new NavigationErrorHandler()).build();
     }
 
@@ -962,7 +962,7 @@ class NavigationMySqlIntegrationTest {
         var before = snapshot(); var mvc = currentItemHttp();
         for (String suffix : List.of("/form", "")) {
             var body = json.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                            .get("/api/v1/attempts/" + f.start().attemptId() + suffix)
+                            .get("/api/v2/attempts/" + f.start().attemptId() + suffix)
                             .principal(SecurityContextHolder.getContext().getAuthentication()))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Cache-Control", "no-store"))
@@ -980,7 +980,7 @@ class NavigationMySqlIntegrationTest {
         rejected(() -> navigation.next(next(f, 1, 2, "no-next-at-last")), NavigationException.Reason.TRANSITION_DENIED);
         currentItemActions(f, true);
         currentItemHttp().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                        .post("/api/v1/attempts/{id}/navigation", f.start().attemptId())
+                        .post("/api/v2/attempts/{id}/navigation", f.start().attemptId())
                         .header("Idempotency-Key", "return-skipped").contentType("application/json")
                         .content(json.writeValueAsString(new uk.gegc.quizmaker.features.attempt.api.dto.NavigationRequest(f.id(0), 1L, 2L))))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
@@ -994,7 +994,7 @@ class NavigationMySqlIntegrationTest {
         rejected(() -> navigation.next(next(f, 2, 2, "answer-required-before-next")), NavigationException.Reason.ANSWER_REQUIRED);
         currentItemActions(f, revisit);
         currentItemHttp().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                        .post("/api/v1/attempts/{id}/navigation", f.start().attemptId())
+                        .post("/api/v2/attempts/{id}/navigation", f.start().attemptId())
                         .header("Idempotency-Key", "return-accepted").contentType("application/json")
                         .content(json.writeValueAsString(new uk.gegc.quizmaker.features.attempt.api.dto.NavigationRequest(f.id(0), 2L, 2L))))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().is(revisit ? 200 : 404));

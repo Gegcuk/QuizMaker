@@ -173,7 +173,7 @@ class ApiDocumentationTest {
         assertThat(summary.path("fullDocsUrl").asText()).isEqualTo("/swagger-ui/index.html");
         assertThat(summary.path("groups").isArray()).isTrue();
         assertThat(summary.path("groups").findValuesAsText("group")).containsExactlyInAnyOrderElementsOf(Set.of(
-                "auth", "quizzes", "questions", "attempts", "documents", "billing",
+                "auth", "quizzes", "questions", "attempts", "attempts-v2", "documents", "billing",
                 "articles", "media", "bug-reports", "seo", "ai", "admin"));
         summary.path("groups").forEach(group -> {
             assertThat(group.path("displayName").asText()).isNotBlank();

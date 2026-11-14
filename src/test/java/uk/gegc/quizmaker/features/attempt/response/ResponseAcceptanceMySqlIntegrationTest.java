@@ -539,7 +539,7 @@ class ResponseAcceptanceMySqlIntegrationTest {
                 new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceController(responses, json))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceErrorHandler())
                 .setMessageConverters(converters.toArray(org.springframework.http.converter.HttpMessageConverter[]::new)).build();
-        String path = "/api/v1/attempts/" + started.attemptId() + "/responses";
+        String path = "/api/v2/attempts/" + started.attemptId() + "/responses";
         var body = json.createObjectNode().put("formItemId", items.get(0).id().toString()).put("expectedStateVersion", 1);
         var value = body.putObject("response").put("type", "MCQ_SINGLE").put("selectedOptionId", UUID.randomUUID().toString());
         var before = targetSnapshot();

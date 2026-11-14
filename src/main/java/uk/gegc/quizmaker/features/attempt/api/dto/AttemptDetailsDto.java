@@ -33,5 +33,5 @@ public record AttemptDetailsDto(
 
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "List of submitted answers")
         List<AnswerSubmissionDto> answers
-) implements AttemptDetailsResponse {
+) {
 }
