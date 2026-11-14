@@ -653,7 +653,8 @@ class AttemptStartMySqlIntegrationTest {
         var pool = Executors.newSingleThreadExecutor();
         try {
             var binder = pool.submit(() -> tx.executeWithoutResult(status -> {
-                contracts.declareScope(ownerId, Set.of(revision));
+                contracts.declareScope(ownerId, Set.of(revision),
+                        uk.gegc.quizmaker.features.question.domain.model.contract.ContractScopeIntent.WRITE);
                 contracts.resolve(ownerId, revision);
                 locked.countDown();
                 try { assertThat(release.await(15, TimeUnit.SECONDS)).isTrue(); }
@@ -695,7 +696,8 @@ class AttemptStartMySqlIntegrationTest {
         try {
             var editor = pool.submit(() -> tx.executeWithoutResult(status -> {
                 for (int i = 0; i < 100; i++) sql.update("INSERT INTO nested_start_deadlock_weight VALUES (?,0)", i);
-                contracts.declareScope(ownerId, Set.of(revision));
+                contracts.declareScope(ownerId, Set.of(revision),
+                        uk.gegc.quizmaker.features.question.domain.model.contract.ContractScopeIntent.WRITE);
                 contracts.resolve(ownerId, revision);
                 held.countDown();
                 try { assertThat(starting.await(10, TimeUnit.SECONDS)).isTrue(); }

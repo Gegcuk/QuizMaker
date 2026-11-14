@@ -13,6 +13,7 @@ import uk.gegc.quizmaker.features.question.application.QuestionContractRegistry;
 import uk.gegc.quizmaker.features.question.application.contract.v1.*;
 import uk.gegc.quizmaker.features.question.domain.model.contract.QuestionContractBinding;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
+import uk.gegc.quizmaker.features.question.domain.model.contract.ContractScopeIntent;
 import uk.gegc.quizmaker.features.quiz.application.QuizRevisionPublicationService;
 
 import java.util.*;
@@ -68,7 +69,7 @@ public class PublishedQuestionContractServiceImpl implements PublishedQuestionCo
             registry.resolve(binding).response().optionLayout(question);
             bindings.putIfAbsent(question.id(), binding);
         }
-        contracts.declareScope(revision.ownerId(), Set.of(revision.id()));
+        contracts.declareScope(revision.ownerId(), Set.of(revision.id()), ContractScopeIntent.WRITE);
         var result = List.copyOf(bindings.values());
         contracts.bind(revision.ownerId(), revision.id(), result);
         return result;

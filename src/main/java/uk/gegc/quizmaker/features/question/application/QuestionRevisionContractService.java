@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.question.application;
 
 import uk.gegc.quizmaker.features.question.application.contract.ResolvedQuestionContracts;
 import uk.gegc.quizmaker.features.question.domain.model.contract.QuestionContractBinding;
+import uk.gegc.quizmaker.features.question.domain.model.contract.ContractScopeIntent;
 
 import java.util.List;
 import java.util.Map;
@@ -15,10 +16,15 @@ import java.util.UUID;
  * a commit failure can have an unknown durable outcome. If joining an outer transaction,
  * its eventual completion and failure handling remain the caller's responsibility.
  * An external transaction must declare its complete quiz-revision set before bind/resolve.
- * The set cannot expand until that transaction completes. Standalone calls own a singleton scope.
+ * The set cannot expand until that transaction completes. READ uses shared identity locks;
+ * WRITE reserves exclusive locks before any resolution/binding. READ cannot upgrade to WRITE.
+ * Standalone resolve/bind own a singleton READ/WRITE scope respectively.
  */
 public interface QuestionRevisionContractService {
-    void declareScope(UUID ownerId, Set<UUID> quizRevisionIds);
+    default void declareScope(UUID ownerId, Set<UUID> quizRevisionIds) {
+        declareScope(ownerId, quizRevisionIds, ContractScopeIntent.READ);
+    }
+    void declareScope(UUID ownerId, Set<UUID> quizRevisionIds, ContractScopeIntent intent);
     void bind(UUID ownerId, UUID quizRevisionId, List<QuestionContractBinding> bindings);
     Map<UUID, ResolvedQuestionContracts> resolve(UUID ownerId, UUID quizRevisionId);
 }

@@ -234,7 +234,8 @@ class FormOptionOrderMySqlIntegrationTest {
         var firstWrites=new CountDownLatch(1);var secondLock=new CountDownLatch(1);var releaseFirst=new CountDownLatch(1);
         var contenders=new AtomicInteger();var pauseFirst=new AtomicBoolean(true);
         source.beforeSql=(statement,connection)->{
-            if(statement.contains("SELECT locked.id")&&statement.contains("FOR UPDATE")&&contenders.incrementAndGet()==2)
+            // Shared question scopes now pass concurrently; the form's unique root serializes replays.
+            if(statement.stripLeading().startsWith("INSERT INTO attempt_form (")&&contenders.incrementAndGet()==2)
                 secondLock.countDown();
             if(isOrderComparison(statement)&&pauseFirst.getAndSet(false)) {
                 assertThat(count("attempt_form")).isEqualTo(1);

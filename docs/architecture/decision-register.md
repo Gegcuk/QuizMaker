@@ -6,6 +6,18 @@ Synchronized: **23 October 2026**. This register summarizes approved issue claus
 
 Use [open questions](open-questions.md) for unresolved choices, conflicting clauses, engineering preparation, and ownership gaps. The [target architecture](policy-driven-quiz-execution.md) explains the model.
 
+## Question-contract lock intent (#906 phase A) — DECIDED
+
+**Decision date/source:** 14 November 2026, explicit owner request for phase A in the implementation chat.
+
+Participant contract resolution declares READ and takes shared question-identity locks, even
+inside a write transaction. Binding declares WRITE for its complete revision scope before any
+resolution and takes exclusive locks. READ-to-WRITE upgrades fail with terminal scope violation;
+owner checks, canonical order, rollback/savepoint and REQUIRES_NEW scope isolation remain.
+This permits independent authorized participants on one revision without weakening binding.
+It does not change transaction isolation or remove current-read/range locks. #905 and phase B
+remain separate work; general independence under old RR is not claimed by phase A.
+
 <a id="assignment-eligibility-window"></a>
 ## Assignment start availability boundaries — DECIDED
 

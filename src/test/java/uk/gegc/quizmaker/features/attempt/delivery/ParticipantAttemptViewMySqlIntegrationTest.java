@@ -444,6 +444,8 @@ class ParticipantAttemptViewMySqlIntegrationTest {
         var writerHeldQuestions = new CountDownLatch(1);
         var allowWriter = new CountDownLatch(1);
         var readerIssuedQuestions = new CountDownLatch(1);
+        var readerProjected = new CountDownLatch(1);
+        var allowReader = new CountDownLatch(1);
         var writerThread = new AtomicReference<Thread>();
         var readerThread = new AtomicReference<Thread>();
         var writerConnection = new AtomicInteger();
@@ -453,14 +455,14 @@ class ParticipantAttemptViewMySqlIntegrationTest {
             if (Thread.currentThread() == writerThread.get()
                     && statement.stripLeading().startsWith(timedStart ? "INSERT INTO attempt_timing" : "INSERT INTO attempt_trace_event")) {
                 // Hold the start at the timing boundary, after real form/lifecycle writes and question locks.
-                writerConnection.set(connection);
+                writerConnection.set(sql.queryForObject("SELECT CONNECTION_ID()", Integer.class));
                 writerHeldQuestions.countDown();
                 await(allowWriter);
             }
             if (Thread.currentThread() == readerThread.get()
                     && statement.contains("FROM question_revisions q")
                     && (statement.contains("FOR SHARE") || statement.contains("FOR UPDATE"))) {
-                readerConnection.set(connection);
+                readerConnection.set(sql.queryForObject("SELECT CONNECTION_ID()", Integer.class));
                 readerIssuedQuestions.countDown();
             }
         };
@@ -481,17 +483,32 @@ class ParticipantAttemptViewMySqlIntegrationTest {
                         assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class))
                                 .isEqualTo(isolation == TransactionDefinition.ISOLATION_REPEATABLE_READ ? "REPEATABLE-READ" : "READ-COMMITTED");
                         assertThat(sql.queryForObject("SELECT @@transaction_read_only", Boolean.class)).isEqualTo(readOnly);
-                        return view(previous.attemptId());
+                        var projected = view(previous.attemptId());
+                        assertThat(projected).isEqualTo(expected);
+                        readerProjected.countDown();
+                        await(allowReader);
+                        return projected;
                     });
                 } finally { SecurityContextHolder.clearContext(); }
             });
             assertThat(readerIssuedQuestions.await(10, TimeUnit.SECONDS)).as("view reaches real question-lock SQL").isTrue();
-            awaitQuestionLockWait();
-            assertThat(reading.isDone()).as("view really waits for the start, not merely for a Java barrier").isFalse();
+            assertThat(readerProjected.await(5, TimeUnit.SECONDS))
+                    .as("Shared question locks let the view read while the start is held").isTrue();
+            assertThat(writing.isDone()).isFalse();
             assertThat(readerConnection.get()).isNotEqualTo(writerConnection.get());
             allowWriter.countDown();
 
-            var created = writing.get(20, TimeUnit.SECONDS);
+            // Phase A does not remove the existing RR missing-timing gap lock. It must not
+            // form a cycle: the view has already projected through the start's shared locks.
+            if (isolation == TransactionDefinition.ISOLATION_REPEATABLE_READ && timedStart) {
+                awaitTimingLockWait(writerConnection.get(), readerConnection.get());
+                assertThat(writing.isDone()).isFalse();
+                allowReader.countDown();
+            }
+            var created = writing.get(5, TimeUnit.SECONDS);
+            if (isolation != TransactionDefinition.ISOLATION_REPEATABLE_READ || !timedStart)
+                assertThat(reading.isDone()).as("Start commits before the view releases its database locks").isFalse();
+            allowReader.countDown();
             try { assertThat(reading.get(20, TimeUnit.SECONDS)).isEqualTo(expected); }
             catch (ExecutionException failure) {
                 throw new AssertionError("View/start failed: isolation=" + isolation + ", readOnly=" + readOnly
@@ -513,24 +530,27 @@ class ParticipantAttemptViewMySqlIntegrationTest {
             var replay = starts.start(request);
             assertThat(replay.replayed()).isTrue(); assertThat(replay.attemptId()).isEqualTo(created.attemptId());
             System.out.println("Timing/read lock order: isolation=" + isolation + ", readOnly=" + readOnly
-                    + ", timedStart=" + timedStart + "; real question wait, both operations committed, no SQL errors");
+                    + ", timedStart=" + timedStart + "; view passed shared question locks, both operations committed, no SQL errors");
         } finally {
-            allowWriter.countDown(); pool.shutdownNow();
+            allowWriter.countDown(); allowReader.countDown(); pool.shutdownNow();
             assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); observer().reset();
         }
     }
 
-    private void awaitQuestionLockWait() throws InterruptedException {
+    private void awaitTimingLockWait(int writerConnection, int readerConnection) throws InterruptedException {
         long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
         do {
             if (admin.queryForObject("""
                     SELECT COUNT(*) FROM performance_schema.data_lock_waits w
                     JOIN performance_schema.data_locks l ON l.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID
-                    WHERE l.OBJECT_SCHEMA=? AND l.OBJECT_NAME='question_revisions'
-                    """, Integer.class, SCHEMA) > 0) return;
+                    JOIN information_schema.innodb_trx waiting ON waiting.trx_id=w.REQUESTING_ENGINE_TRANSACTION_ID
+                    JOIN information_schema.innodb_trx holding ON holding.trx_id=w.BLOCKING_ENGINE_TRANSACTION_ID
+                    WHERE l.OBJECT_SCHEMA=? AND l.OBJECT_NAME='attempt_timing'
+                      AND waiting.trx_mysql_thread_id=? AND holding.trx_mysql_thread_id=?
+                    """, Integer.class, SCHEMA, writerConnection, readerConnection) > 0) return;
             Thread.sleep(10);
         } while (System.nanoTime() < until);
-        throw new AssertionError("View never entered the expected MySQL question-revision lock wait");
+        throw new AssertionError("RR timed start never entered the expected timing gap wait on the held view");
     }
 
     @Test void authorityRemainsLockedThroughActualContentProjection() throws Exception {
