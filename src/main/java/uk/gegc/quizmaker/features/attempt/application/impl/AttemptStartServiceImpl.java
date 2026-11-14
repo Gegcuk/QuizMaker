@@ -1,5 +1,9 @@
 package uk.gegc.quizmaker.features.attempt.application.impl;
 
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -40,6 +44,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.preset.LegacyPract
 
 @Service
 public class AttemptStartServiceImpl implements AttemptStartService {
+    private final TransactionTemplate read;
     private final AttemptAllowanceService allowance;
     private final AttemptTimingService timing;
     private final AuthenticatedSubjectResolver identity;
@@ -63,7 +68,8 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                                    QuestionSelectionService selection, FixedFormMaterializer forms,
                                    AttemptSubjectService subjects, AttemptLifecycleService lifecycle,
                                    ExecutionTraceService trace, CommandReceiptService receipts, MeterRegistry metrics,
-                                   uk.gegc.quizmaker.features.attempt.domain.repository.NavigationRepository navigation, AttemptAllowanceService allowance, AttemptTimingService timing) {
+                                   uk.gegc.quizmaker.features.attempt.domain.repository.NavigationRepository navigation, AttemptAllowanceService allowance, AttemptTimingService timing, PlatformTransactionManager manager) {
+        this.read = AttemptTransactions.readCommitted(manager); this.read.setReadOnly(true);
         this.allowance = allowance; this.timing = timing;
         this.identity = identity; this.sources = sources; this.presets = presets; this.policies = policies;
         this.snapshots = snapshots; this.contracts = contracts; this.selection = selection; this.forms = forms;
@@ -71,12 +77,16 @@ public class AttemptStartServiceImpl implements AttemptStartService {
     }
 
     @Override public Result start(Command command) {
+        AttemptTransactions.requireCompatible(read.getTransactionManager(), true);
         Timer.Sample timer = null;
         try { timer = Timer.start(metrics); } catch (RuntimeException ignored) { /* best effort */ }
         String outcome = "rejected";
         try {
             validate(command);
-            var subject = identity.resolve(UUID.randomUUID());
+            var subject = read.execute(status -> {
+                try { return identity.resolve(UUID.randomUUID()); }
+                catch (RuntimeException failure) { throw translate(failure); }
+            });
             var request = new CommandReceipt.Request(1, subject.userId(), command.quizId(), AttemptCommands.Type.START,
                     command.content().quizRevisionId(), command.publicationVersion(), command.key(), fingerprint(command));
             // Invocation-local state: never retained across a retry, thread or process restart.
@@ -128,8 +138,7 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                         : access.timerEnabled() ? QuizTimerState.ENABLED : QuizTimerState.DISABLED, List.of(), null));
         if (mapping instanceof LegacyPracticeMapping.Unsupported) throw new AttemptStartException(UNSUPPORTED_LEGACY_MODE);
         require(mapping instanceof LegacyPracticeMapping.Mapped, UNSUPPORTED_CAPABILITY);
-        // Resolve current membership and take canonical exclusive question locks before any
-        // shared aggregate read. Otherwise simultaneous starts could both need a lock upgrade.
+        // Declare the complete READ scope before aggregate reads; binding alone reserves WRITE.
         contracts.declareScope(access.ownerId(), Set.of(command.content().quizRevisionId()));
         var revision = sources.readRevision(access, command.content().quizRevisionId());
         require(revision.schemaVersion() == command.content().revisionSchemaVersion(), UNSUPPORTED_VERSION);
@@ -254,6 +263,7 @@ public class AttemptStartServiceImpl implements AttemptStartService {
     }
 
     private static AttemptStartException translate(RuntimeException failure) {
+        AttemptTransactionException.preserve(failure);
         if (failure instanceof AttemptStartException start) return new AttemptStartException(start.reason(), start.nextEligibleAt());
         if (failure instanceof SubjectResolutionException subject) return new AttemptStartException(switch (subject.reason()) {
             case UNAUTHENTICATED -> UNAUTHENTICATED;

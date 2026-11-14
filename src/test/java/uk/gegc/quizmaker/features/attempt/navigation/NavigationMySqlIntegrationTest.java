@@ -35,6 +35,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.*;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.*;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.attempt.application.*;
@@ -114,6 +115,42 @@ import static org.assertj.core.api.Assertions.*;
         CommandReceiptServiceImpl.class, JdbcCommandReceiptRepository.class,
         NavigationMySqlIntegrationTest.Config.class})
 class NavigationMySqlIntegrationTest {
+    @ParameterizedTest @ValueSource(ints = {-1, 1, 4, 8, 2})
+    void rejectsIncompatibleCallerBeforeIdentityOrReservation(int isolation) {
+        var f = sequential(true, true);
+        var before = snapshot();
+        for (Runnable action : java.util.List.<Runnable>of(() -> navigation.navigate(move(f, 1, 1, 1L, "context")), () -> navigation.next(new NavigationService.NextCommand(f.start().attemptId(), 1, 1L, CommandReceipt.Key.from("next-context"))))) {
+            var caller = new TransactionTemplate(manager); caller.setIsolationLevel(isolation);
+            caller.setReadOnly(isolation == 2);
+            caller.executeWithoutResult(status -> {
+                sql.queryForObject("SELECT COUNT(*) FROM attempt_command_receipt", Integer.class);
+                observer().reset();
+                assertThatThrownBy(action::run).isInstanceOfSatisfying(
+                        uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException.class, failure -> {
+                            assertThat(failure.reason().name()).isEqualTo(isolation == 2 ? "READ_ONLY" : "INCOMPATIBLE_ISOLATION");
+                            assertThat(failure.getCause()).isNull(); assertThat(failure.getSuppressed()).isEmpty();
+                        });
+                assertThat(observer().selects).isEmpty(); status.setRollbackOnly();
+            });
+        }
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    @Test void allOwnedTransactionsIncludingIdentityAndFollowUpUseActualRc() {
+        var f = sequential(true, true);
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+        var observed = new java.util.concurrent.atomic.AtomicInteger();
+        observer().beforeSql = (statement, connection) -> {
+            if (statement.startsWith("SELECT @@transaction_isolation")) return;
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+            observed.incrementAndGet();
+        };
+        try { navigation.navigate(move(f, 1, 1, 1L, "actual-rc")); } finally { observer().reset(); }
+        assertThat(observed.get()).isPositive();
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+    }
+
     static final String SCHEMA = "flat_navigation_" + UUID.randomUUID().toString().replace("-", "");
     static JdbcTemplate admin;
     static boolean schemaCreated;
@@ -189,7 +226,7 @@ class NavigationMySqlIntegrationTest {
 
 
     @BeforeEach void setup() {
-        tx = new TransactionTemplate(manager); observer().reset();
+        tx = new TransactionTemplate(manager); tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED); observer().reset();
         username = "acceptance-" + UUID.randomUUID().toString().substring(0, 12);
         ownerId = user(username, true);
         grant(ownerId, "ATTEMPT_READ", "ATTEMPT_CREATE");
@@ -418,7 +455,7 @@ class NavigationMySqlIntegrationTest {
         rejected(() -> navigation.navigate(move(f, 0, 1, 2L, "control")), NavigationException.Reason.CONFLICT);
     }
 
-    @ParameterizedTest @CsvSource({"2,false", "4,false", "2,true", "4,true"})
+    @ParameterizedTest @CsvSource({"2,false", "2,true"})
     void concurrentCommandsHaveOneRealTransitionAndDurableReplay(int isolation, boolean identical) throws Exception {
         var f = sequential(true, true); var barrier = new CyclicBarrier(2); var pool = Executors.newFixedThreadPool(2);
         try {
@@ -523,8 +560,8 @@ class NavigationMySqlIntegrationTest {
         assertThat(count("attempt_navigation")).isZero(); assertThat(count("attempt_accepted_response")).isEqualTo(1);
     }
 
-    @Test void anOldRepeatableReadSnapshotUsesCurrentPositionAndCurrentReadAuthority() throws Exception {
-        var f = sequential(true, true); var older = new TransactionTemplate(manager); older.setIsolationLevel(Connection.TRANSACTION_REPEATABLE_READ);
+    @Test void rcCallerUsesCurrentPositionAndCurrentReadAuthority() throws Exception {
+        var f = sequential(true, true); var older = new TransactionTemplate(manager); older.setIsolationLevel(Connection.TRANSACTION_READ_COMMITTED);
         var pool = Executors.newSingleThreadExecutor();
         try {
             older.executeWithoutResult(s -> {
@@ -533,8 +570,8 @@ class NavigationMySqlIntegrationTest {
                     authenticate(username);
                     try { return navigation.navigate(move(f, 1, 1, 1L, "outside")); } finally { SecurityContextHolder.clearContext(); }
                 }).get(20, TimeUnit.SECONDS); } catch (Exception e) { throw new AssertionError(e); }
-                // This ordinary read still sees the old snapshot; the command's locking reads must see version 2.
-                assertThat(sql.queryForObject("SELECT row_version FROM attempt_navigation WHERE attempt_id=UUID_TO_BIN(?)", Long.class, f.start().attemptId().toString())).isEqualTo(1);
+                // RC observes the intervening commit without relying on an older snapshot.
+                assertThat(sql.queryForObject("SELECT row_version FROM attempt_navigation WHERE attempt_id=UUID_TO_BIN(?)", Long.class, f.start().attemptId().toString())).isEqualTo(2);
                 assertThat(navigation.navigate(move(f, 0, 1, 2L, "from-old-snapshot")).cursor().version()).isEqualTo(3);
             });
             assertThat(view(f).navigation().version()).isEqualTo(3);
@@ -729,7 +766,7 @@ class NavigationMySqlIntegrationTest {
         assertThat(count("attempt_accepted_response")).isEqualTo(4); assertThat(count("attempt_submission")).isEqualTo(1);
     }
 
-    @ParameterizedTest @CsvSource({"2,false", "4,false", "2,true", "4,true"})
+    @ParameterizedTest @CsvSource({"2,false", "2,true"})
     void oneAtATimeConcurrentNextCannotSkipAndReadersReconcile(int isolation, boolean identical) throws Exception {
         var f = oneAtATime(true, true, 3); var barrier = new CyclicBarrier(2); var pool = Executors.newFixedThreadPool(2);
         try {
@@ -926,8 +963,8 @@ class NavigationMySqlIntegrationTest {
         assertThat(navigation.navigate(move(f, 1, 1, 1L, "supported-old-next")).formItemId()).isEqualTo(f.id(1));
     }
 
-    @Test void oneAtATimeOlderRepeatableReadSnapshotUsesCurrentCommittedDelivery() throws Exception {
-        var f = oneAtATime(true, true, 3); var older = new TransactionTemplate(manager); older.setIsolationLevel(Connection.TRANSACTION_REPEATABLE_READ);
+    @Test void oneAtATimeRcCallerUsesCurrentCommittedDelivery() throws Exception {
+        var f = oneAtATime(true, true, 3); var older = new TransactionTemplate(manager); older.setIsolationLevel(Connection.TRANSACTION_READ_COMMITTED);
         var pool = Executors.newSingleThreadExecutor();
         try {
             older.executeWithoutResult(status -> {
@@ -935,7 +972,7 @@ class NavigationMySqlIntegrationTest {
                 try { pool.submit(() -> { authenticate(username); try { return navigation.next(next(f, 1, 1, "outside-current")); }
                     finally { SecurityContextHolder.clearContext(); } }).get(20, TimeUnit.SECONDS); }
                 catch (Exception e) { throw new AssertionError(e); }
-                assertThat(sql.queryForObject("SELECT row_version FROM attempt_navigation WHERE attempt_id=UUID_TO_BIN(?)", Long.class, f.start().attemptId().toString())).isEqualTo(1);
+                assertThat(sql.queryForObject("SELECT row_version FROM attempt_navigation WHERE attempt_id=UUID_TO_BIN(?)", Long.class, f.start().attemptId().toString())).isEqualTo(2);
                 var resumed = delivery.read(f.start().attemptId());
                 assertThat(resumed.navigation().version()).isEqualTo(2); assertThat(resumed.form().items()).containsExactly(f.items().get(1));
             });

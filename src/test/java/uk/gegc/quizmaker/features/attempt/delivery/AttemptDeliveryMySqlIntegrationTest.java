@@ -163,7 +163,7 @@ class AttemptDeliveryMySqlIntegrationTest {
 
 
     @BeforeEach void setup() {
-        tx = new TransactionTemplate(manager); observer().reset();
+        tx = new TransactionTemplate(manager); tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED); observer().reset();
         username = "delivery-" + UUID.randomUUID().toString().substring(0, 12);
         ownerId = user(username, true);
         grant(ownerId, "ATTEMPT_READ", "ATTEMPT_CREATE");
@@ -299,8 +299,8 @@ class AttemptDeliveryMySqlIntegrationTest {
         assertThat(targetSnapshot()).isEqualTo(before);
     }
 
-    @ParameterizedTest @ValueSource(ints = {Connection.TRANSACTION_READ_COMMITTED, Connection.TRANSACTION_REPEATABLE_READ})
-    void olderCallerSnapshotCannotRestoreInactiveState(int isolation) {
+    @ParameterizedTest @ValueSource(ints = {Connection.TRANSACTION_READ_COMMITTED})
+    void rcCallerCannotRestoreConcurrentlyTerminatedState(int isolation) {
         var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "delivery"));
         assertThat(delivery.read(started.attemptId()).stateVersion()).isEqualTo(1);
         var old = new TransactionTemplate(manager); old.setIsolationLevel(isolation);
@@ -318,8 +318,8 @@ class AttemptDeliveryMySqlIntegrationTest {
     }
 
     @ParameterizedTest(name = "isolation={0}, publishAfterSnapshot={1}")
-    @CsvSource({"2,false", "4,false", "2,true", "4,true"}) // JDBC READ_COMMITTED / REPEATABLE_READ
-    void olderSnapshotCanReadNewlyCommittedAttempt(int isolation, boolean publishAfterSnapshot) {
+    @CsvSource({"2,false", "2,true"}) // JDBC READ_COMMITTED composition
+    void rcCallerCanReadNewlyCommittedAttempt(int isolation, boolean publishAfterSnapshot) {
         UUID revision = publishAfterSnapshot ? null : prepared();
         var old = new TransactionTemplate(manager); old.setIsolationLevel(isolation);
         var separate = new TransactionTemplate(manager);

@@ -14,6 +14,10 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
 /**
  * Internal evidence only. The caller must hold a transaction through projection/serialization mapping.
  * Sanitized database conflicts reach the caller, which owns its outward command or read error contract.
+ *
+ * <p>V2 composition requires actual READ_COMMITTED; standalone owners set it explicitly.
+ * See {@link uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions}
+ * for ownership, rejection and JPA caller obligations. Legacy contracts are separate.
  */
 public interface AttemptReadFactsService {
     enum Purpose { ACTIVE_DELIVERY, PARTICIPANT_VIEW, ACCEPT_RESPONSE, SUBMIT_ATTEMPT, DRAFT_COMMAND, NAVIGATION }

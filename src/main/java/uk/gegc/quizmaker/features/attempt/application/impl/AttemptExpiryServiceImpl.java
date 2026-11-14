@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.attempt.application.impl;
 
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
 import java.time.*;
 import java.util.*;
 import java.util.function.Supplier;
@@ -31,8 +32,8 @@ public class AttemptExpiryServiceImpl implements AttemptExpiryService {
             Clock clock, MeterRegistry metrics, PlatformTransactionManager manager) {
         this.repository=repository; this.bindings=bindings; this.lifecycle=lifecycle; this.facts=facts;
         this.finalizer=finalizer; this.terminal=terminal; this.clock=clock; this.metrics=metrics;
-        write=new TransactionTemplate(manager); write.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-        read=new TransactionTemplate(manager); read.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW); read.setReadOnly(true);
+        write=AttemptTransactions.readCommitted(manager); write.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        read=AttemptTransactions.readCommitted(manager); read.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW); read.setReadOnly(true);
     }
     @Override public Result expire(UUID attemptId) {
         if(attemptId==null) throw new Failure(INVALID);

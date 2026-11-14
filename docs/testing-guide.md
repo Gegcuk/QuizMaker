@@ -2,6 +2,50 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## V2 READ_COMMITTED contract (#905)
+
+V2 standalone start/answer/submit/draft/navigation and participant reads explicitly own RC.
+Tests composing them must set outer RC explicitly; DEFAULT on a server-default RR database
+is intentionally rejected. `hibernate.connection.isolation=2` was ineffective with the configured
+pool and has been removed from both test profiles. Do not replace it with a global test RC default:
+that would hide missing transaction ownership and weaken legacy RR coverage.
+
+Run scoped boundaries first, using the existing isolated MySQL launcher and fake external ports:
+
+```bash
+./mvnw test -Dtest=AttemptTransactionsTest,CommandReceiptMySqlIntegrationTest,ResponseAcceptanceMySqlIntegrationTest
+./mvnw test -Dtest=AttemptStartMySqlIntegrationTest,AttemptDeliveryMySqlIntegrationTest,ParticipantAttemptViewMySqlIntegrationTest,DraftCommandMySqlIntegrationTest,NavigationMySqlIntegrationTest,AttemptSubmissionMySqlIntegrationTest,AutomaticResultMySqlIntegrationTest,ImmediateResultReleaseMySqlIntegrationTest,ParticipantViewLegacyHttpIntegrationTest
+```
+
+The rejection matrix covers DEFAULT-on-RR, explicit RR, READ_UNCOMMITTED, SERIALIZABLE,
+and read-only write callers before identity/domain SELECTs or reservations. Read-only RC reads
+remain permitted. NOT_FOUND still makes joined work rollback-only; post-read review INACTIVE
+still does not. Real JPA composition explicitly flushes inputs, refreshes JDBC outputs and
+keeps unrelated pending changes, with commit and outer rollback controls. Existing real deadlock,
+unknown-commit, authorization, sanitization and independent-participant tests remain.
+Only obsolete successful target-RR cases are withdrawn; lower-level and legacy RR tests remain.
+
+Workers retain independent RC read/write transactions: hold an outer RR snapshot, run expiry,
+grading or release, roll back the caller, and verify the worker's committed evidence in a fresh
+transaction. Validate actual connection isolation, not annotations. The receipt suite uses
+Performance Schema's per-thread statement history and a real Hikari pool for driver overhead,
+restoration/reuse, DEFAULT validation once across 500 calls, and suspension/resumption cleanup.
+The measured overhead on MySQL 8.0.46 and 8.4.11 is +3 server commands for standalone RC over RR,
++1 over an RC connection, and one check for a DEFAULT participating transaction.
+Use disposable MySQL 8.0 and 8.4 servers; the statement-history consumer must be enabled (the
+images enable it by default). Keep this observation separate from bounded application SELECTs.
+Suites change only their own pool default. Never change GLOBAL isolation inside a shared worker:
+other cached pools could reconnect during the change. A server-default RC comparison uses a
+separate disposable server and the receipt suite, followed by deletion of that server.
+
+After focused checks, run the unchanged full `verify` and evidence gate with four workers.
+Post-merge CI/CD checks remain enabled. Multi-parent fixtures with 1/20 items retain bounded
+query counts: view 66/66, delivery 60/60, draft save 123/123, draft delete 126/126, and
+navigation plus view JDBC 186/186 and JPA 15/15. Legacy view remains 6/6. These are measured
+application query counts across three parents; they do not count driver isolation commands.
+RC is not evidence of reduced whole-quiz rows/bytes,
+removal of all contention, or activation readiness; #906 B, #629/#907 and #609 retain those gates.
+
 ## Choose The Smallest Correct Test
 
 | Concern | Preferred test | What it proves |
@@ -65,9 +109,9 @@ Run the focused #556 checks with Java 17 and the existing test MySQL configurati
 The MySQL class creates its own `immediate_release_<id>` catalog through `TEST_MYSQL_PORT`
 and optional `TEST_MYSQL_ADMIN_USERNAME`/`TEST_MYSQL_ADMIN_PASSWORD`. It uses the real internal
 writers through publication, start, acceptance, submission, grading and release. No remote or
-paid provider is called. Fixture and participant-read isolation defaults to `REPEATABLE READ`;
-the publication command alone explicitly uses `READ_COMMITTED` in its `REQUIRES_NEW` transaction.
-The second command also checks the surrounding fixture/read paths at `READ COMMITTED`.
+paid provider is called. Fixture/pool isolation defaults to `REPEATABLE READ`; v2 command/read
+owners explicitly use RC. Release retains its independent RC transaction. The second command
+also checks pool defaults at RC; a suspended RR caller remains RR.
 
 Tests distinguish a missing result from a committed release, verify structural absence of
 protected fields, current RESULT authority, deterministic frozen answer identifiers, concurrent
@@ -320,13 +364,12 @@ The MySQL class creates an exclusive `attempt_acceptance_<id>` catalog through `
 and the existing optional administrative credentials, applies all migrations, and drops only
 that catalog. Publication, contract binding, start, access, acceptance, lifecycle, trace and
 receipt services are real; unexpected object-storage calls fail the fixture. Five families run
-with authored and shuffled option order. Independent transactions at READ_COMMITTED and
-REPEATABLE_READ require an actual acceptance winner, one immutable row/event/receipt, and
-durable replay through recreated command/receipt services. Older caller snapshots must observe
-the committed lifecycle version. Faults after each real authoritative write and before/after
+with authored and shuffled option order. Independent transactions at READ_COMMITTED require
+an actual acceptance winner, one immutable row/event/receipt, and durable replay through recreated
+services. RC callers observe the committed lifecycle version; RR callers reject before work. Faults after each real authoritative write and before/after
 the actual commit are followed by fresh reads and successful same-command recovery.
 Nested question-revision reads also preserve conflict classification: a real two-connection
-InnoDB deadlock at READ_COMMITTED and REPEATABLE_READ must return `RETRYABLE`, roll back the
+InnoDB deadlock with an RC command and a READ_COMMITTED or REPEATABLE_READ blocker must return `RETRYABLE`, roll back the
 reservation and all target state, and allow the same command to accept once after the competing
 transaction releases its locks. Injected 1205/connection-failure controls retain `IN_PROGRESS`/
 `UNAVAILABLE`; ordinary delivery keeps its existing `BUSY`/`UNAVAILABLE` read responses.
@@ -365,7 +408,8 @@ Use the existing test MySQL configuration (`TEST_MYSQL_PORT` and optional admini
 credentials). The integration suite creates and drops its own `automatic_result_<id>` catalog,
 keeps foreign keys enabled and runs actual publication, contract binding, start, response
 acceptance and terminal submission before grading. Only external image storage is a fake.
-Default isolation is explicitly `REPEATABLE READ`; the second command covers `READ COMMITTED`.
+Pool/fixture default is explicitly `REPEATABLE READ`; v2 owners use RC. The second command
+covers a READ_COMMITTED pool default. Grading stays independent of suspended caller rollback.
 
 Coverage includes correct/incorrect golden inputs for all five families, MCQ_MULTI all-or-nothing
 scoring, unanswered items, HALF_UP normalization and exact pass boundaries, immutable provenance,
@@ -459,8 +503,8 @@ instead of expecting participant question scopes to take an exclusive lock.
 ```
 
 Run full `./mvnw verify` after the scoped suites; keep post-merge verification. Phase A is not
-an RR gap-lock fix: retain old-RR regressions, current-read queries and isolation settings until
-the separately owned #905/phase B changes.
+an RR gap-lock fix. #905 narrows target composition to RC with explicit rejection tests;
+phase B still owns current-read query simplification. Legacy RR remains unchanged.
 
 ## External Systems And AI
 
@@ -591,7 +635,7 @@ With JDK 17 and the existing local test MySQL configuration, run:
 
 The start suite uses its exclusive generated catalog and actual canonical publication, receipt,
 form, policy, subject, lifecycle, trace and allowance writers. It checks identical/different-key
-races at both supported isolation levels, terminal counting, immutable limits, exact cooldown,
+races at RC, unsupported caller isolation rejection, terminal counting, immutable limits, exact cooldown,
 real InnoDB lock timeout, classified storage faults, reached-write rollback, restart/commit
 reconciliation and receipt-cleanup independence. The submission suite composes the real #529
 submission command with the gate: terminal submission permits a subsequent unlimited/remaining
@@ -608,12 +652,12 @@ Existing multi-parent start fixtures measure SQL SELECT counts for 5/10/20-item 
 receipt replay, including new bulk allowance reads; counts must remain constant. Separate races
 require two distinct publication guards to be reached together and both starts to commit, with
 and without prior history. Historical 1/3/5-start fixtures independently measure bounded bulk
-reads. Old-snapshot fixtures verify current terminal/count evidence at both isolation levels.
+reads. RC fixtures verify current terminal/count evidence after intervening commits.
 `AttemptLimitContractTest` plus existing policy golden fixtures check the original unlimited
 canonical bytes/hash, exact finite/duration round trips and forbidden participant overrides.
 The allowance review regressions also cover empty and partially missing directories with real
-retained bindings/lifecycle, finite and unlimited policies, both isolation levels and commits
-newer than an outer RR snapshot. A cardinality mismatch must return ELIGIBILITY_UNAVAILABLE
+retained bindings/lifecycle, finite and unlimited policies, and commits newer than an earlier
+RC read. Old-RR callers fail before work. A cardinality mismatch must return ELIGIBILITY_UNAVAILABLE
 without a second committed attempt or automatic repair. Restoring the fixture's directory must
 restore ordinary active/limit denial or permit a genuinely eligible unlimited start.
 
@@ -665,8 +709,9 @@ the evidence gate rejects missing or overlapping assignments and missing coverag
 Read `BaseIntegrationTest`, `DatabaseTestExecutionTagTest`, and
 `MavenVerificationContractTest` before changing test isolation. Do not remove transaction
 annotations, cleanup, or `@DirtiesContext` to improve timings. For example, a change to
-Anna's attempt completion must still prove that Boris can write independently, that old
-REPEATABLE_READ reads are correct, and that a caller rollback undoes every write.
+Anna's attempt completion must still prove that Boris can write independently and that caller
+rollback undoes every participating write. Preserve legacy old-REPEATABLE_READ tests; v2 has
+explicit RC participation and unsupported-isolation refusal tests.
 
 ### Writing suites that remain reliable with multiple workers
 

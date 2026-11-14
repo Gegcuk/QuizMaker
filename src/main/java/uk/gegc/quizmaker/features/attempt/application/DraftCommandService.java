@@ -7,7 +7,11 @@ import uk.gegc.quizmaker.features.attempt.domain.model.draft.AnswerDraft;
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt.Key;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
-/** Online private drafts only. Every invocation, including replay, revalidates current authority. */
+/** Online private drafts only. Every invocation, including replay, revalidates current authority.
+ * <p>V2 composition requires actual READ_COMMITTED; standalone owners set it explicitly.
+ * See {@link uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions}
+ * for ownership, rejection and JPA caller obligations. Legacy contracts are separate.
+ */
 public interface DraftCommandService {
     record Command(Type operation, UUID attemptId, UUID formItemId, long expectedStateVersion,
                    long expectedDraftVersion, Key key, QuestionType type, JsonNode response) {

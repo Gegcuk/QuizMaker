@@ -29,6 +29,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.*;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.*;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.attempt.application.*;
@@ -102,6 +103,42 @@ import static org.assertj.core.api.Assertions.*;
         CommandReceiptServiceImpl.class, JdbcCommandReceiptRepository.class,
         DraftCommandMySqlIntegrationTest.Config.class})
 class DraftCommandMySqlIntegrationTest {
+    @ParameterizedTest @ValueSource(ints = {-1, 1, 4, 8, 2})
+    void rejectsIncompatibleCallerBeforeIdentityOrReservation(int isolation) {
+        var f = fixture();
+        var before = targetSnapshot();
+        for (Runnable action : java.util.List.<Runnable>of(() -> commands.execute(save(f, 2, 0, "context", true)))) {
+            var caller = new TransactionTemplate(manager); caller.setIsolationLevel(isolation);
+            caller.setReadOnly(isolation == 2);
+            caller.executeWithoutResult(status -> {
+                sql.queryForObject("SELECT COUNT(*) FROM attempt_command_receipt", Integer.class);
+                observer().reset();
+                assertThatThrownBy(action::run).isInstanceOfSatisfying(
+                        uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException.class, failure -> {
+                            assertThat(failure.reason().name()).isEqualTo(isolation == 2 ? "READ_ONLY" : "INCOMPATIBLE_ISOLATION");
+                            assertThat(failure.getCause()).isNull(); assertThat(failure.getSuppressed()).isEmpty();
+                        });
+                assertThat(observer().selects).isEmpty(); status.setRollbackOnly();
+            });
+        }
+        assertThat(targetSnapshot()).isEqualTo(before);
+    }
+
+    @Test void allOwnedTransactionsIncludingIdentityAndFollowUpUseActualRc() {
+        var f = fixture();
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+        var observed = new java.util.concurrent.atomic.AtomicInteger();
+        observer().beforeSql = (statement, connection) -> {
+            if (statement.startsWith("SELECT @@transaction_isolation")) return;
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+            observed.incrementAndGet();
+        };
+        try { commands.execute(save(f, 2, 0, "actual-rc", true)); } finally { observer().reset(); }
+        assertThat(observed.get()).isPositive();
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+    }
+
     static final String SCHEMA = "answer_drafts_" + UUID.randomUUID().toString().replace("-", "");
     static JdbcTemplate admin;
     static boolean schemaCreated;
@@ -173,7 +210,7 @@ class DraftCommandMySqlIntegrationTest {
 
 
     @BeforeEach void setup() {
-        tx = new TransactionTemplate(manager); observer().reset();
+        tx = new TransactionTemplate(manager); tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED); observer().reset();
         username = "acceptance-" + UUID.randomUUID().toString().substring(0, 12);
         ownerId = user(username, true);
         grant(ownerId, "ATTEMPT_READ", "ATTEMPT_CREATE");
@@ -445,7 +482,7 @@ class DraftCommandMySqlIntegrationTest {
         assertThat(existing.resolution().policy().submission().draftsEnabled()).isFalse();
     }
 
-    @ParameterizedTest @CsvSource({"2,create", "4,create", "2,delete-save", "4,delete-save", "2,absent-delete", "4,absent-delete", "2,identical", "4,identical"})
+    @ParameterizedTest @CsvSource({"2,create", "2,delete-save", "2,absent-delete", "2,identical"})
     void independentWritersHaveAPermittedWinnerAndStableReplay(int isolation, String variant) throws Exception {
         var f = fixture();
         long version = variant.equals("delete-save") ? commands.execute(save(f, 2, 0, "seed", true)).draftVersion() : 0;

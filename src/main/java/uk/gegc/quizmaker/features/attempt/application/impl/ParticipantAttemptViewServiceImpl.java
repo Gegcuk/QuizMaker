@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.attempt.application.impl;
 
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.util.*;
@@ -35,10 +36,11 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
             ParticipantViewMediaReader media, PlatformTransactionManager manager, MeterRegistry metrics, java.time.Clock clock) {
         this.identity = identity; this.routes = routes; this.facts = facts;
         this.disclosure = disclosure; this.media = media; this.metrics = metrics; this.clock = clock;
-        transaction = new TransactionTemplate(manager); transaction.setReadOnly(true);
+        transaction = AttemptTransactions.readCommitted(manager); transaction.setReadOnly(true);
     }
 
     @Override public ParticipantAttemptView read(UUID attemptId) {
+        AttemptTransactions.requireCompatible(transaction.getTransactionManager(), false);
         Timer.Sample timer = Timer.start(); String outcome = "unavailable";
         try {
             var result = transaction.execute(status -> {

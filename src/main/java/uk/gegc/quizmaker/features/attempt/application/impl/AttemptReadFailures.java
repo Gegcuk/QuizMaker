@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.attempt.application.impl;
 
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.transaction.TransactionException;
 import uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAccessException;
@@ -15,6 +16,7 @@ final class AttemptReadFailures {
     private AttemptReadFailures() { }
 
     static AttemptDeliveryException translate(RuntimeException failure) {
+        AttemptTransactionException.preserve(failure);
         if (failure instanceof AttemptDeliveryException delivery) return new AttemptDeliveryException(delivery.reason());
         if (failure instanceof AttemptAccessException denied) return new AttemptDeliveryException(switch (denied.reason()) {
             case UNAUTHENTICATED -> UNAUTHENTICATED;

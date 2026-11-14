@@ -1,5 +1,8 @@
 package uk.gegc.quizmaker.features.attempt.application.impl;
 
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.micrometer.core.instrument.*;
 import io.micrometer.core.instrument.Timer;
@@ -20,6 +23,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseA
 
 @Service
 public class ResponseAcceptanceServiceImpl implements ResponseAcceptanceService {
+    private final TransactionTemplate read;
     private final AuthenticatedSubjectResolver identity;
     private final AttemptAccessService access;
     private final AttemptReadFactsService facts;
@@ -32,18 +36,23 @@ public class ResponseAcceptanceServiceImpl implements ResponseAcceptanceService 
 
     public ResponseAcceptanceServiceImpl(AuthenticatedSubjectResolver identity, AttemptAccessService access,
             AttemptReadFactsService facts, AttemptLifecycleService lifecycle, AcceptedResponseRepository answers,
-            CommandReceiptService receipts, ExecutionTraceService trace, Clock clock, MeterRegistry metrics) {
+            CommandReceiptService receipts, ExecutionTraceService trace, Clock clock, MeterRegistry metrics, PlatformTransactionManager manager) {
+        this.read = AttemptTransactions.readCommitted(manager); this.read.setReadOnly(true);
         this.identity = identity; this.access = access; this.facts = facts; this.lifecycle = lifecycle;
         this.answers = answers; this.receipts = receipts; this.trace = trace; this.clock = clock; this.metrics = metrics;
     }
 
     @Override public Result accept(Command c) {
+        AttemptTransactions.requireCompatible(read.getTransactionManager(), true);
         Timer.Sample timer = Timer.start(); String outcome = "unavailable";
         try {
             var receivedAt = clock.instant();
             require(c != null && c.attemptId() != null && c.formItemId() != null && c.expectedStateVersion() >= 0
                     && c.key() != null, INVALID_INPUT);
-            var subject = identity.resolve(c.attemptId());
+            var subject = read.execute(status -> {
+                try { return identity.resolve(c.attemptId()); }
+                catch (RuntimeException failure) { throw AttemptCommandFailures.translate(failure); }
+            });
             var stable = StableResponseNormalizer.canonical(c.type(), c.response());
             var input = stable.deepCopy().put("type", c.type().name());
             var request = new CommandReceipt.Request(1, subject.userId(), c.attemptId(), AttemptCommands.Type.SUBMIT_ANSWER,

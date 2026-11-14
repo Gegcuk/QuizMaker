@@ -8,6 +8,8 @@ import org.springframework.transaction.*;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.attempt.application.CommandReceiptService;
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException;
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt;
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.ReceiptException;
@@ -34,7 +36,7 @@ public class CommandReceiptServiceImpl implements CommandReceiptService {
     public CommandReceiptServiceImpl(CommandReceiptRepository repository, PlatformTransactionManager transactions,
                                      Clock clock, MeterRegistry metrics) {
         this.repository = repository; this.clock = clock; this.metrics = metrics;
-        write = new TransactionTemplate(transactions);
+        write = AttemptTransactions.readCommitted(transactions);
         mandatory = new TransactionTemplate(transactions);
         mandatory.setPropagationBehavior(TransactionDefinition.PROPAGATION_MANDATORY);
     }
@@ -45,6 +47,7 @@ public class CommandReceiptServiceImpl implements CommandReceiptService {
             require(request != null && authorization != null && work != null, INVALID_INPUT);
             // Before any protected existence, replay, conflict, expiry or version inspection.
             try { authorization.check(); }
+            catch (AttemptTransactionException failure) { throw new AttemptTransactionException(failure.reason()); }
             catch (DatabaseConflictException failure) { throw databaseFailure(failure); }
             catch (RuntimeException failure) { throw new ReceiptException(ACCESS_DENIED); }
             var now = CommandReceipt.time(clock.instant());
@@ -86,9 +89,10 @@ public class CommandReceiptServiceImpl implements CommandReceiptService {
     }
 
     private <T> T run(String operation, TransactionTemplate transaction, Supplier<T> action) {
+        AttemptTransactions.requireCompatible(transaction.getTransactionManager(), true);
         var sample = Timer.start();
         String outcome = "unknown_outcome";
-        class Execution { boolean entered; ReceiptException failure; }
+        class Execution { boolean entered; RuntimeException failure; }
         var execution = new Execution();
         try {
             T result = transaction.execute(status -> {
@@ -98,7 +102,8 @@ public class CommandReceiptServiceImpl implements CommandReceiptService {
                 // Sanitize BEFORE TransactionTemplate can log rollback diagnostics. Preserve only
                 // fixed reasons; never retain callback/driver cause, suppressed errors or messages.
                 catch (RuntimeException failure) {
-                    execution.failure = failure instanceof ReceiptException receipt ? new ReceiptException(receipt.reason())
+                    execution.failure = failure instanceof AttemptTransactionException invalid ? new AttemptTransactionException(invalid.reason())
+                            : failure instanceof ReceiptException receipt ? new ReceiptException(receipt.reason())
                             : (failure instanceof DataAccessException || failure instanceof DatabaseConflictException)
                             ? databaseFailure(failure)
                             : new ReceiptException(COMMAND_DENIED);
@@ -111,9 +116,10 @@ public class CommandReceiptServiceImpl implements CommandReceiptService {
             outcome = result instanceof Result r && r.replayed() ? "replay_returned" : "returned";
             return result;
         } catch (RuntimeException failure) {
+            if (failure == execution.failure) AttemptTransactionException.preserve(failure);
             // Only the exact failure emitted by the action has a known execution outcome.
             // Completion can fail even after commit, regardless of the exception's type/reason.
-            var reason = failure == execution.failure ? execution.failure.reason()
+            var reason = failure == execution.failure ? ((ReceiptException) execution.failure).reason()
                     : !execution.entered && failure instanceof CannotCreateTransactionException ? PERSISTENCE_UNAVAILABLE
                     : UNKNOWN_OUTCOME;
             outcome = reason.name().toLowerCase(Locale.ROOT);

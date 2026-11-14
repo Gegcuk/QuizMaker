@@ -336,7 +336,11 @@ class AttemptAccessMySqlIntegrationTest {
         outer.executeWithoutResult(status -> {
             assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_participant_subject", Integer.class)).isZero();
             var separate = new TransactionTemplate(manager); separate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            separate.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED); // V2 start owns RC; access still supports the outer RR.
             var started = separate.execute(s -> starts.start(command(revision, AnswerOrder.AUTHORED, "new-target")));
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class))
+                    .isEqualTo(level == 1 ? "READ-COMMITTED" : "REPEATABLE-READ");
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_participant_subject", Integer.class)).isEqualTo(level == 1 ? 1 : 0);
             assertThat(access.requireAccess(started.attemptId(), Operation.VIEW).attemptId()).isEqualTo(started.attemptId());
         });
     }

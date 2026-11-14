@@ -6,6 +6,29 @@ Synchronized: **23 October 2026**. This register summarizes approved issue claus
 
 Use [open questions](open-questions.md) for unresolved choices, conflicting clauses, engineering preparation, and ownership gaps. The [target architecture](policy-driven-quiz-execution.md) explains the model.
 
+<a id="v2-read-committed"></a>
+## V2 execution transaction contract (#905) — DECIDED
+
+**Decision date/source:** 14 November 2026, explicit owner request to implement #905 after #906 phase A.
+
+Standalone v2 commands and participant reads own READ_COMMITTED transactions. Participating
+calls require actual RC; unsupported or unresolved isolation is rejected before identity/domain
+SQL or receipt reservation. Writes also reject read-only callers. DEFAULT metadata requires
+one bounded inspection of the enlisted connection, cached for that transaction and suspended
+with it. Existing expiry, automatic-result and release workers retain independent REQUIRES_NEW
+transactions, now explicitly RC. No other command silently suspends its caller.
+
+Domain effects, trace and receipt remain atomic, and participating returns are provisional.
+JPA callers flush relevant pending inputs before JDBC work and refresh/reload stale managed
+outputs afterward; services do not unconditionally flush or clear the persistence context.
+Current authorization, rollback-only on caught participating work failures, commit uncertainty,
+exact replay, and post-read review INACTIVE semantics are preserved. Invalid composition is a
+bounded integration error, not a retryable command outcome.
+
+Legacy v1, V108, the independent RR compatibility report, publication/binding contracts and
+global pool/server defaults remain separate. #906 phase B owns removal of freshness-only locks;
+#629 will integrate its batch owner with this contract before activation.
+
 ## Question-contract lock intent (#906 phase A) — DECIDED
 
 **Decision date/source:** 14 November 2026, explicit owner request for phase A in the implementation chat.
@@ -15,8 +38,8 @@ inside a write transaction. Binding declares WRITE for its complete revision sco
 resolution and takes exclusive locks. READ-to-WRITE upgrades fail with terminal scope violation;
 owner checks, canonical order, rollback/savepoint and REQUIRES_NEW scope isolation remain.
 This permits independent authorized participants on one revision without weakening binding.
-It does not change transaction isolation or remove current-read/range locks. #905 and phase B
-remain separate work; general independence under old RR is not claimed by phase A.
+Phase A itself does not change isolation or remove current-read/range locks. The subsequent
+#905 contract above narrows v2 composition to RC; phase B remains separate work.
 
 <a id="assignment-eligibility-window"></a>
 ## Assignment start availability boundaries — DECIDED

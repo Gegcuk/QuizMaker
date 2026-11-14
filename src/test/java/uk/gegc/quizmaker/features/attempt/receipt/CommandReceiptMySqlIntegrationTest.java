@@ -25,6 +25,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionSynchronizationUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.attempt.application.*;
+import uk.gegc.quizmaker.features.attempt.application.transaction.*;
 import uk.gegc.quizmaker.features.attempt.application.impl.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands;
 import uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.*;
@@ -106,6 +107,121 @@ class CommandReceiptMySqlIntegrationTest {
     @AfterAll static void dropOnlyOwnedCatalog() {
         if (source != null) source.reset();
         if (catalog != null) admin.execute("DROP DATABASE " + catalog);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"authorization", "work", "commit"})
+    void transactionViolationIsBoundedThroughReceiptButCompletionStillHasUnknownOutcome(String phase) throws Exception {
+        var failure = new AttemptTransactionException(AttemptTransactionException.Reason.INCOMPATIBLE_ISOLATION);
+        failure.addSuppressed(new IllegalStateException("private-marker"));
+        var reached = new AtomicBoolean(); var request = request("violation");
+        if (phase.equals("commit")) source.afterCommit = c -> { reached.set(true); throw failure; };
+        var observed = catchThrowable(() -> service.execute(request, () -> {
+            if (phase.equals("authorization")) { reached.set(true); throw failure; }
+        }, id -> {
+            var result = start(user);
+            if (phase.equals("work")) { reached.set(true); throw failure; }
+            return result;
+        }));
+        source.reset(); assertThat(reached).isTrue();
+        if (phase.equals("commit")) {
+            assertThat(observed).isInstanceOfSatisfying(ReceiptException.class, e -> assertThat(e.reason()).isEqualTo(UNKNOWN_OUTCOME));
+        } else assertThat(observed).isInstanceOfSatisfying(AttemptTransactionException.class,
+                e -> assertThat(e.reason()).isEqualTo(AttemptTransactionException.Reason.INCOMPATIBLE_ISOLATION));
+        assertThat(observed).hasNoCause(); assertThat(observed.getSuppressed()).isEmpty();
+        assertThat(count("attempt_command_receipt")).isEqualTo(phase.equals("commit") ? 1 : 0);
+        assertThat(count("attempt_lifecycle_state")).isEqualTo(phase.equals("commit") ? 1 : 0);
+        assertThat(service.execute(request, () -> {}, id -> start(user)).replayed()).isEqualTo(phase.equals("commit"));
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"TRANSACTION_REPEATABLE_READ", "TRANSACTION_READ_COMMITTED"})
+    void pooledConnectionIsolationCommandsAreMeasuredOnTheServerAndRestored(String defaultIsolation) throws Exception {
+        var config = new com.zaxxer.hikari.HikariConfig(); config.setDataSource(source.getTargetDataSource());
+        config.setMaximumPoolSize(1); config.setMinimumIdle(1); config.setTransactionIsolation(defaultIsolation);
+        try (var pool = new com.zaxxer.hikari.HikariDataSource(config)) {
+            var transactionManager = new DataSourceTransactionManager(pool); var jdbc = new JdbcTemplate(pool);
+            long connectionId = jdbc.queryForObject("SELECT CONNECTION_ID()", Long.class);
+            long thread = admin.queryForObject("SELECT THREAD_ID FROM performance_schema.threads WHERE PROCESSLIST_ID=?", Long.class, connectionId);
+            var normal = new TransactionTemplate(transactionManager);
+            var rc = AttemptTransactions.readCommitted(transactionManager);
+            var baseline = serverStatements(thread, () -> normal.executeWithoutResult(status -> jdbc.queryForObject("SELECT 905", Integer.class)));
+            var owned = serverStatements(thread, () -> rc.executeWithoutResult(status -> jdbc.queryForObject("SELECT 905", Integer.class)));
+            assertThat(owned).contains("COMMIT", "SELECT 905");
+            var isolationStatements = owned.stream().filter(q -> q.contains("transaction_isolation") || q.contains("ISOLATION LEVEL")).toList();
+            boolean rr = defaultIsolation.equals("TRANSACTION_REPEATABLE_READ");
+            if (rr) assertThat(isolationStatements).containsExactly("SELECT @@session.transaction_isolation",
+                    "SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED", "SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+            else assertThat(isolationStatements).containsExactly("SELECT @@session.transaction_isolation");
+            assertThat(owned.size() - baseline.size()).isEqualTo(rr ? 3 : 1);
+            var validated = serverStatements(thread, () -> normal.executeWithoutResult(status -> {
+                if (rr) {
+                    assertThatThrownBy(() -> AttemptTransactions.requireCompatible(transactionManager, false))
+                            .isInstanceOf(AttemptTransactionException.class);
+                } else for (int i = 0; i < 500; i++) AttemptTransactions.requireCompatible(transactionManager, true);
+            }));
+            assertThat(validated.stream().filter(q -> q.contains("transaction_isolation"))).hasSize(1);
+            assertThat(jdbc.queryForObject("SELECT CONNECTION_ID()", Long.class)).isEqualTo(connectionId);
+            assertThat(jdbc.queryForObject("SELECT @@transaction_isolation", String.class))
+                    .isEqualTo(rr ? "REPEATABLE-READ" : "READ-COMMITTED");
+            normal.executeWithoutResult(status -> assertThat(jdbc.queryForObject("SELECT @@transaction_isolation", String.class))
+                    .isEqualTo(rr ? "REPEATABLE-READ" : "READ-COMMITTED"));
+            System.out.println("905 server isolation commands " + defaultIsolation + ": baseline=" + baseline + "; owned=" + owned + "; participating=" + validated);
+        }
+    }
+
+    private static List<String> serverStatements(long thread, Runnable action) {
+        Long last = admin.queryForObject("SELECT COALESCE(MAX(EVENT_ID),0) FROM performance_schema.events_statements_history WHERE THREAD_ID=?", Long.class, thread);
+        action.run();
+        var statements = admin.queryForList("SELECT SQL_TEXT FROM performance_schema.events_statements_history WHERE THREAD_ID=? AND EVENT_ID>? AND SQL_TEXT IS NOT NULL ORDER BY EVENT_ID", String.class, thread, last);
+        assertThat(statements).isNotEmpty().hasSizeLessThan(10); // Stay below MySQL's per-thread history capacity.
+        return statements;
+    }
+
+    @Test void defaultRcCallerParticipatesAndStandaloneRestoresConfiguredPoolDefault() throws Exception {
+        var request = request("default-rc");
+        var original = source.getTargetDataSource();
+        String serverDefault = admin.queryForObject("SELECT @@global.transaction_isolation", String.class);
+        var config = new com.zaxxer.hikari.HikariConfig(); config.setDataSource(original);
+        config.setMaximumPoolSize(1); config.setMinimumIdle(1); config.setTransactionIsolation("TRANSACTION_READ_COMMITTED");
+        try (var pool = new com.zaxxer.hikari.HikariDataSource(config)) {
+            // Only this suite's DataSource/connection default changes, never the worker's server.
+            source.setTargetDataSource(pool);
+            try {
+                var caller = new TransactionTemplate(manager);
+                caller.executeWithoutResult(status -> {
+                    assertThat(TransactionSynchronizationManager.getCurrentTransactionIsolationLevel()).isNull();
+                    assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+                    source.isolationReads.set(0);
+                    assertThat(service.execute(request, () -> {}, id -> start(user)).replayed()).isFalse();
+                    assertThat(service.execute(request, () -> {}, id -> fail("Replay executed work")).replayed()).isTrue();
+                    assertThat(source.isolationReads.get()).isEqualTo(1);
+                    status.setRollbackOnly();
+                });
+                assertThat(count("attempt_command_receipt")).isZero(); assertThat(count("attempt_lifecycle_state")).isZero();
+                assertThat(service.execute(request, () -> {}, id -> start(user)).replayed()).isFalse();
+                assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+            } finally { source.setTargetDataSource(original); }
+        }
+        assertThat(admin.queryForObject("SELECT @@global.transaction_isolation", String.class)).isEqualTo(serverDefault);
+    }
+
+    @Test void defaultRcProofIsSuspendedWithItsConnectionAndClearedAfterCompletion() {
+        var config = new com.zaxxer.hikari.HikariConfig(); config.setDataSource(source.getTargetDataSource());
+        config.setMaximumPoolSize(2); config.setMinimumIdle(2); config.setTransactionIsolation("TRANSACTION_READ_COMMITTED");
+        try (var pool = new com.zaxxer.hikari.HikariDataSource(config)) {
+            var measured = new ReceiptDataSource(pool); var tm = new DataSourceTransactionManager(measured);
+            var outer = new TransactionTemplate(tm); var child = new TransactionTemplate(tm);
+            child.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            outer.executeWithoutResult(status -> {
+                AttemptTransactions.requireCompatible(tm, true); assertThat(measured.isolationReads.get()).isEqualTo(1);
+                child.executeWithoutResult(inner -> {
+                    AttemptTransactions.requireCompatible(tm, true); assertThat(measured.isolationReads.get()).isEqualTo(2);
+                });
+                AttemptTransactions.requireCompatible(tm, true); assertThat(measured.isolationReads.get()).isEqualTo(2);
+                status.setRollbackOnly();
+            });
+            outer.executeWithoutResult(status -> AttemptTransactions.requireCompatible(tm, false));
+            assertThat(measured.isolationReads.get()).isEqualTo(3);
+        }
     }
 
     @Test
@@ -196,7 +312,7 @@ class CommandReceiptMySqlIntegrationTest {
     @Test
     void outerRollbackAndReentrantExecutionCannotLeaveCommittedReceipts() throws Exception {
         var request = request("outer");
-        tx("REPEATABLE_READ").executeWithoutResult(status -> { execute(request); status.setRollbackOnly(); });
+        tx("READ_COMMITTED").executeWithoutResult(status -> { execute(request); status.setRollbackOnly(); });
         assertThat(count("attempt_command_receipt")).isZero(); assertThat(count("attempt_lifecycle_state")).isZero();
         rejected(() -> service.execute(request, () -> {}, id -> {
             service.execute(request, () -> {}, nested -> start(user));
@@ -471,8 +587,7 @@ class CommandReceiptMySqlIntegrationTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"READ_COMMITTED,identical", "REPEATABLE_READ,identical", "READ_COMMITTED,conflicting",
-            "REPEATABLE_READ,conflicting", "READ_COMMITTED,rollback", "REPEATABLE_READ,rollback"})
+    @CsvSource({"READ_COMMITTED,identical", "READ_COMMITTED,conflicting", "READ_COMMITTED,rollback"})
     void concurrentFirstRequestsWaitForTheRealWinnerOrTakeOverOnlyAfterItsRollback(String isolation, String kind) throws Exception {
         var request = request("concurrent");
         var secondRequest = kind.equals("conflicting") ? new Request(1, user, request.contextId(), request.operation(),
@@ -512,7 +627,7 @@ class CommandReceiptMySqlIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"READ_COMMITTED", "REPEATABLE_READ"})
+    @ValueSource(strings = {"READ_COMMITTED"})
     void unrelatedKeysDoNotSerializeThroughAbsentKeyGapLocks(String isolation) throws Exception {
         var first = request("independent-a"); var second = request("independent-b"); var barrier = new CyclicBarrier(2);
         var workers = Executors.newFixedThreadPool(2);
@@ -525,23 +640,27 @@ class CommandReceiptMySqlIntegrationTest {
     }
 
     @Test
-    void oldRepeatableReadSnapshotStillFindsCommittedReceiptAndCurrentLifecycle() throws Exception {
+    void oldRepeatableReadSnapshotIsRejectedBeforeReceiptReplayOrWork() throws Exception {
         var request = request("old-snapshot"); var worker = Executors.newSingleThreadExecutor();
+        var original = new AtomicReference<Result>();
         try {
             tx("REPEATABLE_READ").executeWithoutResult(status -> {
                 assertThat(count("attempt_command_receipt")).isZero(); assertThat(count("attempt_lifecycle_state")).isZero();
-                Result original;
-                try { original = worker.submit(() -> execute(request)).get(10, TimeUnit.SECONDS); }
+                try { original.set(worker.submit(() -> execute(request)).get(10, TimeUnit.SECONDS)); }
                 catch (Exception failure) { throw new AssertionError(failure); }
-                var result = service.execute(request, () -> {}, id -> fail("Old snapshot repeated effect"));
-                assertThat(result.replayed()).isTrue(); assertThat(result.receipt()).isEqualTo(original.receipt());
+                assertThat(count("attempt_command_receipt")).isZero();
+                assertThatThrownBy(() -> service.execute(request, () -> fail("Incompatible caller reached authorization"), id -> fail("Old snapshot repeated effect")))
+                        .isInstanceOf(uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException.class);
             });
             assertThat(count("attempt_lifecycle_state")).isEqualTo(1);
+            var replay = service.execute(request, () -> {}, id -> fail("Fresh replay repeated effect"));
+            assertThat(replay.replayed()).isTrue();
+            assertThat(replay.receipt()).isEqualTo(original.get().receipt());
         } finally { worker.shutdownNow(); assertThat(worker.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"READ_COMMITTED", "REPEATABLE_READ"})
+    @ValueSource(strings = {"READ_COMMITTED"})
     void lockTimeoutReturnsInProgressWithoutRunningLosingWorkOrRetrying(String isolation) throws Exception {
         var request = request("timeout"); var entered = new CountDownLatch(1); var release = new CountDownLatch(1);
         var workers = Executors.newSingleThreadExecutor();
@@ -559,7 +678,7 @@ class CommandReceiptMySqlIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"READ_COMMITTED", "REPEATABLE_READ"})
+    @ValueSource(strings = {"READ_COMMITTED"})
     void actualDeadlockRollsBackVictimReceiptsAndEffectsWithoutHiddenRetry(String isolation) throws Exception {
         var a = request("deadlock-a"); var b = request("deadlock-b"); var barrier = new CyclicBarrier(2);
         var workers = Executors.newFixedThreadPool(2); var outerCalls = new AtomicInteger();
@@ -637,7 +756,7 @@ class CommandReceiptMySqlIntegrationTest {
         factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "none")); factory.afterPropertiesSet();
         try {
             var jpa = new org.springframework.orm.jpa.JpaTransactionManager(factory.getObject()); jpa.setDataSource(source);
-            var template = new TransactionTemplate(jpa); var writer = service(jpa, NOW); var states = lifecycle(jpa, NOW);
+            var template = new TransactionTemplate(jpa); template.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED); var writer = service(jpa, NOW); var states = lifecycle(jpa, NOW);
             var bindings = new AttemptSubjectServiceImpl(proxy(new JdbcAttemptSubjectRepository(named()), jpa), jpa, metrics);
             var requestId = new AtomicReference<UUID>();
             CommandReceiptService.Work work = id -> {

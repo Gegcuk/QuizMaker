@@ -28,7 +28,7 @@ class AttemptStartValidationTest {
         var service = new AttemptStartServiceImpl(identity, sources, mock(AttemptPresetService.class),
                 mock(AttemptPolicyResolver.class), mock(PolicySnapshotService.class), mock(QuestionRevisionContractService.class),
                 mock(QuestionSelectionService.class), mock(FixedFormMaterializer.class), mock(AttemptSubjectService.class),
-                mock(AttemptLifecycleService.class), mock(ExecutionTraceService.class), receipts, metrics, mock(uk.gegc.quizmaker.features.attempt.domain.repository.NavigationRepository.class), mock(AttemptAllowanceService.class), mock(AttemptTimingService.class));
+                mock(AttemptLifecycleService.class), mock(ExecutionTraceService.class), receipts, metrics, mock(uk.gegc.quizmaker.features.attempt.domain.repository.NavigationRepository.class), mock(AttemptAllowanceService.class), mock(AttemptTimingService.class), mock(org.springframework.transaction.PlatformTransactionManager.class));
         var content = new ContentPolicy(UUID.randomUUID(), 1, FormMode.PRECOMPUTED, SectionMode.IMPLICIT_FLAT, CaseMode.NOT_CONFIGURED);
         UUID quiz = UUID.randomUUID(); var key = CommandReceipt.Key.from("validation");
         var preset = BuiltInPracticePreset.REFERENCE; var context = LegacyPracticeRequest.LaunchContext.ORDINARY;

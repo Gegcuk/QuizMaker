@@ -506,7 +506,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         assertThat(count("attempt_result_release")).isEqualTo(2); assertThat(releaseEvents()).isEqualTo(2);
     }
 
-    @Test void releaseIsolationIsLocalAndAnOlderRepeatableReadCallerStillReadsThePublication() {
+    @Test void releaseIsolationIsLocalAndCommitSurvivesSuspendedRepeatableReadCallerRollback() {
         var fixture = fixture(2, 2, 2); results.finalizeSubmission(fixture.submission());
         String serverIsolation = tx.execute(s -> sql.queryForObject("SELECT @@global.transaction_isolation", String.class));
         var observed = new ArrayList<String>();
@@ -522,13 +522,16 @@ class ImmediateResultReleaseMySqlIntegrationTest {
                 assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_result_release", Long.class)).isZero();
                 assertThat(releases.release(fixture.submission()).replayed()).isFalse();
                 assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
-                // The nonlocking snapshot is genuinely old; the real participant reader uses current evidence.
+                // The nonlocking outer snapshot remains old; v2 reads reject that caller before work.
                 assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_result_release", Long.class)).isZero();
-                assertThat(view(fixture.attempt()).result().totalScore().earned()).isEqualTo(2);
+                assertThatThrownBy(() -> view(fixture.attempt())).isInstanceOf(
+                        uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException.class);
                 assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+                status.setRollbackOnly();
             });
         } finally { observer().reset(); }
-        assertThat(observed).containsExactly("READ-COMMITTED", "REPEATABLE-READ");
+        assertThat(observed).containsExactly("READ-COMMITTED");
+        assertThat(view(fixture.attempt()).result().totalScore().earned()).isEqualTo(2);
         String remainingServerIsolation = tx.execute(s -> sql.queryForObject("SELECT @@global.transaction_isolation", String.class));
         assertThat(remainingServerIsolation).isEqualTo(serverIsolation);
         assertThat(count("attempt_result_release")).isEqualTo(1); assertThat(releaseEvents()).isEqualTo(1);

@@ -9,10 +9,14 @@ import java.util.UUID;
  * identity and current permission/ownership/visibility before EVERY lookup, including replay.
  * The callbacks must use the same database/transaction manager, never REQUIRES_NEW, external I/O,
  * autonomous commits or after-commit business writes. #600/#543/#529 own actual handler composition.
+ *
+ * <p>V2 composition requires actual READ_COMMITTED; standalone owners set it explicitly.
+ * See {@link uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions}
+ * for ownership, rejection and JPA caller obligations. Legacy contracts are separate.
  */
 public interface CommandReceiptService {
     /**
-     * REQUIRED transaction: authorize, reserve, execute once, persist acknowledgement together.
+     * REQUIRED READ_COMMITTED transaction: authorize, reserve, execute once, persist acknowledgement together.
      * Returned is not committed when joining an outer transaction. Publish success only after
      * its commit. Unknown commit outcome requires a fresh call with EXACTLY the same request.
      * No automatic retry/takeover. Concurrent duplicates wait on MySQL; timeout is IN_PROGRESS,
@@ -30,7 +34,7 @@ public interface CommandReceiptService {
 
     /**
      * D08 primitive for #699, NOT a scheduler or a hold/erasure authorization service. Requires an
-     * existing transaction in which the caller has locked/verified purpose, current cleanup authority
+     * existing writable READ_COMMITTED transaction in which the caller has locked/verified purpose, current cleanup authority
      * and absence of holds. Unknown classification/hold state must never call this method.
      * Checks authoritative terminal state/version and terminal+30d; deletes at most limit receipts,
      * never attempt/answer/result/trace facts. After deletion the retry guarantee has ended; consumer

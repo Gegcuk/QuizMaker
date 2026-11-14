@@ -1,5 +1,9 @@
 package uk.gegc.quizmaker.features.attempt.application.impl;
 
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import io.micrometer.core.instrument.*;
 import java.util.Locale;
@@ -22,6 +26,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.submission.Attempt
 
 @Service
 public class AttemptSubmissionServiceImpl implements AttemptSubmissionService {
+    private final TransactionTemplate read;
     private final AuthenticatedSubjectResolver identity;
     private final AttemptAccessService access;
     private final AcceptedResponseRepository answers;
@@ -34,18 +39,23 @@ public class AttemptSubmissionServiceImpl implements AttemptSubmissionService {
     private final java.time.Clock clock;
     public AttemptSubmissionServiceImpl(AuthenticatedSubjectResolver identity, AttemptAccessService access,
             AcceptedResponseRepository answers, AttemptLifecycleService lifecycle, AttemptReadFactsService facts,
-            SubmissionResponseFinalizer finalizer, AttemptTerminalSubmission terminal, CommandReceiptService receipts, MeterRegistry metrics, java.time.Clock clock) {
+            SubmissionResponseFinalizer finalizer, AttemptTerminalSubmission terminal, CommandReceiptService receipts, MeterRegistry metrics, java.time.Clock clock, PlatformTransactionManager manager) {
+        this.read = AttemptTransactions.readCommitted(manager); this.read.setReadOnly(true);
         this.identity = identity; this.access = access; this.answers = answers; this.lifecycle = lifecycle;
         this.facts = facts; this.finalizer = finalizer; this.terminal = terminal; this.receipts = receipts; this.metrics = metrics; this.clock = clock;
     }
     @Override public Result submit(Command command) {
+        AttemptTransactions.requireCompatible(read.getTransactionManager(), true);
         Timer.Sample sample = null;
         try { sample = Timer.start(metrics); } catch (RuntimeException ignored) { /* optional telemetry */ }
         String outcome = "unavailable";
         try {
             var receivedAt = clock.instant();
             require(command != null && command.attemptId() != null && command.expectedStateVersion() >= 0 && command.key() != null, INVALID_INPUT);
-            var subject = identity.resolve(command.attemptId());
+            var subject = read.execute(status -> {
+                try { return identity.resolve(command.attemptId()); }
+                catch (RuntimeException failure) { throw translate(failure); }
+            });
             var request = new CommandReceipt.Request(1, subject.userId(), command.attemptId(), AttemptCommands.Type.SUBMIT_ATTEMPT,
                     command.attemptId(), command.expectedStateVersion(), command.key(), CanonicalCommandInput.fingerprint(1,
                     JsonNodeFactory.instance.objectNode().put("completionConfirmed", command.completionConfirmed())));
@@ -94,6 +104,7 @@ public class AttemptSubmissionServiceImpl implements AttemptSubmissionService {
         return terminal.finish(saved, command.expectedStateVersion(), id, completion);
     }
     private static AttemptSubmissionException translate(RuntimeException failure) {
+        AttemptTransactionException.preserve(failure);
         if (failure instanceof AttemptSubmissionException known) return new AttemptSubmissionException(known.reason(), known.missing());
         if (failure instanceof SubjectResolutionException identity) return new AttemptSubmissionException(switch (identity.reason()) {
             case UNAUTHENTICATED -> UNAUTHENTICATED; case UNAVAILABLE -> UNAVAILABLE; default -> NOT_FOUND;

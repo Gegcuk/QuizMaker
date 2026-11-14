@@ -102,6 +102,98 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         CommandReceiptServiceImpl.class, JdbcCommandReceiptRepository.class,
         ResponseAcceptanceMySqlIntegrationTest.Config.class})
 class ResponseAcceptanceMySqlIntegrationTest {
+    @ParameterizedTest @ValueSource(ints = {-1, 1, 4, 8, 2})
+    void incompatibleCallersRejectAtEveryEntryBeforeIdentityOrDomainSql(int isolation) {
+        var revision = prepared();
+        var start = starts.start(command(revision, AnswerOrder.AUTHORED, "rc-context"));
+        var answer = answer(start.attemptId(), delivery.read(start.attemptId()).form().items().get(2), 1, "rc-answer");
+        var before = targetSnapshot();
+        List<Runnable> entries = List.of(
+                () -> starts.start(command(revision, AnswerOrder.AUTHORED, "rejected-start")),
+                () -> responses.accept(answer), () -> delivery.read(start.attemptId()),
+                () -> context.getBean(AttemptReadFactsService.class).read(start.attemptId(), AttemptReadFactsService.Purpose.ACCEPT_RESPONSE));
+        for (var entry : isolation == 2 ? entries.subList(0, 2) : entries) {
+            var outer = new TransactionTemplate(manager); outer.setIsolationLevel(isolation); outer.setReadOnly(isolation == 2);
+            outer.executeWithoutResult(status -> {
+                if (isolation != 2) assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isNotEqualTo("READ-COMMITTED");
+                sql.queryForObject("SELECT COUNT(*) FROM attempt_accepted_response", Integer.class); // Establish an RR snapshot.
+                observer().reset();
+                assertThatThrownBy(entry::run).isInstanceOfSatisfying(
+                        uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException.class, failure -> {
+                            assertThat(failure.reason().name()).isEqualTo(isolation == 2 ? "READ_ONLY" : "INCOMPATIBLE_ISOLATION");
+                            assertThat(failure.getCause()).isNull(); assertThat(failure.getSuppressed()).isEmpty();
+                        });
+                assertThat(observer().selects).isEmpty();
+                status.setRollbackOnly();
+            });
+        }
+        assertThat(targetSnapshot()).isEqualTo(before);
+        assertThat(responses.accept(answer).replayed()).isFalse();
+    }
+
+    @Test void standaloneIdentityReceiptFactsAndDeliveryActuallyUseRcOnDefaultRrConnections() {
+        var revision = prepared();
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+        var observed = new HashSet<String>();
+        observer().beforeSql = (statement, connection) -> {
+            if (statement.startsWith("SELECT @@transaction_isolation")) return;
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+            if (statement.contains("users")) observed.add("identity");
+            if (statement.contains("attempt_command_receipt")) observed.add("receipt");
+            if (statement.contains("question_revisions")) observed.add("content");
+            if (statement.contains("attempt_accepted_response")) observed.add("response");
+        };
+        try {
+            var started = starts.start(command(revision, AnswerOrder.AUTHORED, "observed-rc"));
+            var form = delivery.read(started.attemptId());
+            var accepted = responses.accept(answer(started.attemptId(), form.form().items().get(2), 1, "observed-answer"));
+            assertThat(accepted.replayed()).isFalse();
+            assertThat(delivery.read(started.attemptId()).stateVersion()).isEqualTo(2);
+        } finally { observer().reset(); }
+        assertThat(observed).containsExactlyInAnyOrder("identity", "receipt", "content", "response");
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void jpaCallerFlushesInputsRefreshesJdbcOutputsAndKeepsUnrelatedPendingChanges(boolean rollback) {
+        var start = starts.start(command(prepared(), AnswerOrder.AUTHORED, "jpa-start"));
+        var answer = answer(start.attemptId(), delivery.read(start.attemptId()).form().items().get(2), 1, "jpa-answer");
+        UUID categoryId = tx.execute(s -> quizzes.findById(quizId).orElseThrow().getCategory().getId());
+        String oldEmail = sql.queryForObject("SELECT email FROM users WHERE user_id=UUID_TO_BIN(?)", String.class, ownerId.toString());
+        String oldName = tx.execute(s -> categories.findById(categoryId).orElseThrow().getName());
+        sql.update("UPDATE users SET is_active=false WHERE user_id=UUID_TO_BIN(?)", ownerId.toString());
+        tx.executeWithoutResult(status -> {
+            var em = org.springframework.orm.jpa.EntityManagerFactoryUtils.getTransactionalEntityManager(
+                    ((org.springframework.orm.jpa.JpaTransactionManager) manager).getEntityManagerFactory());
+            var owner = users.findById(ownerId).orElseThrow();
+            owner.setActive(true); owner.setEmailVerified(true);
+            em.flush(); // The caller explicitly publishes pending inputs to JDBC within the same transaction.
+            assertThat(sql.queryForObject("SELECT email_verified FROM users WHERE user_id=UUID_TO_BIN(?)", Boolean.class, ownerId.toString())).isTrue();
+            var unrelated = categories.findById(categoryId).orElseThrow(); unrelated.setName("pending-905-category");
+            // The real identity/access checks must see the caller's flushed activation.
+            assertThat(responses.accept(answer).replayed()).isFalse();
+            sql.update("UPDATE users SET email='jdbc-905@example.invalid' WHERE user_id=UUID_TO_BIN(?)", ownerId.toString());
+            assertThat(owner.getEmail()).isEqualTo(oldEmail); // JDBC does not update the persistence context.
+            em.refresh(owner); // Refresh just this output; never clear unrelated managed changes.
+            assertThat(owner.getEmail()).isEqualTo("jdbc-905@example.invalid");
+            assertThat(em.contains(unrelated)).isTrue(); assertThat(unrelated.getName()).isEqualTo("pending-905-category");
+            assertThat(sql.queryForObject("SELECT category_name FROM categories WHERE category_id=UUID_TO_BIN(?)", String.class, categoryId.toString())).isEqualTo(oldName);
+            if (rollback) status.setRollbackOnly();
+        });
+        assertThat(count("attempt_accepted_response")).isEqualTo(rollback ? 0 : 1);
+        assertThat(count("attempt_command_receipt")).isEqualTo(rollback ? 1 : 2);
+        assertThat(count("attempt_trace_event")).isEqualTo(rollback ? 2 : 3);
+        assertThat(sql.queryForObject("SELECT row_version FROM attempt_lifecycle_state", Long.class)).isEqualTo(rollback ? 1 : 2);
+        assertThat(sql.queryForObject("SELECT email FROM users WHERE user_id=UUID_TO_BIN(?)", String.class, ownerId.toString()))
+                .isEqualTo(rollback ? oldEmail : "jdbc-905@example.invalid");
+        assertThat(tx.<String>execute(s -> categories.findById(categoryId).orElseThrow().getName()))
+                .isEqualTo(rollback ? oldName : "pending-905-category");
+        assertThat(sql.queryForObject("SELECT is_active FROM users WHERE user_id=UUID_TO_BIN(?)", Boolean.class, ownerId.toString())).isEqualTo(!rollback);
+        if (rollback) sql.update("UPDATE users SET is_active=true WHERE user_id=UUID_TO_BIN(?)", ownerId.toString());
+        assertThat(responses.accept(answer).replayed()).isEqualTo(!rollback);
+    }
+
     static final String SCHEMA = "attempt_acceptance_" + UUID.randomUUID().toString().replace("-", "");
     static JdbcTemplate admin;
     static boolean schemaCreated;
@@ -177,7 +269,7 @@ class ResponseAcceptanceMySqlIntegrationTest {
 
     @BeforeEach void setup() {
         ((AdjustableClock)context.getBean(Clock.class)).now=Instant.parse("2026-11-05T12:00:00Z");
-        tx = new TransactionTemplate(manager); observer().reset();
+        tx = new TransactionTemplate(manager); tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED); observer().reset();
         username = "acceptance-" + UUID.randomUUID().toString().substring(0, 12);
         ownerId = user(username, true);
         grant(ownerId, "ATTEMPT_READ", "ATTEMPT_CREATE");
@@ -332,7 +424,7 @@ class ResponseAcceptanceMySqlIntegrationTest {
             observer().beforeSql = (statement, connection) -> {
                 if (statement.startsWith("SELECT locked.id FROM (")) { reached.incrementAndGet(); reading.countDown(); }
             };
-            var commandTransaction = new TransactionTemplate(manager); commandTransaction.setIsolationLevel(isolation);
+            var commandTransaction = new TransactionTemplate(manager); commandTransaction.setIsolationLevel(Connection.TRANSACTION_READ_COMMITTED);
             assertThatThrownBy(() -> commandTransaction.execute(s -> responses.accept(request)))
                     .isInstanceOfSatisfying(ResponseAcceptanceException.class, failure -> {
                         assertThat(failure.reason()).isEqualTo(ResponseAcceptanceException.Reason.RETRYABLE);
@@ -384,7 +476,7 @@ class ResponseAcceptanceMySqlIntegrationTest {
         assertThat(count("attempt_command_receipt")).isEqualTo(2);
     }
 
-    @ParameterizedTest @CsvSource({"2,equal", "4,equal", "2,changed", "4,changed", "2,different-key", "4,different-key"})
+    @ParameterizedTest @CsvSource({"2,equal", "2,changed", "2,different-key"})
     void independentConcurrentCommandsHaveARealWinnerAndOneDurableAnswer(int isolation, String variant) throws Exception {
         var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "start"));
         var request = answer(started.attemptId(), delivery.read(started.attemptId()).form().items().get(2), 1, "answer");
@@ -526,7 +618,7 @@ class ResponseAcceptanceMySqlIntegrationTest {
                 context.getBean(AttemptReadFactsService.class), lifecycle,
                 context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository.class),
                 new CommandReceiptServiceImpl(context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.CommandReceiptRepository.class),
-                        manager, context.getBean(Clock.class), metrics), context.getBean(ExecutionTraceService.class), context.getBean(Clock.class), metrics);
+                        manager, context.getBean(Clock.class), metrics), context.getBean(ExecutionTraceService.class), context.getBean(Clock.class), metrics, manager);
     }
 
     @Test void httpUsesRealAcceptanceAndCannotChangeOrMoveAnAcceptedAnswer() throws Exception {
@@ -619,7 +711,7 @@ class ResponseAcceptanceMySqlIntegrationTest {
         var later = new ResponseAcceptanceServiceImpl(context.getBean(AuthenticatedSubjectResolver.class), access,
                 context.getBean(AttemptReadFactsService.class), lifecycle,
                 context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository.class),
-                receipts, context.getBean(ExecutionTraceService.class), future, metrics);
+                receipts, context.getBean(ExecutionTraceService.class), future, metrics, manager);
         assertThatThrownBy(() -> later.accept(request)).isInstanceOfSatisfying(ResponseAcceptanceException.class,
                 ex -> assertThat(ex.reason()).isEqualTo(ResponseAcceptanceException.Reason.EXPIRED));
         Integer purged = tx.execute(s -> receipts.purgeExpired(started.attemptId(), 3, 100));
@@ -631,7 +723,7 @@ class ResponseAcceptanceMySqlIntegrationTest {
         assertThat(count("attempt_command_receipt")).isZero();
     }
 
-    @ParameterizedTest @ValueSource(ints = {2, 4})
+    @ParameterizedTest @ValueSource(ints = {2})
     void callerWithOldSnapshotAcceptsUsingCurrentCommittedState(int isolation) throws Exception {
         var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "start"));
         var items = delivery.read(started.attemptId()).form().items();

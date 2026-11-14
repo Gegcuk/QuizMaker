@@ -33,6 +33,55 @@ The [approved Q13–Q15 tag scope](./decision-register.md#quiz-certificate-batch
 
 ---
 
+## V2 transaction ownership and composition (#905)
+
+The [approved RC contract](decision-register.md#v2-read-committed) applies to policy-driven
+execution only. It does not change v1 routes, legacy `AttemptService`, V108, billing/auth,
+publication/binding, or the independent RR compatibility report. No pool/server isolation
+setting is changed, no retries are added, and all existing SQL lock clauses remain for #906 B.
+
+| Caller/entry | Ownership and isolation |
+|---|---|
+| Start, response, submit, draft and navigation | Identity read, receipt-owned REQUIRED command, and any follow-up read explicitly use RC when standalone. With an outer RC they all join that physical transaction. |
+| Delivery, participant view/review | Read-only REQUIRED RC; a compatible read-only RC caller is permitted. |
+| AttemptReadFactsService | MANDATORY compatible RC through projection; the enclosing owner retains locks. |
+| Expiry page/command, automatic-result pending/finalization, immediate release | Existing REQUIRES_NEW boundaries, explicitly RC; suspend caller state and commit independently. |
+| Receipt cleanup primitive | Requires an existing writable RC transaction and unchanged cleanup authority. |
+| Future #534/#834 and #629 batch | One writable RC owner for all effects; batch does not open a transaction per item. |
+
+`AttemptTransactions` checks composition before identity or domain SQL and receipt reservation.
+An explicit incompatible Spring isolation is rejected immediately. DEFAULT/null metadata is
+resolved from the already enlisted connection, never another connection; its RC proof is cached
+for that physical transaction, removed during suspension/completion and restored on resume.
+Unknown/unsupported isolation and write participation in read-only fail with bounded
+`AttemptTransactionException` reasons, without message/cause/suppressed diagnostics from the DB.
+This is an integration error, not UNKNOWN_OUTCOME, RETRYABLE or temporary unavailability.
+Work failures still roll back the command; completion uncertainty still reconciles the same key.
+
+An outer caller must explicitly flush relevant JPA inputs before the JDBC-based command.
+After JDBC writes, refresh/reload affected managed outputs before using them. No automatic
+whole-context flush/clear is performed; unrelated pending changes remain managed. A returned
+value is provisional until outer commit. A later outer rollback removes its unrelated writes,
+command effects, trace and receipt. Caught participating failures remain rollback-only.
+For reads, a caught NOT_FOUND marks joined work rollback-only. Review INACTIVE remains raised
+*after* its successful read and does not itself mark an outer transaction rollback-only.
+
+For example, a future assignment start can create its membership and attempt in one RC
+transaction; failure of either rolls both back. Passing an old RR snapshot is rejected before
+reserving a command. A scheduled expiry continues to commit independently even if its suspended
+caller later rolls back, exactly as before this change.
+
+On MySQL 8.0.46 and 8.4.11, Connector/J and Hikari, server-side statement history observes three extra
+commands for standalone RC on an RR connection (read isolation, set RC, restore RR), or one
+isolation lookup on an already-RC connection. DEFAULT participation validates once even across
+500 boundary checks; explicit RC metadata needs no boundary lookup. The receipt integration
+suite measures these commands separately from application SELECT budgets. Connection
+restoration and reuse must preserve the default used by a subsequent legacy transaction.
+Changing the server default is not required. Activation, reduced immutable-content locks and
+large-quiz read/write-volume optimization remain separately owned work.
+
+---
+
 ## Isolated Deployments and Operator Authority
 
 The [22 October Q08 refinement](./decision-register.md#isolated-deployment-operator-boundary) requires an architectural foundation for on-premises and organization-dedicated virtual deployments with isolated organizational data and a local platform operator. Operator authority is deployment/trust-boundary scoped and still permission/resource checked; it is not inherently a central vendor account or an automatic privilege of every organization administrator.
@@ -1493,8 +1542,8 @@ or switching engines. Typed internal errors expose no rejected content or underl
 database diagnostics. The `quizmaker.attempt.start` metric uses only fixed version and
 outcome labels; `start_returned` deliberately does not claim an outer transaction committed.
 
-Outer `READ_COMMITTED` and `REPEATABLE_READ` transactions remain supported even when
-their snapshot predates the requested publication. Current reads cover revision roots,
+Outer transactions must now be `READ_COMMITTED`; older RR snapshots are rejected before work.
+An RC caller can observe publication committed after an earlier read. Current reads cover revision roots,
 items, question/option contents, contract membership and snapshot/form write checks.
 Contract scope takes canonical question locks before shared aggregate reads, so two
 independent starts do not need to upgrade shared question locks. The ordinary revision
@@ -1513,7 +1562,7 @@ AUTHORED/shuffled starts, fresh-transaction rollback, concurrent identical/confl
 requests, receipt recovery, current-access denial and bounded relationship reads.
 Regression cases publish after an outer snapshot, exercise outer rollback after successful
 composition, and force actual authorization and nested question-lock deadlock/timeout
-errors under both supported isolation levels before an explicit retry. Separate fault
+errors at RC before an explicit retry; unsupported caller levels have explicit rejection tests. Separate fault
 injection at each SQL dependency boundary verifies safe reason propagation, rollback and
 same-key recovery; it does not replace the real InnoDB conflict scenarios. Receipt tests
 also preserve `UNKNOWN_OUTCOME` for completion failures carrying a sanitized conflict.
@@ -3106,13 +3155,12 @@ private source references or raw author JSON. Client include flags do not expand
 The service holds current access and contract locks until its read transaction finishes. Access
 requires the bound participant, `ATTEMPT_READ` and current ownership/full-editor authority under
 the [authenticated self-attempt access decision](./decision-register.md#authenticated-self-attempt-access).
-The locked lifecycle returned by #537 supplies the version/state, even inside an older caller
-snapshot. Delivery also reads the policy snapshot, form roots/items and option-order roots/items/options
-through explicit current shared reads. This includes attempts committed after the caller established
-its `REPEATABLE_READ` snapshot: current authorization must not be followed by stale content reads.
+The locked lifecycle returned by #537 supplies the current version/state in the RC owner. Delivery also reads the policy snapshot, form roots/items and option-order roots/items/options
+through explicit current shared reads. This includes attempts committed after an earlier RC read; incompatible caller isolation is
+rejected before access/content work.
 Question guards precede contract-binding locks, and shared read locks allow simultaneous readers.
-The operation still joins the caller transaction; it neither changes its isolation nor opens an
-independent delivery transaction. Existing ordinary repository reads retain their snapshot semantics.
+The operation joins a compatible RC caller, or owns a standalone RC read. It does not silently
+suspend an incompatible caller. Existing ordinary repository reads retain their snapshot semantics.
 Missing accepted-response and completion facts remain unknown: #523 currently derives
 only `VIEW_ATTEMPT`. Real answer/navigation/completion consumers (#543/#525/#529) must supply and
 verify their facts before advertising their actions; this increment does not claim those integrations.
@@ -3130,10 +3178,11 @@ successful resume. Telemetry failure cannot change the result.
 recreation, republishing, access loss, corrupt/versioned evidence, fresh lifecycle reads, storage
 failure and a real permission-revocation race during projection. Regressions establish the caller's
 snapshot before a real independently committed start, with publication both before and after the
-snapshot, under `READ_COMMITTED` and `REPEATABLE_READ`. They compare the complete resumed view,
+read, under `READ_COMMITTED`. Separate tests reject unsupported caller isolation before SQL.
+They compare the complete resumed view,
 require a successful caller commit, prove simultaneous reads and preserve rollback of an outer
 write after a caught delivery failure. It measures the complete read
-for three independent participants/quizzes with one versus twenty questions: 57 SELECTs in either
+for three independent participants/quizzes with one versus twenty questions: 60 SELECTs in either
 case, with no authoritative writes. Lifecycle terminal-state fixtures demonstrate read behavior,
 not the separately owned terminal command. MVC tests use the real security chain and verify typed
 JSON, errors, examples, full/grouped OpenAPI, discovery and default-disabled activation.
@@ -3152,11 +3201,11 @@ concrete response is `ParticipantAttemptView` (`representation: POLICY_DRIVEN`,
 no target-only fields and never delegates to the target reader when flags change. The
 v2 reader rejects legacy IDs, unknown/incomplete target roots and mixed identity; it never
 calls legacy answer readers. Existing identity resolution, owner checks and current-root
-probes remain in place, with their existing transaction/isolation and lock behavior.
+probes and locks remain in place; v2 ownership follows the RC contract above.
 
 The target view uses the same `AttemptReadFactsService` as #524. It holds current access,
 lifecycle, policy, form/order, revision and contract evidence through projection, including
-inside an older `READ_COMMITTED` or `REPEATABLE_READ` caller transaction. `/form` keeps its
+inside a compatible `READ_COMMITTED` caller transaction. `/form` keeps its
 active-only, text-only behavior. The view adds immutable quiz/revision/form IDs, current
 execution/answer-collection state, state/policy versions, original UTC start/submission times,
 and the saved item/option order. The supported policy is untimed; `timing: UNTIMED` does not
@@ -3192,7 +3241,7 @@ success or denial. No new migration, dependency, command, retention or cleanup b
 
 Automated evidence combines actual publication/binding/#600 start and HTTP reads, legacy writers
 for all nine question families and all three modes, real permission-revocation contention,
-concurrent readers, older caller snapshots, service recreation, corrupt/future-version evidence,
+concurrent readers, intervening RC commits, service recreation, corrupt/future-version evidence,
 rollback after injected SQL failure, and full/grouped OpenAPI examples. Complete target reads
 and serialization use 66 SELECTs for three independent participants/quizzes with either one or
 twenty questions; legacy HTTP mapping uses six JPA statements for three parents with either one or
@@ -3673,7 +3722,7 @@ minimal start retains its OFF preset. The ON submission fixture captures a separ
 real foundation services; it does not claim a new public ON starter.
 
 MySQL tests use actual publication, contracts, start, acceptance, receipts and terminal writes.
-They cover both isolation levels, controlled answer-versus-submit orderings, concurrent submits,
+They cover RC participation and refusal of unsupported caller isolation, controlled answer-versus-submit orderings, concurrent submits,
 recreated-service replay, commit acknowledgement loss, reached-write rollback, metadata corruption,
 current access, history/receipt cleanup and multi-parent query counts. Closed-scope fixtures prove
 the terminal contract with captured scope facts, not a working section/timer writer. The named
@@ -3782,7 +3831,7 @@ and disclosure rules and cannot increase disclosure merely because the command w
 | New authorized command | Reserve `IN_PROGRESS`, execute work, set `COMMITTED` and persist its acknowledgement in the same transaction as the domain effect. |
 | Identical committed retry, including after restart or later state changes | Return the original command UUID, references, version and timestamp with `replayed=true`; do not call work. |
 | Conflicting reuse | Bounded `CONFLICT`; the future HTTP consumer maps it to 409 without exposing stored input or foreign scope. |
-| Concurrent first requests | MySQL uniqueness serializes that user's key. The waiter reads the committed winner or executes after the winner rolls back. Current reads also work inside an older `REPEATABLE_READ` snapshot. |
+| Concurrent first requests | MySQL uniqueness serializes that user's key. The waiter reads the committed winner or executes after the winner rolls back. The owner uses RC; old RR composition is rejected before reservation. |
 | Lock wait timeout / deadlock | `IN_PROGRESS` / `RETRYABLE`, with no hidden retry or losing partial writes. Future adapters distinguish pending-key conflict (409) from transient database failure (503). |
 | Validation/work failure before commit | Roll back receipt and domain writes together; no independently committed failed reservation or execution lease. A caught inner failure marks the enclosing transaction rollback-only. |
 | Failed connection acquisition | `PERSISTENCE_UNAVAILABLE`; no success acknowledgement. |
@@ -3822,8 +3871,8 @@ after writes, preserve receipts and domain evidence and use a compatible forward
 
 `CommandReceiptTest` verifies canonical identity, opaque keys, bounded encoding and exact D08
 boundaries. `CommandReceiptMySqlIntegrationTest` uses real subject/lifecycle/receipt writes,
-fresh reads, controlled database lock waits, both `READ_COMMITTED` and `REPEATABLE_READ`, stale
-snapshots, actual SQL/commit faults, rollback-only composition, restart, JPA transactions and
+fresh reads, controlled database lock waits, RC participation and unsupported-isolation rejection,
+actual SQL/commit faults, rollback-only composition, restart, JPA transactions and
 sanitized work/completion diagnostics, observer failure after commit, outer completion, and
 synchronization ordering/resource lifecycle. Guard doubles prove callback ordering, not implementation of
 #537 authorization. Lifecycle fixtures prove local atomicity, not #600/#543 business integration.
@@ -4156,14 +4205,11 @@ operations return their existing inactive failure without writes. A committed id
 can still replay after the deadline. No client timestamp participates in this decision.
 
 Participant reads declare and lock question-revision scope before reading the timing checkpoint,
-matching the starter's lock order. A missing untimed checkpoint can acquire a gap lock under
-`REPEATABLE_READ`. After #906 phase A, participant question scopes are shared: a view can project
-while a start holds the same question identities. SQL-barrier fixtures retain two successful
-outcomes under `READ_COMMITTED` and `REPEATABLE_READ`, for read-only and ordinary reads, with
-timed and untimed new starts. RC starts commit while the view transaction remains open. An RR
-timed start can still wait on the completed view's missing-timing gap lock; the fixture verifies
-that actual wait and releases the view before requiring both commits, without a deadlock or retry.
-Removing that RR freshness-lock coupling is outside phase A.
+matching the starter's lock order. After #906 phase A, participant question scopes are shared:
+a view can project while a start holds the same question identities. #905's RC fixtures require
+timed and untimed starts to commit while the view transaction remains open, for read-only and
+ordinary compatible callers. Old-RR target composition is rejected before work; no waiting RR
+fallback remains. Existing locking SQL is unchanged until #906 phase B.
 
 The participant projection adds `TIMED` and the named optional `ParticipantAttemptTiming` field
 `timingDetails`: version, start, effective deadline, zero grace seconds, server time and an expired
@@ -4698,13 +4744,15 @@ intent serializes this command with finalization and other identical release req
 The command verifies the captured submission, form, revision, policy hash and result binding.
 Missing result facts remain `NOT_READY`; unsupported or inconsistent facts fail closed.
 
-Only this `REQUIRES_NEW` publication transaction explicitly uses `READ_COMMITTED`. Two different
+This `REQUIRES_NEW` publication transaction explicitly uses `READ_COMMITTED`, as do the other
+v2 command/read owners after #905. Two different
 results may both be absent from the release index; their locking reads must not acquire shared
 `REPEATABLE_READ` gap locks that deadlock at insertion. The retained intent still serializes
-requests for the same submission. Server defaults, the suspended caller and participant reads
-keep their configured isolation. Regression coverage synchronizes different submissions after
+requests for the same submission. Server defaults and the suspended caller keep their isolation;
+v2 participant reads own/join RC. Regression coverage synchronizes different submissions after
 their missing-row reads, requires both publications and exactly one event per result, and checks
-that an older RR caller retains its snapshot while reading committed publication evidence.
+that an older RR caller retains its snapshot while the release commits independently. A v2
+view in that caller rejects; a fresh view sees the committed publication after caller rollback.
 
 One insert-only `attempt_result_release` row and one `RESULT_RELEASED` trace event commit in
 the same transaction. The unique result binding is the durable receipt; it does not depend
@@ -6471,7 +6519,7 @@ deadline or a learning allowance. Telemetry failures cannot change access or com
 No participant IDs, keys, answers or source text are metric labels.
 
 `NavigationMySqlIntegrationTest` exercises real start/access/receipt/trace/answer/submission
-boundaries, both transaction isolation levels, concurrent next and resume, reached-write
+boundaries, RC composition and unsupported-isolation rejection, concurrent next and resume, reached-write
 rollback, unknown commits, independent app-context recovery and multi-parent SQL counts.
 `AttemptDeliveryMySqlIntegrationTest` and the MVC/OpenAPI contracts protect existing flat
 behavior. These local checks do not prove timed D38, section delivery or public activation;

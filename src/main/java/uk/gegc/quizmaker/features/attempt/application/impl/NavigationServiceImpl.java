@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.attempt.application.impl;
 
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.*;
@@ -36,7 +38,7 @@ public class NavigationServiceImpl implements NavigationService {
             CommandReceiptService receipts, ExecutionTraceService trace, PlatformTransactionManager manager, MeterRegistry metrics, java.time.Clock clock) {
         this.identity = identity; this.access = access; this.facts = facts; this.lifecycle = lifecycle; this.answers = answers;
         this.navigation = navigation; this.receipts = receipts; this.trace = trace; this.metrics = metrics; this.clock = clock;
-        this.read = new TransactionTemplate(manager); this.read.setReadOnly(true);
+        this.read = AttemptTransactions.readCommitted(manager); this.read.setReadOnly(true);
     }
 
     @Override public Result navigate(Command c) { return execute(c, false); }
@@ -47,12 +49,16 @@ public class NavigationServiceImpl implements NavigationService {
     }
 
     private Result execute(Command c, boolean next) {
+        AttemptTransactions.requireCompatible(read.getTransactionManager(), true);
         String outcome = "unavailable";
         try {
             var receivedAt = clock.instant();
             require(c != null && c.attemptId() != null && (next || c.formItemId() != null) && c.expectedStateVersion() >= 0
                     && c.key() != null && (c.expectedNavigationVersion() == null || c.expectedNavigationVersion() > 0), Reason.INVALID_INPUT);
-            var subject = identity.resolve(c.attemptId());
+            var subject = read.execute(status -> {
+                try { return identity.resolve(c.attemptId()); }
+                catch (RuntimeException failure) { throw safe(failure); }
+            });
             var input = JsonNodeFactory.instance.objectNode();
             if (next) input.put("direction", "NEXT");
             if (c.expectedNavigationVersion() != null) input.put("expectedNavigationVersion", c.expectedNavigationVersion());
@@ -140,6 +146,7 @@ public class NavigationServiceImpl implements NavigationService {
     }
 
     private static NavigationException safe(RuntimeException failure) {
+        AttemptTransactionException.preserve(failure);
         if (failure instanceof NavigationException known) return new NavigationException(known.reason());
         return new NavigationException(Reason.valueOf(AttemptCommandFailures.translate(failure).reason().name()));
     }

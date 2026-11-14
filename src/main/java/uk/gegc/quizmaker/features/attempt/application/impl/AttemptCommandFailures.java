@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.attempt.application.impl;
 
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.transaction.TransactionException;
 import uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAccessException;
@@ -18,6 +19,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseA
 final class AttemptCommandFailures {
     private AttemptCommandFailures() { }
     static ResponseAcceptanceException translate(RuntimeException failure) {
+        AttemptTransactionException.preserve(failure);
         if (failure instanceof ResponseAcceptanceException known) return new ResponseAcceptanceException(known.reason());
         if (failure instanceof SubjectResolutionException identity) return new ResponseAcceptanceException(switch (identity.reason()) {
             case UNAUTHENTICATED -> UNAUTHENTICATED; case UNAVAILABLE -> UNAVAILABLE; default -> NOT_FOUND;
