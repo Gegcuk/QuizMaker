@@ -135,6 +135,27 @@ public class JdbcQuestionContractBindingRepository implements QuestionContractBi
         }
     }
 
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Map<UUID, QuestionContractBinding> findSnapshotBindings(Set<UUID> questionRevisionIds) {
+        try {
+            var ordered = questionRevisionIds.stream().sorted(Comparator.comparing(UUID::toString)).toList();
+            var result = new HashMap<UUID, QuestionContractBinding>();
+            for (int start = 0; start < ordered.size(); start += SQL_BATCH) {
+                var batch = ordered.subList(start, Math.min(start + SQL_BATCH, ordered.size()));
+                jdbc.query("SELECT " + COLUMNS + " FROM question_revision_contract_bindings b "
+                                + "WHERE b.question_revision_id IN (:questions)",
+                        new MapSqlParameterSource("questions", batch.stream().map(JdbcQuestionContractBindingRepository::bytes).toList()),
+                        (org.springframework.jdbc.core.RowCallbackHandler) row -> {
+                            var value = binding(row); result.put(value.questionRevisionId(), value);
+                        });
+            }
+            return Map.copyOf(result);
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
+    }
+
     private static String pointReads(String select, String primaryKey, int count, String lock) {
         return IntStream.range(0, count).mapToObj(index -> "(" + select + " WHERE " + primaryKey
                 + "=:question" + index + " " + lock + ")").collect(Collectors.joining(" UNION ALL "));

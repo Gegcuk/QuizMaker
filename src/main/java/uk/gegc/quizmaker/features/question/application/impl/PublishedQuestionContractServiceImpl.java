@@ -69,8 +69,9 @@ public class PublishedQuestionContractServiceImpl implements PublishedQuestionCo
             registry.resolve(binding).response().optionLayout(question);
             bindings.putIfAbsent(question.id(), binding);
         }
-        contracts.declareScope(revision.ownerId(), Set.of(revision.id()), ContractScopeIntent.WRITE);
         var result = List.copyOf(bindings.values());
+        if (contracts.replayIfExact(revision.ownerId(), revision.id(), result)) return result;
+        contracts.declareScope(revision.ownerId(), Set.of(revision.id()), ContractScopeIntent.WRITE);
         contracts.bind(revision.ownerId(), revision.id(), result);
         return result;
     }

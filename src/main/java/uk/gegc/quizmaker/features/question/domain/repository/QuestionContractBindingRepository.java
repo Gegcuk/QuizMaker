@@ -31,6 +31,13 @@ public interface QuestionContractBindingRepository {
      */
     Optional<Snapshot> findForRevision(UUID ownerId, UUID quizRevisionId);
 
+    /**
+     * Non-locking metadata hint for an already owner-validated question set. A positive
+     * result is provisional until shared identity protection and current revalidation.
+     * Missing/stale data can only select the normal write path, never authorize replay.
+     */
+    Map<UUID, QuestionContractBinding> findSnapshotBindings(Set<UUID> questionRevisionIds);
+
     /** Requires the caller's transaction; exposes no replace/delete operation. */
     void insert(UUID ownerId, UUID quizRevisionId, QuestionContractBinding binding);
 }

@@ -60,6 +60,12 @@ Unknown/unsupported isolation and write participation in read-only fail with bou
 This is an integration error, not UNKNOWN_OUTCOME, RETRYABLE or temporary unavailability.
 Work failures still roll back the command; completion uncertainty still reconciles the same key.
 
+Callers establish transaction characteristics before work begins. Direct session-isolation
+changes, connection-level transaction manipulation and bypassing Spring ownership during an
+active transaction are unsupported. In MySQL, changing the reported session default to RC does
+not replace an existing RR snapshot. The DEFAULT connection lookup and explicit/cached Spring
+metadata are bounded composition checks, not proof against arbitrary caller manipulation.
+
 An outer caller must explicitly flush relevant JPA inputs before the JDBC-based command.
 After JDBC writes, refresh/reload affected managed outputs before using them. No automatic
 whole-context flush/clear is performed; unrelated pending changes remain managed. A returned
@@ -82,6 +88,29 @@ restoration and reuse must preserve the default used by a subsequent legacy tran
 Changing the server default is not required. Activation and large-quiz read/write-volume
 optimization remain separately owned work.
 
+
+### Exact publication-binding retries (#913)
+
+The publication boundary still authenticates and checks current QUIZ_UPDATE/owner authority
+(or the existing elevated exception), reads the exact published revision and validates all
+family layouts before binding. It can replay an identical **complete** binding set without
+queueing an exclusive request behind participants. A non-locking, batched metadata hint is
+followed by canonical shared question protection and current binding/membership revalidation.
+The hint alone is never authority. It selects WRITE on a miss, without a shared binding-row lock;
+a mismatch after shared protection fails closed instead of attempting an upgrade.
+
+This runs within the original transaction. Caller-owned writes remain visible and provisional;
+no REQUIRES_NEW connection is borrowed. Existing declared scopes are not weakened. An exact
+replay creates a singleton READ scope marked for publication replay only, which allows further
+identical replays while preserving terminal expansion/upgrade rules and scope suspension.
+First binding and explicitly declared WRITE callers retain the original exclusive behavior.
+An old RR snapshot can miss a later committed binding and take the safe WRITE path; #598's
+RR correctness remains, without a new performance promise for stale callers.
+
+For example, Anna's response transaction may hold shared question locks while an authorized
+author retries an already completed binding. That no-op and Boris's independent answer can
+finish before Anna commits. A genuinely new binding, publication or access revocation still
+uses its established protection. This is not a general guarantee that author writes never wait.
 
 <a id="immutable-read-lock-inventory"></a>
 ### Immutable read lock inventory (#906 phase B)

@@ -5,6 +5,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -364,6 +365,60 @@ class PublishedFamilyContractsMySqlIntegrationTest {
         // locks and inserts are deliberate persistence operations, not lazy relationship fetches.
     }
 
+    @Test void partialExistingBindingCannotReplayAndReachedRepairRollsBack() {
+        UUID revision = publish(0, FAMILIES.stream().map(this::draft).toList());
+        var expected = binding.bind(quizId, revision);
+        UUID missing = expected.stream().map(QuestionContractBinding::questionRevisionId)
+                .min(Comparator.comparing(UUID::toString)).orElseThrow();
+        sql.update("DELETE FROM question_revision_contract_bindings WHERE question_revision_id=UUID_TO_BIN(?)", missing.toString());
+        faults.failAfterInsert = true;
+        assertThatThrownBy(() -> binding.bind(quizId, revision)).isInstanceOf(ContractResolutionException.class);
+        assertThat(faults.reached).isTrue();
+        assertThat(count("question_revision_contract_bindings")).isEqualTo(4);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM question_revision_contract_bindings WHERE question_revision_id=UUID_TO_BIN(?)",
+                Integer.class, missing.toString())).isZero();
+        faults.failAfterInsert = false;
+        assertThat(binding.bind(quizId, revision)).isEqualTo(expected);
+        tx.executeWithoutResult(status -> {
+            assertThat(binding.bind(quizId, revision)).isEqualTo(expected);
+            assertThat(binding.bind(quizId, revision)).isEqualTo(expected);
+        });
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void corruptOrDifferentSavedBindingCannotBeAcceptedAsPublicationReplay(boolean corruptHash) {
+        UUID revision = publish(0, List.of(draft(QuestionType.TRUE_FALSE)));
+        var original = binding.bind(quizId, revision).get(0);
+        var changed = new QuestionContractBinding(original.questionRevisionId(),
+                new ContractVersion(original.response().id(), 999), original.scoring());
+        sql.update("UPDATE question_revision_contract_bindings SET response_contract_version=?, binding_hash=? WHERE question_revision_id=UUID_TO_BIN(?)",
+                corruptHash ? original.response().version() : 999, corruptHash ? "0".repeat(64) : changed.fingerprint(), original.questionRevisionId().toString());
+        assertThatThrownBy(() -> binding.bind(quizId, revision)).isInstanceOfSatisfying(ContractResolutionException.class,
+                e -> assertThat(e.reason()).isEqualTo(corruptHash ? ContractResolutionException.Reason.INVALID_STORED_BINDING
+                        : ContractResolutionException.Reason.BINDING_CONFLICT));
+        assertThat(sql.queryForObject("SELECT response_contract_version FROM question_revision_contract_bindings", Integer.class))
+                .isEqualTo(corruptHash ? original.response().version() : 999);
+        sql.update("UPDATE question_revision_contract_bindings SET response_contract_version=?, binding_hash=?",
+                original.response().version(), original.fingerprint());
+        assertThat(binding.bind(quizId, revision)).containsExactly(original);
+    }
+
+    @Test void positiveReplayHintMustBeRevalidatedAndFailurePoisonsTheCaller() {
+        UUID revision = publish(0, List.of(draft(QuestionType.TRUE_FALSE)));
+        var expected = binding.bind(quizId, revision);
+        faults.afterHint = () -> sql.update("DELETE FROM question_revision_contract_bindings");
+        assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
+            sql.update("UPDATE quizzes SET title='must-roll-back' WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString());
+            assertThatThrownBy(() -> binding.bind(quizId, revision)).isInstanceOfSatisfying(ContractResolutionException.class,
+                    e -> assertThat(e.reason()).isEqualTo(ContractResolutionException.Reason.BINDING_CONFLICT));
+            assertThat(faults.reached).isTrue(); assertThat(status.isRollbackOnly()).isTrue();
+        })).isInstanceOf(org.springframework.transaction.UnexpectedRollbackException.class);
+        faults.afterHint = null;
+        assertThat(sql.queryForObject("SELECT title FROM quizzes WHERE quiz_id=UUID_TO_BIN(?)", String.class, quizId.toString()))
+                .isNotEqualTo("must-roll-back");
+        assertThat(binding.bind(quizId, revision)).isEqualTo(expected);
+    }
+
     private UUID draft(QuestionType type) {
         return tx.execute(s -> {
             var q = new Question(); q.setType(type); q.setDifficulty(Difficulty.EASY); q.setQuestionText("Frozen " + type);
@@ -412,8 +467,9 @@ class PublishedFamilyContractsMySqlIntegrationTest {
     static class Faults {
         final JdbcTemplate sql; volatile boolean failAfterInsert; final AtomicBoolean reached = new AtomicBoolean();
         volatile CyclicBarrier beforeScope;
+        volatile Runnable afterHint;
         Faults(JdbcTemplate sql) { this.sql = sql; }
-        void reset() { failAfterInsert = false; reached.set(false); beforeScope = null; }
+        void reset() { failAfterInsert = false; reached.set(false); beforeScope = null; afterHint = null; }
         @org.aspectj.lang.annotation.Around("execution(* uk.gegc.quizmaker.features.question.domain.repository.QuestionContractBindingRepository.insert(..))")
         Object insert(org.aspectj.lang.ProceedingJoinPoint call) throws Throwable {
             Object result = call.proceed();
@@ -421,6 +477,12 @@ class PublishedFamilyContractsMySqlIntegrationTest {
                 assertThat(sql.queryForObject("SELECT COUNT(*) FROM question_revision_contract_bindings", Integer.class)).isPositive();
                 reached.set(true); throw new DataAccessResourceFailureException("Reached binding write fault");
             }
+            return result;
+        }
+        @org.aspectj.lang.annotation.Around("execution(* uk.gegc.quizmaker.features.question.domain.repository.QuestionContractBindingRepository.findSnapshotBindings(..))")
+        Object hint(org.aspectj.lang.ProceedingJoinPoint call) throws Throwable {
+            Object result = call.proceed();
+            if (afterHint != null) { reached.set(true); afterHint.run(); }
             return result;
         }
         @org.aspectj.lang.annotation.Before("execution(* uk.gegc.quizmaker.features.question.application.QuestionRevisionContractService.declareScope(..))")

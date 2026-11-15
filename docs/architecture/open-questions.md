@@ -70,6 +70,18 @@ Checked against [#591](https://github.com/Gegcuk/QuizMaker/issues/591), [#700](h
 
 The supported-family choice, access-aware launch default, ordinary-versus-assignment policy selection, ONE_BY_ONE default/skip-return, configurable view/edit/pending-confirmation capabilities, legacy-path retention and operator-controlled fallback are decided. Family implementation coverage, remaining launch/finalization interactions and fallback implementation/readiness evidence still have their named owners/gates.
 
+### V2 activation evidence after #913
+
+Exact binding replay and regression watchdog hardening do not activate v2 or establish production
+capacity. #609 retains inspection of effective pool/connection-timeout/OSIV/isolation settings
+and shared v1/v2 resource usage. Before exposing large quizzes or hundreds-item batches, measure
+whole-quiz row/byte volume and connection hold time for that workload. Duplicate access checks,
+identity-transaction overhead, allowance `start_ids`, V108 and legacy analytics remain explicit
+performance work. Author/quiz permission locks preserve revocation semantics; they are not
+removed merely because author writes can delay participants. Additional environments need
+their own migration/trigger inventory: the historical V111 production check is not universal
+proof that V113/V114 were never applied elsewhere. API-summary group visibility is unchanged.
+
 <a id="remaining-after-q54"></a>
 <a id="remaining-after-q57"></a>
 <a id="remaining-after-q68"></a>

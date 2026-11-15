@@ -15,7 +15,11 @@ Standalone v2 commands and participant reads own READ_COMMITTED transactions. Pa
 calls require actual RC; unsupported or unresolved isolation is rejected before identity/domain
 SQL or receipt reservation. Writes also reject read-only callers. DEFAULT metadata requires
 one bounded inspection of the enlisted connection, cached for that transaction and suspended
-with it. Existing expiry, automatic-result and release workers retain independent REQUIRES_NEW
+with it. Callers establish isolation before work and must not change session/connection
+transaction characteristics or bypass Spring ownership inside an active transaction. Driver
+session values and cached metadata cannot prove the isolation of a pre-existing snapshot after
+such unsupported manipulation; this guard is not a general connection-tampering detector.
+Existing expiry, automatic-result and release workers retain independent REQUIRES_NEW
 transactions, now explicitly RC. No other command silently suspends its caller.
 
 Domain effects, trace and receipt remain atomic, and participating returns are provisional.
@@ -40,6 +44,24 @@ owner checks, canonical order, rollback/savepoint and REQUIRES_NEW scope isolati
 This permits independent authorized participants on one revision without weakening binding.
 Phase A itself does not change isolation or remove current-read/range locks. The subsequent
 #905 contract above narrows v2 composition to RC; phase B remains separate work.
+
+## Exact publication-binding replay (#913) — DECIDED
+
+**Decision date/source:** 15 November 2026, explicit owner request to implement #913.
+
+An authenticated publication-binding repeat may establish a singleton READ scope when a
+non-locking metadata hint matches the complete expected set. Under shared question-identity
+protection it revalidates current membership, exact IDs/versions/hash and registry support.
+Only that verified no-op returns without WRITE. A hint miss leaves the original WRITE path
+available without a binding-row shared lock or scope upgrade. A post-lock mismatch fails closed.
+The hint reads the caller's connection, including its own uncommitted data; there is no new
+transaction or independent commit. An old RR hint may miss a later winner and select WRITE;
+this does not change #598's correctness contract or promise RR replay-path performance.
+
+Explicit caller scopes are preserved. Repeated exact publication replays may reuse their own
+READ scope, but ordinary READ callers cannot bind, WRITE callers keep their reservation, and
+late expansion remains terminal across savepoints. First/different binds retain the original
+canonical exclusive write path. Current publication authorization and caller rollback remain.
 
 ## Immutable execution reads (#906 phase B) — DECIDED
 

@@ -1323,6 +1323,95 @@ class QuestionRevisionContractsMySqlIntegrationTest {
         } finally { factory.destroy(); }
     }
 
+    @ParameterizedTest @ValueSource(strings = {"READ_COMMITTED", "REPEATABLE_READ"})
+    void publicationReplayKeepsCallerWritesProvisionalAndItsScopeTerminal(String isolation) {
+        revisions.insert(quiz(10, question(1, "{}"))); revisions.insert(quiz(11, question(2, "{}")));
+        service.bind(OWNER, id(10), List.of(binding(1, 1)));
+        service.bind(OWNER, id(11), List.of(binding(2, 1)));
+        source.reset();
+        transaction(manager, isolation).executeWithoutResult(status -> {
+            sql.update("INSERT INTO contract_transaction_receipts VALUES (1)");
+            assertThat(service.replayIfExact(OWNER, id(10), List.of(binding(1, 1)))).isTrue();
+            assertThat(service.replayIfExact(OWNER, id(10), List.of(binding(1, 1)))).isTrue();
+            assertThat(source.bindingWrites).hasValue(0);
+            status.setRollbackOnly();
+        });
+        assertThat(sql.queryForList("SELECT writer FROM contract_transaction_receipts")).isEmpty();
+        assertThat(countBindings()).isEqualTo(2);
+        assertThatThrownBy(() -> transaction(manager, isolation).executeWithoutResult(status -> {
+            assertThat(service.replayIfExact(OWNER, id(10), List.of(binding(1, 1)))).isTrue();
+            Object savepoint = status.createSavepoint();
+            rejected(() -> service.replayIfExact(OWNER, id(11), List.of(binding(2, 1))), SCOPE_VIOLATION);
+            status.rollbackToSavepoint(savepoint);
+        })).isInstanceOf(ContractResolutionException.class);
+    }
+
+    @Test void replayProbeMissDoesNotAcquireBindingsOrPoisonTheWritePath() {
+        var expected = List.of(binding(1, 1), binding(2, 1));
+        transaction(manager, "READ_COMMITTED").executeWithoutResult(status -> {
+            revisions.insert(quiz(10, question(1, "{}"), question(2, "{}")));
+            source.reset();
+            assertThat(service.replayIfExact(OWNER, id(10), expected)).isFalse();
+            assertThat(status.isRollbackOnly()).isFalse();
+            assertThat(source.selects).filteredOn(q -> q.contains("FROM question_revision_contract_bindings"))
+                    .allSatisfy(q -> assertThat(q).doesNotContain("FOR SHARE", "FOR UPDATE"));
+            service.declareScope(OWNER, Set.of(id(10)), ContractScopeIntent.WRITE);
+            service.bind(OWNER, id(10), expected);
+            // Existing caller-owned WRITE is not weakened, even for its uncommitted exact set.
+            assertThat(service.replayIfExact(OWNER, id(10), expected)).isFalse();
+            service.bind(OWNER, id(10), expected);
+            status.setRollbackOnly();
+        });
+        assertThat(countBindings()).isZero();
+        assertThat(revisions.findById(OWNER, id(10))).isEmpty();
+    }
+
+    @Test void replayCannotBypassAnExplicitReadScopeOrItsOwner() {
+        revisions.insert(quiz(10, question(1, "{}")));
+        var expected = List.of(binding(1, 1)); service.bind(OWNER, id(10), expected);
+        transaction(manager, "READ_COMMITTED").executeWithoutResult(status -> {
+            service.declareScope(OWNER, Set.of(id(10)), ContractScopeIntent.READ);
+            assertThat(service.replayIfExact(OWNER, id(10), expected)).isFalse();
+            rejected(() -> service.bind(OWNER, id(10), expected), SCOPE_VIOLATION);
+            status.setRollbackOnly();
+        });
+        transaction(manager, "READ_COMMITTED").executeWithoutResult(status -> {
+            rejected(() -> service.replayIfExact(UUID.randomUUID(), id(10), expected), REVISION_UNAVAILABLE);
+            status.setRollbackOnly();
+        });
+        rejected(() -> service.replayIfExact(OWNER, id(10), expected), TRANSACTION_REQUIRED);
+    }
+
+    @Test void staleRrReplayHintFallsBackWithoutLosingTheConcurrentWinner() throws Exception {
+        revisions.insert(quiz(10, question(1, "{}")));
+        var expected = List.of(binding(1, 1)); var executor = Executors.newSingleThreadExecutor();
+        try {
+            transaction(manager, "REPEATABLE_READ").executeWithoutResult(status -> {
+                assertThat(countBindings()).isZero();
+                try { executor.submit(() -> service.bind(OWNER, id(10), expected)).get(10, TimeUnit.SECONDS); }
+                catch (Exception failure) { throw new AssertionError(failure); }
+                assertThat(service.replayIfExact(OWNER, id(10), expected)).isFalse();
+                service.declareScope(OWNER, Set.of(id(10)), ContractScopeIntent.WRITE);
+                service.bind(OWNER, id(10), expected);
+                assertThat(service.resolve(OWNER, id(10)).get(id(1)).binding()).isEqualTo(expected.get(0));
+            });
+            assertThat(countBindings()).isEqualTo(1);
+        } finally { executor.shutdownNow(); assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @ParameterizedTest @ValueSource(ints = {1, 500, 501})
+    void exactReplayReadsOnlyBatchedMetadata(int size) {
+        var questions = java.util.stream.IntStream.range(1, size + 1).mapToObj(i -> question(i, "{\"padding\":\"" + "x".repeat(4096) + "\"}")).toList();
+        revisions.insert(quiz(10000, questions.toArray(uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision[]::new)));
+        var expected = java.util.stream.IntStream.range(1, size + 1).mapToObj(i -> binding(i, 1)).toList();
+        service.bind(OWNER, id(10000), expected); source.reset();
+        transaction(manager, "READ_COMMITTED").executeWithoutResult(status ->
+                assertThat(service.replayIfExact(OWNER, id(10000), expected)).isTrue());
+        assertThat(source.bindingWrites).hasValue(0);
+        assertThat(source.selects).hasSize(3 + 3 * ((size + 499) / 500));
+        assertThat(source.selects).allSatisfy(q -> assertThat(q).doesNotContain("content", "question_text", "FOR UPDATE"));
+    }
+
     private static org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean jpaFactory() {
         var factory = new org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean();
         factory.setDataSource(source);
