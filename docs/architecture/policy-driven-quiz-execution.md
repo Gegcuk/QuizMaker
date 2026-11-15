@@ -2245,6 +2245,73 @@ An old allow cannot authorize a later start or offline replay. #611/#625 remain 
 guest capabilities. No assignment repository, migration, write, provider, mapper or JPA relationship
 read is added; N+1 does not apply to this slice. Existing APIs, attempts and share links are unchanged.
 
+### Internal assignment publication (#621)
+
+`AssignmentPublicationService` owns create/save/publish and exact/current snapshot reads. It is
+an internal author boundary, with no HTTP route, participant start or formal-preset activation.
+V113 adds assignment heads, durable command receipts and captured participant designations;
+V109 and legacy share links are unchanged. Existing unowned storage rows are not adopted or
+backfilled. Nullable designation columns on old rows mean unknown evidence, never a profile or
+contact fallback. New captures bind the exact audience member IDs to source-provided designations.
+
+The authenticated username is re-resolved through the current active-user boundary.
+`AssignmentManagementAuthority` checks the current permission for actor, operation, assignment ID
+and exact scope. `ASSIGNMENT_CREATE` protects draft authoring/reads; `ASSIGNMENT_PUBLISH` protects
+publication/current/history reads. Existing assignments use their persisted scope, never the
+scope claimed in a command. New identity writes require scoped authority first. All reads and
+exact create/save/publish replays revalidate this independent boundary before returning a result.
+Missing or ambiguous authority providers deny; there is no global-role fallback. Organization
+membership and exact assignment ownership remain separate requirements. For example, a teacher
+in school A who is a student in school B cannot create an assignment in B merely because both
+memberships and valid source references exist. The migration registers the permission vocabulary
+without assigning rights to existing roles. Delegation/transfer remains #835, cancellation #798.
+
+`AssignmentSourceVerifier` is a required trusted source integration for writes: it checks current
+source authority/visibility, exact revision/policy/scope and immutable roster/group provenance,
+including the captured participant designations, inside the writer transaction. No or multiple
+verifiers fail closed. This source check never substitutes for assignment-management authority.
+The local source and scope-role fixtures establish publication behavior only. Real scoped grant
+and roster/group readers must be connected before authoring is exposed; they must retain necessary
+authority/source protection through commit. The JDBC adapter additionally verifies the exact retained
+revision/schema by scalar metadata, without rereading questions or document content. Only the
+delivered `FREE_PRACTICE/v1` storage tuple is accepted; this is not formal assessment conformance.
+
+Each edit appends a draft snapshot; a database update guard protects receipt-bound draft captures.
+Publication inserts a new immutable version and moves the
+head in the same transaction as its receipt. The aggregate's optimistic `version` increments
+on each edit/new publication; snapshot numbers separately enumerate drafts and publications.
+Publishing the already-published draft with a fresh valid command reuses its publication. A
+receipt binds actor, assignment, command ID, operation and canonical command input. An exact
+repeat returns the original snapshot and acknowledgement version even after a later publication;
+it never moves the current pointer backwards. Changed key reuse conflicts; stale fresh commands
+fail without writes. Hashing covers command configuration, never stored document bytes/text.
+
+The service owns RC or joins an explicitly RC writable caller. Unsupported/read-only caller
+transactions are rejected before work; no caller suspension or independent commit is introduced.
+Root locking serializes one assignment, while unrelated assignments on the same revision can
+complete independently. All failures roll back snapshots, pointer and receipt together; caught
+participating failures mark the caller rollback-only. JDBC failures are sanitized before the
+repository transaction interceptor. Public error/status mapping belongs to #533/#622.
+An unavailable/uncertain commit is not proof of rollback: retain the same command identity and
+reconcile by exact retry, which returns its durable receipt if the transaction committed.
+
+`AssignmentPublicationMySqlIntegrationTest` proves A-to-B publication, immutable earlier identity
+and bindings, replay after service reconstruction, one concurrent winner or exact replay, actual
+head-lock waits, independent same-source progress, reached-write rollback and positive retries,
+current permission/owner/organization/source denial, composite FK isolation and outer rollback.
+Its SQL-backed scope-role fixture separates a teacher role in A from student membership in B,
+including permission loss with membership intact, every read/replay and scope-substitution denial.
+It measures four scalar application reads per current-publication read across three assignments,
+including one current scoped-authority query; production readers need their own bounded-query
+evidence. No question aggregate is loaded. `AssignmentPublicationSpringMySqlIntegrationTest`
+additionally exercises production method-security/repository/identity proxies, the real JPA user
+repository and `SafeJpaTransactionManager`, actual RC, pool restoration, reached-insert rollback
+and shared JPA/JDBC caller rollback. Source/membership/scope-role fixtures remain distinguished
+from production source or grant integration; the original standalone suite uses a SQL-backed
+active-user test adapter and `DataSourceTransactionManager` for its concurrency/fault scenarios.
+Retention/erasure periods are unchanged; recovery after target writes is forward-fix. Runtime
+source integration, #533/#622 HTTP, #534 start and formal release gates remain separately owned.
+
 ### Assignment storage foundation (#531)
 
 `AssignmentContract` defines a version-1 draft/published snapshot with its own stable ID,
