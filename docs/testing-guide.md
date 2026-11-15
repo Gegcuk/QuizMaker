@@ -442,8 +442,8 @@ full `./mvnw verify` gate for existing API/training/OpenAPI compatibility after 
 The legacy `AttemptController` owns `/api/v1/attempts` regardless of target flags.
 `ParticipantAttemptViewController`, form, response, submission, navigation and draft
 controllers own `/api/v2/attempts` and retain their existing feature gates. The public
-v2 start belongs to #609 and is not introduced here. The #629 batch branch must use
-`POST /api/v2/attempts/{attemptId}/responses/batch` when integrated.
+v2 start belongs to #609 and is not introduced here. The integrated #629 batch uses
+`POST /api/v2/attempts/{attemptId}/responses/batch` behind its independent gate.
 
 Verify both full and grouped OpenAPI: legacy responses are `AttemptDetailsDto` or
 `AttemptReviewDto`; target views are `ParticipantAttemptView`. `attempts` and `attempts-v2`
@@ -456,11 +456,12 @@ of persisted schema version 1. Include flags never expand target disclosure.
 ```
 
 Keep the real legacy all-family/mode/read/review fixtures and their SQL bounds. The target
-fixtures retain old-RR reads, concurrent access, revocation, rollback, restart and released
-content checks; #904 does not weaken those contracts. Reject legacy IDs at v2 without
-fallback, and prove v1 still returns its own successful envelopes with target enabled.
-Wrong-version detail/review/answer-key failures must mark a joined caller transaction
-rollback-only even when caught; check the rollback of an unrelated caller write under RR.
+fixtures retain concurrent access, revocation, rollback, restart and released content checks.
+Target transaction composition now follows #905: reject incompatible old RR before work and
+verify participating rollback under RC. Legacy RR fixtures remain unchanged. Reject legacy IDs
+at v2 without fallback, and prove v1 still returns its own successful envelopes with target enabled.
+Wrong-version detail/review/answer-key failures must mark a compatible joined caller transaction
+rollback-only even when caught; check the rollback of an unrelated caller write under RC.
 Scoped tests precede full `verify`; the isolated context worker launcher and post-merge
 verification remain unchanged.
 
@@ -926,3 +927,130 @@ command locally. No application-data rollback is involved. If cleanup cannot rea
 restore Docker and run `cleanup --output <run-resource-directory>` against the preserved
 `resources.json`; it validates names and ownership labels before removing only that run's
 containers and anonymous volumes. Never use a global prune for recovery.
+
+
+## Authoritative response writes and atomic batch (#629 / #907)
+
+Use `ResponseAcceptanceMySqlIntegrationTest` for the real single/batch commands, five response
+families, deterministic error order, strict limits, same-key replay, changed-key conflicts,
+permission revocation, foreign owners/items, unknown commit and reached-write rollback. The
+fixture runs all Flyway migrations and Hibernate `validate`. V112 is the bounded batch receipt
+acknowledgement; V113/V114 and their growing target projections must be absent on this baseline.
+Schema checks also prove receipt cascade removes the acknowledgement without deleting answers.
+
+Independent first writes cover all single/single, single/batch and batch/batch combinations with
+empty and populated response/receipt tables. Barriers are attached to the real accepted INSERT,
+not a similar query. Held-reader/replay tests use populated 500-item forms; adjacent UUIDs and
+same-revision answer/batch/form/start controls must finish before the holder is released. The
+command owner is actual RC even on a server-default RR connection. Independent controls do not
+replace same-attempt serialization tests. Lifecycle/version checks and joined RC rollback remain.
+
+`AttemptSubmissionMySqlIntegrationTest` composes real batch acceptance with voluntary submission,
+expiry, submitted-source provenance validation and automatic grading. It compares exact accepted
+IDs and form-ordered grading output, checks omissions and replay, and confirms no legacy rows are
+written. Existing single-response, draft, navigation, terminal, receipt and legacy RR suites remain.
+SQL faults retain safe reason/classification before nested transaction logging, without raw answer
+text in messages, cause, suppressed exceptions or TRACE rollback diagnostics.
+
+```bash
+./mvnw clean test -Dtest=ResponseAcceptanceActivationTest,ResponseAcceptanceOpenApiTest,ResponseAcceptanceMySqlIntegrationTest,AttemptSubmissionMySqlIntegrationTest
+./mvnw test -Dtest=CommandReceiptMySqlIntegrationTest,NavigationMySqlIntegrationTest,DraftCommandMySqlIntegrationTest,AutomaticResultMySqlIntegrationTest,LegacyAnswerUniquenessMySqlIntegrationTest,LegacyAnswerMembershipMySqlIntegrationTest
+./mvnw verify
+```
+
+Use the existing offline context launcher with four isolated MySQL workers for full verification;
+full verify, coverage merging and post-merge checks are unchanged. The batch relationship-read
+control uses three parent attempts and 1 versus 20 submitted items: the source SELECT count must
+stay equal. It does not imply bounded bytes independent of quiz size; the whole quiz is still read.
+
+`ResponseWriteCostProbe` is an opt-in diagnostic whose name is deliberately outside the default
+Surefire patterns (listed in the manifest's `not_discovered`). Run only its measurement method on
+a disposable, otherwise idle MySQL server, with the same fake/offline environment as integration
+tests. It runs real standalone RC commands, 100/250/500 responses, single and batch, three samples
+per size/mode. Fixture/start/delivery and verification queries are outside measured intervals.
+It records application-thread statements (including driver isolation operations), rows, bytes,
+global redo/binlog deltas and latency. No millisecond threshold gates correctness.
+
+With JDK 17 in `JAVA_HOME`, the launcher owns one isolated MySQL container, applies the existing
+offline test environment, checks all 18 samples per mode and removes its container on completion:
+
+```bash
+python3 tools/testing/response_write_cost.py --output /private/tmp/response-write-cost --compare-historical
+```
+
+The output directory must be new. Omit `--compare-historical` for current-code measurements only;
+`--mysql-image` selects an already available local image. Logs, JSON samples, server configuration,
+source fingerprint and cleanup evidence remain under that directory. For an already prepared
+isolated local test server, the underlying invocation is
+`./mvnw test '-Dtest=ResponseWriteCostProbe#measureWriteCost'`.
+
+For the controlled historical write-cost comparison, extract only V113/V114 from `703bfbe3` into
+a temporary directory and supply `-Dresponse.cost.historicalMigrations=/absolute/temporary/path`.
+This optional mode applies those migrations only to the probe's newly created schema. Use the
+same current RC command implementation and server configuration for both modes: the comparison
+isolates cumulative projection storage/maintenance (including their bytes in existing stream
+`SELECT *` reads), not every difference from the old branch. Never
+place those files in application migration resources or run the diagnostic against a shared DB.
+`RESPONSE_WRITE_COST` JSON lines contain no response payloads or credentials. Keep setup, logs,
+version/configuration and all samples with the measurement result, not just the fastest sample.
+
+The deployment inventory selected the unapplied path: the checked server had V111 as latest
+successful history, no failures, no V112–V114 entries or target projection objects. Recheck any
+additional environment separately; this is not permission to repair history or change checksums.
+Allowance `start_ids`, whole-quiz read volume and legacy V108/analytics remain separate cost work.
+
+### Recorded local write-cost evidence (15 November 2026)
+
+Controlled comparison on current #907 commands based on master `f8e6b07c`: JDK 17 with JaCoCo,
+Docker MySQL 8.4.11, server default RR / actual commands RC, 128 MiB buffer pool, 16 KiB pages,
+binlog enabled with ROW/FULL. Three samples per mode/size; TRUE_FALSE forms with N questions,
+N standalone single commands or one atomic N-item batch. Setup and verification SQL are excluded.
+Values below are medians; MB means 1,000,000 bytes. This is growth evidence, not production capacity.
+
+| Mode | N | Server statements | Rows sent | Wire MB | Redo MB | Binlog MB | Seconds |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| single | 100 | 5,900 | 73,100 | 10.220 | 0.791 | 0.323 | 3.840 |
+| single | 250 | 14,750 | 445,250 | 51.726 | 1.903 | 0.807 | 17.103 |
+| single | 500 | 29,500 | 1,765,500 | 190.703 | 3.860 | 1.613 | 48.667 |
+| batch | 100 | 1,151 | 1,228 | 0.628 | 0.371 | 0.194 | 0.465 |
+| batch | 250 | 2,801 | 3,028 | 1.527 | 0.938 | 0.483 | 1.437 |
+| batch | 500 | 5,551 | 6,028 | 3.025 | 1.951 | 0.964 | 2.878 |
+
+The same code with historical V113/V114 installed only in the disposable schema:
+
+| Mode | N | Historical redo MB | Current redo MB | Historical binlog MB | Current binlog MB | Historical seconds | Current seconds |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| single | 100 | 3.951 | 0.791 | 13.278 | 0.323 | 4.158 | 3.840 |
+| single | 250 | 18.849 | 1.903 | 81.753 | 0.807 | 18.929 | 17.103 |
+| single | 500 | 66.769 | 3.860 | 325.872 | 1.613 | 50.986 | 48.667 |
+| batch | 100 | 3.503 | 0.371 | 13.149 | 0.194 | 0.599 | 0.465 |
+| batch | 250 | 17.874 | 0.938 | 81.429 | 0.483 | 2.053 | 1.437 |
+| batch | 500 | 64.946 | 1.951 | 325.222 | 0.964 | 5.401 | 2.878 |
+
+Current single-command binlog grows 5.00× for 5× as many answers; batch grows 4.97×. Redo grows
+4.88× / 5.26× respectively. The historical growing JSON causes roughly 24.5× / 24.7× binlog growth
+for the same 5× increase. Batch source relationship reads stay bounded, while the established
+per-item lifecycle/trace protocol still has linear SQL work (11N + 51 server statements here).
+It has not been replaced with a different trace/version protocol or a bulk-write API.
+
+Whole-quiz rereads remain visible: 500 standalone answers return 1,765,500 rows / 190.7 MB, and
+most of their latency remains even after projections are removed. This requires the separate
+read-volume slice before large-quiz activation; it is not hidden by the constant SELECT-count gate.
+The historical stream `SELECT *` also transfers the added metadata columns, reflected in raw wire
+samples. No performance threshold replaces deterministic rollback/concurrency tests.
+
+Local evidence: `/private/tmp/quizmaker-907-cost-final/{authoritative,historical}.json`, `medians.json`,
+matching Maven logs, `baseline.json` and `db/cleanup.json`. The launcher completed all 36 samples,
+verified unchanged source fingerprints and removed its owned server. Scoped verification on
+MySQL 8.0.43 completed 287 tests with no failures/errors/skips (response HTTP/activation, real
+acceptance and submission/expiry/grading suites).
+
+Full `clean verify` on four isolated MySQL 8.4.11 workers completed **9,786 tests**, zero failures,
+errors or skips, with **88.43% line / 67.90% branch** coverage (820.5 seconds for Maven). All previous
+case identities remain except the two deadlock cases whose signature expands from `(int)` to
+`(int, boolean)`: both original blocker-isolation cases are retained for singles and additionally
+run for batches. The total increases by 57; the optional performance probe is absent from default
+verification. Measurement and full-verify source fingerprints match. Worker assignment, merged
+coverage, unchanged-source and cleanup checks passed. Evidence is retained under
+`/private/tmp/quizmaker-907-complete/verify/`, including `result.json`, `comparison-to-906.json` and
+`maven.log`. CI/full verify and post-merge checks are unchanged.

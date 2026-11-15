@@ -107,6 +107,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
         ResponseAcceptanceServiceImpl.class, JdbcAcceptedResponseRepository.class,
+        ResponseBatchAcceptanceServiceImpl.class, JdbcResponseBatchResultRepository.class,
         AttemptSubmissionServiceImpl.class, AttemptTerminalSubmissionImpl.class, AcceptedSubmissionResponseFinalizer.class, JdbcAttemptSubmissionRepository.class,
         AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, uk.gegc.quizmaker.features.attempt.application.impl.AttemptTimingServiceImpl.class, uk.gegc.quizmaker.features.attempt.infra.repository.JdbcAttemptTimingRepository.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
@@ -247,7 +248,7 @@ class AttemptSubmissionMySqlIntegrationTest {
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
     static final List<String> TARGET_TABLES = List.of("attempt_result_created", "attempt_automatic_grade", "attempt_automatic_result",
-            "attempt_navigation_result", "attempt_navigation", "attempt_expiry_receipt", "attempt_expiry_work", "attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
+            "attempt_response_batch_result", "attempt_navigation_result", "attempt_navigation", "attempt_expiry_receipt", "attempt_expiry_work", "attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     SubmissionDataSource observer() { return (SubmissionDataSource) source; }
@@ -414,6 +415,43 @@ class AttemptSubmissionMySqlIntegrationTest {
         assertThat(sql.queryForList("SELECT event_type FROM attempt_trace_event WHERE attempt_id=UUID_TO_BIN(?) ORDER BY sequence_number", String.class, f.attempt().toString()))
                 .endsWith("ANSWER_LOCKED", "ATTEMPT_SUBMITTED");
         assertThat(count("answers")).isZero(); // No legacy grade/result/event is produced here.
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void batchEvidenceIsIdenticalForVoluntarySubmissionExpiryAndGrading(boolean expired) {
+        var f = fixture(false, 10, 0, new TimingPolicy(TimingMode.TOTAL_ATTEMPT, Duration.ofMinutes(30), null));
+        var input = f.items().subList(0, 8).stream().map(i ->
+                new ResponseBatchAcceptanceService.BatchItem(i.id(), i.type(), stableInput(i))).toList();
+        var batch = context.getBean(ResponseBatchAcceptanceService.class).acceptBatch(
+                new ResponseBatchAcceptanceService.BatchCommand(f.attempt(), 1, CommandReceipt.Key.from("terminal-batch"), input));
+        UUID submission;
+        if (expired) {
+            var deadline = effective(f.attempt()); expiryClock().now = deadline;
+            SecurityContextHolder.clearContext();
+            var result = expiry().expire(f.attempt());
+            assertExpiry(f.attempt(), deadline, 8, 2);
+            submission = result.acknowledgement().resultId();
+        } else {
+            submission = submissions.submit(submit(new Fixture(f.attempt(), f.items(), batch.stateVersion()), "terminal-submit")).submissionId();
+        }
+        tx.executeWithoutResult(status -> {
+            var saved = context.getBean(SubmittedAttemptSource.class).lock(submission);
+            assertThat(saved.responses()).extracting(r -> r.id())
+                    .containsExactlyInAnyOrderElementsOf(batch.responses().stream().map(r -> r.acceptedResponseId()).toList());
+            assertThat(saved.responses()).extracting(r -> r.formItemId()).containsExactlyElementsOf(
+                    input.stream().map(i -> i.formItemId()).sorted(java.util.Comparator.comparing(UUID::toString)).toList());
+            assertThat(saved.responses()).allSatisfy(r -> {
+                assertThat(r.contract()).isEqualTo(saved.contracts().get(r.questionRevisionId()).response().version());
+                assertThat(r.formId()).isEqualTo(saved.form().id());
+            });
+        });
+        var grading = context.getBean(uk.gegc.quizmaker.features.result.application.AutomaticResultService.class);
+        var graded = grading.finalizeSubmission(submission);
+        assertThat(graded.items().stream().filter(i -> i.responseId() != null).map(i -> i.responseId()).toList())
+                .containsExactlyElementsOf(batch.responses().stream().map(r -> r.acceptedResponseId()).toList());
+        assertThat(graded.score().earned()).isEqualTo(8); assertThat(graded.score().possible()).isEqualTo(10);
+        assertThat(grading.finalizeSubmission(submission).id()).isEqualTo(graded.id());
+        assertThat(count("answers")).isZero();
     }
 
     @Test void requiredOmissionsAndUnconfirmedSubmissionHaveNoSideEffectsAndSafeMissingIds() {
