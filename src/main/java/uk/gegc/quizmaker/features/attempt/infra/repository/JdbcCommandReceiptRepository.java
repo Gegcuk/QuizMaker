@@ -37,7 +37,7 @@ public class JdbcCommandReceiptRepository implements CommandReceiptRepository {
                 .addValue("expected", request.expectedVersion()).addValue("input", request.input().digest())
                 .addValue("at", LocalDateTime.ofInstant(at, ZoneOffset.UTC));
         // Reserve before lookup: no shared absent-key gap lock; duplicate requests read the winner
-        // under both supported isolation levels, including an existing stale RR snapshot.
+        // in the owning RC transaction. Same-key protection remains exclusive; unrelated keys share no guard.
         jdbc.update("""
                 INSERT INTO attempt_command_receipt
                   (id,schema_version,user_id,key_hash,context_id,operation,target_id,expected_version,input_hash,status,recorded_at)

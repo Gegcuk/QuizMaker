@@ -8,6 +8,7 @@ import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -41,6 +42,7 @@ final class AcceptanceDataSource extends DelegatingDataSource {
                         if (method.getName().equals("prepareStatement") && arguments[0] instanceof String statement) {
                             return observe((PreparedStatement) result, statement, connectionId);
                         }
+                        if (method.getName().equals("createStatement")) return observe((Statement) result, connectionId);
                         return result;
                     } catch (InvocationTargetException failure) { throw failure.getCause(); }
                 });
@@ -62,6 +64,26 @@ final class AcceptanceDataSource extends DelegatingDataSource {
                     }
                     catch (InvocationTargetException failure) {
                         if (failure.getCause() instanceof SQLException sqlFailure) sqlErrorCodes.add(sqlFailure.getErrorCode());
+                        throw failure.getCause();
+                    }
+                });
+    }
+
+    private Statement observe(Statement target, int connectionId) {
+        return (Statement) Proxy.newProxyInstance(Statement.class.getClassLoader(),new Class<?>[]{Statement.class},
+                (proxy,method,arguments)->{
+                    String sql=method.getName().startsWith("execute") && arguments!=null && arguments.length>0
+                            && arguments[0] instanceof String text ? text : null;
+                    if(sql!=null) {
+                        if(sql.stripLeading().toUpperCase(Locale.ROOT).startsWith("SELECT")) selects.add(sql);
+                        var before=beforeSql; if(before!=null) before.run(sql,connectionId);
+                    }
+                    try {
+                        Object result=method.invoke(target,arguments);
+                        var after=afterSql; if(sql!=null && after!=null) after.run(sql,connectionId);
+                        return result;
+                    } catch(InvocationTargetException failure) {
+                        if(failure.getCause() instanceof SQLException sqlFailure) sqlErrorCodes.add(sqlFailure.getErrorCode());
                         throw failure.getCause();
                     }
                 });

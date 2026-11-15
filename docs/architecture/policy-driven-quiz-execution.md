@@ -49,7 +49,7 @@ reads listed below; authorization, command identity and canonical binding remain
 | Fixed form, option-order creation and materialization | REQUIRED writable RC with early rejection of incompatible callers; exact replay retains exclusive aggregate roots. Metadata-only bulk reads continue to follow their caller snapshot. |
 | Expiry page/command, automatic-result pending/finalization, immediate release | Existing REQUIRES_NEW boundaries, explicitly RC; suspend caller state and commit independently. |
 | Receipt cleanup primitive | Requires an existing writable RC transaction and unchanged cleanup authority. |
-| Future #534/#834 and #629 batch | One writable RC owner for all effects; batch does not open a transaction per item. |
+| #629 batch and future #534/#834 | One writable RC owner for all effects; batch does not open a transaction per item. |
 
 `AttemptTransactions` checks composition before identity or domain SQL and receipt reservation.
 An explicit incompatible Spring isolation is rejected immediately. DEFAULT/null metadata is
@@ -118,6 +118,50 @@ independently. Anna's response protects its own lifecycle, receipt and reference
 longer locks every form item and option merely to project immutable content. A concurrent second
 command for Anna's *same attempt* still waits and then observes the committed state. If Anna's
 outer RC transaction rolls back, its answer, trace and receipt all disappear together.
+
+<a id="authoritative-response-inventory"></a>
+### Authoritative response and receipt inventory (#629 / #907)
+
+The executable baseline is the real #629 batch adapted onto #905 and both #906 phases. It
+uses `/api/v2/attempts/{attemptId}/responses/batch`, gated by
+`quizmaker.attempts.response-batch-enabled` (default false). The legacy route has no alias.
+HTTP/schema versions, current owner/full-editor eligibility and single-response behavior remain.
+
+| Path | Authority and serialization | Reads, writes and cleanup |
+|---|---|---|
+| Single response / atomic batch | Current subject/access checks; exclusive lifecycle lock before receipt work and accepted-row checks. | `AcceptedResponseWork` inserts authoritative rows, saves lifecycle and appends trace in the same transaction. Single `exists` and batch `references` are ordinary RC reads. Natural-key uniqueness `(attempt_id, form_item_id)` and unique command ID remain the final duplicate guards. |
+| Navigation / facts / finalization | Navigation owns the lifecycle; facts joins the checked RC owner. `AcceptedSubmissionResponseFinalizer` runs under the terminal command's lifecycle lock. | References contain IDs and exact contract versions, not normalized answers. Form/question/provenance checks remain. No request-time derived/source reconciliation is added. |
+| Batch retry | Lifecycle and user/key receipt lock; same request returns the saved acknowledgement. | V112 holds at most 500 identifiers per command, written once. One bounded query verifies the exact answer IDs, item order, per-item command IDs and bound contract versions against authoritative rows; it never rewrites them. |
+| Draft / submitted source / result | Draft commands own lifecycle; terminal response sets cannot gain accepted rows after completion. Grading locks the submission/finalization and checks terminal lifecycle, count and provenance. | Existing draft-existence and submitted-response shared reads retain their own lower-level contracts. They execute in RC through v2 commands/workers; this change does not remove every lock from unrelated contracts. Submitted storage order remains item-ID order; participant/grading projections restore saved form order. |
+| Receipt reservation / D08 cleanup | Existing user/key unique upsert and exact `FOR UPDATE`; cleanup requires writable RC and existing authorization. | Different keys do not share a coordination row. Expiry deletes receipts and cascades V112 acknowledgements only; accepted rows and trace evidence survive. |
+| Maintenance / deletion | No application UPDATE/DELETE writer for accepted responses exists on this baseline. | V95 FKs retain the exact stream/form/item/question, and V97 grade rows restrict deletion of referenced responses. Receipt deletion has no FK cascade into accepted answers. Future retention writers must honor terminal/evidence invariants; arbitrary DBA mutation is not a supported writer. |
+
+All batch validation runs before any item is persisted. A reached failure rolls back answers,
+lifecycle, trace, receipt and batch acknowledgement together, including a participating caller's
+writes. A lost successful commit response is uncertain, not proof of rollback: an identical retry
+uses the original receipt and exact IDs. Known errors and database diagnostics are sanitized before
+transactional logging, including nested cause/suppressed chains; optional metrics cannot change
+acceptance. No retry, global lock, extra accepted-response index or schema function is introduced.
+
+The [deployment inventory](decision-register.md#authoritative-response-writes) selects the fresh
+V112-only path. V112 is additive while the previous master can serve requests; it neither reads nor
+modifies legacy `answers`, V108 triggers or accepted rows. Old master can run with this extra table
+but does not expose the batch route. Never deploy the historical #629 projection-reader build on
+this schema: its V113/V114 objects are deliberately absent. The controlled performance comparison
+installs those historical migrations only on a disposable benchmark schema, not application resources.
+
+`JdbcAttemptAllowanceRepository` remains a separate cost follow-up: one growing `start_ids` array
+per user/revision/publication, append on each start, 512-ID history read chunks with lifecycle,
+subject, trace and policy JSON, then a completeness census. Answer writes do not update that array.
+Measure increasing start histories and retained policy bytes before choosing a replacement; limits,
+cooldown and consumption semantics must not change as a side effect of response optimization.
+Whole-quiz rereads and duplicate access checks also remain, so linear *write volume* is not a claim
+of constant response CPU/read cost or production capacity for 500-question quizzes.
+
+For example, Anna's pending batch holds her own attempt until commit. Authorized Boris can save
+an independent answer or batch on the same revision before Anna finishes; another command for
+Anna's same attempt still serializes. Rolling Anna back removes every provisional answer and its
+acknowledgement. Legacy users continue through v1 with their existing RR/projection behavior.
 
 ---
 

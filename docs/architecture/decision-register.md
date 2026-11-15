@@ -27,7 +27,7 @@ bounded integration error, not a retryable command outcome.
 
 Legacy v1, V108, the independent RR compatibility report, publication/binding contracts and
 global pool/server defaults remain separate. #906 phase B owns removal of freshness-only locks;
-#629 will integrate its batch owner with this contract before activation.
+#629/#907 integrate the batch owner with this contract; activation remains separately gated.
 
 ## Question-contract lock intent (#906 phase A) — DECIDED
 
@@ -58,6 +58,31 @@ RESTRICT prevents referenced deletion, not arbitrary UPDATE. No new schema guard
 Current access/revocation, lifecycle, receipt, binding and publication locks remain authoritative.
 See the [lock/invariant inventory](policy-driven-quiz-execution.md#immutable-read-lock-inventory)
 for roots, writers, completeness and deletion evidence. No old-RR fallback or projection is added.
+
+<a id="authoritative-response-writes"></a>
+## Authoritative RC responses and atomic batches (#629 / #907) — DECIDED
+
+**Decision date/source:** 15 November 2026, implementation of #907 on the delivered #905/#906 baseline.
+
+Accepted rows remain the only answer authority. Single and batch commands serialize their own
+attempt through its lifecycle row, reserve their existing semantic receipt and read authoritative
+existence/reference metadata in RC without extra read locks. No RR fallback or growing identity/
+reference JSON is introduced. Same-attempt conflicts, authorization/revocation, exact provenance,
+unknown-commit replay and caller rollback retain their existing meaning.
+
+The real #629 implementation is adapted from `703bfbe3` (batch foundation `ad1cd033`, safety
+refinement `74b01548`), with its bounded acknowledgement storage from V112 and without V113/V114.
+The batch has one RC transaction and one receipt, prepares all items before the first write,
+retains the 500-item/5 MiB/per-text limits and deterministic form-order errors, and stores the
+identifier-only acknowledgement once. Its v2 route remains independently disabled by default.
+
+Read-only deployment inventory on **15 November 2026, 01:49:40 UTC** found MySQL **8.0.43**,
+`quizmakerdb`, successful history through V111, no failed history, no V112–V114 entries, no target
+projection columns/triggers and no batch-result table. This selects the unapplied path for the
+checked deployment. No repair or historical checksum change is needed. An additional environment
+with those historical migrations requires its own compatible transition before deployment.
+Legacy V108 and allowance `start_ids` are not changed. See the
+[response inventory](policy-driven-quiz-execution.md#authoritative-response-inventory).
 
 <a id="assignment-eligibility-window"></a>
 ## Assignment start availability boundaries — DECIDED

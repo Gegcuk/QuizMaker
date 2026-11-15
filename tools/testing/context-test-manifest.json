@@ -276,6 +276,7 @@
     "uk.gegc.quizmaker.shared.email.RealAwsSesE2ETest"
   ],
   "not_discovered": [
+    "uk.gegc.quizmaker.features.attempt.response.ResponseWriteCostProbe",
     "uk.gegc.quizmaker.features.documentProcess.IngestionFlowIT",
     "uk.gegc.quizmaker.features.documentProcess.integration.NormalizedDocumentStatusMigrationIT"
   ]
