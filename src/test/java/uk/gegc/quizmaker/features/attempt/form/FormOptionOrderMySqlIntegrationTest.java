@@ -54,6 +54,27 @@ class FormOptionOrderMySqlIntegrationTest {
     private QuestionRevisionContractService contracts;
     private FormOptionOrderService service;
 
+
+    @ParameterizedTest @ValueSource(ints = {-1, 1, 4, 8, 2})
+    void incompatibleFormWriterRejectsBeforeReadingOrWriting(int isolation) {
+        var r = saved("rc-boundary", question("rc-question", QuestionType.MCQ_SINGLE, 3));
+        var f = OptionOrderFixtures.form("rc-boundary-form", r);
+        var outer = new TransactionTemplate(manager);
+        outer.setIsolationLevel(isolation); outer.setReadOnly(isolation == 2);
+        outer.executeWithoutResult(status -> {
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form", Integer.class)).isZero();
+            source.reset();
+            assertThatThrownBy(() -> service.createOrReplay(OWNER, f, AUTHORED)).isInstanceOfSatisfying(
+                    uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException.class, failure -> {
+                        assertThat(failure.reason().name()).isEqualTo(isolation == 2 ? "READ_ONLY" : "INCOMPATIBLE_ISOLATION");
+                        assertThat(failure.getCause()).isNull(); assertThat(failure.getSuppressed()).isEmpty();
+                    });
+            assertThat(source.selects).isEmpty();
+            status.setRollbackOnly();
+        });
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form", Integer.class)).isZero();
+    }
+
     @BeforeAll
     static void connect() {
         String port=System.getenv().getOrDefault("TEST_MYSQL_PORT","3306");
@@ -73,7 +94,7 @@ class FormOptionOrderMySqlIntegrationTest {
         var revision=quiz("before-migration",question("before",QuestionType.MCQ_SINGLE,3));
         revisions.insert(revision);
         var form=OptionOrderFixtures.form("before-form",revision);
-        new TransactionTemplate(manager).executeWithoutResult(status->fixedForms().createOrReplay(OWNER,form));
+        uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions.readCommitted(manager).executeWithoutResult(status->fixedForms().createOrReplay(OWNER,form));
         migrate("option_order_history","88","89");
         assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form_option_order",Integer.class)).isZero();
         assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form",Integer.class)).isEqualTo(1);
@@ -215,7 +236,7 @@ class FormOptionOrderMySqlIntegrationTest {
     @Test
     void outerTransactionOwnsScopeAndFinalCommitRatherThanAnInnerSuccessfulReturn() {
         var revision=saved("outer",question("outer-q",QuestionType.MCQ_SINGLE,3)); var form=OptionOrderFixtures.form("outer-form",revision);
-        var tx=new TransactionTemplate(manager);
+        var tx=uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions.readCommitted(manager);
         assertThatThrownBy(()->tx.executeWithoutResult(status->service.createOrReplay(OWNER,form,AUTHORED)))
                 .hasMessage("Question contract rejected: SCOPE_REQUIRED");
         assertThatThrownBy(()->tx.executeWithoutResult(status->{
@@ -228,7 +249,7 @@ class FormOptionOrderMySqlIntegrationTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"READ_COMMITTED,true","READ_COMMITTED,false","REPEATABLE_READ,true","REPEATABLE_READ,false"})
+    @CsvSource({"READ_COMMITTED,true", "READ_COMMITTED,false"})
     void independentTransactionsHaveOneImmutableWinnerAndDefinedReplayOrConflict(String isolation,boolean identical) throws Exception {
         var revision=saved("race",question("race-q",QuestionType.MCQ_SINGLE,6));var form=OptionOrderFixtures.form("race-form",revision);
         var firstWrites=new CountDownLatch(1);var secondLock=new CountDownLatch(1);var releaseFirst=new CountDownLatch(1);
@@ -266,20 +287,12 @@ class FormOptionOrderMySqlIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings={"READ_COMMITTED","REPEATABLE_READ"})
+    @ValueSource(strings={"READ_COMMITTED"})
     void differentEmptyFormsOfSameRevisionCommitWithoutLockUpgrade(String isolation) throws Exception {
         var revision=saved("empty-independent");
         var firstForm=OptionOrderFixtures.form("empty-first",revision);
         var secondForm=OptionOrderFixtures.form("empty-second",revision);
-        // Split otherwise empty index gaps between the two form IDs. The barrier must exercise
-        // the shared revision-lock upgrade, rather than wait for unrelated insertion gap locks.
-        var anchorRevision=saved("empty-anchor",question("empty-anchor-q",QuestionType.MCQ_SINGLE,3));
-        var midpoint=new java.math.BigInteger(1,bytes(firstForm.id()))
-                .add(new java.math.BigInteger(1,bytes(secondForm.id()))).shiftRight(1);
-        var anchorId=new UUID(midpoint.shiftRight(64).longValue(),midpoint.longValue());
-        var anchor=new FixedForm(anchorId,1,anchorRevision.id(),List.of(new FixedForm.Item(
-                id("empty-anchor-item"),anchorRevision.items().get(0).id(),0)));
-        service.createOrReplay(OWNER,anchor,AUTHORED);
+        // Keep child tables empty: RC readers need no artificial index-gap anchors.
         var comparisons=new CyclicBarrier(2);
         var connections=ConcurrentHashMap.<Integer>newKeySet();
         source.beforeSql=(statement,connection)->{
@@ -315,8 +328,8 @@ class FormOptionOrderMySqlIntegrationTest {
             new TransactionTemplate(new DataSourceTransactionManager(source)).executeWithoutResult(status->{
                 assertThat(restarted.findByIds(OWNER,List.of(firstForm.id(),secondForm.id())))
                         .containsExactlyElementsOf(results.stream().map(Outcome::result).toList());
-                assertThat(count("attempt_form")).isEqualTo(3);
-                assertThat(count("attempt_form_option_order")).isEqualTo(3);
+                assertThat(count("attempt_form")).isEqualTo(2);
+                assertThat(count("attempt_form_option_order")).isEqualTo(2);
                 assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form_item_option_order WHERE form_id IN (?,?)",Integer.class,
                         bytes(firstForm.id()),bytes(secondForm.id()))).isZero();
                 assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form_option WHERE form_id IN (?,?)",Integer.class,
@@ -363,7 +376,7 @@ class FormOptionOrderMySqlIntegrationTest {
     @Test
     void emptyFormsAndOldFormsRemainDistinctAndMetricsCannotChangeTheResult() {
         var revision=saved("empty");var form=OptionOrderFixtures.form("empty-form",revision);
-        new TransactionTemplate(manager).executeWithoutResult(status->fixedForms().createOrReplay(OWNER,form));
+        uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions.readCommitted(manager).executeWithoutResult(status->fixedForms().createOrReplay(OWNER,form));
         assertThat(service.findByIds(OWNER,List.of(form.id()))).isEmpty();
         // Force meter type conflict; persistence must still return its actual committed success.
         metrics.counter("quizmaker.attempt.option.order.operations","operation","create_or_replay","outcome","success");
@@ -384,7 +397,7 @@ class FormOptionOrderMySqlIntegrationTest {
                 throw new SQLException("Synthetic reached option checkpoint","08006");
             }
         };
-        assertThatThrownBy(()->new TransactionTemplate(manager).executeWithoutResult(status->{
+        assertThatThrownBy(()->uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions.readCommitted(manager).executeWithoutResult(status->{
             contracts.declareScope(OWNER,Set.of(revision.id()));
             sql.update("UPDATE option_legacy_fixture SET marker='partial'");
             rejected(()->service.createOrReplay(OWNER,form,SHUFFLED),PERSISTENCE_UNAVAILABLE);
@@ -442,7 +455,7 @@ class FormOptionOrderMySqlIntegrationTest {
     void sourceQuestionFkRejectsAnotherExistingBoundQuestionRatherThanOnlyMissingIds() {
         var revision=saved("exact-fk",question("fk-a",QuestionType.MCQ_SINGLE,2),question("fk-b",QuestionType.MCQ_SINGLE,2));
         var form=OptionOrderFixtures.form("exact-fk-form",revision);
-        new TransactionTemplate(manager).executeWithoutResult(status->fixedForms().createOrReplay(OWNER,form));
+        uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions.readCommitted(manager).executeWithoutResult(status->fixedForms().createOrReplay(OWNER,form));
         sql.update("INSERT INTO attempt_form_option_order VALUES (?,1,'AUTHORED',1,2)",bytes(form.id()));
         var first=form.items().get(0);var other=revision.items().get(1).question();var binding=binding(other);
         assertThatThrownBy(()->sql.update("INSERT INTO attempt_form_item_option_order VALUES (?,?,?,?,?,?,?,?,?,0)",
@@ -455,7 +468,7 @@ class FormOptionOrderMySqlIntegrationTest {
     }
 
     private Outcome race(FixedForm form,String isolation,uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.AnswerOrderingPolicy policy) {
-        var tx=new TransactionTemplate(manager);tx.setTimeout(15);
+        var tx=uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions.readCommitted(manager);tx.setTimeout(15);
         tx.setIsolationLevel(isolation.equals("READ_COMMITTED")?TransactionDefinition.ISOLATION_READ_COMMITTED:TransactionDefinition.ISOLATION_REPEATABLE_READ);
         try {return new Outcome(tx.execute(status->{contracts.declareScope(OWNER,Set.of(form.quizRevisionId()));return service.createOrReplay(OWNER,form,policy);}),null);}
         catch(OptionOrderException failure){return new Outcome(null,failure.reason());}

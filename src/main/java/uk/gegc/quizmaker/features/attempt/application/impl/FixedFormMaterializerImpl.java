@@ -4,6 +4,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -44,7 +45,7 @@ public class FixedFormMaterializerImpl implements FixedFormMaterializer {
         this.orders = orders;
         this.metrics = metrics;
         this.forms = forms;
-        this.transaction = new TransactionTemplate(manager);
+        this.transaction = AttemptTransactions.readCommitted(manager);
     }
 
     @Override
@@ -58,6 +59,7 @@ public class FixedFormMaterializerImpl implements FixedFormMaterializer {
     }
 
     private ParticipantForm materialize(UUID ownerId, Command command, boolean persistSelection) {
+        AttemptTransactions.requireCompatible(transaction.getTransactionManager(), true);
         boolean standalone = !TransactionSynchronizationManager.isActualTransactionActive();
         Timer.Sample sample = null;
         try { sample = Timer.start(metrics); }
@@ -79,7 +81,7 @@ public class FixedFormMaterializerImpl implements FixedFormMaterializer {
                             throw failure;
                         }
                     }
-                    var revision = revisions.findByIdForShare(ownerId, command.form().quizRevisionId())
+                    var revision = revisions.findById(ownerId, command.form().quizRevisionId())
                             .orElseThrow(() -> new FormMaterializationException(REVISION_UNAVAILABLE));
                     validate(command, revision);
                     var resolved = contracts.resolve(ownerId, revision.id());

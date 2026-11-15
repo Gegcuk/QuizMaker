@@ -1,6 +1,8 @@
 package uk.gegc.quizmaker.features.attempt.application.impl;
 
 import java.util.*;
+import org.springframework.transaction.PlatformTransactionManager;
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.*;
 import uk.gegc.quizmaker.features.attempt.application.*;
@@ -15,6 +17,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAtt
 @Service
 @Transactional(propagation = Propagation.MANDATORY)
 public class AttemptExpiryFactsServiceImpl implements AttemptExpiryFactsService {
+    private final PlatformTransactionManager transactions;
     private final PolicySnapshotService snapshots;
     private final FixedFormRepository forms;
     private final FormOptionOrderRepository orders;
@@ -23,11 +26,13 @@ public class AttemptExpiryFactsServiceImpl implements AttemptExpiryFactsService 
     private final NavigationRepository navigation;
     private final AttemptTimingService timing;
     public AttemptExpiryFactsServiceImpl(PolicySnapshotService snapshots, FixedFormRepository forms, FormOptionOrderRepository orders,
-            QuizRevisionRepository revisions, QuestionRevisionContractService contracts, NavigationRepository navigation, AttemptTimingService timing) {
+            QuizRevisionRepository revisions, QuestionRevisionContractService contracts, NavigationRepository navigation, AttemptTimingService timing, PlatformTransactionManager transactions) {
+        this.transactions=transactions;
         this.snapshots=snapshots; this.forms=forms; this.orders=orders; this.revisions=revisions;
         this.contracts=contracts; this.navigation=navigation; this.timing=timing;
     }
     @Override public AttemptReadFactsService.Facts read(AttemptAccessService.Access captured) {
+        AttemptTransactions.requireCompatible(transactions, false);
         try {
             var owner=captured.contentOwnerId();
             var snapshot=snapshots.readCurrent(owner,captured.policySnapshotId());
@@ -40,10 +45,10 @@ public class AttemptExpiryFactsServiceImpl implements AttemptExpiryFactsService 
             // Same immutable question-before-timing lock order as start and participant readers.
             contracts.declareScope(owner,Set.of(captured.quizRevisionId()));
             var checkpoint=timing.read(captured,snapshot);
-            var form=forms.findByIdsForShare(owner,List.of(captured.formId()));
-            var order=orders.findByIdsForShare(owner,List.of(captured.formId()));
+            var form=forms.findByIds(owner,List.of(captured.formId()));
+            var order=orders.findByIds(owner,List.of(captured.formId()));
             check(form.size()==1 && order.size()==1 && order.get(0).policy().equals(policy.answerOrdering()),Failure.Reason.CORRUPT);
-            var revision=revisions.findByIdForShare(owner,captured.quizRevisionId()).orElseThrow(() -> new Failure(Failure.Reason.CORRUPT));
+            var revision=revisions.findById(owner,captured.quizRevisionId()).orElseThrow(() -> new Failure(Failure.Reason.CORRUPT));
             var resolved=contracts.resolve(owner,revision.id());
             var cursor=policy.navigation().mode()==NavigationMode.SEQUENTIAL
                     ? navigation.read(captured.attemptId()).orElseThrow(() -> new Failure(Failure.Reason.CORRUPT)) : null;

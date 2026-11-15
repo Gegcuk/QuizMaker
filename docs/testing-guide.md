@@ -23,7 +23,9 @@ remain permitted. NOT_FOUND still makes joined work rollback-only; post-read rev
 still does not. Real JPA composition explicitly flushes inputs, refreshes JDBC outputs and
 keeps unrelated pending changes, with commit and outer rollback controls. Existing real deadlock,
 unknown-commit, authorization, sanitization and independent-participant tests remain.
-Only obsolete successful target-RR cases are withdrawn; lower-level and legacy RR tests remain.
+Only obsolete successful target-RR cases are withdrawn. Phase B also makes fixed-form/option
+writers and materialization RC-only; metadata-only snapshot reads remain available. Legacy,
+canonical question binding and unrelated storage RR tests remain.
 
 Workers retain independent RC read/write transactions: hold an outer RR snapshot, run expiry,
 grading or release, roll back the caller, and verify the worker's committed evidence in a fresh
@@ -490,11 +492,11 @@ erase the terminal violation and REQUIRES_NEW restores the outer READ intent. A 
 waits for an active shared reader. Existing bounded metadata/query and multi-parent response
 tests remain; identical query shapes select the same columns in the same batch sizes.
 
-The view/start timing regression retains its RC/RR, read-only/read-write and timed/untimed
-matrix. The view must project while the start is paused with shared question locks. RC starts
-must then commit with the view transaction still open. RR timed starts can still wait on the
-view's missing-timing gap lock; assert the actual waiter/holder, release the completed view,
-and require both commits without a deadlock or retry. Phase A does not claim to remove that gap.
+The current v2 view/start timing regression uses RC, with read-only/read-write and timed/untimed
+variants. The view must project while start is paused with shared question locks; start must
+commit while the completed view transaction is still open. Unsupported outer isolation is
+rejected at the #905 boundary. Do not restore the obsolete successful v2 RR variants; retain
+RR cases for the separate canonical binding and legacy contracts.
 Form replay tests synchronize at the unique form-root insert, where contenders now serialize,
 instead of expecting participant question scopes to take an exclusive lock.
 
@@ -504,7 +506,49 @@ instead of expecting participant question scopes to take an exclusive lock.
 
 Run full `./mvnw verify` after the scoped suites; keep post-merge verification. Phase A is not
 an RR gap-lock fix. #905 narrows target composition to RC with explicit rejection tests;
-phase B still owns current-read query simplification. Legacy RR remains unchanged.
+phase B supplies the immutable-content query simplification below. Legacy RR remains unchanged.
+
+## Immutable RC reads (#906 phase B)
+
+Form/option creation and materialization own or join writable RC. The three focused form suites
+retain same-ID winner/conflict, empty forms, reached-write failures, outer JDBC/JPA rollback,
+restart and owner-scope checks. Successful old-RR write composition is replaced by early refusal
+for DEFAULT-on-RR, RR, RU, SERIALIZABLE and read-only writes. Do not weaken barriers or remove
+business variants when updating the isolation dimension. #598 binding/publication storage keeps
+its independent canonical-scope and RR tests.
+
+The response suite holds Anna's real response transaction open while Boris's **standalone**
+answer/form/start completes on the same revision, letting #905 choose RC on the actual default
+connection. Additional real aggregate writers use adjacent form/revision/item UUIDs. Fresh reads
+prove their commit before releasing Anna. The empty-form concurrency fixture keeps child tables
+empty, without artificial gap anchors. Run the independence methods separately on dedicated
+MySQL 8.0 and 8.4 servers with RR and RC defaults; never change GLOBAL isolation in a shared worker.
+
+Inspect record locks through `ENGINE_TRANSACTION_ID` joined to `innodb_trx`, not the creator's
+`THREAD_ID`. Before the change, a five-family answer held 44 record locks on form-item/order/option
+and question-option tables. Afterward only the two exact item locks required by trace/response
+FKs remain. This is a lock-footprint measurement, not proof of zero contention elsewhere.
+Authorization, lifecycle, same-key receipt and canonical binding locks are expected.
+
+`immutableReadCostRemainsBatchedAndRecordsRowsAndBytes` records SELECT counts plus server-side
+`SUM_ROWS_SENT` statement-summary and `Bytes_sent` deltas from the command's connection (observed on a separate admin
+connection, with no payload logging). On local MySQL 8.4.11, one answer with 1/20 MCQ items
+used 36/36 application SELECTs, returned 40/249 rows and sent 33,606/51,770 bytes. These are
+fixture measurements, not production capacity estimates. Keep multi-parent bounded-query tests for form/order,
+revision, delivery/view, navigation and draft reads. Content volume still grows with quiz size;
+this change removes lock clauses, not whole-quiz loading or duplicated authorization.
+
+```bash
+./mvnw test -Dtest=FixedFormMySqlIntegrationTest,FormOptionOrderMySqlIntegrationTest,FixedFormMaterializerMySqlIntegrationTest,ResponseAcceptanceMySqlIntegrationTest
+./mvnw test -Dtest=QuestionRevisionContractsMySqlIntegrationTest,PublishedFamilyContractsMySqlIntegrationTest,QuizPublicationMySqlIntegrationTest,QuizRevisionMySqlIntegrationTest,QuizRevisionSectionsMySqlIntegrationTest,QuizRevisionCasesMySqlIntegrationTest
+./mvnw test -Dtest=AttemptStartMySqlIntegrationTest,AttemptDeliveryMySqlIntegrationTest,ParticipantAttemptViewMySqlIntegrationTest,DraftCommandMySqlIntegrationTest,NavigationMySqlIntegrationTest,AttemptSubmissionMySqlIntegrationTest,AutomaticResultMySqlIntegrationTest,ImmediateResultReleaseMySqlIntegrationTest
+./mvnw verify
+```
+
+Corrupt/incomplete/mixed content must fail closed. Author edits/new publication must leave old
+form content unchanged, and reached failures must roll back form/order/response/trace/receipt
+writes. Repository errors must be sanitized before their transaction interceptor logs them,
+including the ordinary read entry points. Full verify and post-merge CI/CD gates remain required.
 
 ## External Systems And AI
 

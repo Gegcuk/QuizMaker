@@ -41,6 +41,24 @@ This permits independent authorized participants on one revision without weakeni
 Phase A itself does not change isolation or remove current-read/range locks. The subsequent
 #905 contract above narrows v2 composition to RC; phase B remains separate work.
 
+## Immutable execution reads (#906 phase B) — DECIDED
+
+**Decision date/source:** 14 November 2026, explicit owner request for phase B after #905.
+
+V2 reads of complete immutable forms, option orders and revision content use ordinary batched
+SELECTs inside the checked RC boundary. Form creation/materialization also owns or joins writable
+RC, rejecting incompatible callers before work; exclusive form/order roots still serialize exact
+replays. Children need no extra locks for freshness or replay comparison once their root is owned.
+Legacy isolation and #598's independent canonical binding/scope contract remain unchanged.
+
+This relies on atomic aggregate creation and append-only application writers, not on a fictional
+DB-wide immutability guarantee. Flat schema-v1 revisions have no blanket UPDATE-prevention
+trigger. Existing schema-v2/v3 root/section/case triggers have their narrower documented scope;
+RESTRICT prevents referenced deletion, not arbitrary UPDATE. No new schema guard is introduced.
+Current access/revocation, lifecycle, receipt, binding and publication locks remain authoritative.
+See the [lock/invariant inventory](policy-driven-quiz-execution.md#immutable-read-lock-inventory)
+for roots, writers, completeness and deletion evidence. No old-RR fallback or projection is added.
+
 <a id="assignment-eligibility-window"></a>
 ## Assignment start availability boundaries — DECIDED
 

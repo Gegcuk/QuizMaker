@@ -62,6 +62,27 @@ class FixedFormMaterializerMySqlIntegrationTest {
     private QuestionRevisionContractService contracts;
     private FixedFormMaterializer materializer;
 
+
+    @ParameterizedTest @ValueSource(ints = {-1, 1, 4, 8, 2})
+    void incompatibleFormWriterRejectsBeforeReadingOrWriting(int isolation) {
+        var r = saved(quiz("rc-boundary", question("rc-question", QuestionType.MCQ_SINGLE)));
+        var cmd = command("rc-boundary-form", r, AUTHORED);
+        var outer = new TransactionTemplate(manager);
+        outer.setIsolationLevel(isolation); outer.setReadOnly(isolation == 2);
+        outer.executeWithoutResult(status -> {
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form", Integer.class)).isZero();
+            source.reset();
+            assertThatThrownBy(() -> materializer.materialize(OWNER, cmd)).isInstanceOfSatisfying(
+                    uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException.class, failure -> {
+                        assertThat(failure.reason().name()).isEqualTo(isolation == 2 ? "READ_ONLY" : "INCOMPATIBLE_ISOLATION");
+                        assertThat(failure.getCause()).isNull(); assertThat(failure.getSuppressed()).isEmpty();
+                    });
+            assertThat(source.selects).isEmpty();
+            status.setRollbackOnly();
+        });
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form", Integer.class)).isZero();
+    }
+
     @BeforeAll
     static void connect() {
         String port = System.getenv().getOrDefault("TEST_MYSQL_PORT", "3306");
@@ -241,7 +262,7 @@ class FixedFormMaterializerMySqlIntegrationTest {
         rejected(() -> failing.materialize(OWNER, cmd), "INVALID_MATERIAL");
         assertThat(reached).isTrue(); fresh(FixedFormMaterializerMySqlIntegrationTest::assertNoForms);
         reached.set(false);
-        assertThatThrownBy(() -> transaction("REPEATABLE_READ").executeWithoutResult(status -> {
+        assertThatThrownBy(() -> transaction("READ_COMMITTED").executeWithoutResult(status -> {
             failingContracts.declareScope(OWNER, Set.of(revision.id()));
             sql.update("UPDATE materialization_legacy_fixture SET marker='partial'");
             rejected(() -> failing.materialize(OWNER, cmd), "INVALID_MATERIAL");
@@ -416,7 +437,7 @@ class FixedFormMaterializerMySqlIntegrationTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"READ_COMMITTED,true", "READ_COMMITTED,false", "REPEATABLE_READ,true", "REPEATABLE_READ,false"})
+    @CsvSource({"READ_COMMITTED,true", "READ_COMMITTED,false"})
     void concurrentCommandsHaveOneDurableFormAndReplayOrTypedConflict(String isolation, boolean identical) throws Exception {
         var revision = saved(quiz("race", question("race-q", QuestionType.MCQ_SINGLE)));
         var cmd = command("race-form", revision, SHUFFLED);
@@ -450,8 +471,8 @@ class FixedFormMaterializerMySqlIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"READ_COMMITTED", "REPEATABLE_READ"})
-    void replayReturnsCurrentOutcomeEvenFromAnOlderSnapshot(String isolation) throws Exception {
+    @ValueSource(strings = {"READ_COMMITTED"})
+    void replaySeesWinnerCommittedAfterAnEarlierRead(String isolation) throws Exception {
         var revision = saved(quiz("stale", question("stale-q", QuestionType.MCQ_SINGLE)));
         var cmd = command("stale-form", revision, SHUFFLED); var worker = Executors.newSingleThreadExecutor();
         try {
@@ -525,7 +546,7 @@ class FixedFormMaterializerMySqlIntegrationTest {
     }
 
     private static TransactionTemplate transaction(String isolation) {
-        var tx = new TransactionTemplate(manager); tx.setIsolationLevelName("ISOLATION_" + isolation); return tx;
+        var tx = uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions.readCommitted(manager); tx.setIsolationLevelName("ISOLATION_" + isolation); return tx;
     }
     private static void fresh(Runnable assertions) {
         new TransactionTemplate(new DataSourceTransactionManager(source)).executeWithoutResult(status -> assertions.run());

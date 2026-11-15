@@ -42,7 +42,7 @@ public class JdbcFormOptionOrderRepository implements FormOptionOrderRepository 
         var p = new MapSqlParameterSource("form", bytes(form.id())).addValue("owner", bytes(ownerId))
                 .addValue("schema", order.schemaVersion()).addValue("strategy", order.policy().mode().name())
                 .addValue("algorithm", order.policy().algorithmVersion()).addValue("count", order.items().size());
-        // Current read: #519 may just have replayed a form invisible to an older RR snapshot.
+        // Protect the referenced form root; immutable children are read normally in RC.
         if (jdbc.queryForList("""
                 SELECT f.id FROM attempt_form f JOIN quiz_revisions r ON r.id=f.quiz_revision_id
                 WHERE f.id=:form AND r.owner_id=:owner FOR SHARE
@@ -51,7 +51,7 @@ public class JdbcFormOptionOrderRepository implements FormOptionOrderRepository 
                 INSERT INTO attempt_form_option_order (form_id,schema_version,strategy,algorithm_version,item_count)
                 VALUES (:form,:schema,:strategy,:algorithm,:count) ON DUPLICATE KEY UPDATE form_id=attempt_form_option_order.form_id
                 """, p);
-        // Serialize before any child insertion. Current reads also see a winner committed after an older RR snapshot.
+        // Serialize before child insertion; the RC owner sees the committed winner and its own writes.
         jdbc.queryForList("SELECT form_id FROM attempt_form_option_order WHERE form_id=:form FOR UPDATE", p);
         var itemRows = new ArrayList<MapSqlParameterSource>();
         var optionRows = new ArrayList<MapSqlParameterSource>();
@@ -79,11 +79,14 @@ public class JdbcFormOptionOrderRepository implements FormOptionOrderRepository 
                 INSERT INTO attempt_form_option (form_id,item_id,question_revision_id,option_id,position)
                 VALUES (:form,:item,:question,:option,:position) ON DUPLICATE KEY UPDATE option_id=attempt_form_option.option_id
                 """, optionRows);
-        require(read(ownerId, List.of(form.id()), true).equals(List.of(order)), ORDER_CONFLICT);
+        require(read(ownerId, List.of(form.id()), false).equals(List.of(order)), ORDER_CONFLICT);
     }
 
     @Override
-    public List<FormOptionOrder> findByIds(UUID ownerId, Collection<UUID> formIds) { return read(ownerId, formIds, false); }
+    public List<FormOptionOrder> findByIds(UUID ownerId, Collection<UUID> formIds) {
+        try { return read(ownerId, formIds, false); }
+        catch (DataAccessException failure) { throw SafeDataAccess.sanitize(failure); }
+    }
 
     @Override
     public List<FormOptionOrder> findByIdsForShare(UUID ownerId, Collection<UUID> formIds) {
