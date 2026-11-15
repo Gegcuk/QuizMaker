@@ -111,6 +111,8 @@ uk/gegc/quizmaker/features/assignment/AssignmentEligibilityServiceTest.java
 uk/gegc/quizmaker/features/assignment/AssignmentEligibilityServiceTest$*.java
 uk/gegc/quizmaker/features/assignment/AssignmentPublicationMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/assignment/AssignmentPublicationMySqlIntegrationTest$*.java
+uk/gegc/quizmaker/features/assignment/AssignmentPublicationSpringMySqlIntegrationTest.java
+uk/gegc/quizmaker/features/assignment/AssignmentPublicationSpringMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/assignment/AssignmentSchemaMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/assignment/AssignmentSchemaMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/attempt/access/AttemptAccessMySqlIntegrationTest.java

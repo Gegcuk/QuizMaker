@@ -60,6 +60,7 @@
     "uk.gegc.quizmaker.features.article.application.ArticleServiceImplIntegrationTest",
     "uk.gegc.quizmaker.features.article.domain.repository.ArticleRepositoryTest",
     "uk.gegc.quizmaker.features.assignment.AssignmentEligibilityServiceTest",
+    "uk.gegc.quizmaker.features.assignment.AssignmentPublicationSpringMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.attempt.access.AttemptAccessMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.attempt.api.AttemptControllerReviewTest",
     "uk.gegc.quizmaker.features.attempt.api.AttemptControllerSummaryTest",

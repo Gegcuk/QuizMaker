@@ -26,13 +26,6 @@ public class JdbcAssignmentPublicationRepository implements AssignmentPublicatio
     private final ObjectMapper mapper;
     public JdbcAssignmentPublicationRepository(NamedParameterJdbcTemplate sql, ObjectMapper mapper) { this.sql = sql; this.mapper = mapper; }
 
-    @Override public Set<String> permissions(UUID actor) {
-        return safe(() -> new HashSet<>(sql.query("""
-                SELECT p.permission_name FROM user_roles ur
-                JOIN role_permissions rp ON rp.role_id=ur.role_id JOIN permissions p ON p.permission_id=rp.permission_id
-                WHERE ur.user_id=UUID_TO_BIN(:actor) FOR SHARE
-                """, Map.of("actor", actor.toString()), (rs, row) -> rs.getString(1))));
-    }
     @Override public void create(UUID id, UUID owner, Scope scope, Instant now) {
         safe(() -> {
             var p = ids(id).addValue("owner", owner.toString()).addValue("scope", scope.kind().name())

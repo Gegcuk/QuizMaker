@@ -2254,19 +2254,25 @@ V109 and legacy share links are unchanged. Existing unowned storage rows are not
 backfilled. Nullable designation columns on old rows mean unknown evidence, never a profile or
 contact fallback. New captures bind the exact audience member IDs to source-provided designations.
 
-The authenticated username is re-resolved through the current active-user boundary. Current
-database permissions require `ASSIGNMENT_CREATE` for draft authoring and `ASSIGNMENT_PUBLISH`
-for publication/history reads, together with exact assignment ownership and current organization
-membership where applicable. These permissions do not bypass scope, and quiz ownership grants
-no rights over somebody else's assignment. The migration registers both permissions without
-assigning them to existing roles. Delegation/transfer remains #835, cancellation #798.
+The authenticated username is re-resolved through the current active-user boundary.
+`AssignmentManagementAuthority` checks the current permission for actor, operation, assignment ID
+and exact scope. `ASSIGNMENT_CREATE` protects draft authoring/reads; `ASSIGNMENT_PUBLISH` protects
+publication/current/history reads. Existing assignments use their persisted scope, never the
+scope claimed in a command. New identity writes require scoped authority first. All reads and
+exact create/save/publish replays revalidate this independent boundary before returning a result.
+Missing or ambiguous authority providers deny; there is no global-role fallback. Organization
+membership and exact assignment ownership remain separate requirements. For example, a teacher
+in school A who is a student in school B cannot create an assignment in B merely because both
+memberships and valid source references exist. The migration registers the permission vocabulary
+without assigning rights to existing roles. Delegation/transfer remains #835, cancellation #798.
 
 `AssignmentSourceVerifier` is a required trusted source integration for writes: it checks current
 source authority/visibility, exact revision/policy/scope and immutable roster/group provenance,
 including the captured participant designations, inside the writer transaction. No or multiple
-verifiers fail closed. The local source fixtures establish publication persistence only. Real
-roster/group readers must be connected before authoring is exposed; they must retain necessary
-source protection through commit. The JDBC adapter additionally verifies the exact retained
+verifiers fail closed. This source check never substitutes for assignment-management authority.
+The local source and scope-role fixtures establish publication behavior only. Real scoped grant
+and roster/group readers must be connected before authoring is exposed; they must retain necessary
+authority/source protection through commit. The JDBC adapter additionally verifies the exact retained
 revision/schema by scalar metadata, without rereading questions or document content. Only the
 delivered `FREE_PRACTICE/v1` storage tuple is accepted; this is not formal assessment conformance.
 
@@ -2293,9 +2299,16 @@ reconcile by exact retry, which returns its durable receipt if the transaction c
 and bindings, replay after service reconstruction, one concurrent winner or exact replay, actual
 head-lock waits, independent same-source progress, reached-write rollback and positive retries,
 current permission/owner/organization/source denial, composite FK isolation and outer rollback.
-It measures four scalar application reads per current-publication read across three assignments;
-no JPA relationship graph or question aggregate is loaded. Real active-user facade/SQL test
-adapter and versioned source/membership fixtures are distinguished from full source integration.
+Its SQL-backed scope-role fixture separates a teacher role in A from student membership in B,
+including permission loss with membership intact, every read/replay and scope-substitution denial.
+It measures four scalar application reads per current-publication read across three assignments,
+including one current scoped-authority query; production readers need their own bounded-query
+evidence. No question aggregate is loaded. `AssignmentPublicationSpringMySqlIntegrationTest`
+additionally exercises production method-security/repository/identity proxies, the real JPA user
+repository and `SafeJpaTransactionManager`, actual RC, pool restoration, reached-insert rollback
+and shared JPA/JDBC caller rollback. Source/membership/scope-role fixtures remain distinguished
+from production source or grant integration; the original standalone suite uses a SQL-backed
+active-user test adapter and `DataSourceTransactionManager` for its concurrency/fault scenarios.
 Retention/erasure periods are unchanged; recovery after target writes is forward-fix. Runtime
 source integration, #533/#622 HTTP, #534 start and formal release gates remain separately owned.
 

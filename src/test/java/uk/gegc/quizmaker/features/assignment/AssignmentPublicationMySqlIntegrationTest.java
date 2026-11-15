@@ -40,7 +40,8 @@ import static org.mockito.Mockito.*;
 import static uk.gegc.quizmaker.features.assignment.AssignmentFixtures.*;
 import static uk.gegc.quizmaker.features.assignment.domain.model.AssignmentPublicationException.Reason.*;
 
-/** Real #621 writes/permissions/MySQL. Only versioned source and membership readers are fixtures.
+/** Real #621 writes/MySQL, with a SQL-backed current scope-role authority fixture.
+ * Versioned source and membership readers are fixtures.
  * The real active-user facade uses a SQL-backed UserRepository test adapter (no fabricated IDs).
  * No proof of #533 HTTP, #534 start, #835 transfer or #798 cancellation is claimed.
  */
@@ -53,7 +54,7 @@ class AssignmentPublicationMySqlIntegrationTest {
     static boolean created;
     static final UUID OTHER=UUID.randomUUID(), ORPHAN=UUID.randomUUID();
     static final Map<String,UUID> HISTORICAL=Map.of("assignment_drafts",UUID.randomUUID(),"assignment_versions",UUID.randomUUID());
-    static long fixtureRole;
+    static long fixtureRole, studentRole;
     static ObjectMapper mapper=new ObjectMapper().findAndRegisterModules();
     static final ThreadLocal<List<String>> statements=ThreadLocal.withInitial(ArrayList::new);
     AssignmentPublicationService service;
@@ -62,6 +63,7 @@ class AssignmentPublicationMySqlIntegrationTest {
     AtomicBoolean sourceAvailable;
     Map<Definition,Map<UUID,String>> verified;
     SimpleMeterRegistry metrics;
+    AssignmentAuthorityFixture authority;
     enum Fault { VERSION_INSERT, POINTER_UPDATE, RECEIPT_INSERT }
 
     @BeforeAll static void database() {
@@ -102,6 +104,10 @@ class AssignmentPublicationMySqlIntegrationTest {
         sql.update("INSERT INTO roles(role_name,description,is_default) VALUES('assignment-fixture','Local test fixture',false)");
         fixtureRole=sql.queryForObject("SELECT role_id FROM roles WHERE role_name='assignment-fixture'",Long.class);
         for(UUID id:List.of(OWNER,OTHER)) sql.update("INSERT INTO user_roles(user_id,role_id) VALUES(UUID_TO_BIN(?),?)",id.toString(),fixtureRole);
+        sql.update("INSERT INTO roles(role_name,description,is_default) VALUES('assignment-student-fixture','Local student fixture',false)");
+        studentRole=sql.queryForObject("SELECT role_id FROM roles WHERE role_name='assignment-student-fixture'",Long.class);
+        sql.update("INSERT INTO user_roles(user_id,role_id) VALUES(UUID_TO_BIN(?),?)",OWNER.toString(),studentRole);
+        AssignmentAuthorityFixture.createTable(sql);
     }
     static void migrate(String target) { Flyway.configure().dataSource(source).locations("classpath:db/migration").target(target).load().migrate(); }
     @AfterAll static void drop() { if(created) admin.execute("DROP DATABASE "+SCHEMA); }
@@ -111,6 +117,11 @@ class AssignmentPublicationMySqlIntegrationTest {
         verified.put(definition(),Map.of(MEMBER,"Participant A")); metrics=new SimpleMeterRegistry();
         sql.update("INSERT IGNORE INTO role_permissions(role_id,permission_id) SELECT ?,permission_id FROM permissions WHERE permission_name IN ('ASSIGNMENT_CREATE','ASSIGNMENT_PUBLISH')",fixtureRole);
         sql.update("UPDATE users SET is_active=true,is_deleted=false WHERE user_id IN (UUID_TO_BIN(?),UUID_TO_BIN(?))",OWNER.toString(),OTHER.toString());
+        sql.update("DELETE FROM fixture_assignment_role_scopes");
+        bindScope(OWNER,fixtureRole,ScopeKind.PERSONAL,OWNER);
+        bindScope(OTHER,fixtureRole,ScopeKind.PERSONAL,OTHER);
+        bindScope(OWNER,fixtureRole,ScopeKind.ORGANIZATION,ORGANIZATION);
+        authority=new AssignmentAuthorityFixture(sql);
         repository=new HookRepository(); service=build(repository,List.of(verifier())); login("author");
     }
     @AfterEach void clear() { SecurityContextHolder.clearContext(); metrics.close(); }
@@ -123,11 +134,15 @@ class AssignmentPublicationMySqlIntegrationTest {
         };
     }
     AssignmentPublicationService build(HookRepository repo,List<AssignmentSourceVerifier> verifiers) {
+        return build(repo,verifiers,List.of(authority));
+    }
+    AssignmentPublicationService build(HookRepository repo,List<AssignmentSourceVerifier> verifiers,
+            List<AssignmentManagementAuthority> authorities) {
         UserRepository users=mock(UserRepository.class);
         when(users.lockActiveAuthenticatedUserId(anyString())).thenAnswer(invocation->sql.query(
                 "SELECT BIN_TO_UUID(user_id) FROM users WHERE username=? AND is_active=true AND is_deleted=false AND username<>'anonymous' FOR SHARE",
                 (rs,row)->UUID.fromString(rs.getString(1)),invocation.<String>getArgument(0)).stream().findFirst());
-        return new AssignmentPublicationServiceImpl(repo,new AuthenticatedUserLookupImpl(users),verifiers,new MembershipResolver() {
+        return new AssignmentPublicationServiceImpl(repo,new AuthenticatedUserLookupImpl(users),verifiers,authorities,new MembershipResolver() {
             @Override public boolean isMemberOfOrganization(UUID actor,UUID org) { return organizations.contains(org); }
         },Clock.fixed(TIME,ZoneOffset.UTC),metrics,mapper,manager);
     }
@@ -149,6 +164,9 @@ class AssignmentPublicationMySqlIntegrationTest {
         });
     }
     int count(UUID id,String table) { return sql.queryForObject("SELECT COUNT(*) FROM "+table+" WHERE assignment_id=UUID_TO_BIN(?)",Integer.class,id.toString()); }
+    static void bindScope(UUID actor,long role,ScopeKind kind,UUID scopeId) {
+        AssignmentAuthorityFixture.bind(sql,actor,role,kind,scopeId);
+    }
 
     @Test void publishesAThenBPreservingCapturedIdentityOldBindingsAndExactReceiptsAfterRestart() {
         var command=createCommand(); var draft=service.create(command); var publish=publication(draft);
@@ -222,6 +240,92 @@ class AssignmentPublicationMySqlIntegrationTest {
         rejected(()->service.publish(publication(draft)),UNAVAILABLE);
         rejected(()->service.current(command.assignmentId()),UNAVAILABLE);
         organizations.add(ORGANIZATION); assertThat(service.publish(publication(draft)).captured().snapshot().scope()).isEqualTo(scoped.scope());
+    }
+    @Test void teacherAuthorityInSchoolADoesNotPermitCreatingInSchoolBAsAStudent() {
+        var schoolB=UUID.randomUUID(); organizations.add(schoolB);
+        bindScope(OWNER,studentRole,ScopeKind.ORGANIZATION,schoolB);
+        var a=createCommand();
+        var allowed=new Save(a.assignmentId(),0,a.commandId(),new Scope(ScopeKind.ORGANIZATION,ORGANIZATION),a.definition());
+        assertThat(service.create(allowed).captured().snapshot().scope()).isEqualTo(allowed.scope());
+        var b=new Save(UUID.randomUUID(),0,UUID.randomUUID(),new Scope(ScopeKind.ORGANIZATION,schoolB),a.definition());
+        rejected(()->service.create(b),UNAVAILABLE);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM assignments WHERE id=UUID_TO_BIN(?)",Integer.class,b.assignmentId().toString())).isZero();
+        for(String table:List.of("assignment_drafts","assignment_versions","assignment_publication_heads","assignment_publication_receipts"))
+            assertThat(count(b.assignmentId(),table)).isZero();
+    }
+    @Test void losingScopedAuthorityDeniesWritesReadsAndExactReplayWhileMembershipRemains() {
+        var schoolB=UUID.randomUUID(); organizations.add(schoolB);
+        bindScope(OWNER,fixtureRole,ScopeKind.ORGANIZATION,schoolB);
+        bindScope(OWNER,studentRole,ScopeKind.ORGANIZATION,schoolB);
+        var original=createCommand();
+        var createB=new Save(original.assignmentId(),0,original.commandId(),new Scope(ScopeKind.ORGANIZATION,schoolB),original.definition());
+        var draft=service.create(createB);
+        var publishB=publication(draft); var published=service.publish(publishB);
+        var editB=new Save(createB.assignmentId(),published.version(),UUID.randomUUID(),createB.scope(),changed());
+        var edited=service.save(editB);
+        // These successful controls reach the same reads/replays without consulting the source verifier.
+        sourceAvailable.set(false);
+        assertThat(service.draft(createB.assignmentId()).captured()).isEqualTo(edited.captured());
+        assertThat(service.current(createB.assignmentId()).orElseThrow().captured()).isEqualTo(published.captured());
+        assertThat(service.read(createB.assignmentId(),published.captured().snapshot().id()).captured()).isEqualTo(published.captured());
+        assertThat(service.create(createB).replayed()).isTrue();
+        assertThat(service.save(editB).replayed()).isTrue();
+        assertThat(service.publish(publishB).replayed()).isTrue();
+        var before=assignmentState(createB.assignmentId());
+        sql.update("DELETE FROM fixture_assignment_role_scopes WHERE actor_id=UUID_TO_BIN(?) AND role_id=? AND scope_id=UUID_TO_BIN(?)",
+                OWNER.toString(),fixtureRole,schoolB.toString());
+        assertThat(organizations).contains(ORGANIZATION,schoolB);
+        for(Runnable command:List.<Runnable>of(
+                ()->service.draft(createB.assignmentId()),()->service.current(createB.assignmentId()),
+                ()->service.read(createB.assignmentId(),published.captured().snapshot().id()),
+                ()->service.create(createB),()->service.save(editB),()->service.publish(publishB),
+                ()->service.save(new Save(createB.assignmentId(),edited.version(),UUID.randomUUID(),createB.scope(),createB.definition())),
+                ()->service.publish(publication(edited)))) rejected(command,UNAVAILABLE);
+        assertThat(assignmentState(createB.assignmentId())).isEqualTo(before);
+        // School A remains a successful control for that actor and the same current role permissions.
+        sourceAvailable.set(true);
+        var a=createCommand();
+        assertThat(service.create(new Save(a.assignmentId(),0,a.commandId(),new Scope(ScopeKind.ORGANIZATION,ORGANIZATION),a.definition()))
+                .captured().snapshot().scope().organizationId()).isEqualTo(ORGANIZATION);
+    }
+    @Test void aCallerCannotSubstituteSchoolAForThePersistedSchoolBDuringSaveOrCreateReplay() {
+        var schoolB=UUID.randomUUID(); organizations.add(schoolB);
+        bindScope(OWNER,fixtureRole,ScopeKind.ORGANIZATION,schoolB);
+        var original=createCommand();
+        var createB=new Save(original.assignmentId(),0,original.commandId(),new Scope(ScopeKind.ORGANIZATION,schoolB),original.definition());
+        var draft=service.create(createB);
+        sql.update("DELETE FROM fixture_assignment_role_scopes WHERE scope_id=UUID_TO_BIN(?)",schoolB.toString());
+        var scopeA=new Scope(ScopeKind.ORGANIZATION,ORGANIZATION);
+        authority.requests.clear();
+        rejected(()->service.save(new Save(createB.assignmentId(),draft.version(),UUID.randomUUID(),scopeA,createB.definition())),UNAVAILABLE);
+        rejected(()->service.create(new Save(createB.assignmentId(),0,createB.commandId(),scopeA,createB.definition())),UNAVAILABLE);
+        assertThat(authority.requests).hasSize(2).allSatisfy(request->{
+            assertThat(request.actorId()).isEqualTo(OWNER);
+            assertThat(request.assignmentId()).isEqualTo(createB.assignmentId());
+            assertThat(request.scope()).isEqualTo(createB.scope());
+        });
+        assertThat(count(createB.assignmentId(),"assignment_publication_receipts")).isEqualTo(1);
+    }
+    @Test void missingOrAmbiguousAuthorityNeverFallsBackToGlobalRolesForReadsOrReplay() {
+        var create=createCommand(); var draft=service.create(create); var publish=publication(draft); var published=service.publish(publish);
+        var before=assignmentState(create.assignmentId());
+        for(List<AssignmentManagementAuthority> providers:List.of(List.<AssignmentManagementAuthority>of(),List.<AssignmentManagementAuthority>of(authority,authority))) {
+            service=build(repository,List.of(verifier()),providers);
+            var fresh=createCommand();
+            for(Runnable command:List.<Runnable>of(()->service.create(fresh),()->service.create(create),
+                    ()->service.save(new Save(create.assignmentId(),published.version(),UUID.randomUUID(),create.scope(),create.definition())),
+                    ()->service.publish(publish),()->service.draft(create.assignmentId()),()->service.current(create.assignmentId()),
+                    ()->service.read(create.assignmentId(),published.captured().snapshot().id()))) rejected(command,UNAVAILABLE);
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM assignments WHERE id=UUID_TO_BIN(?)",Integer.class,fresh.assignmentId().toString())).isZero();
+        }
+        assertThat(assignmentState(create.assignmentId())).isEqualTo(before);
+    }
+    Map<String,Long> assignmentState(UUID assignment) {
+        var state=new TreeMap<String,Long>();
+        for(String table:List.of("assignment_drafts","assignment_versions","assignment_publication_heads","assignment_publication_receipts"))
+            state.put(table,(long)count(assignment,table));
+        state.put("version",sql.queryForObject("SELECT row_version FROM assignment_publication_heads WHERE assignment_id=UUID_TO_BIN(?)",Long.class,assignment.toString()));
+        return state;
     }
     @Test void missingAmbiguousRevokedAndForeignSourcesFailClosedAndCannotCaptureLegacyIdentities() {
         var command=createCommand();

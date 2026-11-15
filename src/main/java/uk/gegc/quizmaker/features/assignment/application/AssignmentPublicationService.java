@@ -10,6 +10,8 @@ import uk.gegc.quizmaker.features.assignment.domain.model.AssignmentPublication.
  * until the caller commits. On uncertain outcome retain and retry the exact command identity.
  * Result.version is the aggregate optimistic version; snapshot.version independently numbers
  * drafts/publications. Read receipts replay their original acknowledgement version.
+ * Every operation requires current AssignmentManagementAuthority for the authenticated actor
+ * and exact assignment/scope. Missing authority integration denies reads and replay as well.
  */
 public interface AssignmentPublicationService {
     Result create(Save command);

@@ -7,7 +7,6 @@ import uk.gegc.quizmaker.features.assignment.domain.model.AssignmentPublication.
 
 /** Scalar JDBC persistence, joining the application transaction. */
 public interface AssignmentPublicationRepository {
-    Set<String> permissions(UUID actorId);
     void create(UUID id, UUID ownerId, Scope scope, Instant now);
     Optional<Head> head(UUID id, boolean lock);
     Optional<Receipt> receipt(UUID assignmentId, UUID actorId, UUID commandId);

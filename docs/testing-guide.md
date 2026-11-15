@@ -5,23 +5,32 @@ This guide explains which test style to use, what behavior to prove, and how to 
 ## Assignment publication (#621)
 
 Run `AssignmentPublicationTest`, `AssignmentPublicationMySqlIntegrationTest`,
+`AssignmentPublicationSpringMySqlIntegrationTest`,
 `AssignmentContractTest`, `AssignmentSchemaMySqlIntegrationTest`, `AssignmentEligibilityTest`
 and `AssignmentEligibilityServiceTest` first using the isolated MySQL/offline environment below.
-The new database companion is included in the complete four-worker verification inventory.
+The database companion and Spring suite are included in the complete four-worker inventory.
 
 Publication tests must use the real service and JDBC writer. Versioned source/membership
 fixtures may establish already-valid source facts; they do not establish real roster management,
 HTTP authoring, assignment start, transfer or cancellation. The active-user service facade uses
-a SQL-backed repository test adapter. Actual stored role permissions, not cached principal
-authorities, control commands. Include successful controls for every supported authorization path.
+a SQL-backed repository test adapter in the standalone suite. Its current SQL scope-role fixture
+binds role permissions to the actor's exact personal/organization scope; global role permissions
+plus membership are insufficient. Include teacher-in-A/student-in-B controls, refusal before
+identity writes, permission loss with membership intact, persisted-scope rather than caller-scope
+checks, missing/ambiguous authority, and reauthorization of all reads and exact command replays.
+The Spring suite uses real method-security/repository/identity proxies, the actual JPA user
+repository and production `SafeJpaTransactionManager`, with caller rollback, reached-insert
+rollback/retry, actual connection isolation and pool restoration. Only source/membership/scoped
+grant readers remain fixtures; they do not prove production grant/delegation integration.
 
 For publication races, hold after the real version INSERT, observe the peer's root lock wait,
 then check one committed winner or exact replay. For independent assignments on the same source,
 prove the peer committed before releasing the holder. Reach INSERT/pointer/receipt fault points
 and inspect fresh transactions for full rollback; a successful retry must commit once. Preserve
 old A after publishing B and reconstruct the service before replaying A. Three current-publication
-reads each use four scalar application SELECTs, with no question aggregate or JPA relationship
-load. Driver transaction-control commands are separate from this measured application count.
+reads each use four scalar application SELECTs with the SQL authority fixture, with no question
+aggregate load. Production authority readers need their own bounded-query evidence. Driver
+transaction-control commands are separate from this measured application count.
 
 ## V2 READ_COMMITTED contract (#905)
 

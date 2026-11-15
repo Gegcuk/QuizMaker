@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.*;
 import org.springframework.transaction.support.*;
 import uk.gegc.quizmaker.features.assignment.application.*;
+import uk.gegc.quizmaker.features.assignment.application.AssignmentManagementAuthority.Action;
 import uk.gegc.quizmaker.features.assignment.domain.model.AssignmentContract.*;
 import uk.gegc.quizmaker.features.assignment.domain.model.AssignmentPublication.*;
 import uk.gegc.quizmaker.features.assignment.domain.model.AssignmentPublicationException;
@@ -32,6 +33,7 @@ public class AssignmentPublicationServiceImpl implements AssignmentPublicationSe
     private final AssignmentPublicationRepository repository;
     private final AuthenticatedUserLookup users;
     private final List<AssignmentSourceVerifier> sources;
+    private final List<AssignmentManagementAuthority> authorities;
     private final MembershipResolver memberships;
     private final Clock clock;
     private final MeterRegistry metrics;
@@ -39,9 +41,11 @@ public class AssignmentPublicationServiceImpl implements AssignmentPublicationSe
     private final TransactionTemplate transaction;
 
     public AssignmentPublicationServiceImpl(AssignmentPublicationRepository repository, AuthenticatedUserLookup users,
-            List<AssignmentSourceVerifier> sources, MembershipResolver memberships, Clock clock, MeterRegistry metrics,
+            List<AssignmentSourceVerifier> sources, List<AssignmentManagementAuthority> authorities,
+            MembershipResolver memberships, Clock clock, MeterRegistry metrics,
             ObjectMapper mapper, PlatformTransactionManager manager) {
         this.repository=repository; this.users=users; this.sources=List.copyOf(sources); this.memberships=memberships;
+        this.authorities=List.copyOf(authorities);
         this.clock=clock; this.metrics=metrics; this.mapper=mapper;
         this.transaction=new TransactionTemplate(manager);
         transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
@@ -52,11 +56,23 @@ public class AssignmentPublicationServiceImpl implements AssignmentPublicationSe
         return run(operation.name().toLowerCase(Locale.ROOT),()-> {
             require(c!=null && c.assignmentId()!=null && c.commandId()!=null && c.scope()!=null && c.definition()!=null
                     && (operation==Operation.CREATE?c.expectedVersion()==0:c.expectedVersion()>0),INVALID_INPUT);
-            var actor=actor("ASSIGNMENT_CREATE");
+            var actor=actor();
             var hash=hash(operation,c);
             var now=now();
-            if(operation==Operation.CREATE) repository.create(c.assignmentId(),actor,c.scope(),now);
-            var head=owned(c.assignmentId(),actor,true);
+            var action=operation==Operation.CREATE ? Action.CREATE_DRAFT : Action.SAVE_DRAFT;
+            Head head;
+            if(operation==Operation.CREATE) {
+                var existing=repository.head(c.assignmentId(),true);
+                if(existing.isPresent()) head=owned(existing.get(),actor);
+                else {
+                    requireMembership(actor,c.scope());
+                    requireAuthority(actor,action,c.assignmentId(),c.scope());
+                    repository.create(c.assignmentId(),actor,c.scope(),now);
+                    head=owned(c.assignmentId(),actor,true);
+                }
+            } else head=owned(c.assignmentId(),actor,true);
+            // Recheck the persisted scope, including a concurrent create winner and every replay.
+            requireAuthority(actor,action,head.assignmentId(),head.scope());
             var replay=replay(head,actor,c.commandId(),operation,hash);
             if(replay.isPresent()) return replay.get();
             require(head.version()==c.expectedVersion(),STALE);
@@ -76,8 +92,9 @@ public class AssignmentPublicationServiceImpl implements AssignmentPublicationSe
     @Override public Result publish(Publish c) {
         return run("publish",()-> {
             require(c!=null && c.assignmentId()!=null && c.commandId()!=null && c.expectedVersion()>0,INVALID_INPUT);
-            var actor=actor("ASSIGNMENT_PUBLISH");
+            var actor=actor();
             var head=owned(c.assignmentId(),actor,true);
+            requireAuthority(actor,Action.PUBLISH,head.assignmentId(),head.scope());
             var hash=hash(Operation.PUBLISH,c);
             var replay=replay(head,actor,c.commandId(),Operation.PUBLISH,hash);
             if(replay.isPresent()) return replay.get();
@@ -105,34 +122,44 @@ public class AssignmentPublicationServiceImpl implements AssignmentPublicationSe
         });
     }
     @Override public Result draft(UUID assignmentId) {
-        return run("draft",()-> { var h=owned(assignmentId,actor("ASSIGNMENT_CREATE"),false);
+        return run("draft",()-> { var actor=actor(); var h=owned(assignmentId,actor,false);
+            requireAuthority(actor,Action.READ_DRAFT,h.assignmentId(),h.scope());
             require(h.draftId()!=null,CORRUPT); return new Result(h.version(),snapshot(h,h.draftId(),Status.DRAFT),false); });
     }
     @Override public Optional<Result> current(UUID assignmentId) {
-        return run("current",()-> { var h=owned(assignmentId,actor("ASSIGNMENT_PUBLISH"),false);
+        return run("current",()-> { var actor=actor(); var h=owned(assignmentId,actor,false);
+            requireAuthority(actor,Action.READ_CURRENT,h.assignmentId(),h.scope());
             return h.publicationId()==null?Optional.empty():Optional.of(new Result(h.version(),snapshot(h,h.publicationId(),Status.PUBLISHED),false)); });
     }
     @Override public Result read(UUID assignmentId,UUID publicationId) {
-        return run("read",()-> { var h=owned(assignmentId,actor("ASSIGNMENT_PUBLISH"),false);
+        return run("read",()-> { var actor=actor(); var h=owned(assignmentId,actor,false);
+            requireAuthority(actor,Action.READ_PUBLICATION,h.assignmentId(),h.scope());
             require(publicationId!=null,INVALID_INPUT); return new Result(h.version(),snapshot(h,publicationId,Status.PUBLISHED),false); });
     }
-    private UUID actor(String permission) {
+    private UUID actor() {
         var authentication=SecurityContextHolder.getContext().getAuthentication();
         require(authentication instanceof UsernamePasswordAuthenticationToken && authentication.isAuthenticated()
                 && authentication.getPrincipal() instanceof UserDetails,UNAUTHENTICATED);
         var p=(UserDetails)authentication.getPrincipal();
         require(p.isEnabled() && p.isAccountNonLocked() && p.isAccountNonExpired() && p.isCredentialsNonExpired()
                 && p.getUsername()!=null && p.getUsername().equals(authentication.getName()),UNAUTHENTICATED);
-        var actor=users.lockActiveUserId(p.getUsername()).orElseThrow(()->new AssignmentPublicationException(UNAVAILABLE));
-        require(repository.permissions(actor).contains(permission),UNAVAILABLE);
-        return actor;
+        return users.lockActiveUserId(p.getUsername()).orElseThrow(()->new AssignmentPublicationException(UNAVAILABLE));
     }
     private Head owned(UUID id,UUID actor,boolean lock) {
         require(id!=null,INVALID_INPUT);
-        var h=repository.head(id,lock).orElseThrow(()->new AssignmentPublicationException(UNAVAILABLE));
+        return owned(repository.head(id,lock).orElseThrow(()->new AssignmentPublicationException(UNAVAILABLE)),actor);
+    }
+    private Head owned(Head h,UUID actor) {
         require(h.ownerId().equals(actor),UNAVAILABLE);
-        require(h.scope().kind()==ScopeKind.PERSONAL || memberships.isMemberOfOrganization(actor,h.scope().organizationId()),UNAVAILABLE);
+        requireMembership(actor,h.scope());
         return h;
+    }
+    private void requireMembership(UUID actor,Scope scope) {
+        require(scope.kind()==ScopeKind.PERSONAL || memberships.isMemberOfOrganization(actor,scope.organizationId()),UNAVAILABLE);
+    }
+    private void requireAuthority(UUID actor,Action action,UUID assignment,Scope scope) {
+        require(authorities.size()==1,UNAVAILABLE);
+        require(authorities.get(0).allows(new AssignmentManagementAuthority.Context(actor,action,assignment,scope)),UNAVAILABLE);
     }
     private Map<UUID,String> verify(UUID actor,Scope scope,Definition definition) {
         require(sources.size()==1,INVALID_REFERENCE);

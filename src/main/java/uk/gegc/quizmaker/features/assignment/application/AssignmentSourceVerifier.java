@@ -11,6 +11,8 @@ import uk.gegc.quizmaker.features.assignment.domain.model.AssignmentContract.*;
  * assignment participant designations, never contacts or profile fallbacks. This is not a grant
  * supplied by an HTTP client. Missing or ambiguous implementations deny; #533/#622 integrations
  * must supply real source readers before exposing authoring. Local fixtures prove #621 only.
+ * This never grants assignment management: AssignmentManagementAuthority independently protects
+ * every operation, including reads and exact replays that do not call this source verifier.
  */
 public interface AssignmentSourceVerifier {
     Map<UUID, String> verify(UUID actorId, Scope scope, Definition definition);
