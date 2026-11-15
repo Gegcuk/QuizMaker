@@ -95,6 +95,45 @@ public class QuestionRevisionContractServiceImpl implements QuestionRevisionCont
     }
 
     @Override
+    public boolean replayIfExact(UUID ownerId, UUID quizRevisionId, List<QuestionContractBinding> bindings) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()
+                || !TransactionSynchronizationManager.isSynchronizationActive())
+            throw new ContractResolutionException(TRANSACTION_REQUIRED);
+        return execute(readTransaction, () -> {
+            var scope = currentScope();
+            // Explicit WRITE still reserves its complete union; an ordinary READ caller
+            // cannot turn bind into an implicit upgrade, even for an identical value.
+            if (scope != null && !scope.publicationReplay) return false;
+            if (bindings == null || bindings.stream().anyMatch(Objects::isNull))
+                throw new ContractResolutionException(INVALID_BINDING);
+            var expected = new HashMap<UUID, QuestionContractBinding>();
+            for (var binding : bindings)
+                if (expected.put(binding.questionRevisionId(), binding) != null)
+                    throw new ContractResolutionException(INVALID_BINDING);
+            if (scope == null) {
+                var actual = repository.findQuestionRevisionIds(ownerId, quizRevisionId)
+                        .orElseThrow(() -> new ContractResolutionException(REVISION_UNAVAILABLE));
+                if (!actual.equals(expected.keySet())) throw new ContractResolutionException(INVALID_BINDING);
+                // No binding/question S locks on a miss: the normal WRITE path can still
+                // reserve identities in canonical order without a shared-lock upgrade.
+                if (!repository.findSnapshotBindings(actual).equals(expected)) return false;
+                declare(ownerId, Collections.singleton(quizRevisionId), ContractScopeIntent.READ);
+                currentScope().publicationReplay = true;
+            }
+            var declared = requireRevision(ownerId, quizRevisionId);
+            var current = repository.findForRevision(ownerId, quizRevisionId)
+                    .orElseThrow(() -> new ContractResolutionException(REVISION_UNAVAILABLE));
+            requireMembership(declared, current.questionRevisionIds());
+            if (!declared.equals(expected.keySet())) throw new ContractResolutionException(INVALID_BINDING);
+            // The hint may be stale in RR or invalidated by unsupported administrative
+            // writes. Never fall back to WRITE after taking shared protection.
+            if (!current.bindings().equals(expected)) throw new ContractResolutionException(BINDING_CONFLICT);
+            current.bindings().values().forEach(registry::resolve);
+            return true;
+        });
+    }
+
+    @Override
     public void bind(UUID ownerId, UUID quizRevisionId, List<QuestionContractBinding> bindings) {
         boolean standalone = !TransactionSynchronizationManager.isActualTransactionActive();
         execute(writeTransaction, () -> {
@@ -189,6 +228,7 @@ public class QuestionRevisionContractServiceImpl implements QuestionRevisionCont
         private final ContractScopeIntent intent;
         // Savepoints must not restore this terminal flag; only transaction completion discards it.
         private boolean violated;
+        private boolean publicationReplay;
 
         private Scope(UUID ownerId, Map<UUID, Set<UUID>> revisions, ContractScopeIntent intent) {
             var copy = new HashMap<UUID, Set<UUID>>();

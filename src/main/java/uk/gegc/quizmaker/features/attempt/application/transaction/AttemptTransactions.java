@@ -16,7 +16,11 @@ import static uk.gegc.quizmaker.features.attempt.application.transaction.Attempt
  * Owners use REQUIRED unless their established worker contract requires an independent transaction.
  * Callers must flush relevant JPA inputs before JDBC work and refresh/reload affected managed
  * outputs afterward. This boundary never flushes or clears the persistence context automatically.
- * Participating results remain provisional until the owner commits. Unsupported composition
+ * Participating results remain provisional until the owner commits. Composition
+ * requires transaction characteristics to be established before work starts. Callers must not
+ * change isolation/session settings or bypass Spring transaction ownership mid-transaction:
+ * driver-reported isolation and cached Spring metadata cannot prove the isolation of an
+ * already-open snapshot after such unsupported manipulation. Unsupported composition
  * fails with a bounded {@link AttemptTransactionException} before identity/domain work.
  */
 public final class AttemptTransactions {

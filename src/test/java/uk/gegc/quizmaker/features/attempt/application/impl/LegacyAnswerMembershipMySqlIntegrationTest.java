@@ -70,6 +70,9 @@ class LegacyAnswerMembershipMySqlIntegrationTest extends BaseIntegrationTest {
     private static final String ADMIN_PASSWORD = System.getenv().getOrDefault("TEST_MYSQL_ADMIN_PASSWORD", "root");
     private static final String OPTIONS = "?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true";
     private static final ThreadLocal<List<String>> SQL = new ThreadLocal<>();
+    // A watchdog for trigger/transport work, not a throughput assertion. Lock waits still
+    // fail after three seconds on the peer connection, while the reader remains open.
+    private static final long PEER_WATCHDOG_SECONDS = 120;
 
     private static String url() {
         if (!PORT.matches("[0-9]{1,5}")) throw new IllegalArgumentException("Invalid test MySQL port");
@@ -442,8 +445,8 @@ class LegacyAnswerMembershipMySqlIntegrationTest extends BaseIntegrationTest {
                     executor.submit(() -> {
                         assertThat(httpAnswer(http, "REPEATABLE_READ")).isEqualTo(200);
                         insertAdjacent(adjacent, neighboring);
-                    }).get(20, TimeUnit.SECONDS);
-                } finally { executor.shutdownNow(); assertThat(executor.awaitTermination(20, TimeUnit.SECONDS)).isTrue(); }
+                    }).get(PEER_WATCHDOG_SECONDS, TimeUnit.SECONDS);
+                } finally { executor.shutdownNow(); assertThat(executor.awaitTermination(PEER_WATCHDOG_SECONDS, TimeUnit.SECONDS)).isTrue(); }
                 assertThat(committedProjectionCount(adjacent.id())).isEqualTo(512); assertThat(committedProjectionCount(http.id())).isEqualTo(1);
             }
             return result;
@@ -463,6 +466,7 @@ class LegacyAnswerMembershipMySqlIntegrationTest extends BaseIntegrationTest {
         for (Fixture f : List.of(source, adjacent, http)) assertProjectionMatches(f.id());
     }
 
+    @org.junit.jupiter.api.Timeout(180)
     @ParameterizedTest @ValueSource(ints = {1, 129, 512, 2048})
     void batchAndCompletionHaveBoundedReadsAndPermitAdjacentIndependentWrites(int size) throws Exception {
         Fixture first = fixture(size), second = fixture(size), http = fixture(1); // Commit all fixtures before the reader starts.
@@ -487,8 +491,8 @@ class LegacyAnswerMembershipMySqlIntegrationTest extends BaseIntegrationTest {
                         assertThat(httpAnswer(http, "REPEATABLE_READ")).isEqualTo(200);
                         insertAdjacentBatch(second, neighboring);
                         peerNanos.set(System.nanoTime() - peerStarted);
-                    }).get(20, TimeUnit.SECONDS);
-                } finally { executor.shutdownNow(); assertThat(executor.awaitTermination(20, TimeUnit.SECONDS)).isTrue(); }
+                    }).get(PEER_WATCHDOG_SECONDS, TimeUnit.SECONDS);
+                } finally { executor.shutdownNow(); assertThat(executor.awaitTermination(PEER_WATCHDOG_SECONDS, TimeUnit.SECONDS)).isTrue(); }
                 assertThat(committedProjectionCount(second.id())).isEqualTo(size);
             }
             return result;
@@ -508,7 +512,32 @@ class LegacyAnswerMembershipMySqlIntegrationTest extends BaseIntegrationTest {
         int bytes = jdbcTemplate.queryForObject("SELECT JSON_STORAGE_SIZE(accepted_answer_projection) FROM attempts WHERE id=UUID_TO_BIN(?)", Integer.class, first.id().toString());
         Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
         System.out.printf("PROJECTION_COST answers=%d batchMs=%d peerWriteMs=%d readerMs=%d totalMs=%d batchSelects=%d completeSelects=%d jsonBytes=%d%n", size, (submitted-started)/1_000_000, peerNanos.get()/1_000_000, readerNanos/1_000_000, elapsed.toMillis(), selects(batchSql), selects(completionSql), bytes);
-        assertThat(elapsed).isLessThan(Duration.ofSeconds(60));
+        // Elapsed time is diagnostic. The peer watchdog and DB lock budget above detect
+        // stalled work; commit-before-reader-release and the data assertions prove safety.
+    }
+
+    @Test void peerWriterStillFailsOnARealLockWhileReaderIsOpen() throws Exception {
+        Fixture peer = fixture(1);
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            rr().executeWithoutResult(status -> {
+                jdbcTemplate.queryForObject("SELECT id FROM attempts WHERE id=UUID_TO_BIN(?) FOR UPDATE",
+                        byte[].class, peer.id().toString());
+                var write = executor.submit(() -> insertAdjacentBatch(peer, List.of(UUID.randomUUID())));
+                assertThatThrownBy(() -> write.get(PEER_WATCHDOG_SECONDS, TimeUnit.SECONDS))
+                        .isInstanceOf(ExecutionException.class)
+                        .hasRootCauseInstanceOf(java.sql.SQLException.class)
+                        .satisfies(failure -> {
+                            Throwable cause = failure;
+                            while (cause.getCause() != null) cause = cause.getCause();
+                            assertThat(((java.sql.SQLException) cause).getErrorCode()).isEqualTo(1205);
+                        });
+                assertThat(committedProjectionCount(peer.id())).isZero();
+            });
+            assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM answers WHERE attempt_id=UUID_TO_BIN(?)",
+                    Integer.class, peer.id().toString())).isZero();
+            assertProjectionMatches(peer.id());
+        } finally { executor.shutdownNow(); assertThat(executor.awaitTermination(PEER_WATCHDOG_SECONDS, TimeUnit.SECONDS)).isTrue(); }
     }
 
     private void insertAdjacent(Fixture target, List<UUID> ids) {

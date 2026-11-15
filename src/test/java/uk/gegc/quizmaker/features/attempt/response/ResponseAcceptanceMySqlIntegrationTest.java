@@ -1557,6 +1557,147 @@ class ResponseAcceptanceMySqlIntegrationTest {
             authenticate(username);
         }
     }
+    @ParameterizedTest @CsvSource({"false,answer", "true,answer", "false,batch", "true,batch",
+            "false,form", "true,form", "false,start", "true,start"})
+    void exactBindingReplayAndNewParticipantCompleteBeforeStandaloneHolder(boolean batchHolder, String operation) throws Exception {
+        var revision = prepared();
+        var expectedBindings = binding.bind(quizId, revision);
+        var anna = starts.start(command(revision, AnswerOrder.AUTHORED, "replay-anna"));
+        var annaItems = delivery.read(anna.attemptId()).form().items();
+        String borisName = "acceptance-peer-" + UUID.randomUUID().toString().substring(0, 8);
+        var borisId = user(borisName, false);
+        grant(borisId, "ATTEMPT_READ", "ATTEMPT_CREATE", "QUESTION_UPDATE", "QUIZ_MODERATE");
+        authenticate(borisName);
+        var boris = operation.equals("start") ? null : starts.start(command(revision, AnswerOrder.AUTHORED, "replay-boris"));
+        var borisItems = boris == null ? List.<ParticipantForm.Item>of() : delivery.read(boris.attemptId()).form().items();
+        var mvc = concurrencyMvc();
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+        var replaySql = new CopyOnWriteArrayList<String>();
+        var actualIsolation = ConcurrentHashMap.<String>newKeySet();
+        var replayThreads = ConcurrentHashMap.<String>newKeySet();
+        var replayReached = new CountDownLatch(2);
+        var held = new CountDownLatch(1); var release = new CountDownLatch(1);
+        var once = new AtomicBoolean(); var workers = Executors.newFixedThreadPool(4);
+        observer().beforeSql = (statement, connection) -> {
+            if (!statement.startsWith("SELECT @@transaction_isolation") && !Thread.currentThread().getName().startsWith("binding-replay")) {
+                actualIsolation.add(sql.queryForObject("SELECT @@transaction_isolation", String.class));
+            }
+            if (Thread.currentThread().getName().startsWith("binding-replay")) {
+                replaySql.add(statement);
+                if (statement.contains("SELECT q.id FROM question_revisions q WHERE q.id=")
+                        && replayThreads.add(Thread.currentThread().getName())) replayReached.countDown();
+            }
+            if (statement.startsWith("INSERT INTO attempt_accepted_response") && once.compareAndSet(false, true)) {
+                held.countDown(); await(release, 30);
+            }
+        };
+        try {
+            var first = workers.submit(() -> {
+                authenticate(username);
+                try {
+                    httpOperation(mvc, batchHolder ? "batch" : "answer", anna.attemptId(), annaItems, "holder");
+                    return null;
+                } finally { SecurityContextHolder.clearContext(); }
+            });
+            assertThat(held.await(10, TimeUnit.SECONDS)).isTrue();
+            var ready = new CyclicBarrier(2);
+            Callable<List<uk.gegc.quizmaker.features.question.domain.model.contract.QuestionContractBinding>> repeat = () -> {
+                String original = Thread.currentThread().getName();
+                Thread.currentThread().setName("binding-replay-" + original); authenticate(username);
+                try { ready.await(10, TimeUnit.SECONDS); return binding.bind(quizId, revision); }
+                finally { SecurityContextHolder.clearContext(); Thread.currentThread().setName(original); }
+            };
+            var replay = workers.submit(repeat); var replayAgain = workers.submit(repeat);
+            assertThat(replayReached.await(10, TimeUnit.SECONDS)).as("Both binders reach question protection before Boris starts").isTrue();
+            var second = workers.submit(() -> {
+                authenticate(borisName);
+                try {
+                    if (operation.equals("start")) return starts.start(command(revision, AnswerOrder.AUTHORED, "peer-start")).attemptId();
+                    httpOperation(mvc, operation, boris.attemptId(), borisItems, "peer"); return boris.attemptId();
+                }
+                finally { SecurityContextHolder.clearContext(); }
+            });
+            assertThat(replay.get(5, TimeUnit.SECONDS)).isEqualTo(expectedBindings);
+            assertThat(replayAgain.get(5, TimeUnit.SECONDS)).isEqualTo(expectedBindings);
+            UUID committed = second.get(5, TimeUnit.SECONDS);
+            assertThat(replaySql).isNotEmpty().allSatisfy(q -> assertThat(q).doesNotContain("FOR UPDATE")
+                    .doesNotStartWith("INSERT INTO question_revision_contract_bindings"));
+            // Use an independent observer without triggering the application's SQL hook.
+            assertThat(admin.queryForObject("SELECT COUNT(*) FROM " + SCHEMA + ".attempt_lifecycle_state WHERE attempt_id=UUID_TO_BIN(?)",
+                    Integer.class, committed.toString())).isEqualTo(1);
+            assertThat(actualIsolation).containsExactly("READ-COMMITTED");
+            observer().beforeSql = null;
+            assertThat(first.isDone()).as("No-op bind and peer commit before Anna is released").isFalse();
+            int peerCount = operation.equals("answer") ? 1 : operation.equals("batch") ? 5 : 0;
+            assertThat(count("attempt_accepted_response")).isEqualTo(peerCount);
+            release.countDown(); first.get(10, TimeUnit.SECONDS);
+            assertThat(count("attempt_accepted_response")).isEqualTo(peerCount + (batchHolder ? 5 : 1));
+        } finally {
+            release.countDown(); workers.shutdownNow();
+            assertThat(workers.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
+            observer().reset(); authenticate(username);
+        }
+    }
+
+    private org.springframework.test.web.servlet.MockMvc concurrencyMvc() {
+        var converter = new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter();
+        var converters = new ArrayList<org.springframework.http.converter.HttpMessageConverter<?>>(List.of(converter));
+        new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceJsonConfig().extendMessageConverters(converters);
+        new uk.gegc.quizmaker.features.attempt.api.ResponseBatchJsonConfig().extendMessageConverters(converters);
+        return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceController(responses, json),
+                new uk.gegc.quizmaker.features.attempt.api.ResponseBatchController(batches, json),
+                new uk.gegc.quizmaker.features.attempt.api.AttemptFormController(delivery))
+                .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceErrorHandler(),
+                        new uk.gegc.quizmaker.features.attempt.api.ResponseBatchErrorHandler(),
+                        new uk.gegc.quizmaker.features.attempt.api.AttemptDeliveryErrorHandler())
+                .setMessageConverters(converters.toArray(org.springframework.http.converter.HttpMessageConverter[]::new)).build();
+    }
+
+    private void httpOperation(org.springframework.test.web.servlet.MockMvc mvc, String operation, UUID attempt,
+                               List<ParticipantForm.Item> items, String key) throws Exception {
+        assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+        String path = "/api/v2/attempts/" + attempt;
+        if (operation.equals("form")) {
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(path + "/form"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+            return;
+        }
+        var body = json.createObjectNode().put("expectedStateVersion", 1);
+        if (operation.equals("batch")) {
+            var responses = body.putArray("responses");
+            for (var item : items) responses.addObject().put("formItemId", item.id().toString())
+                    .set("response", stableInput(item).put("type", item.type().name()));
+        } else body.put("formItemId", items.get(2).id().toString())
+                .set("response", stableInput(items.get(2)).put("type", items.get(2).type().name()));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path + "/responses" + (operation.equals("batch") ? "/batch" : ""))
+                        .header("Idempotency-Key", key).contentType("application/json").content(body.toString()))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+    }
+
+    @Test void manualSessionIsolationMutationDoesNotChangeAnExistingRrSnapshot() throws Exception {
+        // Characterization of UNSUPPORTED caller manipulation, not a supported RC entry.
+        var revision = prepared(); var started = starts.start(command(revision, AnswerOrder.AUTHORED, "isolation-limit"));
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            new TransactionTemplate(manager).executeWithoutResult(status -> {
+                String old = sql.queryForObject("SELECT title FROM quizzes WHERE quiz_id=UUID_TO_BIN(?)", String.class, quizId.toString());
+                try { executor.submit(() -> sql.update("UPDATE quizzes SET title='later-title' WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString())).get(10, TimeUnit.SECONDS); }
+                catch (Exception failure) { throw new AssertionError(failure); }
+                sql.execute("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED");
+                try {
+                    assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+                    assertThat(sql.queryForObject("SELECT title FROM quizzes WHERE quiz_id=UUID_TO_BIN(?)", String.class, quizId.toString())).isEqualTo(old);
+                    // The guard sees session metadata, not the already-created snapshot.
+                    assertThatCode(() -> uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions.requireCompatible(manager, false))
+                            .doesNotThrowAnyException();
+                    assertThat(delivery.read(started.attemptId()).form().items()).hasSize(5);
+                } finally { sql.execute("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ"); status.setRollbackOnly(); }
+            });
+        } finally { executor.shutdownNow(); assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+    }
+
     private static UUID nextUuid(UUID value) {
         long low = value.getLeastSignificantBits() + 1;
         return new UUID(value.getMostSignificantBits() + (low == 0 ? 1 : 0), low);

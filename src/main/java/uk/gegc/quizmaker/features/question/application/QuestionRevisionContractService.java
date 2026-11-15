@@ -25,6 +25,14 @@ public interface QuestionRevisionContractService {
         declareScope(ownerId, quizRevisionIds, ContractScopeIntent.READ);
     }
     void declareScope(UUID ownerId, Set<UUID> quizRevisionIds, ContractScopeIntent intent);
+    /**
+     * Publication replay only, inside the caller's transaction. An exact complete set may
+     * establish a singleton READ scope; false leaves declaration to the normal WRITE path.
+     * An already declared caller scope is never weakened or upgraded. Repeated exact
+     * publication replays can reuse their own READ scope; later expansion remains terminal.
+     */
+    boolean replayIfExact(UUID ownerId, UUID quizRevisionId, List<QuestionContractBinding> bindings);
+
     void bind(UUID ownerId, UUID quizRevisionId, List<QuestionContractBinding> bindings);
     Map<UUID, ResolvedQuestionContracts> resolve(UUID ownerId, UUID quizRevisionId);
 }

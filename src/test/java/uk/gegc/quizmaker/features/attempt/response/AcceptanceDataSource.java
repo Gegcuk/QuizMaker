@@ -21,6 +21,7 @@ final class AcceptanceDataSource extends DelegatingDataSource {
     volatile SqlHook afterSql;
     final java.util.concurrent.atomic.AtomicBoolean failBeforeCommit = new java.util.concurrent.atomic.AtomicBoolean();
     final java.util.concurrent.atomic.AtomicBoolean failAfterCommit = new java.util.concurrent.atomic.AtomicBoolean();
+    final java.util.concurrent.atomic.AtomicLong executedStatements = new java.util.concurrent.atomic.AtomicLong();
     final List<String> selects = new CopyOnWriteArrayList<>();
     final List<Integer> sqlErrorCodes = new CopyOnWriteArrayList<>();
     private final AtomicInteger connections = new AtomicInteger();
@@ -52,6 +53,7 @@ final class AcceptanceDataSource extends DelegatingDataSource {
         return (PreparedStatement) Proxy.newProxyInstance(PreparedStatement.class.getClassLoader(),
                 new Class<?>[]{PreparedStatement.class}, (proxy, method, arguments) -> {
                     if (method.getName().startsWith("execute")) {
+                        executedStatements.incrementAndGet();
                         if (sql.stripLeading().toUpperCase(Locale.ROOT).startsWith("SELECT")) selects.add(sql);
                         var hook = beforeSql;
                         if (hook != null) hook.run(sql, connectionId);
@@ -75,6 +77,7 @@ final class AcceptanceDataSource extends DelegatingDataSource {
                     String sql=method.getName().startsWith("execute") && arguments!=null && arguments.length>0
                             && arguments[0] instanceof String text ? text : null;
                     if(sql!=null) {
+                        executedStatements.incrementAndGet();
                         if(sql.stripLeading().toUpperCase(Locale.ROOT).startsWith("SELECT")) selects.add(sql);
                         var before=beforeSql; if(before!=null) before.run(sql,connectionId);
                     }
@@ -91,6 +94,6 @@ final class AcceptanceDataSource extends DelegatingDataSource {
 
     void reset() {
         beforeSql = null; afterSql = null; failBeforeCommit.set(false); failAfterCommit.set(false);
-        selects.clear(); sqlErrorCodes.clear();
+        selects.clear(); sqlErrorCodes.clear(); executedStatements.set(0);
     }
 }

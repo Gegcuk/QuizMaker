@@ -66,18 +66,60 @@ class ResponseWriteCostProbe extends ResponseAcceptanceMySqlIntegrationTest {
         }
     }
 
+    @ParameterizedTest @CsvSource({"5,TRUE_FALSE", "50,TRUE_FALSE", "500,TRUE_FALSE",
+            "5,MCQ_SINGLE", "50,MCQ_SINGLE", "500,MCQ_SINGLE"})
+    void measureReadCost(int size, QuestionType family) throws Exception {
+        var config = admin.queryForMap("SELECT VERSION() version, @@global.transaction_isolation isolation_level, "
+                + "@@global.innodb_buffer_pool_size buffer_pool, @@global.binlog_format binlog_format, @@global.binlog_row_image row_image");
+        for (int sample = 1; sample <= 3; sample++) {
+            if (sample > 1) quizId = newQuiz();
+            var revision = publish(0, IntStream.range(0, size).mapToObj(i -> draft(family)).toList());
+            binding.bind(quizId, revision);
+            var started = starts.start(command(revision, AnswerOrder.AUTHORED, "read-start-" + sample));
+            var item = delivery.read(started.attemptId()).form().items().get(0);
+            var request = answer(started.attemptId(), item, 1, "read-cost-" + started.attemptId());
+            for (String operation : List.of("form", "single")) {
+                observer().reset(); var before = counters(); long begin = System.nanoTime();
+                if (operation.equals("form")) assertThat(delivery.read(started.attemptId()).form().items()).hasSize(size);
+                else assertThat(responses.accept(request).replayed()).isFalse();
+                double elapsed = (System.nanoTime() - begin) / 1_000_000.0;
+                long applicationStatements = observer().executedStatements.get();
+                int selects = observer().selects.size(); var after = counters();
+                var result = new LinkedHashMap<String, Object>();
+                result.put("mode", operation); result.put("family", family.name()); result.put("items", size);
+                result.put("sample", sample); result.put("config", config); result.put("elapsed_ms", elapsed);
+                result.put("jdbc_statements", applicationStatements); result.put("jdbc_selects", selects);
+                before.forEach((key, value) -> {
+                    long delta = after.get(key) - value;
+                    assertThat(delta).as("Monotonic counter %s", key).isNotNegative(); result.put(key, delta);
+                });
+                assertThat(((Number) result.get("session_commands")).longValue()).isPositive();
+                assertThat(((Number) result.get("isolation_reads")).longValue()).isPositive();
+                System.out.println("RESPONSE_READ_COST " + json.writeValueAsString(result));
+            }
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_accepted_response WHERE attempt_id=UUID_TO_BIN(?)",
+                    Integer.class, started.attemptId().toString())).isEqualTo(1);
+        }
+    }
+
     private Map<String, Long> counters() {
         // Observe application pool threads from a separate admin connection. Isolation SETs,
         // driver/session statements and trigger statements are included; observer SQL is not.
         var totals = admin.queryForMap("""
                 SELECT COALESCE(SUM(s.COUNT_STAR),0) statements, COALESCE(SUM(s.SUM_ROWS_SENT),0) rows_sent,
-                       COALESCE(SUM(s.SUM_ROWS_EXAMINED),0) rows_examined
+                       COALESCE(SUM(s.SUM_ROWS_EXAMINED),0) rows_examined,
+                       COALESCE(SUM(CASE WHEN s.EVENT_NAME IN ('statement/sql/set_option', 'statement/sql/commit',
+                           'statement/sql/rollback') THEN s.COUNT_STAR ELSE 0 END),0) session_commands
                 FROM performance_schema.events_statements_summary_by_thread_by_event_name s
                 JOIN performance_schema.threads t ON t.THREAD_ID=s.THREAD_ID
                 WHERE t.PROCESSLIST_DB=?
                 """, SCHEMA);
         var result = new LinkedHashMap<String, Long>();
         totals.forEach((key, value) -> result.put(key, ((Number) value).longValue()));
+        result.put("isolation_reads", admin.queryForObject("""
+                SELECT COALESCE(SUM(COUNT_STAR),0) FROM performance_schema.events_statements_summary_by_digest
+                WHERE SCHEMA_NAME=? AND UPPER(DIGEST_TEXT) LIKE 'SELECT%TRANSACTION_ISOLATION%'
+                """, Long.class, SCHEMA));
         result.put("bytes_sent", admin.queryForObject("""
                 SELECT COALESCE(SUM(CAST(s.VARIABLE_VALUE AS UNSIGNED)),0)
                 FROM performance_schema.status_by_thread s JOIN performance_schema.threads t ON t.THREAD_ID=s.THREAD_ID

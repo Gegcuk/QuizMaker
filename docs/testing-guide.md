@@ -48,6 +48,97 @@ application query counts across three parents; they do not count driver isolatio
 RC is not evidence of reduced whole-quiz rows/bytes,
 removal of all contention, or activation readiness; #906 B, #629/#907 and #609 retain those gates.
 
+## V2 replay and regression hardening (#913)
+
+Run the publication/binding and response suites together after changing replay. The exact-set
+path must preserve current authorization, all expected contract IDs/versions/hash, caller-owned
+state and scope rules. The three-party regression holds a standalone HTTP single/batch request
+before its actual response INSERT; two authenticated binding repeats and another participant's
+answer/batch/form read (or internal start) complete before the holder is released. Inspect the
+actual RC connection on an RR-default server and prove durable peer state from a fresh observer.
+Use the existing owner/full-editor fixtures; do not invent assignment/student authority.
+
+The ordinary READ-to-WRITE prohibition, predeclared WRITE scope, first-binding exclusivity,
+500/501 metadata batching, stale-RR safe fallback and rollback/savepoint tests remain important.
+A snapshot hint miss must not acquire binding-row shared locks or poison the transaction before
+WRITE. A successful hint must be revalidated under protection; corruption never becomes replay.
+
+The RC guard assumes isolation was established through the supported transaction manager
+before work. A characterization deliberately changes session isolation inside a snapshotted
+DEFAULT/RR transaction and proves that the session variable can report RC while the old data
+view remains. That is an unsupported caller and a documented guard limitation, not a passing
+example of supported stale-RR composition. Normal DEFAULT/RR refusal tests remain unchanged.
+
+Existing raw-SQL cycles in deadlock tests prove exception classification and rollback/retry
+behavior; they do not estimate how often normal application call order deadlocks. Correctness
+races use reached barriers and committed outcomes rather than sleep-based success guesses.
+Application SQL counters omit some Connector/J transaction commands: retain separate server
+statement/row/byte diagnostics and representative TRUE_FALSE and MCQ_SINGLE fixtures.
+
+Verification before commit is identified by **base HEAD plus the tested source fingerprint**.
+The result's `commit` field alone names the starting commit when the worktree is dirty. Check
+`source` in the verify result (`source_fingerprint` in optional diagnostic metadata) against
+the final source, preserve the build/worker/coverage artifacts,
+and record the eventual commit/tree when publishing. Do not claim that an unmodified base
+commit was the tested implementation merely because it appears in the pre-commit result.
+
+For separate read-volume and transaction-overhead measurements, use the existing opt-in probe:
+
+```bash
+python3 tools/testing/response_write_cost.py --read-cost --output /private/tmp/response-read-cost
+```
+
+This collects 36 samples: form read and one single answer, TRUE_FALSE and MCQ_SINGLE,
+5/50/500 questions, three repetitions. Setup and assertions are outside the measured interval.
+`jdbc_statements` counts application execute calls. Server counters separately report total
+statements, SET/COMMIT/ROLLBACK events (`session_commands`) and isolation SELECTs
+(`isolation_reads`). These categories describe this driver/configuration, not a universal
+subtraction formula. Rows and bytes include server responses; neither excludes repeated data.
+
+Local diagnostic, 15 November 2026: base `4eb124b05450f475d5112ebea9dc72a577095922`,
+source fingerprint `33bbc99382b975f0366258de2129bbe4ca74807cbb9dea426ae92a35422b106e`,
+JDK 17.0.17, Connector/J 9.1.0, Docker MySQL 8.4.11, 128 MiB buffer pool, ROW/FULL binlog,
+server default RR and standalone RC operations. Medians of three local samples follow;
+KB means 1,000 bytes. These are remaining-cost evidence, not capacity guarantees.
+
+| Family | Questions | Form rows / KB | One-answer rows / KB |
+|---|---:|---:|---:|
+| TRUE_FALSE | 5 | 48 / 22.6 | 66 / 36.1 |
+| TRUE_FALSE | 50 | 363 / 53.9 | 381 / 67.4 |
+| TRUE_FALSE | 500 | 3,513 / 367.9 | 3,531 / 381.4 |
+| MCQ_SINGLE | 5 | 68 / 24.0 | 86 / 37.5 |
+| MCQ_SINGLE | 50 | 563 / 67.9 | 581 / 81.4 |
+| MCQ_SINGLE | 500 | 5,513 / 507.9 | 5,531 / 521.4 |
+
+Every form sample used 20 application / 28 server statements (7 session commands and one
+isolation read); every answer used 45 / 59 (12 and two). Constant statement counts do not
+remove whole-quiz growth. The metadata-only replay probe separately verifies 1/500/501
+questions in 6/6/9 SELECTs with no content read, hash of document content or binding write.
+The authenticated publication boundary still reads and validates the exact revision itself.
+
+Verification of #913 on that base, 15 November 2026: final source fingerprint
+`1755f7efaa4cbc28a2aae9322f0d60728b579f64b4f56fa08429848776668a78`.
+Scoped persistence/consumer suites passed on MySQL 8.0.43; the final nine tightened race/rollback
+cases and full four-worker `clean verify` passed on MySQL 8.4.11. The full run executed 9,808
+cases, with zero failures/errors/skips: all 9,786 identifiers from the #907 baseline plus 22.
+Maven reported 13:41; the launcher measured 13:43 for the command and 13:55 including DB setup
+and evidence validation. All four database identities, the exclusive legacy assignment,
+coverage merge/check and packaging passed; owned containers were cleaned up.
+
+All 38 original legacy cases remain, plus the conflicting-lock control. On MySQL 8.0.43 the
+2,048-answer peer took 21.0 seconds and committed before reader release, which would exceed
+the former 20-second deadline. In the full 8.4.11 run it took 6.8 seconds. The three-second DB
+lock budget still rejects the deliberately blocked writer. These timings are not a controlled
+MySQL-version comparison or an improvement in V108 write cost.
+
+Merged coverage is 88.42% lines / 67.93% branches (32,665 lines / 14,519 branches covered).
+Coverage is not bit-for-bit identical to #907. Eight previously covered lines belong to the
+unchanged ten-minute token cleanup jobs; three are the unchanged AI-start tracking catch path,
+which the baseline log reached through an optimistic-lock failure on an asynchronous provider
+thread and the current run did not. No unchanged source line lost branch coverage. These
+incidental executions are not deterministic regression evidence; all existing test cases and
+business/data/rollback/bounded-SQL assertions are retained. No coverage threshold was lowered.
+
 ## Choose The Smallest Correct Test
 
 | Concern | Preferred test | What it proves |
@@ -727,10 +818,15 @@ commands still use the existing fast and shared-database serial executions.
 One resource-sensitive suite, `LegacyAnswerMembershipMySqlIntegrationTest`, runs in a
 separate JVM after the pool finishes, reusing the first isolated MySQL server. The pool
 contains the remaining manifest-selected suites; the exclusive execution retains all 38 scenarios, including concurrent
-participants, the 2,048-answer fixture, rollback checks, and original timeouts. This avoids
-other suites competing for CPU during the large write-cost scenario: on a four-worker CI
-run the independent writer committed successfully in 33.6 seconds but exceeded the test's
-20-second wait. This scheduling exception does not serialize the test's own participants.
+participants, the 2,048-answer fixture and rollback checks. This avoids other suites competing
+for CPU during the large write-cost scenario. Scheduling alone is insufficient: a later
+exclusive run committed 2,048 peer rows in 23.3 seconds, beyond the old 20-second Future budget.
+#913 retains the three-second peer DB lock budget, uses a 120-second work/cleanup watchdog
+and a 180-second whole-scenario watchdog, and records total time without a 60-second throughput
+assertion. These are hang safeguards, not performance promises. Fresh observers must still
+prove peer commit before reader release; timeout/cleanup cannot convert failure to success.
+The original 38 cases remain, plus a real-lock negative control that must fail with MySQL 1205.
+This scheduling exception does not serialize the test's own participants.
 
 Within the opt-in profile, `ContextDatabaseLifecycle` closes cached JPA contexts after
 each top-level suite, after transaction cleanup. A cached context must not survive while
