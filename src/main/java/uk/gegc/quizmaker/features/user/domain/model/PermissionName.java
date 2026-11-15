@@ -10,6 +10,10 @@ public enum PermissionName {
     QUIZ_MODERATE("quiz", "moderate", "Moderate any quiz"),
     QUIZ_ADMIN("quiz", "admin", "Full quiz administration"),
 
+    // Assignment administration always additionally requires exact ownership/scope.
+    ASSIGNMENT_CREATE("assignment", "create", "Create and edit owned assignment drafts"),
+    ASSIGNMENT_PUBLISH("assignment", "publish", "Publish owned assignment versions"),
+
     // Question Permissions
     QUESTION_READ("question", "read", "View questions"),
     QUESTION_CREATE("question", "create", "Create questions"),

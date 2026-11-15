@@ -232,6 +232,7 @@
     "uk.gegc.quizmaker.shared.transaction.TransactionConfigTest"
   ],
   "database_companions": [
+    "uk.gegc.quizmaker.features.assignment.AssignmentPublicationMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.assignment.AssignmentSchemaMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.attempt.compatibility.LegacyAnswerUniquenessMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.attempt.compatibility.LegacyInventoryMySqlIntegrationTest",

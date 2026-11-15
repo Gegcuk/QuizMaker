@@ -2,6 +2,27 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Assignment publication (#621)
+
+Run `AssignmentPublicationTest`, `AssignmentPublicationMySqlIntegrationTest`,
+`AssignmentContractTest`, `AssignmentSchemaMySqlIntegrationTest`, `AssignmentEligibilityTest`
+and `AssignmentEligibilityServiceTest` first using the isolated MySQL/offline environment below.
+The new database companion is included in the complete four-worker verification inventory.
+
+Publication tests must use the real service and JDBC writer. Versioned source/membership
+fixtures may establish already-valid source facts; they do not establish real roster management,
+HTTP authoring, assignment start, transfer or cancellation. The active-user service facade uses
+a SQL-backed repository test adapter. Actual stored role permissions, not cached principal
+authorities, control commands. Include successful controls for every supported authorization path.
+
+For publication races, hold after the real version INSERT, observe the peer's root lock wait,
+then check one committed winner or exact replay. For independent assignments on the same source,
+prove the peer committed before releasing the holder. Reach INSERT/pointer/receipt fault points
+and inspect fresh transactions for full rollback; a successful retry must commit once. Preserve
+old A after publishing B and reconstruct the service before replaying A. Three current-publication
+reads each use four scalar application SELECTs, with no question aggregate or JPA relationship
+load. Driver transaction-control commands are separate from this measured application count.
+
 ## V2 READ_COMMITTED contract (#905)
 
 V2 standalone start/answer/submit/draft/navigation and participant reads explicitly own RC.
