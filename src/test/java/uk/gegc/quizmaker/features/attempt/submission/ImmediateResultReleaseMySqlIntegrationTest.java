@@ -121,9 +121,11 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         HotspotHandler.class, OpenQuestionHandler.class, MatchingHandler.class, ComplianceHandler.class,
         QuestionContractRegistryImpl.class, QuestionRevisionContractServiceImpl.class, JdbcQuestionContractBindingRepository.class,
         PublishedQuestionContractServiceImpl.class, BaselineQuestionContractConfig.class,
+        uk.gegc.quizmaker.features.question.config.OpenQuestionContractConfig.class,
         FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
         ResponseAcceptanceServiceImpl.class, JdbcAcceptedResponseRepository.class,
+        ResponseBatchAcceptanceServiceImpl.class, JdbcResponseBatchResultRepository.class,
         AttemptSubmissionServiceImpl.class, AttemptTerminalSubmissionImpl.class, AcceptedSubmissionResponseFinalizer.class, JdbcAttemptSubmissionRepository.class,
         AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, uk.gegc.quizmaker.features.attempt.application.impl.AttemptTimingServiceImpl.class, uk.gegc.quizmaker.features.attempt.infra.repository.JdbcAttemptTimingRepository.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
@@ -192,6 +194,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
     @org.springframework.test.context.bean.override.mockito.MockitoBean AttemptService legacy;
     @Autowired AttemptSubmissionService submissions;
     @Autowired ResponseAcceptanceService responses;
+    @Autowired ResponseBatchAcceptanceService batches;
     @Autowired AttemptDeliveryService delivery;
     @Autowired org.springframework.context.ApplicationContext context;
     final com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules().disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -265,6 +268,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
             case MCQ_SINGLE -> "{\"options\":[{\"id\":\"a\",\"text\":\"Paris\",\"correct\":true},{\"id\":\"b\",\"text\":\"Rome\",\"correct\":false}]}";
             case MCQ_MULTI -> "{\"options\":[{\"id\":\"a\",\"text\":\"A\",\"correct\":true},{\"id\":\"b\",\"text\":\"B\",\"correct\":false},{\"id\":\"c\",\"text\":\"C\",\"correct\":true}]}";
             case TRUE_FALSE -> "{\"answer\":true}";
+            case OPEN -> "{\"answer\":\"Paris\"}";
             case FILL_GAP -> "{\"text\":\"Capital: {1}\",\"gaps\":[{\"id\":1,\"answer\":\"Paris\"}]}";
             case ORDERING -> "{\"items\":[{\"id\":1,\"text\":\"One\"},{\"id\":2,\"text\":\"Two\"}],\"correctOrder\":[2,1]}";
             default -> throw new AssertionError(type);
@@ -275,6 +279,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         var value=json.createObjectNode();
         switch(item.type()) {
             case TRUE_FALSE -> value.put("answer",correct);
+            case OPEN -> value.put("answer", correct ? " pARIS " : "Rome");
             case MCQ_SINGLE -> value.put("selectedOptionId",((ParticipantContent.Choices)item.content()).options().get(correct?0:1).id().toString());
             case MCQ_MULTI -> {
                 var options=((ParticipantContent.Choices)item.content()).options();
@@ -358,6 +363,166 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         assertThat(count("attempt_result_release")).isEqualTo(1); assertThat(releaseEvents()).isEqualTo(1);
         assertThat(results.finalizeSubmission(fixture.submission())).isEqualTo(result);
         verifyNoInteractions(legacy);
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {true, false})
+    void openResponseFlowsThroughRealAcceptanceGradeReleaseAndHistoricalReview(boolean correct) throws Exception {
+        var fixture = fixture(List.of(QuestionType.OPEN), 1, correct ? 1 : 0);
+        var before = view(fixture.attempt());
+        assertThat(before.result()).isNull();
+        assertThat(before.items()).isNull(); // Submitted content stays withheld until committed release.
+        assertThat(fixture.items().get(0).content()).isInstanceOf(ParticipantContent.Open.class);
+        assertThat(json.writeValueAsString(fixture.items())).doesNotContain("Paris", "pARIS", "Rome", "protected-explanation");
+        assertThat(json.writeValueAsString(before)).doesNotContain("Paris", "pARIS", "Rome", "protected-explanation");
+        var result = results.finalizeSubmission(fixture.submission());
+        assertThat(result.score().earned()).isEqualTo(correct ? 1 : 0);
+        assertThat(result.items().get(0).responseContract()).isEqualTo(
+                uk.gegc.quizmaker.features.question.application.contract.v1.SupportedQuestionContracts.OPEN_RESPONSE);
+        assertThat(view(fixture.attempt()).result()).isNull();
+        releases.release(fixture.submission());
+        var rendered = view(fixture.attempt()); var item = rendered.result().items().get(0);
+        assertThat(item.submittedAnswer()).isEqualTo(new ParticipantResultView.TextAnswer(correct ? " pARIS " : "Rome"));
+        assertThat(item.correctAnswer()).isEqualTo(new ParticipantResultView.TextAnswer("Paris"));
+        assertThat(item.correctness()).isEqualTo(correct);
+        assertThat(item.explanation()).isEqualTo("protected-explanation");
+        mvc().perform(get("/api/v2/attempts/{id}/review", fixture.attempt())
+                .principal(SecurityContextHolder.getContext().getAuthentication()).param("includeCorrectAnswers", "false"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.result.items[0].correctAnswer").doesNotExist());
+        tx.executeWithoutResult(status -> sql.update("UPDATE questions SET content=JSON_OBJECT('answer','later key'), explanation='later explanation'"));
+        // A new real publication still cannot rewrite the first attempt's captured key or score.
+        var ids = tx.execute(status -> questions.findAll().stream().map(Question::getId).toList());
+        var later = publish(1, ids); binding.bind(quizId, later);
+        assertThat(view(fixture.attempt())).isEqualTo(rendered);
+        assertThat(results.finalizeSubmission(fixture.submission())).isEqualTo(result);
+        assertThat(restarted().release(fixture.submission()).replayed()).isTrue();
+        assertThat(count("attempt_accepted_response")).isEqualTo(1);
+        verifyNoInteractions(legacy);
+    }
+
+    private record OpenAttempt(UUID id, ParticipantForm.Item item) { }
+    private OpenAttempt openAttempt() {
+        quizId = newQuiz();
+        var revision = publish(0, List.of(draft(QuestionType.OPEN))); binding.bind(quizId, revision);
+        var start = starts.start(command(revision, AnswerOrder.AUTHORED, "open-start-" + UUID.randomUUID()));
+        return new OpenAttempt(start.attemptId(), delivery.read(start.attemptId()).form().items().get(0));
+    }
+    private ResponseAcceptanceService.Command openCommand(OpenAttempt attempt, String key, com.fasterxml.jackson.databind.JsonNode payload) {
+        return new ResponseAcceptanceService.Command(attempt.id(), attempt.item().id(), 1, CommandReceipt.Key.from(key), QuestionType.OPEN, payload);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"{}", "{\"answer\":null}", "{\"answer\":42}", "{\"answer\":true}"})
+    void invalidOpenPayloadNeverCreatesAnAcceptanceReceiptOrStateChange(String raw) throws Exception {
+        var attempt = openAttempt(); var state = view(attempt.id());
+        var beforeReceipts = count("attempt_command_receipt"); var beforeTrace = count("attempt_trace_event");
+        assertThatThrownBy(() -> responses.accept(openCommand(attempt, "invalid-open", json.readTree(raw))))
+                .isInstanceOf(ResponseAcceptanceException.class);
+        assertThat(count("attempt_accepted_response")).isZero();
+        assertThat(count("attempt_command_receipt")).isEqualTo(beforeReceipts);
+        assertThat(count("attempt_trace_event")).isEqualTo(beforeTrace);
+        assertThat(view(attempt.id())).isEqualTo(state);
+        assertThat(responses.accept(openCommand(attempt, "invalid-open", json.createObjectNode().put("answer", "Paris"))).replayed()).isFalse();
+    }
+
+    @Test void openReachedAcceptanceWriteRollsBackThenExactReplaySurvivesServiceRecreation() {
+        var attempt = openAttempt(); var command = openCommand(attempt, "durable-open", json.createObjectNode().put("answer", " Paris "));
+        var receipts = count("attempt_command_receipt"); var trace = count("attempt_trace_event");
+        var reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.startsWith("INSERT INTO attempt_accepted_response") && reached.compareAndSet(false, true))
+                throw new SQLException("private-open-write-failure", "08006");
+        };
+        assertThatThrownBy(() -> responses.accept(command)).isInstanceOf(ResponseAcceptanceException.class);
+        assertThat(reached).isTrue(); observer().reset();
+        assertThat(count("attempt_accepted_response")).isZero();
+        assertThat(count("attempt_command_receipt")).isEqualTo(receipts);
+        assertThat(count("attempt_trace_event")).isEqualTo(trace);
+        assertThat(view(attempt.id()).stateVersion()).isEqualTo(1);
+        var accepted = responses.accept(command);
+        var recreated = new ResponseAcceptanceServiceImpl(context.getBean(AuthenticatedSubjectResolver.class), context.getBean(AttemptAccessService.class),
+                context.getBean(AttemptReadFactsService.class), context.getBean(AttemptLifecycleService.class), context.getBean(AcceptedResponseRepository.class),
+                context.getBean(CommandReceiptService.class), context.getBean(ExecutionTraceService.class), context.getBean(Clock.class), metrics, manager);
+        var replay = recreated.accept(command);
+        assertThat(replay.replayed()).isTrue(); assertThat(replay.acceptedResponseId()).isEqualTo(accepted.acceptedResponseId());
+        assertThat(count("attempt_accepted_response")).isEqualTo(1);
+        assertThatThrownBy(() -> recreated.accept(openCommand(attempt, "durable-open", json.createObjectNode().put("answer", "Rome"))))
+                .isInstanceOf(ResponseAcceptanceException.class);
+        var other = user("open-other-" + UUID.randomUUID().toString().substring(0, 8), true);
+        grant(other, "ATTEMPT_READ", "ATTEMPT_CREATE");
+        authenticate(sql.queryForObject("SELECT username FROM users WHERE user_id=UUID_TO_BIN(?)", String.class, other.toString()));
+        assertThatThrownBy(() -> recreated.accept(command)).isInstanceOf(ResponseAcceptanceException.class);
+        authenticate(username); assertThat(recreated.accept(command).replayed()).isTrue();
+    }
+
+    @Test void openAcceptanceJoinsOuterRcAndRollsBackWithItsCaller() {
+        var attempt = openAttempt(); var receipts = count("attempt_command_receipt");
+        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        outer.executeWithoutResult(status -> {
+            assertThat(responses.accept(openCommand(attempt, "outer-open", json.createObjectNode().put("answer", "Paris"))).replayed()).isFalse();
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_accepted_response", Integer.class)).isEqualTo(1);
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+            status.setRollbackOnly();
+        });
+        assertThat(count("attempt_accepted_response")).isZero();
+        assertThat(count("attempt_command_receipt")).isEqualTo(receipts);
+        assertThat(view(attempt.id()).stateVersion()).isEqualTo(1);
+    }
+
+    @Test void openAnswerCannotBorrowAnotherAttemptsFormItemAndValidOwnersStillSucceed() {
+        var own = openAttempt(); var foreign = openAttempt();
+        var payload = json.createObjectNode().put("answer", "Paris");
+        var before = count("attempt_command_receipt");
+        assertThatThrownBy(() -> responses.accept(new ResponseAcceptanceService.Command(own.id(), foreign.item().id(), 1,
+                CommandReceipt.Key.from("foreign-open-item"), QuestionType.OPEN, payload))).isInstanceOf(ResponseAcceptanceException.class);
+        assertThat(count("attempt_accepted_response")).isZero(); assertThat(count("attempt_command_receipt")).isEqualTo(before);
+        SecurityContextHolder.clearContext();
+        assertThatThrownBy(() -> responses.accept(openCommand(own, "own-open", payload))).isInstanceOf(ResponseAcceptanceException.class);
+        authenticate(username);
+        assertThat(responses.accept(openCommand(own, "own-open", payload)).replayed()).isFalse();
+        assertThat(responses.accept(openCommand(foreign, "other-own-open", payload)).replayed()).isFalse();
+        assertThat(count("attempt_accepted_response")).isEqualTo(2);
+    }
+
+    @Test void mixedOpenBatchRejectsAllItemsThenAcceptsReplaysAndGradesTheRealWritesOnce() {
+        quizId = newQuiz();
+        var revision = publish(0, List.of(draft(QuestionType.TRUE_FALSE), draft(QuestionType.OPEN))); binding.bind(quizId, revision);
+        var start = starts.start(command(revision, AnswerOrder.AUTHORED, "open-batch-start"));
+        var items = delivery.read(start.attemptId()).form().items();
+        var key = CommandReceipt.Key.from("open-batch");
+        var truth = new ResponseBatchAcceptanceService.BatchItem(items.get(0).id(), QuestionType.TRUE_FALSE, json.createObjectNode().put("answer", true));
+        var invalid = new ResponseBatchAcceptanceService.BatchItem(items.get(1).id(), QuestionType.OPEN, json.createObjectNode().putNull("answer"));
+        var receipts = count("attempt_command_receipt");
+        assertThatThrownBy(() -> batches.acceptBatch(new ResponseBatchAcceptanceService.BatchCommand(start.attemptId(), 1, key, List.of(truth, invalid))))
+                .isInstanceOf(uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatchException.class);
+        assertThat(count("attempt_accepted_response")).isZero(); assertThat(count("attempt_command_receipt")).isEqualTo(receipts);
+        var text = new ResponseBatchAcceptanceService.BatchItem(items.get(1).id(), QuestionType.OPEN, json.createObjectNode().put("answer", " Paris "));
+        var command = new ResponseBatchAcceptanceService.BatchCommand(start.attemptId(), 1, key, List.of(truth, text));
+        var accepted = batches.acceptBatch(command); assertThat(accepted.responses()).hasSize(2);
+        assertThat(batches.acceptBatch(command).responses()).isEqualTo(accepted.responses());
+        assertThat(batches.acceptBatch(command).replayed()).isTrue(); assertThat(count("attempt_accepted_response")).isEqualTo(2);
+        var submitted = submissions.submit(new AttemptSubmissionService.Command(start.attemptId(), accepted.stateVersion(), true, CommandReceipt.Key.from("open-batch-submit")));
+        assertThat(results.finalizeSubmission(submitted.submissionId()).score().earned()).isEqualTo(2);
+        releases.release(submitted.submissionId());
+        assertThat(view(start.attemptId()).result().items().get(1).submittedAnswer()).isEqualTo(new ParticipantResultView.TextAnswer(" Paris "));
+    }
+
+    @Test void openReleasedViewsHaveBoundedQueriesAcrossThreeParentsAndDifferentItemCounts() throws Exception {
+        var totals = new ArrayList<Integer>();
+        for (int size : List.of(1, 20)) {
+            var fixtures = new ArrayList<Fixture>();
+            for (int parent = 0; parent < 3; parent++) {
+                var f = fixture(Collections.nCopies(size, QuestionType.OPEN), size, size);
+                results.finalizeSubmission(f.submission()); releases.release(f.submission()); fixtures.add(f);
+            }
+            observer().selects.clear();
+            for (var f : fixtures) {
+                var rendered = json.readTree(json.writeValueAsString(view(f.attempt())));
+                assertThat(rendered.path("result").path("items")).hasSize(size);
+                assertThat(rendered.path("result").path("totalScore").path("earned").intValue()).isEqualTo(size);
+            }
+            totals.add(observer().selects.size());
+        }
+        assertThat(totals.get(0)).isPositive().isLessThan(150); assertThat(totals.get(1)).isEqualTo(totals.get(0));
+        System.out.println("OPEN released result SQL for 3 parents with 1/20 items: " + totals);
     }
 
     @Test void unansweredAndAbsentExplanationAreNotFabricatedIncorrectResponses() {

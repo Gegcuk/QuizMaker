@@ -311,6 +311,27 @@ Full cutover must support MCQ_SINGLE, MCQ_MULTI, TRUE_FALSE, FILL_GAP, ORDERING,
 
 The new immutable FILL_GAP response/scoring v1 contract trims answers and lowercases with `Locale.ROOT`. Choice-pool validation uses the same normalization. It does not inherit the server's default locale and does not add a database locale setting. For example, answer `I` against key `i` receives one point on both English and Turkish hosts. The existing legacy handler remains unchanged; its Turkish-locale behavior is not transferred to the new contract. This is an explicit exception to exact legacy grading equivalence, covered by a dedicated compatibility test. Other payload, validation and binary-scoring semantics remain unchanged.
 
+<a id="open-v1-locale"></a>
+## OPEN v1 locale independence (#826) — DECIDED
+
+**Decision date/source:** 17 November 2026, repository owner explicitly selected option A
+in the #826 implementation discussion.
+
+The additive immutable OPEN response/scoring v1 contract compares the complete answer after
+`trim()` and lowercasing with `Locale.ROOT`. It awards exactly zero or one point, with no
+partial credit, internal-whitespace folding, fuzzy matching or locale setting in the database.
+The original submitted text remains the immutable response and exact retry identity; equal
+grades do not make differently cased or spaced submissions identical commands.
+
+This is an explicit exception to exact legacy grading equivalence: key `I` and response `i`
+earn one point on English and Turkish hosts. The legacy OPEN handler keeps its existing
+default-locale behavior. Missing/null/non-string public responses remain invalid; valid empty,
+blank, partial or incorrect text earns zero. Lower-level defensive grading of malformed input
+is not permission to accept it through either public command boundary.
+
+This decision neither activates v2 nor changes #609, other question-family policies, release
+permissions, immutable revisions, transaction composition or the five-family #701 baseline.
+
 <a id="access-aware-start"></a>
 ## Access-aware default launch — DECIDED, details scoped separately
 

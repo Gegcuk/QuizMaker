@@ -20,6 +20,8 @@ public sealed interface ParticipantContent {
 
     record TrueFalse() implements ParticipantContent { }
 
+    record Open() implements ParticipantContent { }
+
     record FillGap(String text, List<Gap> gaps, List<Option> options) implements ParticipantContent {
         public FillGap {
             require(text != null && text.codePointCount(0, text.length()) <= 10_000 && gaps != null);

@@ -40,10 +40,10 @@ public record AttemptFormResponse(
     public record Item(
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED) UUID id,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int position,
-            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"MCQ_SINGLE", "MCQ_MULTI", "TRUE_FALSE", "FILL_GAP", "ORDERING"}) QuestionType type,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"MCQ_SINGLE", "MCQ_MULTI", "TRUE_FALSE", "FILL_GAP", "ORDERING", "OPEN"}) QuestionType type,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String questionText,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED,
-                    oneOf = {Choices.class, TrueFalse.class, FillGap.class, Ordering.class}) Content content) {
+                    oneOf = {Choices.class, TrueFalse.class, FillGap.class, Ordering.class, Open.class}) Content content) {
         @Override public String toString() { return "AttemptFormItem[type=" + type + "]"; }
     }
 
@@ -51,13 +51,15 @@ public record AttemptFormResponse(
     @JsonSubTypes({@JsonSubTypes.Type(value = Choices.class, name = "CHOICES"),
             @JsonSubTypes.Type(value = TrueFalse.class, name = "TRUE_FALSE"),
             @JsonSubTypes.Type(value = FillGap.class, name = "FILL_GAP"),
-            @JsonSubTypes.Type(value = Ordering.class, name = "ORDERING")})
+            @JsonSubTypes.Type(value = Ordering.class, name = "ORDERING"),
+            @JsonSubTypes.Type(value = Open.class, name = "OPEN")})
     @Schema(name = "AttemptFormContent", discriminatorProperty = "kind", discriminatorMapping = {
             @DiscriminatorMapping(value = "CHOICES", schema = Choices.class),
             @DiscriminatorMapping(value = "TRUE_FALSE", schema = TrueFalse.class),
             @DiscriminatorMapping(value = "FILL_GAP", schema = FillGap.class),
-            @DiscriminatorMapping(value = "ORDERING", schema = Ordering.class)})
-    public sealed interface Content permits Choices, TrueFalse, FillGap, Ordering {
+            @DiscriminatorMapping(value = "ORDERING", schema = Ordering.class),
+            @DiscriminatorMapping(value = "OPEN", schema = Open.class)})
+    public sealed interface Content permits Choices, TrueFalse, FillGap, Ordering, Open {
         @JsonProperty("kind") String kind();
     }
 
@@ -80,6 +82,11 @@ public record AttemptFormResponse(
         @JsonProperty("kind") @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "TRUE_FALSE")
         public String kind() { return "TRUE_FALSE"; }
     }
+    @Schema(name = "AttemptFormOpen", description = "Text-answer question. The answer key and private author fields are never part of the form.")
+    public record Open() implements Content {
+        @JsonProperty("kind") @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "OPEN")
+        public String kind() { return "OPEN"; }
+    }
     @Schema(name = "AttemptFormFillGap")
     public record FillGap(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) String text,
                           @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<Gap> gaps,
@@ -100,6 +107,7 @@ public record AttemptFormResponse(
     private static Content content(ParticipantContent value) {
         if (value instanceof ParticipantContent.Choices choices) return new Choices(options(choices.options()));
         if (value instanceof ParticipantContent.TrueFalse) return new TrueFalse();
+        if (value instanceof ParticipantContent.Open) return new Open();
         if (value instanceof ParticipantContent.FillGap gap) return new FillGap(gap.text(),
                 gap.gaps().stream().map(g -> new Gap(g.id())).toList(), options(gap.options()));
         if (value instanceof ParticipantContent.Ordering order) return new Ordering(options(order.items()));

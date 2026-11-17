@@ -64,7 +64,7 @@ public class PublishedQuestionContractServiceImpl implements PublishedQuestionCo
         var bindings = new LinkedHashMap<UUID, QuestionContractBinding>();
         for (var item : revision.items()) {
             var question = item.question();
-            var binding = BaselineQuestionContracts.binding(question);
+            var binding = SupportedQuestionContracts.binding(question);
             // Resolve every family before any binding write. The authenticated read supplies owner identity.
             registry.resolve(binding).response().optionLayout(question);
             bindings.putIfAbsent(question.id(), binding);

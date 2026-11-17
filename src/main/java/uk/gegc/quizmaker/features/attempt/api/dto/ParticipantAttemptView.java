@@ -67,10 +67,10 @@ public record ParticipantAttemptView(
     @Schema(name = "ParticipantAttemptItem", description = "Original saved form-item identity and zero-based position. No source question/option keys.")
     public record Item(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) UUID id,
                        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int position,
-                       @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"MCQ_SINGLE", "MCQ_MULTI", "TRUE_FALSE", "FILL_GAP", "ORDERING"}) QuestionType type,
+                       @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"MCQ_SINGLE", "MCQ_MULTI", "TRUE_FALSE", "FILL_GAP", "ORDERING", "OPEN"}) QuestionType type,
                        @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String questionText,
                        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, oneOf = {AttemptFormResponse.Choices.class,
-                               AttemptFormResponse.TrueFalse.class, AttemptFormResponse.FillGap.class, AttemptFormResponse.Ordering.class})
+                               AttemptFormResponse.TrueFalse.class, AttemptFormResponse.FillGap.class, AttemptFormResponse.Ordering.class, AttemptFormResponse.Open.class})
                        AttemptFormResponse.Content content,
                        @Schema(description = "Absent for a text-only question.") Image image) {
         @Override public String toString() { return "ParticipantAttemptItem[type=" + type + "]"; }

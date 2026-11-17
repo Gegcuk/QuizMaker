@@ -522,11 +522,11 @@ These remaining contract and compatibility details must be specified before expo
 These interactions gate the affected additional configurations; they do not reopen their approved capability scope or block unrelated immutable-storage work.
 
 <a id="oq-question-families"></a>
-### Four remaining family adapters — PREPARATION
+### Additional family adapters — PREPARATION
 
 **Sources:** [current question contracts](../question-contracts.md), [#701](https://github.com/Gegcuk/QuizMaker/issues/701).
 
-The owner approved [all nine current families before full cutover](decision-register.md#all-nine-question-families) on 21 October 2026. #701 still binds the initial five. Implementation owners are #826 (OPEN), #827 (MATCHING), #828 (HOTSPOT) and #829 (COMPLIANCE). Produce their golden fixtures and include the evidence in #608/#609. There is no remaining choice between nine and five supported families. Snapshot identity in #597 does not establish runtime family support; the assigned follow-ups still require implementation and conformance evidence.
+The owner approved [all nine current families before full cutover](decision-register.md#all-nine-question-families) on 21 October 2026. #701 still binds the initial five. Implementation owners are #826 (OPEN), #827 (MATCHING), #828 (HOTSPOT) and #829 (COMPLIANCE). Produce their golden fixtures and include the evidence in #608/#609. OPEN #826 now has its explicit [ROOT normalization decision](decision-register.md#open-v1-locale); this does not select normalization for any other family. There is no remaining choice between nine and five supported families. Snapshot identity in #597 does not establish runtime family support; the assigned follow-ups still require implementation and conformance evidence.
 
 <a id="oq-r02"></a>
 ### R02 — Assignment administration — DECIDED, PREPARATION

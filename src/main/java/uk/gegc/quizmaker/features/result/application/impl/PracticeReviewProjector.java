@@ -13,7 +13,7 @@ import static uk.gegc.quizmaker.features.result.domain.model.disclosure.ResultDi
 import static uk.gegc.quizmaker.features.result.domain.model.ResultReleaseException.*;
 import static uk.gegc.quizmaker.features.result.domain.model.ResultReleaseException.Reason.*;
 
-/** Fixed five-family projection. No mutable Question entity, scoring, source-key leakage or arbitrary JSON copying. */
+/** Explicit delivered-family projection. No mutable Question entity, scoring, source-key leakage or arbitrary JSON copying. */
 final class PracticeReviewProjector {
     private static final ObjectMapper JSON = new ObjectMapper().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
             .enable(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
@@ -30,9 +30,9 @@ final class PracticeReviewProjector {
             var contracts = facts.contracts().get(question.id());
             require(contracts != null, CORRUPT);
             require(contracts.response().version().equals(
-                    uk.gegc.quizmaker.features.question.application.contract.v1.BaselineQuestionContracts.response(question.type()))
+                    uk.gegc.quizmaker.features.question.application.contract.v1.SupportedQuestionContracts.response(question.type()))
                     && contracts.scoring().version().equals(
-                    uk.gegc.quizmaker.features.question.application.contract.v1.BaselineQuestionContracts.scoring(question.type())), UNSUPPORTED);
+                    uk.gegc.quizmaker.features.question.application.contract.v1.SupportedQuestionContracts.scoring(question.type())), UNSUPPORTED);
             require(grade.formItemId().equals(item.id()) && grade.questionRevisionId().equals(question.id())
                     && Objects.equals(grade.responseId(), answer == null ? null : answer.id())
                     && grade.responseContract().equals(contracts.response().version())
@@ -71,6 +71,7 @@ final class PracticeReviewProjector {
             case MCQ_SINGLE -> new Options(List.of(option(keys, response.path("selectedOptionId"))));
             case MCQ_MULTI -> new Options(values(response.path("selectedOptionIds")).stream().map(v -> option(keys, v)).toList());
             case TRUE_FALSE -> new BooleanAnswer(response.path("answer").booleanValue());
+            case OPEN -> new TextAnswer(response.path("answer").textValue());
             case ORDERING -> new OrderedItems(values(response.path("orderedItemIds")).stream().map(v -> option(keys, v)).toList());
             case FILL_GAP -> new Gaps(values(response.path("answers")).stream()
                     .map(v -> new Gap(v.path("gapId").intValue(), v.path("answer").textValue())).toList());
@@ -83,6 +84,7 @@ final class PracticeReviewProjector {
             case MCQ_SINGLE, MCQ_MULTI -> new Options(values(content.path("options")).stream()
                     .filter(v -> v.path("correct").booleanValue()).map(v -> option(keys, v.path("id"))).toList());
             case TRUE_FALSE -> new BooleanAnswer(content.path("answer").booleanValue());
+            case OPEN -> new TextAnswer(content.path("answer").textValue());
             case ORDERING -> new OrderedItems(values(content.path("correctOrder")).stream().map(v -> option(keys, v)).toList());
             case FILL_GAP -> new Gaps(values(content.path("gaps")).stream()
                     .map(v -> new Gap(v.path("id").intValue(), v.path("answer").textValue())).toList());
