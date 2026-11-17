@@ -12,18 +12,22 @@ public final class SupportedQuestionContracts {
     public static final ContractVersion MATCHING_SCORING = new ContractVersion("question.matching.binary", 1);
     public static final ContractVersion COMPLIANCE_RESPONSE = new ContractVersion("question.compliance.response", 1);
     public static final ContractVersion COMPLIANCE_SCORING = new ContractVersion("question.compliance.binary", 1);
+    public static final ContractVersion HOTSPOT_RESPONSE = new ContractVersion("question.hotspot.response", 1);
+    public static final ContractVersion HOTSPOT_SCORING = new ContractVersion("question.hotspot.binary", 1);
 
     private SupportedQuestionContracts() { }
 
     public static ContractVersion response(QuestionType type) {
         if (type == QuestionType.OPEN) return OPEN_RESPONSE;
         if (type == QuestionType.COMPLIANCE) return COMPLIANCE_RESPONSE;
+        if (type == QuestionType.HOTSPOT) return HOTSPOT_RESPONSE;
         return type == QuestionType.MATCHING ? MATCHING_RESPONSE : BaselineQuestionContracts.response(type);
     }
 
     public static ContractVersion scoring(QuestionType type) {
         if (type == QuestionType.OPEN) return OPEN_SCORING;
         if (type == QuestionType.COMPLIANCE) return COMPLIANCE_SCORING;
+        if (type == QuestionType.HOTSPOT) return HOTSPOT_SCORING;
         return type == QuestionType.MATCHING ? MATCHING_SCORING : BaselineQuestionContracts.scoring(type);
     }
 

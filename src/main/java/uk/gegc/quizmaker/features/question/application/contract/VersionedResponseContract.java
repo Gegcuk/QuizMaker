@@ -24,7 +24,8 @@ public interface VersionedResponseContract {
      * represent. MATCHING v1 explicitly supports publication-resolved inline images; the frozen
      * five-family and OPEN projections remain text-only. Dropping required material is not supported.
      * Existing adapters do not acquire
-     * presentation support by inference from the family enum.
+     * presentation support by inference from the family enum. HOTSPOT v1 supplies only an
+     * internal retained-image/region projection; it does not grant public rendering support.
      */
     default ParticipantContent participantContent(QuestionRevision question) {
         throw new ContractResolutionException(ContractResolutionException.Reason.UNSUPPORTED_CONTRACT);

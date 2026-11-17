@@ -311,3 +311,51 @@ Unknown versions, foreign/wrong-side UUIDs, and malformed input cannot leave a p
 Single commands, drafts and atomic batches retain their existing authorization, idempotency,
 READ_COMMITTED composition and rollback contracts. OpenAPI adds typed alternatives within the
 existing `attempts-v2` group; existing endpoints, schemas and defaults remain compatible.
+
+## Internal revision-bound HOTSPOT contract (#828)
+
+`HotspotQuestionContractConfig` registers `question.hotspot.response:1` and
+`question.hotspot.binary:1` independently of the frozen five-family #701 catalogue.
+The adapters validate and grade only the captured immutable question, without dispatching
+to mutable authoring handlers or selecting a latest contract version. Existing binding,
+form, accepted-response and grade tables are reused; there is no migration or backfill.
+
+The frozen authoring rules retain 2–6 uniquely identified regions, signed 32-bit integer
+IDs, nonnegative integer coordinates/dimensions and at least one correct region. Zero
+dimensions, overlapping regions and large coordinates retain their existing behavior.
+Descriptions remain optional for manual content, with the same 2,000/120/1,000-code-point
+image/label/region-description limits, including the bounds on blank strings. The separate
+strict AI-output rule is unchanged. Responses require one integer `selectedRegionId`;
+any captured correct region earns exactly one point, otherwise zero. A well-shaped unknown
+integer retains the legacy zero-score classification. Missing, null and malformed values
+are rejected before acceptance; no partial credit or new coordinate tolerance is introduced.
+
+Internal application commands use a captured region UUID in `selectedRegionId`, resolve it
+against that exact question and persist its frozen integer source key. Foreign-item UUIDs
+and malformed references cannot leave an answer, state transition, receipt or trace.
+The automatic-result writer revalidates the accepted source-key/UUID correspondence before
+grading. Exact replay, current authorization, per-attempt serialization, caller RC rollback
+and independently committed result-worker transactions retain their existing contracts.
+
+Internal materialization requires the already retained image asset and matching publication
+image reference. Region UUIDs, geometry and optional descriptions stay together when the
+persisted display order changes. The internal projection contains no correctness or image
+URL; its asset identity is excluded from JSON. Publication and binding keep separate
+transaction ownership: an unknown contract or reached binding failure rolls back the complete
+new binding set while preserving an independently committed publication, pointer and receipt.
+Version resolution remains metadata-only, with no source-document or storage reads.
+
+This foundation adds no HOTSPOT alternative to public v2 request/form/review schemas and
+does not activate a participant route. Public immutable image/description delivery remains
+#818; activation and compatibility evidence remain #609. Legacy v1 authoring, submission,
+delivery and current-content review retain their existing payloads and behavior. Internal
+start/answer/grading evidence does not establish public rendering or provider availability.
+
+`HotspotContractV1Test` compares the real public legacy handler with the frozen adapter,
+including malformed inputs, geometry boundaries, optional descriptions, bounds and privacy.
+The `hotspot*` cases in `ImmediateResultReleaseMySqlIntegrationTest` use real retained-image
+preparation/binding, publication, start, acceptance, batch, submission and grading writers.
+They cover exact saved v1/test-only-v2 dispatch, author edits, component reconstruction,
+binding races, reached-write rollback/retry, current authority and caller rollback. Three-parent
+fixtures with 1 and 20 questions measure bounded internal-form SQL; metadata resolution
+excludes question/document content. Only external storage is faked for this foundation.

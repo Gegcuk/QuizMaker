@@ -2,6 +2,36 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## HOTSPOT internal response/scoring contract (#828)
+
+Start with `HotspotContractV1Test`, `HotspotHandlerTest`, `HotspotSemanticsTest`,
+`ComplianceContractV1Test`, `MatchingContractV1Test` and `StableResponseNormalizerTest`.
+Golden tests use the real public legacy handler; direct `doHandle` coercion is not a supported
+HTTP response contract. Cover any correct region, unknown integer IDs, malformed responses,
+2–6 regions, signed IDs, zero dimensions, overlap, nonnegative geometry and bounded optional
+descriptions. Blank strings still have their schema length bound. Ignored extensions must
+not bypass byte/string/array limits. Stable UUID transport rejects foreign form-item references.
+
+Run `ImmediateResultReleaseMySqlIntegrationTest#hotspot*` through the existing disposable
+MySQL/offline launcher, then the full affected result/publication/form suites. The HOTSPOT
+fixture uses actual retained-image preparation and binding, publication, start, acceptance,
+batch, submission and automatic grading. External storage is fake; no remote URL is fetched.
+Public v2 HOTSPOT schemas/delivery are not implemented by this fixture and remain #818/#609.
+
+Assert distinguishable saved v1 and test-only v2 resolution after edits/reconstruction.
+Unknown-version and reached-INSERT binding failures must preserve the previously committed
+publication/current pointer/receipt while leaving zero partial bindings. A binding race must
+have one successful durable winner and one conflict. Reach failures after real answer,
+lifecycle, trace and receipt SQL; inspect fresh transactions before retry and reconstructed
+replay. Keep unauthenticated, wrong-user, insufficient-permission and real cross-item-reference
+negatives with successful controls. Prove joined RC caller rollback with the real atomic batch.
+
+Measure internal-form reads for three parent attempts with 1 and 20 HOTSPOT questions and
+require equal bounded SELECT counts. Metadata-only contract resolution must select no question
+or document content and perform zero storage calls after preparation. Finish with the unchanged
+four-worker clean-verify launcher, complete-inventory checks, exclusive scheduling and merged
+coverage thresholds. Existing v1 and all other family fixtures remain enabled.
+
 ## COMPLIANCE immutable answer contract (#829)
 
 Run `ComplianceContractV1Test`, `ComplianceHandlerTest`, `MatchingContractV1Test`,

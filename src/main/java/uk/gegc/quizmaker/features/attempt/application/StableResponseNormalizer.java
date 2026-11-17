@@ -24,6 +24,7 @@ public final class StableResponseNormalizer {
         var result = JSON.createObjectNode();
         switch (type) {
             case MCQ_SINGLE -> result.put("selectedOptionId", option(input.path("selectedOptionId")));
+            case HOTSPOT -> result.put("selectedRegionId", option(input.path("selectedRegionId")));
             case MCQ_MULTI, ORDERING -> {
                 String field = type == QuestionType.MCQ_MULTI ? "selectedOptionIds" : "orderedItemIds";
                 var values = array(input.path(field)).stream().map(StableResponseNormalizer::option).toList();
@@ -80,6 +81,10 @@ public final class StableResponseNormalizer {
         var result = stable.deepCopy();
         switch (question.type()) {
             case MCQ_SINGLE -> result.put("selectedOptionId", key(keys, stable.path("selectedOptionId")));
+            case HOTSPOT -> {
+                try { result.put("selectedRegionId", Integer.parseInt(key(keys, stable.path("selectedRegionId")))); }
+                catch (NumberFormatException corrupt) { throw new ResponseAcceptanceException(CORRUPT); }
+            }
             case MCQ_MULTI -> {
                 var values = result.putArray("selectedOptionIds");
                 stable.path("selectedOptionIds").forEach(id -> values.add(key(keys, id)));

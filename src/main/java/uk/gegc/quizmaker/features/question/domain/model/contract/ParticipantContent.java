@@ -22,6 +22,28 @@ public sealed interface ParticipantContent {
 
     record Open() implements ParticipantContent { }
 
+    /** Internal saved-image identity, never a public image URL or display authorization. */
+    record Hotspot(@com.fasterxml.jackson.annotation.JsonIgnore UUID imageAssetId,
+                   String imageDescription, List<HotspotRegion> regions) implements ParticipantContent {
+        public Hotspot {
+            require(imageAssetId != null && regions != null && regions.size() >= 2 && regions.size() <= 6);
+            require(imageDescription == null || imageDescription.codePointCount(0, imageDescription.length()) <= 2_000);
+            var ids = new HashSet<UUID>();
+            for (var region : regions) require(region != null && ids.add(region.id()));
+            regions = List.copyOf(regions);
+        }
+        @Override public String toString() { return "Hotspot[redacted]"; }
+    }
+
+    record HotspotRegion(UUID id, int x, int y, int width, int height, String label, String description) {
+        public HotspotRegion {
+            require(id != null && x >= 0 && y >= 0 && width >= 0 && height >= 0);
+            require(label == null || label.codePointCount(0, label.length()) <= 120);
+            require(description == null || description.codePointCount(0, description.length()) <= 1_000);
+        }
+        @Override public String toString() { return "HotspotRegion[redacted]"; }
+    }
+
     record Compliance(List<ComplianceStatement> statements) implements ParticipantContent {
         public Compliance {
             require(statements != null && statements.size() >= 2 && statements.size() <= 6);

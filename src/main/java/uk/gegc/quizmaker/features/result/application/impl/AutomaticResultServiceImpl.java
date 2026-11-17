@@ -102,6 +102,7 @@ public class AutomaticResultServiceImpl implements AutomaticResultService {
         };
         switch(q.type()) {
             case MCQ_SINGLE -> stable.put("selectedOptionId",id.apply(response.get("selectedOptionId")));
+            case HOTSPOT -> stable.put("selectedRegionId",id.apply(response.get("selectedRegionId")));
             case MCQ_MULTI, ORDERING -> {
                 String field=q.type()==QuestionType.MCQ_MULTI?"selectedOptionIds":"orderedItemIds";
                 var values=stable.putArray(field); response.get(field).forEach(key->values.add(id.apply(key)));
