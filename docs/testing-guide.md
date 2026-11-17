@@ -1121,6 +1121,29 @@ gate. Compare executed test identities, failures/skips and merged coverage evide
 just the green exit code. PR and post-merge `clean verify` remain required; scoped repetitions
 are additional diagnostic evidence, not a replacement.
 
+### Legacy on-time answer/completion race
+
+`LegacyAttemptTimeoutMySqlIntegrationTest.onTimeAnswerAndCompletionKeepTheCommittedWinnerAndOneCompletionEvent`
+keeps all six mode/order vectors and the real locked time check. Each gate/result has a
+120-second watchdog inside one 180-second scenario budget, also applied to executor cleanup.
+The JUnit timeout is a final backstop. These are test watchdogs, not application deadlines
+or throughput requirements; a reached gate completes immediately.
+
+A gate wait also observes its participant's future. An early exception keeps its original
+cause; an early business rejection retains its reason, and even a successful return cannot
+replace evidence that the required gate was reached. A timeout reports both participants'
+last observed phases, future states, thread states and at most 24 stack frames each. Entering
+locking SQL is identified separately from reaching the time check under the acquired lock.
+The harness releases the held participant, interrupts both executors and checks termination
+before clearing hooks; try-with-resources preserves the original failure if cleanup also fails.
+
+`LegacyRaceWatchdogTest` tests those reporting/cleanup outcomes without starting Spring or
+claiming database conformance. Repeat the real six-vector method on a fresh disposable MySQL,
+then run the entire timeout class and related legacy isolation/answer-integrity suites before
+the unchanged full four-worker verify. The increased budget does not establish that a CI
+stall was resource pressure or rule out an application fault; use the newly retained cause
+and phase/stack evidence if another failure occurs.
+
 ### Local commands
 
 Prerequisites: JDK 17 in `JAVA_HOME`, Python 3, Docker, a locally available MySQL 8.4 image,

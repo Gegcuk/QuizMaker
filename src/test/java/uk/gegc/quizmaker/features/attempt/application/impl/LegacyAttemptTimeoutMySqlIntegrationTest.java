@@ -96,6 +96,7 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
         completions.ids.clear();
         sqlGate.secondQuery.set(null);
         sqlGate.beforeSharedLock.set(null);
+        sqlGate.onTimeRace.set(null);
     }
 
     @ParameterizedTest
@@ -526,31 +527,32 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
         assertThat(service.completeAttempt(sequential.owner(), sequential.attemptId()).totalScore()).isEqualTo(2.0);
     }
 
+    @org.junit.jupiter.api.Timeout(RaceWatchdog.SCENARIO_SECONDS)
     @ParameterizedTest
     @CsvSource({"ALL_AT_ONCE,true", "ALL_AT_ONCE,false", "ONE_BY_ONE,true", "ONE_BY_ONE,false", "TIMED,true", "TIMED,false"})
     void onTimeAnswerAndCompletionKeepTheCommittedWinnerAndOneCompletionEvent(AttemptMode mode, boolean answerFirst) throws Exception {
-        Fixture f = fixture(mode, true, 1);
         CountDownLatch firstHasLock = new CountDownLatch(1);
         CountDownLatch releaseFirst = new CountDownLatch(1);
         CountDownLatch secondReachedLockQuery = new CountDownLatch(1);
         sqlGate.secondQuery.set(secondReachedLockQuery);
-        AtomicBoolean gated = new AtomicBoolean();
-        when(clock.instant()).thenAnswer(invocation -> {
-            if (Thread.currentThread().getName().equals("legacy-time-first") && gated.compareAndSet(false, true)) {
-                firstHasLock.countDown(); await(releaseFirst);
-            }
-            return now.get();
-        });
-        ExecutorService first = Executors.newSingleThreadExecutor(r -> new Thread(r, "legacy-time-first"));
-        ExecutorService second = Executors.newSingleThreadExecutor(r -> new Thread(r, "legacy-time-second"));
-        try {
-            Future<Outcome> one = first.submit(() -> command(f, answerFirst));
-            assertThat(firstHasLock.await(10, TimeUnit.SECONDS)).isTrue();
-            Future<Outcome> two = second.submit(() -> command(f, !answerFirst));
-            assertThat(secondReachedLockQuery.await(10, TimeUnit.SECONDS)).isTrue();
+        try (var race = new RaceWatchdog(releaseFirst)) {
+            Fixture f = fixture(mode, true, 1);
+            sqlGate.onTimeRace.set(race);
+            AtomicBoolean gated = new AtomicBoolean();
+            when(clock.instant()).thenAnswer(invocation -> {
+                if (race.first.isCurrentThread() && gated.compareAndSet(false, true)) {
+                    firstHasLock.countDown(); race.holdFirst();
+                }
+                return now.get();
+            });
+            race.first.submit(() -> command(f, answerFirst));
+            race.awaitGate(firstHasLock, race.first, "first time check under the attempt lock");
+            race.second.submit(() -> command(f, !answerFirst));
+            race.awaitGate(secondReachedLockQuery, race.second, "second attempt-lock SQL");
             releaseFirst.countDown();
-            assertThat(one.get(10, TimeUnit.SECONDS).success()).isTrue();
-            Outcome following = two.get(10, TimeUnit.SECONDS);
+            Outcome leading = race.result(race.first);
+            assertThat(leading.success()).as(race.diagnostics("First command must succeed: " + leading.error())).isTrue();
+            Outcome following = race.result(race.second);
             assertThat(following.success()).isEqualTo(answerFirst);
             if (!answerFirst) assertThat(following.error()).isEqualTo("Cannot submit answer to attempt with status COMPLETED");
             assertThat(state(f)).isEqualTo(new State(AttemptStatus.COMPLETED, now.get(), answerFirst ? 1.0 : 0.0, answerFirst ? 1 : 0));
@@ -560,10 +562,8 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
             assertThat(completions.ids).containsExactly(f.attemptId());
             assertThat(state(f).answers()).isEqualTo(answerFirst ? 1 : 0);
         } finally {
-            releaseFirst.countDown(); first.shutdownNow(); second.shutdownNow();
-            assertThat(first.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
-            assertThat(second.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
             sqlGate.secondQuery.set(null);
+            sqlGate.onTimeRace.set(null);
         }
     }
 
@@ -801,6 +801,135 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
         try { if (!latch.await(10, TimeUnit.SECONDS)) throw new AssertionError("Timed out waiting for race gate"); }
         catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new AssertionError(failure); }
     }
+    /** Local race harness: observe the actual gate or surface the worker's original failure. */
+    static final class RaceWatchdog implements AutoCloseable {
+        static final long WAIT_SECONDS = 120;
+        static final long SCENARIO_SECONDS = 180;
+        final RaceParticipant first = new RaceParticipant("legacy-time-first");
+        final RaceParticipant second = new RaceParticipant("legacy-time-second");
+        private final CountDownLatch release;
+        private final long waitNanos;
+        private final long scenarioDeadline;
+
+        RaceWatchdog(CountDownLatch release) {
+            this(release, Duration.ofSeconds(WAIT_SECONDS), Duration.ofSeconds(SCENARIO_SECONDS));
+        }
+        RaceWatchdog(CountDownLatch release, Duration wait, Duration scenario) {
+            this.release = release;
+            waitNanos = wait.toNanos();
+            scenarioDeadline = System.nanoTime() + scenario.toNanos();
+        }
+        private long deadline() { return Math.min(scenarioDeadline, System.nanoTime() + waitNanos); }
+        private static long remaining(long deadline) { return Math.max(0, deadline - System.nanoTime()); }
+
+        void awaitGate(CountDownLatch gate, RaceParticipant worker, String description) {
+            long deadline = deadline();
+            try {
+                while (gate.getCount() != 0) {
+                    if (worker.future != null && worker.future.isDone()) {
+                        Outcome outcome = worker.future.get();
+                        // Completion and the gate can race; a reached gate is still the required evidence.
+                        if (gate.getCount() == 0) return;
+                        throw failure(worker.name + " completed before " + description
+                                + "; success=" + outcome.success() + "; error=" + outcome.error(), null);
+                    }
+                    long left = remaining(deadline);
+                    if (left == 0) throw failure("Timed out waiting for " + description, null);
+                    gate.await(Math.min(left, TimeUnit.MILLISECONDS.toNanos(100)), TimeUnit.NANOSECONDS);
+                }
+            } catch (ExecutionException failed) {
+                throw failure(worker.name + " failed before " + description, failed.getCause());
+            } catch (CancellationException cancelled) {
+                throw failure(worker.name + " was cancelled before " + description, cancelled);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw failure("Interrupted while waiting for " + description, interrupted);
+            }
+        }
+        void holdFirst() {
+            first.phase.set("TIME_CHECKED_UNDER_LOCK; WAITING_FOR_RELEASE");
+            try {
+                if (!release.await(remaining(deadline()), TimeUnit.NANOSECONDS))
+                    throw failure("Timed out waiting to release first command", null);
+                first.phase.set("RELEASED");
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw failure("First command interrupted while held under lock", interrupted);
+            }
+        }
+        Outcome result(RaceParticipant worker) {
+            try { return worker.future.get(remaining(deadline()), TimeUnit.NANOSECONDS); }
+            catch (ExecutionException failed) { throw failure(worker.name + " failed", failed.getCause()); }
+            catch (TimeoutException | CancellationException failed) { throw failure(worker.name + " did not finish", failed); }
+            catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw failure("Interrupted while waiting for " + worker.name, interrupted);
+            }
+        }
+        void lockQueryEntered() {
+            for (var worker : List.of(first, second))
+                if (worker.isCurrentThread()) worker.phase.set("LOCK_SQL_ENTERED");
+        }
+        String diagnostics(String message) {
+            var text = new StringBuilder(message);
+            for (var worker : List.of(first, second)) {
+                Thread thread = worker.thread.get(); Future<Outcome> future = worker.future;
+                text.append('\n').append(worker.name).append(" phase=").append(worker.phase.get())
+                        .append(" future=").append(future == null ? "NOT_SUBMITTED" : future.isCancelled() ? "CANCELLED" : future.isDone() ? "DONE" : "PENDING")
+                        .append(" state=").append(thread == null ? "NOT_STARTED" : thread.getState());
+                if (thread != null) Arrays.stream(thread.getStackTrace()).limit(24)
+                        .forEach(frame -> text.append("\n  at ").append(frame));
+            }
+            return text.toString();
+        }
+        private AssertionError failure(String message, Throwable cause) {
+            return new AssertionError(diagnostics(message), cause);
+        }
+        @Override public void close() {
+            release.countDown();
+            first.executor.shutdownNow(); second.executor.shutdownNow();
+            long deadline = Math.min(scenarioDeadline, System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS));
+            boolean interrupted = Thread.interrupted();
+            boolean firstStopped = false, secondStopped = false;
+            try {
+                for (var worker : List.of(first, second)) {
+                    boolean stopped = worker.executor.isTerminated();
+                    while (!stopped && remaining(deadline) > 0) {
+                        try { stopped = worker.executor.awaitTermination(remaining(deadline), TimeUnit.NANOSECONDS); }
+                        catch (InterruptedException signal) { interrupted = true; }
+                    }
+                    if (worker == first) firstStopped = stopped; else secondStopped = stopped;
+                }
+                if (!firstStopped || !secondStopped) throw failure("Race executors did not terminate", null);
+            } finally {
+                if (interrupted) Thread.currentThread().interrupt();
+            }
+        }
+    }
+    static final class RaceParticipant {
+        final String name;
+        final AtomicReference<Thread> thread = new AtomicReference<>();
+        final AtomicReference<String> phase = new AtomicReference<>("NOT_STARTED");
+        final ExecutorService executor;
+        volatile Future<Outcome> future;
+        RaceParticipant(String name) {
+            this.name = name;
+            executor = Executors.newSingleThreadExecutor(task -> {
+                Thread worker = new Thread(task, name); thread.set(worker); return worker;
+            });
+        }
+        boolean isCurrentThread() { return Thread.currentThread() == thread.get(); }
+        void submit(Callable<Outcome> action) {
+            future = executor.submit(() -> {
+                phase.set("COMMAND_STARTED");
+                try {
+                    Outcome outcome = action.call();
+                    phase.set(outcome.success() ? "COMMAND_COMPLETED" : "COMMAND_REJECTED");
+                    return outcome;
+                } catch (Exception | Error failure) { phase.set("COMMAND_FAILED"); throw failure; }
+            });
+        }
+    }
     record Fixture(String owner, UUID attemptId, List<UUID> questions) { }
     record State(AttemptStatus status, Instant completedAt, Double score, int answers) { }
     record Outcome(boolean success, String error) { }
@@ -810,6 +939,7 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
     }
     static class SqlGate implements StatementInspector {
         final AtomicReference<CountDownLatch> secondQuery = new AtomicReference<>();
+        final AtomicReference<RaceWatchdog> onTimeRace = new AtomicReference<>();
         final AtomicReference<Runnable> beforeSharedLock = new AtomicReference<>();
         final AtomicReference<Thread> countingThread = new AtomicReference<>();
         final AtomicInteger statementCount = new AtomicInteger();
@@ -820,6 +950,9 @@ class LegacyAttemptTimeoutMySqlIntegrationTest extends BaseIntegrationTest {
                 Runnable gate = beforeSharedLock.getAndSet(null);
                 if (gate != null) gate.run();
             }
+            RaceWatchdog race = onTimeRace.get();
+            if (race != null && sql.toLowerCase(Locale.ROOT).contains("for update")
+                    && sql.toLowerCase(Locale.ROOT).contains("attempts")) race.lockQueryEntered();
             CountDownLatch latch = secondQuery.get();
             if (latch != null && Thread.currentThread().getName().equals("legacy-time-second")
                     && sql.toLowerCase(Locale.ROOT).contains("for update") && sql.toLowerCase(Locale.ROOT).contains("attempts")) latch.countDown();
