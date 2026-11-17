@@ -2,6 +2,41 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## MATCHING immutable answer contract (#827)
+
+Run `MatchingContractV1Test`, `MatchingHandlerTest`, `FamilyContractV1Test`,
+`OpenContractV1Test` and `StableResponseNormalizerTest` first. Then run
+`PublishedFamilyContractsMySqlIntegrationTest`, `ImmediateResultReleaseMySqlIntegrationTest`,
+`ResponseAcceptanceOpenApiTest`, `DraftCommandOpenApiTest`, `AttemptFormOpenApiContractTest`
+and `ParticipantAttemptViewOpenApiContractTest` with the existing isolated MySQL/offline
+launcher. Finish with the unchanged four-worker clean-verify gate. The new programmatic
+Spring catalogue test has one context inventory entry; existing suites and fixtures remain.
+
+Golden fixtures compare the actual public legacy handler with frozen MATCHING v1. Cover
+correct/partial/wrong/empty pairs, last-pair-wins duplicates, many-to-one authoring, signed
+integer boundaries, malformed values, duplicate IDs, missing right references and media-only
+items. Invalid-media and missing-reference fixtures must contain two items in both columns
+so the intended check is reached. Stable transport separately rejects foreign/wrong-side UUIDs.
+
+Publication tests prove exact v1/test-only-v2 dispatch with distinguishable points, actual
+binding rollback on an unknown version with the independent published pointer/receipt preserved, reached binding-write rollback,
+and one durable concurrent binding winner after reconstruction. Publication still rejects an outer
+transaction before work; these tests do not invent atomic publication/binding composition. Existing large-content
+metadata-only resolver tests retain the bounded version-check proof; storage fakes reject
+unexpected content access.
+
+Execution tests use real publication, start, accepted-response, batch, terminal submission,
+grading and release writers. Inject faults after real answer/lifecycle/trace/receipt SQL and
+inspect fresh transactions before retry. Retained-media tests call the actual image preparation
+and binding services with a storage fake, publish the media-only question, remove it from the
+library, then accept and grade against its retained original. Storage calls during execution
+fail the test. This does not prove provider availability or authorize public activation.
+
+Measure released views across three parent attempts with 1 and 20 MATCHING questions and
+assert equal bounded application SELECT counts. Typed requests, forms, drafts and released
+pairs must validate against both full and `attempts-v2` OpenAPI documents; malformed HTTP
+values never reach the mocked application writer. Preserve all existing family controls.
+
 ## OPEN immutable answer contract (#826)
 
 Run `OpenContractV1Test`, `OpenQuestionHandlerTest`, `FamilyContractV1Test` and

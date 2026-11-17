@@ -160,6 +160,7 @@
     "uk.gegc.quizmaker.features.question.api.QuestionContractsOpenApiTest",
     "uk.gegc.quizmaker.features.question.application.QuestionContractsIntegrationTest",
     "uk.gegc.quizmaker.features.question.contract.FamilyContractV1Test",
+    "uk.gegc.quizmaker.features.question.contract.MatchingContractV1Test",
     "uk.gegc.quizmaker.features.question.contract.OpenContractV1Test",
     "uk.gegc.quizmaker.features.question.contract.PublishedFamilyContractsMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.quiz.api.QuizAccessControlIntegrationTest",

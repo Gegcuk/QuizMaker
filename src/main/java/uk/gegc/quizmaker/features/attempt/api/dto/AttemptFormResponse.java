@@ -40,10 +40,10 @@ public record AttemptFormResponse(
     public record Item(
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED) UUID id,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int position,
-            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"MCQ_SINGLE", "MCQ_MULTI", "TRUE_FALSE", "FILL_GAP", "ORDERING", "OPEN"}) QuestionType type,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"MCQ_SINGLE", "MCQ_MULTI", "TRUE_FALSE", "FILL_GAP", "ORDERING", "OPEN", "MATCHING"}) QuestionType type,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String questionText,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED,
-                    oneOf = {Choices.class, TrueFalse.class, FillGap.class, Ordering.class, Open.class}) Content content) {
+                    oneOf = {Choices.class, TrueFalse.class, FillGap.class, Ordering.class, Open.class, Matching.class}) Content content) {
         @Override public String toString() { return "AttemptFormItem[type=" + type + "]"; }
     }
 
@@ -52,14 +52,16 @@ public record AttemptFormResponse(
             @JsonSubTypes.Type(value = TrueFalse.class, name = "TRUE_FALSE"),
             @JsonSubTypes.Type(value = FillGap.class, name = "FILL_GAP"),
             @JsonSubTypes.Type(value = Ordering.class, name = "ORDERING"),
-            @JsonSubTypes.Type(value = Open.class, name = "OPEN")})
+            @JsonSubTypes.Type(value = Open.class, name = "OPEN"),
+            @JsonSubTypes.Type(value = Matching.class, name = "MATCHING")})
     @Schema(name = "AttemptFormContent", discriminatorProperty = "kind", discriminatorMapping = {
             @DiscriminatorMapping(value = "CHOICES", schema = Choices.class),
             @DiscriminatorMapping(value = "TRUE_FALSE", schema = TrueFalse.class),
             @DiscriminatorMapping(value = "FILL_GAP", schema = FillGap.class),
             @DiscriminatorMapping(value = "ORDERING", schema = Ordering.class),
-            @DiscriminatorMapping(value = "OPEN", schema = Open.class)})
-    public sealed interface Content permits Choices, TrueFalse, FillGap, Ordering, Open {
+            @DiscriminatorMapping(value = "OPEN", schema = Open.class),
+            @DiscriminatorMapping(value = "MATCHING", schema = Matching.class)})
+    public sealed interface Content permits Choices, TrueFalse, FillGap, Ordering, Open, Matching {
         @JsonProperty("kind") String kind();
     }
 
@@ -108,6 +110,7 @@ public record AttemptFormResponse(
         if (value instanceof ParticipantContent.Choices choices) return new Choices(options(choices.options()));
         if (value instanceof ParticipantContent.TrueFalse) return new TrueFalse();
         if (value instanceof ParticipantContent.Open) return new Open();
+        if (value instanceof ParticipantContent.Matching matching) return new Matching(matchingOptions(matching.left()), matchingOptions(matching.right()));
         if (value instanceof ParticipantContent.FillGap gap) return new FillGap(gap.text(),
                 gap.gaps().stream().map(g -> new Gap(g.id())).toList(), options(gap.options()));
         if (value instanceof ParticipantContent.Ordering order) return new Ordering(options(order.items()));
@@ -115,6 +118,31 @@ public record AttemptFormResponse(
     }
     private static List<Option> options(List<ParticipantContent.Option> options) {
         return options.stream().map(option -> new Option(option.id(), option.text())).toList();
+    }
+    @Schema(name = "AttemptFormMatching", description = "Saved left/right columns with stable option UUIDs. No matchId, answer pairs or source keys. Left order is authored; right order is saved for this attempt.")
+    public record Matching(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) @jakarta.validation.constraints.Size(min = 2, max = 100) List<MatchingOption> left,
+                           @Schema(requiredMode = Schema.RequiredMode.REQUIRED) @jakarta.validation.constraints.Size(min = 2, max = 100) List<MatchingOption> right) implements Content {
+        public Matching { left = List.copyOf(left); right = List.copyOf(right); }
+        @JsonProperty("kind") @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "MATCHING")
+        public String kind() { return "MATCHING"; }
+        @Override public String toString() { return "AttemptFormMatching[redacted]"; }
+    }
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    @Schema(name = "AttemptFormMatchingOption", description = "Text, an exact publication-resolved image, or both. A media-only item has no text field.")
+    public record MatchingOption(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) UUID id,
+                                 @Schema(maxLength = 10000) String text, MatchingImage image) {
+        @Override public String toString() { return "AttemptFormMatchingOption[redacted]"; }
+    }
+    @Schema(name = "AttemptFormMatchingImage", description = "Captured rendering metadata of a retained published image. No external URL import, mutable asset lookup, storage request or new display authority.")
+    public record MatchingImage(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) String url,
+                                @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") int width,
+                                @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") int height,
+                                @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String mimeType) {
+        @Override public String toString() { return "AttemptFormMatchingImage[redacted]"; }
+    }
+    private static List<MatchingOption> matchingOptions(List<ParticipantContent.MatchingOption> options) {
+        return options.stream().map(option -> new MatchingOption(option.id(), option.text(), option.image() == null ? null :
+                new MatchingImage(option.image().url(), option.image().width(), option.image().height(), option.image().mimeType()))).toList();
     }
     @Override public String toString() { return "AttemptFormResponse[itemCount=" + items.size() + "]"; }
 }

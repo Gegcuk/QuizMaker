@@ -282,6 +282,37 @@ class ResponseAcceptanceOpenApiTest {
     }
 
     @ParameterizedTest @WithMockUser
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void matchingHttpInputAndBothSchemasAgreeAndAcknowledgementDisclosesNoPairs(boolean empty) throws Exception {
+        var attempt = UUID.randomUUID(); var accepted = UUID.randomUUID();
+        when(responses.accept(any())).thenReturn(new uk.gegc.quizmaker.features.attempt.application.ResponseAcceptanceService.Result(attempt, accepted, 2, false));
+        var body = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(BODY);
+        var pairs = body.putObject("response").put("type", "MATCHING").putArray("matches");
+        if (!empty) pairs.addObject().put("leftId", UUID.randomUUID().toString()).put("rightId", UUID.randomUUID().toString());
+        var rendered = mvc.perform(post(PATH, attempt).header("Idempotency-Key", "matching-response").contentType("application/json").content(body.toString()))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store")).andReturn().getResponse().getContentAsString();
+        for (String url : List.of("/v3/api-docs", "/v3/api-docs/attempts-v2")) {
+            var spec = json.readTree(mvc.perform(get(url)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            assertThat(matchesFormSchema(spec, spec.at("/components/schemas/AcceptResponseRequest"), body, 0)).as(url).isTrue();
+        }
+        var capture = org.mockito.ArgumentCaptor.forClass(uk.gegc.quizmaker.features.attempt.application.ResponseAcceptanceService.Command.class);
+        verify(responses).accept(capture.capture()); assertThat(capture.getValue().type()).isEqualTo(QuestionType.MATCHING);
+        assertThat(capture.getValue().response().path("matches")).isEqualTo(pairs);
+        assertThat(rendered).doesNotContain("matches", "leftId", "rightId", "correct", "score");
+    }
+
+    @ParameterizedTest @WithMockUser
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"{}", "{\"matches\":null}", "{\"matches\":[null]}",
+            "{\"matches\":[{\"leftId\":null,\"rightId\":null}]}", "{\"matches\":[{\"leftId\":1,\"rightId\":10}]}"})
+    void malformedMatchingTransportNeverCallsTheWriter(String raw) throws Exception {
+        var body = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(BODY);
+        var payload = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(raw); payload.put("type", "MATCHING"); body.set("response", payload);
+        mvc.perform(post(PATH, UUID.randomUUID()).header("Idempotency-Key", "invalid-matching").contentType("application/json").content(body.toString()))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(responses);
+    }
+
+    @ParameterizedTest @WithMockUser
     @org.junit.jupiter.params.provider.ValueSource(strings = {"{}", "{\"answer\":null}", "{\"answer\":42}", "{\"answer\":true}"})
     void malformedOpenTextCannotBeCoercedOrReachTheService(String raw) throws Exception {
         var body = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(BODY);
@@ -302,11 +333,11 @@ class ResponseAcceptanceOpenApiTest {
             assertThat(operation.at("/requestBody/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/AcceptResponseRequest");
             assertThat(operation.at("/responses/200/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/AcceptedResponseAcknowledgement");
             for (String name : List.of("AcceptResponseRequest", "AcceptedResponseAcknowledgement", "ConfirmedResponse", "ConfirmedSingleChoice",
-                    "ConfirmedMultipleChoice", "ConfirmedTrueFalse", "ConfirmedOrdering", "ConfirmedGapAnswers", "ConfirmedGapAnswer", "ConfirmedOpenAnswer"))
+                    "ConfirmedMultipleChoice", "ConfirmedTrueFalse", "ConfirmedOrdering", "ConfirmedGapAnswers", "ConfirmedGapAnswer", "ConfirmedOpenAnswer", "ConfirmedMatching", "ConfirmedMatch"))
                 assertThat(schemas.has(name)).as(name).isTrue();
-            assertThat(schemas.at("/AcceptResponseRequest/properties/response/oneOf")).hasSize(6);
+            assertThat(schemas.at("/AcceptResponseRequest/properties/response/oneOf")).hasSize(7);
             assertThat(schemas.path("ConfirmedResponse").has("oneOf")).isFalse();
-            assertThat(schemas.at("/ConfirmedResponse/discriminator/mapping")).hasSize(6);
+            assertThat(schemas.at("/ConfirmedResponse/discriminator/mapping")).hasSize(7);
             for (String code : List.of("400", "401", "404", "409", "422", "500", "503"))
                 assertThat(operation.path("responses").path(code).findValuesAsText("$ref")).contains("#/components/schemas/ProblemDetail");
             for (var variant : List.of(

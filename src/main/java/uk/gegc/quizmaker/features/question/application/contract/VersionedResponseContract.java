@@ -20,8 +20,10 @@ public interface VersionedResponseContract {
     /**
      * Explicit version-bound projection from retained immutable content. Options use revision UUIDs,
      * never source keys. The materializer applies the exact persisted display order afterward.
-     * Must describe the complete text-only presentation and reject embedded media it cannot retain
-     * and represent; dropping required material is not supported. Existing adapters do not acquire
+     * Must describe the complete presentation and reject embedded media it cannot retain and
+     * represent. MATCHING v1 explicitly supports publication-resolved inline images; the frozen
+     * five-family and OPEN projections remain text-only. Dropping required material is not supported.
+     * Existing adapters do not acquire
      * presentation support by inference from the family enum.
      */
     default ParticipantContent participantContent(QuestionRevision question) {
@@ -30,7 +32,7 @@ public interface VersionedResponseContract {
 
     /**
      * Text projection for a view that separately represents the saved top-level attachment through
-     * its media/disclosure ports. Embedded media must still fail closed. Opt-in per saved contract;
+     * its media/disclosure ports. Unsupported embedded media must still fail closed. Opt-in per saved contract;
      * this method grants no start, storage, release or image-display authority.
      */
     default ParticipantContent participantContentWithSeparateAttachment(QuestionRevision question) {

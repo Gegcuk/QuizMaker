@@ -31,7 +31,7 @@ public class ResponseAcceptanceController {
                     "The expectedStateVersion is the optimistic counter returned by the attempt view. The exact case-sensitive Idempotency-Key " +
                     "contains 1–200 printable ASCII characters without whitespace and is scoped to the authenticated user. Identical retries return " +
                     "the original acceptance/version after current authorization; changed key input or a second answer conflicts. Reuse the exact " +
-                    "request after an unknown outcome. No automatic retries or partial writes. The five baseline response families and OPEN; arrays at most 100, " +
+                    "request after an unknown outcome. No automatic retries or partial writes. The five baseline response families, OPEN and MATCHING; arrays at most 100, " +
                     "strings at most 10000 characters and normalized response JSON at most 65536 UTF-8 bytes. Empty multi-choice/order/gap arrays retain v1 validation semantics. " +
                     "No grading/feedback is performed here. Legacy /answers remains unchanged. Disabled by default pending #609 activation.",
             security = @SecurityRequirement(name = "bearerAuth"))

@@ -107,6 +107,15 @@ public class AutomaticResultServiceImpl implements AutomaticResultService {
                 var values=stable.putArray(field); response.get(field).forEach(key->values.add(id.apply(key)));
             }
             case TRUE_FALSE, FILL_GAP, OPEN -> { }
+            case MATCHING -> {
+                var matches=stable.putArray("matches");
+                for(var pair:response.path("matches")) {
+                    String left=ids.get("left/"+pair.path("leftId").asText());
+                    String right=ids.get("right/"+pair.path("rightId").asText());
+                    require(left!=null && right!=null,CORRUPT);
+                    matches.addObject().put("leftId",left).put("rightId",right);
+                }
+            }
             default -> throw new AutomaticResultException(UNSUPPORTED);
         }
         try {

@@ -48,7 +48,7 @@ public class DraftCommandController {
 
     @PutMapping(consumes = "application/json", produces = "application/json")
     @Operation(operationId = "saveAttemptDraft", summary = "Save a private versioned draft", description = CONTRACT
-            + " Five baseline response families use stable saved option UUIDs, never display indexes. Arrays <=100; gap text <=10000 characters; "
+            + " Five baseline response families, OPEN and MATCHING use stable saved option UUIDs, never display indexes. Arrays <=100; gap text <=10000 characters; "
             + "normalized response <=65536 UTF-8 bytes. Saving increments the draft version; accepted items cannot be edited.")
     public ResponseEntity<DraftCommandAcknowledgement> save(@PathVariable UUID attemptId, @PathVariable UUID formItemId,
             @Parameter(required = true, description = "Opaque command identity; reuse only for the identical request") @RequestHeader("Idempotency-Key") String key,

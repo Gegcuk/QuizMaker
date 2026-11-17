@@ -97,6 +97,18 @@ public final class ParticipantFormProjector {
                 require(content instanceof ParticipantContent.Open && order.isEmpty(), INVALID_MATERIAL);
                 yield content;
             }
+            case MATCHING -> {
+                require(content instanceof ParticipantContent.Matching, INVALID_MATERIAL);
+                var matching = (ParticipantContent.Matching) content;
+                var all = new HashMap<UUID, ParticipantContent.MatchingOption>();
+                matching.left().forEach(option -> all.put(option.id(), option));
+                matching.right().forEach(option -> all.put(option.id(), option));
+                require(all.size() == order.size() && all.keySet().containsAll(order), INVALID_MATERIAL);
+                require(order.subList(0, matching.left().size()).equals(matching.left().stream()
+                        .map(ParticipantContent.MatchingOption::id).toList()), INVALID_MATERIAL);
+                yield new ParticipantContent.Matching(matching.left(), order.subList(matching.left().size(), order.size())
+                        .stream().map(all::get).toList());
+            }
             case FILL_GAP -> {
                 require(content instanceof ParticipantContent.FillGap, INVALID_MATERIAL);
                 var gap = (ParticipantContent.FillGap) content;

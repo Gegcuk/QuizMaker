@@ -239,6 +239,23 @@ class ParticipantAttemptViewOpenApiContractTest {
             assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), open, 0)).isTrue();
             assertThat(json.treeToValue(open, ParticipantAttemptView.class).result().items().get(0).submittedAnswer())
                     .isInstanceOf(uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView.TextAnswer.class);
+            var matching = (com.fasterxml.jackson.databind.node.ObjectNode) value.deepCopy();
+            var matchingItem = (com.fasterxml.jackson.databind.node.ObjectNode) matching.at("/items/0"); matchingItem.put("type", "MATCHING");
+            var columns = matchingItem.putObject("content").put("kind", "MATCHING");
+            var leftIds = List.of(UUID.randomUUID(), UUID.randomUUID()); var rightIds = List.of(UUID.randomUUID(), UUID.randomUUID());
+            var left = columns.putArray("left"); var right = columns.putArray("right");
+            for (int i = 0; i < 2; i++) {
+                left.addObject().put("id", leftIds.get(i).toString()).put("text", "L" + i);
+                right.addObject().put("id", rightIds.get(i).toString()).put("text", "R" + i);
+            }
+            for (String field : List.of("submittedAnswer", "correctAnswer")) {
+                var pairs = ((com.fasterxml.jackson.databind.node.ObjectNode) matching.at("/result/items/0"))
+                        .putObject(field).put("kind", "MATCHING_PAIRS").putArray("matches");
+                pairs.addObject().put("leftId", leftIds.get(0).toString()).put("rightId", rightIds.get(0).toString());
+            }
+            assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), matching, 0)).isTrue();
+            assertThat(json.treeToValue(matching, ParticipantAttemptView.class).result().items().get(0).submittedAnswer())
+                    .isInstanceOf(uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView.MatchingPairs.class);
             var invalid = (com.fasterxml.jackson.databind.node.ObjectNode) value.deepCopy();
             ((com.fasterxml.jackson.databind.node.ObjectNode) invalid.at("/result/items/0/correctAnswer")).put("kind", "UNKNOWN");
             assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), invalid, 0)).isFalse();
