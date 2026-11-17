@@ -19,7 +19,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.snapshot.PolicySnapshotEx
 import uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException;
 import uk.gegc.quizmaker.features.question.application.QuestionContractException;
 import uk.gegc.quizmaker.features.question.application.contract.ResolvedQuestionContracts;
-import uk.gegc.quizmaker.features.question.application.contract.v1.BaselineQuestionContracts;
+import uk.gegc.quizmaker.features.question.application.contract.v1.SupportedQuestionContracts;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision;
@@ -59,8 +59,8 @@ public class AutomaticResultServiceImpl implements AutomaticResultService {
             long earned=0;
             for(var item:facts.form().items()) {
                 var q=questions.get(item.sourceItemId()); var contracts=facts.contracts().get(q.id());
-                require(contracts!=null && contracts.response().version().equals(BaselineQuestionContracts.response(q.type()))
-                        && contracts.scoring().version().equals(BaselineQuestionContracts.scoring(q.type())),UNSUPPORTED);
+                require(contracts!=null && contracts.response().version().equals(SupportedQuestionContracts.response(q.type()))
+                        && contracts.scoring().version().equals(SupportedQuestionContracts.scoring(q.type())),UNSUPPORTED);
                 var answer=answers.get(item.id());
                 // Even unanswered items require a valid captured contract/content; missing evidence
                 // must never be mistaken for a permitted unanswered response.
@@ -106,7 +106,7 @@ public class AutomaticResultServiceImpl implements AutomaticResultService {
                 String field=q.type()==QuestionType.MCQ_MULTI?"selectedOptionIds":"orderedItemIds";
                 var values=stable.putArray(field); response.get(field).forEach(key->values.add(id.apply(key)));
             }
-            case TRUE_FALSE, FILL_GAP -> { }
+            case TRUE_FALSE, FILL_GAP, OPEN -> { }
             default -> throw new AutomaticResultException(UNSUPPORTED);
         }
         try {

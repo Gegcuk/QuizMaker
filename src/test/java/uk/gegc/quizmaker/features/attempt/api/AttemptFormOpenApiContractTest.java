@@ -120,11 +120,11 @@ class AttemptFormOpenApiContractTest {
             for (String code : List.of("400", "401", "404", "409", "422", "500", "503"))
                 assertThat(operation.path("responses").path(code).findValuesAsText("$ref")).contains("#/components/schemas/ProblemDetail");
             for (String name : List.of("AttemptFormResponse", "AttemptFormItem", "AttemptFormContent", "AttemptFormChoices",
-                    "AttemptFormTrueFalse", "AttemptFormFillGap", "AttemptFormOrdering", "AttemptFormOption", "AttemptFormGap"))
+                    "AttemptFormTrueFalse", "AttemptFormFillGap", "AttemptFormOrdering", "AttemptFormOpen", "AttemptFormOption", "AttemptFormGap"))
                 assertThat(schemas.has(name)).as(name).isTrue();
-            assertThat(schemas.path("AttemptFormItem").at("/properties/content/oneOf")).hasSize(4);
+            assertThat(schemas.path("AttemptFormItem").at("/properties/content/oneOf")).hasSize(5);
             assertThat(schemas.path("AttemptFormContent").has("oneOf")).isFalse();
-            assertThat(schemas.path("AttemptFormContent").at("/discriminator/mapping").size()).isEqualTo(4);
+            assertThat(schemas.path("AttemptFormContent").at("/discriminator/mapping").size()).isEqualTo(5);
             assertThat(schemas.path("AttemptFormResponse").path("required").toString()).contains("formId", "stateVersion", "items", "allowedActions");
             var example = operation.at("/responses/200/content").elements().next().path("example");
             if (example.isMissingNode()) example = operation.at("/responses/200/content").elements().next().path("examples").elements().next().path("value");
@@ -132,6 +132,11 @@ class AttemptFormOpenApiContractTest {
             assertThat(matchesFormSchema(spec, schemas.path("AttemptFormResponse"), example, 0)).isTrue();
             assertThat(matchesFormSchema(spec, schemas.path("AttemptFormResponse"),
                     json.valueToTree(AttemptFormResponse.from(fixture())), 0)).isTrue();
+            var open = (com.fasterxml.jackson.databind.node.ObjectNode) example.deepCopy();
+            var openItem = (com.fasterxml.jackson.databind.node.ObjectNode) open.at("/items/0");
+            openItem.put("type", "OPEN"); openItem.putObject("content").put("kind", "OPEN");
+            assertThat(matchesFormSchema(spec, schemas.path("AttemptFormResponse"), open, 0)).isTrue();
+            assertThat(json.treeToValue(open, AttemptFormResponse.class).items().get(0).content()).isInstanceOf(AttemptFormResponse.Open.class);
             var invalid = (com.fasterxml.jackson.databind.node.ObjectNode) example.deepCopy();
             invalid.put("schemaVersion", 2);
             assertThat(matchesFormSchema(spec, schemas.path("AttemptFormResponse"), invalid, 0)).isFalse();

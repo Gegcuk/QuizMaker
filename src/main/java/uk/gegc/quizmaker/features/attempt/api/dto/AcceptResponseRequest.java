@@ -11,7 +11,7 @@ import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 @Schema(name = "AcceptResponseRequest", description = "One confirmed answer to a saved form item. No subject, grading or disclosure authority is accepted.")
 public record AcceptResponseRequest(@NotNull UUID formItemId, @NotNull @Min(0) Long expectedStateVersion,
-                                    @NotNull @Valid @Schema(oneOf = {Single.class, Multiple.class, Truth.class, Ordering.class, Gaps.class}) Response response) {
+                                    @NotNull @Valid @Schema(oneOf = {Single.class, Multiple.class, Truth.class, Ordering.class, Gaps.class, Open.class}) Response response) {
     @Override public String toString() { return "AcceptResponseRequest[redacted]"; }
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY, property = "type")
@@ -19,14 +19,16 @@ public record AcceptResponseRequest(@NotNull UUID formItemId, @NotNull @Min(0) L
             @JsonSubTypes.Type(value = Multiple.class, name = "MCQ_MULTI"),
             @JsonSubTypes.Type(value = Truth.class, name = "TRUE_FALSE"),
             @JsonSubTypes.Type(value = Ordering.class, name = "ORDERING"),
-            @JsonSubTypes.Type(value = Gaps.class, name = "FILL_GAP")})
+            @JsonSubTypes.Type(value = Gaps.class, name = "FILL_GAP"),
+            @JsonSubTypes.Type(value = Open.class, name = "OPEN")})
     @Schema(name = "ConfirmedResponse", discriminatorProperty = "type",
             discriminatorMapping = {@DiscriminatorMapping(value = "MCQ_SINGLE", schema = Single.class),
             @DiscriminatorMapping(value = "MCQ_MULTI", schema = Multiple.class),
             @DiscriminatorMapping(value = "TRUE_FALSE", schema = Truth.class),
             @DiscriminatorMapping(value = "ORDERING", schema = Ordering.class),
-            @DiscriminatorMapping(value = "FILL_GAP", schema = Gaps.class)})
-    public sealed interface Response permits Single, Multiple, Truth, Ordering, Gaps {
+            @DiscriminatorMapping(value = "FILL_GAP", schema = Gaps.class),
+            @DiscriminatorMapping(value = "OPEN", schema = Open.class)})
+    public sealed interface Response permits Single, Multiple, Truth, Ordering, Gaps, Open {
         @JsonProperty("type") QuestionType type();
     }
     @Schema(name = "ConfirmedSingleChoice")
@@ -52,6 +54,12 @@ public record AcceptResponseRequest(@NotNull UUID formItemId, @NotNull @Min(0) L
         @JsonProperty("type") @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "ORDERING")
         public QuestionType type() { return QuestionType.ORDERING; }
         @Override public String toString() { return "ConfirmedOrdering[redacted]"; }
+    }
+    @Schema(name = "ConfirmedOpenAnswer", description = "Original text, including an empty answer. At most 10000 Unicode code points and the existing 65536-byte response limit. OPEN v1 compares trimmed ROOT-lowercase text; no partial credit.")
+    public record Open(@NotNull @Schema(requiredMode = Schema.RequiredMode.REQUIRED, maxLength = 10000, example = " Paris ") String answer) implements Response {
+        @JsonProperty("type") @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "OPEN")
+        public QuestionType type() { return QuestionType.OPEN; }
+        @Override public String toString() { return "ConfirmedOpenAnswer[redacted]"; }
     }
     @Schema(name = "ConfirmedGapAnswers")
     public record Gaps(@NotNull @Size(max = 100) List<@NotNull @Valid Gap> answers) implements Response {

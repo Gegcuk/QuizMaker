@@ -223,7 +223,7 @@ class ResponseAcceptanceOpenApiTest {
 
     @Test @WithMockUser void missingKeyBadUuidMalformedUnknownAndOversizedPayloadsNeverCallService() throws Exception {
         mvc.perform(post(PATH, UUID.randomUUID()).contentType("application/json").content(BODY)).andExpect(status().isBadRequest());
-        for (String invalid : List.of("{}", BODY.replace("TRUE_FALSE", "OPEN"), BODY.replace("true", "null"),
+        for (String invalid : List.of("{}", BODY.replace("TRUE_FALSE", "MATCHING"), BODY.replace("true", "null"),
                 BODY.replace("\"expectedStateVersion\":1,", ""), BODY.replace("\"answer\":true", "\"answer\":{}"),
                 BODY.replace("true", "\"true\""), BODY.replace("true", "1"), BODY.replace(":1,", ":1.5,"),
                 BODY.replace("true", "true,\"answer\":false"), BODY.replace("true", "true,\"ownerId\":\"private\""),
@@ -264,6 +264,33 @@ class ResponseAcceptanceOpenApiTest {
         verifyNoInteractions(responses);
     }
 
+    @ParameterizedTest @WithMockUser
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"", " Paris ", "Москва 😀"})
+    void openTextIsTypedPreservedAndNeverDisclosedByItsAcknowledgement(String text) throws Exception {
+        var attempt = UUID.randomUUID(); var accepted = UUID.randomUUID();
+        when(responses.accept(any())).thenReturn(new uk.gegc.quizmaker.features.attempt.application.ResponseAcceptanceService.Result(attempt, accepted, 2, false));
+        var body = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(BODY);
+        body.putObject("response").put("type", "OPEN").put("answer", text);
+        var rendered = mvc.perform(post(PATH, attempt).header("Idempotency-Key", "open-response").contentType("application/json").content(body.toString()))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.acceptedResponseId").value(accepted.toString())).andReturn().getResponse().getContentAsString();
+        var capture = org.mockito.ArgumentCaptor.forClass(uk.gegc.quizmaker.features.attempt.application.ResponseAcceptanceService.Command.class);
+        verify(responses).accept(capture.capture());
+        assertThat(capture.getValue().type()).isEqualTo(QuestionType.OPEN);
+        assertThat(capture.getValue().response().path("answer").textValue()).isEqualTo(text);
+        assertThat(rendered).doesNotContain("answer", "score", "correct", "explanation");
+    }
+
+    @ParameterizedTest @WithMockUser
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"{}", "{\"answer\":null}", "{\"answer\":42}", "{\"answer\":true}"})
+    void malformedOpenTextCannotBeCoercedOrReachTheService(String raw) throws Exception {
+        var body = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(BODY);
+        var value = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(raw); value.put("type", "OPEN"); body.set("response", value);
+        mvc.perform(post(PATH, UUID.randomUUID()).header("Idempotency-Key", "open-response").contentType("application/json").content(body.toString()))
+                .andExpect(status().isBadRequest()).andExpect(content().contentTypeCompatibleWith("application/problem+json"));
+        verifyNoInteractions(responses);
+    }
+
     @Test @WithMockUser void schemaUnionExamplesErrorsSecurityAndApiSummaryAreConsistent() throws Exception {
         for (String url : List.of("/v3/api-docs", "/v3/api-docs/attempts-v2")) {
             var spec = json.readTree(mvc.perform(get(url)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
@@ -275,17 +302,17 @@ class ResponseAcceptanceOpenApiTest {
             assertThat(operation.at("/requestBody/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/AcceptResponseRequest");
             assertThat(operation.at("/responses/200/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/AcceptedResponseAcknowledgement");
             for (String name : List.of("AcceptResponseRequest", "AcceptedResponseAcknowledgement", "ConfirmedResponse", "ConfirmedSingleChoice",
-                    "ConfirmedMultipleChoice", "ConfirmedTrueFalse", "ConfirmedOrdering", "ConfirmedGapAnswers", "ConfirmedGapAnswer"))
+                    "ConfirmedMultipleChoice", "ConfirmedTrueFalse", "ConfirmedOrdering", "ConfirmedGapAnswers", "ConfirmedGapAnswer", "ConfirmedOpenAnswer"))
                 assertThat(schemas.has(name)).as(name).isTrue();
-            assertThat(schemas.at("/AcceptResponseRequest/properties/response/oneOf")).hasSize(5);
+            assertThat(schemas.at("/AcceptResponseRequest/properties/response/oneOf")).hasSize(6);
             assertThat(schemas.path("ConfirmedResponse").has("oneOf")).isFalse();
-            assertThat(schemas.at("/ConfirmedResponse/discriminator/mapping")).hasSize(5);
+            assertThat(schemas.at("/ConfirmedResponse/discriminator/mapping")).hasSize(6);
             for (String code : List.of("400", "401", "404", "409", "422", "500", "503"))
                 assertThat(operation.path("responses").path(code).findValuesAsText("$ref")).contains("#/components/schemas/ProblemDetail");
             for (var variant : List.of(
                     "{\"type\":\"MCQ_SINGLE\",\"selectedOptionId\":\"00000000-0000-0000-0000-000000000004\"}",
                     "{\"type\":\"MCQ_MULTI\",\"selectedOptionIds\":[]}", "{\"type\":\"TRUE_FALSE\",\"answer\":false}",
-                    "{\"type\":\"ORDERING\",\"orderedItemIds\":[]}", "{\"type\":\"FILL_GAP\",\"answers\":[{\"gapId\":1,\"answer\":\"Paris\"}]}")) {
+                    "{\"type\":\"ORDERING\",\"orderedItemIds\":[]}", "{\"type\":\"FILL_GAP\",\"answers\":[{\"gapId\":1,\"answer\":\"Paris\"}]}", "{\"type\":\"OPEN\",\"answer\":\" Paris \"}")) {
                 var body = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(BODY); body.set("response", json.readTree(variant));
                 assertThat(matchesFormSchema(spec, schemas.path("AcceptResponseRequest"), body, 0)).as(variant).isTrue();
                 assertThat(json.treeToValue(body, uk.gegc.quizmaker.features.attempt.api.dto.AcceptResponseRequest.class).response()).isNotNull();

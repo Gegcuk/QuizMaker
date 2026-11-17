@@ -120,7 +120,8 @@ is required to verify the backend contract.
 
 ## Immutable baseline family contracts (#701)
 
-The internal revision path has five production adapters. The active question and
+The frozen #701 catalogue defines five production adapters. OPEN is an additive
+family-owned contract described below. The active question and
 attempt APIs above retain their existing routes, payloads, permissions and legacy
 handlers; registering these adapters does not activate target execution.
 
@@ -212,3 +213,60 @@ answer. Real start/acceptance/charging, disclosure and formal D38 flows still ne
 their owning integrations (#600, #543, #609, #668). OPEN, MATCHING, HOTSPOT and
 COMPLIANCE remain explicitly unsupported here, owned by #826–#829. Full cutover
 still requires all nine families and their immutable compatibility evidence.
+
+
+## Immutable OPEN contract (#826)
+
+`SupportedQuestionContracts` selects exact delivered pairs while leaving the five-family
+`BaselineQuestionContracts` and its frozen shapes unchanged. OPEN registers
+`question.open.response/1` and `question.open.binary/1` through `OpenQuestionContractConfig`.
+Unknown versions/families fail closed; there is no mutable-handler or latest-version fallback.
+Bindings, response rows, grades and receipts use existing storage without a migration or backfill.
+
+OPEN v1 retains the active author/response shape and bounds: an author supplies a nonblank
+string `answer`, and a participant supplies a string `answer`, which may be empty or blank.
+Missing, null, boolean, numeric and non-object public responses are invalid. Strings have at
+most 10,000 Unicode code points, arrays in ignored extensions at most 100 items, and JSON at
+most 65,536 UTF-8 bytes. An ignored extension does not bypass those bounds. Exact comparison
+trims outer characters using Java `trim()` and lowercases with `Locale.ROOT`, as
+[approved for OPEN on 17 November 2026](architecture/decision-register.md#open-v1-locale).
+Internal whitespace, punctuation and Unicode normalization are not rewritten. A valid wrong,
+partial, empty or blank answer receives zero of one point. No partial credit is added.
+
+The legacy handler remains unchanged, including its default-locale behavior. The new ROOT
+rule is the explicit compatibility exception: `I` versus `i` scores one on both English and
+Turkish servers. Original submitted text is retained; changing spaces/case under the same
+idempotency key is still a conflict even when both texts would earn the same grade.
+
+The existing, independently gated v2 command accepts an additive `ConfirmedOpenAnswer`:
+
+```json
+{"formItemId":"00000000-0000-0000-0000-000000000002","expectedStateVersion":1,"response":{"type":"OPEN","answer":" Paris "}}
+```
+
+It uses `POST /api/v2/attempts/{attemptId}/responses` and the same `Idempotency-Key` semantics,
+with the existing batch command accepting the same variant. Acknowledgements contain no
+submitted text, key, score or explanation. The safe form content is only `{"kind":"OPEN"}`;
+there are no options or answer-key fields. Independently authorized released submitted/key
+categories use `ReleasedPracticeText`, for example `{"kind":"TEXT","answer":"Paris"}`.
+Form, participant-view and response unions are additive in the `attempts-v2` OpenAPI group;
+existing envelopes, paths, v1 schemas, security and API-summary discovery remain unchanged.
+Malformed transport input is 400; semantic bounds/type mismatches through a real command are
+422; stale/conflicting commands are 409; unavailable ownership is non-enumerating 404.
+
+This implements internal OPEN publication, materialization, acceptance, grading and release
+composition. It does not enable the feature flags, activate #609, replace legacy routing or
+claim complete nine-family cutover. Existing web/iOS clients continue on their current paths;
+clients using the separately enabled v2 surface must understand the OPEN/TEXT variants before
+that capability is exposed to them. External/embedded media is not silently discarded: the
+ordinary text-only materializer rejects it, and the existing separately retained top-level
+image path remains separately authorized.
+
+Evidence: `OpenContractV1Test` compares the real public legacy handler and the new adapter,
+including limits and the ROOT exception. `PublishedFamilyContractsMySqlIntegrationTest`
+checks stored version resolution (including a deliberately different test-only v2), binding-set
+rollback with an unchanged publication pointer, binding races/restart and storage isolation. `ImmediateResultReleaseMySqlIntegrationTest`
+composes real start/accept/submit/grade/release/read, mixed atomic batches, reached-insert
+rollback/retry, caller RC rollback, current access, historical edits and multi-parent measured
+reads. The v2 OpenAPI suites check named OPEN/TEXT schemas, examples, strict parsing and the
+existing grouping/discovery contracts.

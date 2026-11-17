@@ -7,7 +7,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 import uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException;
 import uk.gegc.quizmaker.features.question.application.contract.ResolvedQuestionContracts;
-import uk.gegc.quizmaker.features.question.application.contract.v1.BaselineQuestionContracts;
+import uk.gegc.quizmaker.features.question.application.contract.v1.SupportedQuestionContracts;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision;
 import static uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException.Reason.*;
@@ -29,6 +29,12 @@ public final class StableResponseNormalizer {
                 var values = array(input.path(field)).stream().map(StableResponseNormalizer::option).toList();
                 if (type == QuestionType.MCQ_MULTI) values = values.stream().distinct().sorted().toList();
                 var target = result.putArray(field); values.forEach(target::add);
+            }
+            case OPEN -> {
+                require(input.path("answer").isTextual(), INVALID_INPUT);
+                String answer = input.path("answer").textValue();
+                require(answer.codePointCount(0, answer.length()) <= 10000, INVALID_INPUT);
+                result.put("answer", answer);
             }
             case TRUE_FALSE -> {
                 require(input.path("answer").isBoolean(), INVALID_INPUT);
@@ -54,7 +60,7 @@ public final class StableResponseNormalizer {
     }
 
     public static ObjectNode bind(QuestionRevision question, ResolvedQuestionContracts contracts, ObjectNode stable) {
-        require(contracts.response().version().equals(BaselineQuestionContracts.response(question.type())), UNSUPPORTED);
+        require(contracts.response().version().equals(SupportedQuestionContracts.response(question.type())), UNSUPPORTED);
         var keys = question.options().stream().collect(Collectors.toMap(QuestionRevision.Option::id, QuestionRevision.Option::sourceKey));
         var result = stable.deepCopy();
         switch (question.type()) {
@@ -77,7 +83,7 @@ public final class StableResponseNormalizer {
                     for (var answer : stable.path("answers")) require(gaps.contains(answer.path("gapId").intValue()), INVALID_INPUT);
                 } catch (IOException corrupt) { throw new ResponseAcceptanceException(CORRUPT); }
             }
-            case TRUE_FALSE -> { }
+            case TRUE_FALSE, OPEN -> { }
             default -> throw new ResponseAcceptanceException(UNSUPPORTED);
         }
         contracts.response().validate(question, result);

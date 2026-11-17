@@ -345,6 +345,8 @@ uk/gegc/quizmaker/features/question/application/QuestionSourceMigrationMySqlInte
 uk/gegc/quizmaker/features/question/application/QuestionSourceMigrationMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/question/contract/FamilyContractV1Test.java
 uk/gegc/quizmaker/features/question/contract/FamilyContractV1Test$*.java
+uk/gegc/quizmaker/features/question/contract/OpenContractV1Test.java
+uk/gegc/quizmaker/features/question/contract/OpenContractV1Test$*.java
 uk/gegc/quizmaker/features/question/contract/PublishedFamilyContractsMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/question/contract/PublishedFamilyContractsMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/question/contract/QuestionRevisionContractsMigrationMySqlIntegrationTest.java

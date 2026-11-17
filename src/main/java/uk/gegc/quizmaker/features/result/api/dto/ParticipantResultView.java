@@ -36,13 +36,15 @@ public record ParticipantResultView(
     @JsonSubTypes({@JsonSubTypes.Type(value = Options.class, name = "OPTIONS"),
             @JsonSubTypes.Type(value = OrderedItems.class, name = "ORDERED_ITEMS"),
             @JsonSubTypes.Type(value = BooleanAnswer.class, name = "BOOLEAN"),
-            @JsonSubTypes.Type(value = Gaps.class, name = "GAPS")})
+            @JsonSubTypes.Type(value = Gaps.class, name = "GAPS"),
+            @JsonSubTypes.Type(value = TextAnswer.class, name = "TEXT")})
     @Schema(name = "ReleasedPracticeAnswer", discriminatorProperty = "kind", discriminatorMapping = {
             @DiscriminatorMapping(value = "OPTIONS", schema = Options.class),
             @DiscriminatorMapping(value = "ORDERED_ITEMS", schema = OrderedItems.class),
             @DiscriminatorMapping(value = "BOOLEAN", schema = BooleanAnswer.class),
-            @DiscriminatorMapping(value = "GAPS", schema = Gaps.class)})
-    public sealed interface Answer permits Options, OrderedItems, BooleanAnswer, Gaps {
+            @DiscriminatorMapping(value = "GAPS", schema = Gaps.class),
+            @DiscriminatorMapping(value = "TEXT", schema = TextAnswer.class)})
+    public sealed interface Answer permits Options, OrderedItems, BooleanAnswer, Gaps, TextAnswer {
         @JsonProperty("kind") String kind();
     }
     @Schema(name = "ReleasedPracticeOptions", description = "Saved stable option UUIDs, never display indexes or authoring source keys.")
@@ -71,6 +73,12 @@ public record ParticipantResultView(
         @JsonProperty("kind") @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "GAPS")
         public String kind() { return "GAPS"; }
         @Override public String toString() { return "ReleasedPracticeGaps"; }
+    }
+    @Schema(name = "ReleasedPracticeText", description = "Original submitted text or the captured answer key, only when that disclosure category is authorized.")
+    public record TextAnswer(@Schema(requiredMode = Schema.RequiredMode.REQUIRED, maxLength = 10000, example = "Paris") String answer) implements Answer {
+        @JsonProperty("kind") @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "TEXT")
+        public String kind() { return "TEXT"; }
+        @Override public String toString() { return "ReleasedPracticeText[redacted]"; }
     }
     @Schema(name = "ReleasedPracticeGap")
     public record Gap(@Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") int gapId,

@@ -77,7 +77,7 @@ final class FamilyShapeV1 {
         }
     }
 
-    private static void limits(JsonNode value) {
+    static void limits(JsonNode value) {
         if (value == null) throw new QuestionContractException("INVALID_SHAPE", "content");
         // Bound serialization without constructing an unbounded second copy of input.
         try {

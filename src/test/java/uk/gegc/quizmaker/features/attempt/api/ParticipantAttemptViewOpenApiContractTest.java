@@ -198,11 +198,15 @@ class ParticipantAttemptViewOpenApiContractTest {
             for (String code : List.of("400", "401", "403", "404", "409", "422", "500", "503"))
                 assertThat(op.path("responses").path(code).findValuesAsText("$ref")).contains("#/components/schemas/ProblemDetail");
             for (String name : List.of("ParticipantAttemptView", "ParticipantAttemptItem", "ParticipantAttemptImage", "AttemptFormContent",
-                    "AttemptFormChoices", "AttemptFormTrueFalse", "AttemptFormFillGap", "AttemptFormOrdering")) assertThat(schemas.has(name)).as(name).isTrue();
+                    "AttemptFormChoices", "AttemptFormTrueFalse", "AttemptFormFillGap", "AttemptFormOrdering", "AttemptFormOpen")) assertThat(schemas.has(name)).as(name).isTrue();
             var examples = op.at("/responses/200/content/application~1json/examples"); assertThat(examples).hasSize(3);
             for (var example : examples) assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), example.path("value"), 0)).as("Example %s", example).isTrue();
             var value = json.valueToTree(fixture());
             assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), value, 0)).isTrue();
+            var open = (com.fasterxml.jackson.databind.node.ObjectNode) value.deepCopy();
+            ((com.fasterxml.jackson.databind.node.ObjectNode) open.at("/items/0")).put("type", "OPEN").putObject("content").put("kind", "OPEN");
+            assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), open, 0)).isTrue();
+            assertThat(json.treeToValue(open, ParticipantAttemptView.class).items().get(0).content()).isInstanceOf(AttemptFormResponse.Open.class);
             var invalid = (com.fasterxml.jackson.databind.node.ObjectNode) value.deepCopy(); invalid.put("schemaVersion", 2);
             assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), invalid, 0)).isFalse();
             invalid.put("schemaVersion", 1); invalid.remove("stateVersion");
@@ -222,12 +226,19 @@ class ParticipantAttemptViewOpenApiContractTest {
             var spec = json.readTree(mvc.perform(get(specPath)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
             var schemas = spec.path("components").path("schemas");
             for (String name : List.of("ParticipantResultView", "ReleasedPracticeScore", "ReleasedPracticeItem", "ReleasedPracticeAnswer",
-                    "ReleasedPracticeOptions", "ReleasedPracticeOrderedItems", "ReleasedPracticeBoolean", "ReleasedPracticeGaps", "ReleasedPracticeGap"))
+                    "ReleasedPracticeOptions", "ReleasedPracticeOrderedItems", "ReleasedPracticeBoolean", "ReleasedPracticeGaps", "ReleasedPracticeGap", "ReleasedPracticeText"))
                 assertThat(schemas.has(name)).as(name).isTrue();
             assertThat(schemas.path("ParticipantResultView").path("properties").path("items").path("items").path("$ref").asText())
                     .isEqualTo("#/components/schemas/ReleasedPracticeItem");
             var value = json.valueToTree(releasedFixture());
             assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), value, 0)).isTrue();
+            var open = (com.fasterxml.jackson.databind.node.ObjectNode) value.deepCopy();
+            ((com.fasterxml.jackson.databind.node.ObjectNode) open.at("/items/0")).put("type", "OPEN").putObject("content").put("kind", "OPEN");
+            ((com.fasterxml.jackson.databind.node.ObjectNode) open.at("/result/items/0")).putObject("submittedAnswer").put("kind", "TEXT").put("answer", " Paris ");
+            ((com.fasterxml.jackson.databind.node.ObjectNode) open.at("/result/items/0")).putObject("correctAnswer").put("kind", "TEXT").put("answer", "Paris");
+            assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), open, 0)).isTrue();
+            assertThat(json.treeToValue(open, ParticipantAttemptView.class).result().items().get(0).submittedAnswer())
+                    .isInstanceOf(uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView.TextAnswer.class);
             var invalid = (com.fasterxml.jackson.databind.node.ObjectNode) value.deepCopy();
             ((com.fasterxml.jackson.databind.node.ObjectNode) invalid.at("/result/items/0/correctAnswer")).put("kind", "UNKNOWN");
             assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), invalid, 0)).isFalse();

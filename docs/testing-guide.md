@@ -2,6 +2,32 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## OPEN immutable answer contract (#826)
+
+Run `OpenContractV1Test`, `OpenQuestionHandlerTest`, `FamilyContractV1Test` and
+`StableResponseNormalizerTest` first, then `PublishedFamilyContractsMySqlIntegrationTest`,
+`ImmediateResultReleaseMySqlIntegrationTest`, `ResponseAcceptanceOpenApiTest`,
+`AttemptFormOpenApiContractTest` and `ParticipantAttemptViewOpenApiContractTest` in the existing
+isolated MySQL/offline environment. The existing database suites retain their inventory slots; the programmatic-context
+`OpenContractV1Test` is added to the context inventory. No new worker group or reduced fixture
+is introduced. Finish with the unchanged full
+four-worker clean-verify launcher.
+
+Preserve the five-family controls. New OPEN evidence must reach real response inserts,
+rollback accepted rows/receipts/state/trace together, retry the same identity, reauthorize replay
+and prove that a later author edit/publication cannot change historical text or scores. The
+version-2 adapters in the publication suite are deliberately different test doubles only for
+exact saved-version resolution; production still supports OPEN contract version 1 exclusively.
+Use English/Turkish/Lithuanian locale controls for the approved ROOT rule and assert the
+unchanged legacy Turkish difference. Empty/blank valid text scores zero; malformed public
+input never becomes an accepted wrong answer.
+
+The released-view test measures actual application SELECTs for three parents with 1 and 20
+OPEN items. Metadata-only contract resolution additionally uses the existing CONTRACTS-04
+large-content fixture; version checks must not fetch/hash stored document content. External
+storage fakes fail on any access in the text-only publication path. No activation,
+capacity or complete nine-family support follows from these local checks.
+
 ## Assignment publication (#621)
 
 Run `AssignmentPublicationTest`, `AssignmentPublicationMySqlIntegrationTest`,

@@ -93,6 +93,10 @@ public final class ParticipantFormProjector {
                 require(content instanceof ParticipantContent.TrueFalse && order.isEmpty(), INVALID_MATERIAL);
                 yield content;
             }
+            case OPEN -> {
+                require(content instanceof ParticipantContent.Open && order.isEmpty(), INVALID_MATERIAL);
+                yield content;
+            }
             case FILL_GAP -> {
                 require(content instanceof ParticipantContent.FillGap, INVALID_MATERIAL);
                 var gap = (ParticipantContent.FillGap) content;
