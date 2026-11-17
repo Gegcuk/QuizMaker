@@ -10,9 +10,18 @@ import java.util.UUID;
  * fallback. #818/#831 own runtime integration. No storage network I/O may run under the caller's locks.
  */
 public interface ParticipantViewMediaReader {
-    Map<UUID, Image> read(UUID attemptId, UUID quizRevisionId, List<Reference> references);
+    Map<Reference, Image> read(UUID attemptId, UUID quizRevisionId, List<Reference> references);
 
-    record Reference(UUID formItemId, UUID questionRevisionId, UUID assetId) { }
+    /** Null optionId identifies the top-level attachment; inline occurrences retain their own scope. */
+    record Reference(UUID formItemId, UUID questionRevisionId, UUID assetId, UUID optionId) {
+        public Reference(UUID formItemId, UUID questionRevisionId, UUID assetId) {
+            this(formItemId, questionRevisionId, assetId, null);
+        }
+        public Reference {
+            if (formItemId == null || questionRevisionId == null || assetId == null)
+                throw new IllegalArgumentException("Invalid image reference");
+        }
+    }
     enum Availability { AVAILABLE, UNAVAILABLE, RESTRICTED }
     record Image(Availability availability, String url) {
         public Image {

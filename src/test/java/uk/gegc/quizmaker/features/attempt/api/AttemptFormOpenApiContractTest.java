@@ -144,10 +144,20 @@ class AttemptFormOpenApiContractTest {
                 var values = columns.putArray(side);
                 values.addObject().put("id", UUID.randomUUID().toString()).put("text", "First");
                 values.addObject().put("id", UUID.randomUUID().toString()).putObject("image")
-                        .put("url", "https://cdn.example.invalid/retained/original").put("width", 640).put("height", 480).put("mimeType", "image/png");
+                        .put("availability", "AVAILABLE").put("url", "https://cdn.example.invalid/retained/original").put("width", 640).put("height", 480).put("mimeType", "image/png");
             }
             assertThat(matchesFormSchema(spec, schemas.path("AttemptFormResponse"), matching, 0)).isTrue();
             assertThat(json.treeToValue(matching, AttemptFormResponse.class).items().get(0).content()).isInstanceOf(AttemptFormResponse.Matching.class);
+            for (String unavailable : List.of("UNAVAILABLE", "RESTRICTED")) {
+                var masked = (com.fasterxml.jackson.databind.node.ObjectNode) matching.deepCopy();
+                for (String side : List.of("left", "right")) for (var option : masked.at("/items/0/content/" + side)) {
+                    if (option.has("image")) {
+                        var image = (com.fasterxml.jackson.databind.node.ObjectNode) option.get("image");
+                        image.remove("url"); image.put("availability", unavailable);
+                    }
+                }
+                assertThat(matchesFormSchema(spec, schemas.path("AttemptFormResponse"), masked, 0)).as(unavailable).isTrue();
+            }
             var invalid = (com.fasterxml.jackson.databind.node.ObjectNode) example.deepCopy();
             invalid.put("schemaVersion", 2);
             assertThat(matchesFormSchema(spec, schemas.path("AttemptFormResponse"), invalid, 0)).isFalse();

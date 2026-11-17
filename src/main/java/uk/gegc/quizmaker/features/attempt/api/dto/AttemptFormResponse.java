@@ -7,6 +7,10 @@ import io.swagger.v3.oas.annotations.media.DiscriminatorMapping;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import java.util.UUID;
+import java.util.Map;
+import java.util.HashMap;
+import uk.gegc.quizmaker.features.attempt.application.ParticipantViewMediaReader;
+import uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException;
 import uk.gegc.quizmaker.features.attempt.application.AttemptDeliveryService;
 import uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
@@ -29,11 +33,21 @@ public record AttemptFormResponse(
     public AttemptFormResponse { items = List.copyOf(items); allowedActions = List.copyOf(allowedActions); }
     public static AttemptFormResponse from(AttemptDeliveryService.View view) {
         return new AttemptFormResponse(view.attemptId(), view.stateVersion(), view.form().id(), view.form().schemaVersion(),
-                items(view.form()), view.allowedActions(), NavigationPosition.from(view.navigation()));
+                items(view.form(), view.images()), view.allowedActions(), NavigationPosition.from(view.navigation()));
     }
     public static List<Item> items(uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm form) {
+        return items(form, Map.of());
+    }
+    public static List<Item> items(uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm form,
+                                  Map<ParticipantViewMediaReader.Reference, ParticipantViewMediaReader.Image> images) {
+        Map<UUID, Map<UUID, AuthorizedImage>> inline = new HashMap<>();
+        images.forEach((ref, image) -> {
+            if (ref.optionId() != null && inline.computeIfAbsent(ref.formItemId(), id -> new HashMap<>())
+                    .put(ref.optionId(), new AuthorizedImage(ref, image)) != null)
+                throw new AttemptDeliveryException(AttemptDeliveryException.Reason.CORRUPT);
+        });
         return form.items().stream().map(item -> new Item(item.id(), item.position(), item.type(),
-                item.questionText(), content(item.content()))).toList();
+                item.questionText(), content(item.content(), inline.getOrDefault(item.id(), Map.of())))).toList();
     }
 
     @Schema(name = "AttemptFormItem", description = "Stable form-item ID; position is zero-based. No source IDs or protected grading fields.")
@@ -106,11 +120,11 @@ public record AttemptFormResponse(
         @Override public String toString() { return "AttemptFormOrdering"; }
     }
 
-    private static Content content(ParticipantContent value) {
+    private static Content content(ParticipantContent value, Map<UUID, AuthorizedImage> images) {
         if (value instanceof ParticipantContent.Choices choices) return new Choices(options(choices.options()));
         if (value instanceof ParticipantContent.TrueFalse) return new TrueFalse();
         if (value instanceof ParticipantContent.Open) return new Open();
-        if (value instanceof ParticipantContent.Matching matching) return new Matching(matchingOptions(matching.left()), matchingOptions(matching.right()));
+        if (value instanceof ParticipantContent.Matching matching) return new Matching(matchingOptions(matching.left(), images), matchingOptions(matching.right(), images));
         if (value instanceof ParticipantContent.FillGap gap) return new FillGap(gap.text(),
                 gap.gaps().stream().map(g -> new Gap(g.id())).toList(), options(gap.options()));
         if (value instanceof ParticipantContent.Ordering order) return new Ordering(options(order.items()));
@@ -133,16 +147,29 @@ public record AttemptFormResponse(
                                  @Schema(maxLength = 10000) String text, MatchingImage image) {
         @Override public String toString() { return "AttemptFormMatchingOption[redacted]"; }
     }
-    @Schema(name = "AttemptFormMatchingImage", description = "Captured rendering metadata of a retained published image. No external URL import, mutable asset lookup, storage request or new display authority.")
-    public record MatchingImage(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) String url,
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    @Schema(name = "AttemptFormMatchingImage", description = "Current display status of the retained inline image. Only AVAILABLE has a reader-authorized URL; no captured/mutable URL fallback. Metadata remains bound to the original publication.")
+    public record MatchingImage(@Schema(description = "Present only after current AVAILABLE permission.") String url,
                                 @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") int width,
                                 @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") int height,
-                                @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String mimeType) {
+                                @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String mimeType,
+                                @Schema(requiredMode = Schema.RequiredMode.REQUIRED) ParticipantViewMediaReader.Availability availability) {
         @Override public String toString() { return "AttemptFormMatchingImage[redacted]"; }
     }
-    private static List<MatchingOption> matchingOptions(List<ParticipantContent.MatchingOption> options) {
-        return options.stream().map(option -> new MatchingOption(option.id(), option.text(), option.image() == null ? null :
-                new MatchingImage(option.image().url(), option.image().width(), option.image().height(), option.image().mimeType()))).toList();
+    private record AuthorizedImage(ParticipantViewMediaReader.Reference reference, ParticipantViewMediaReader.Image image) { }
+    private static List<MatchingOption> matchingOptions(List<ParticipantContent.MatchingOption> options, Map<UUID, AuthorizedImage> images) {
+        return options.stream().map(option -> {
+            MatchingImage image = null;
+            if (option.image() != null) {
+                var permitted = images.get(option.id());
+                if (permitted == null) throw new AttemptDeliveryException(AttemptDeliveryException.Reason.UNSUPPORTED);
+                if (!permitted.reference().assetId().equals(option.image().assetId()))
+                    throw new AttemptDeliveryException(AttemptDeliveryException.Reason.CORRUPT);
+                image = new MatchingImage(permitted.image().url(), option.image().width(), option.image().height(),
+                        option.image().mimeType(), permitted.image().availability());
+            }
+            return new MatchingOption(option.id(), option.text(), image);
+        }).toList();
     }
     @Override public String toString() { return "AttemptFormResponse[itemCount=" + items.size() + "]"; }
 }

@@ -635,7 +635,7 @@ class ParticipantAttemptViewMySqlIntegrationTest {
             var ref = refs.get(0);
             assertThat(sql.queryForObject("SELECT COUNT(*) FROM quiz_revision_images WHERE quiz_revision_id=UUID_TO_BIN(?) AND question_revision_id=UUID_TO_BIN(?) AND asset_id=UUID_TO_BIN(?)",
                     Integer.class, revision.toString(), ref.questionRevisionId().toString(), ref.assetId().toString())).isEqualTo(1);
-            return Map.of(ref.formItemId(), new ParticipantViewMediaReader.Image(state.get(),
+            return Map.of(ref, new ParticipantViewMediaReader.Image(state.get(),
                     state.get() == ParticipantViewMediaReader.Availability.AVAILABLE ? "https://images.example.invalid/original-version.png" : null));
         };
         ParticipantViewDisclosureReader released = facts -> ParticipantViewDisclosureReader.ContentVisibility.VISIBLE;
@@ -671,7 +671,7 @@ class ParticipantAttemptViewMySqlIntegrationTest {
         UUID id = mediaFixture(); var before = targetSnapshot(); reject(id, "UNSUPPORTED");
         for (var availability : List.of(ParticipantViewMediaReader.Availability.UNAVAILABLE, ParticipantViewMediaReader.Availability.RESTRICTED)) {
             var projected = reader(facts -> ParticipantViewDisclosureReader.ContentVisibility.VISIBLE,
-                    (attempt, revision, refs) -> Map.of(refs.get(0).formItemId(), new ParticipantViewMediaReader.Image(availability, null)), metrics);
+                    (attempt, revision, refs) -> Map.of(refs.get(0), new ParticipantViewMediaReader.Image(availability, null)), metrics);
             assertThatThrownBy(() -> projected.read(id)).isInstanceOfSatisfying(AttemptDeliveryException.class,
                     failure -> assertThat(failure.reason().name()).isEqualTo("UNAVAILABLE"));
             assertThat(targetSnapshot()).isEqualTo(before);

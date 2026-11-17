@@ -191,6 +191,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         public void retain(SavedImageVersion v) { called(); }
         public void verify(SavedImageVersion v) { called(); }
     }
+    @org.springframework.test.context.bean.override.mockito.MockitoBean ParticipantViewMediaReader mediaReader;
     @Autowired TestImageStorage imageStorage;
     @Autowired uk.gegc.quizmaker.features.media.application.RetainedImageService retainedImages;
     @Autowired uk.gegc.quizmaker.features.media.domain.repository.MediaAssetRepository mediaAssets;
@@ -231,6 +232,8 @@ class ImmediateResultReleaseMySqlIntegrationTest {
     @BeforeEach void setup() {
         tx = new TransactionTemplate(manager); observer().reset();
         imageStorage.preparing = false; imageStorage.calls = 0;
+        doAnswer(call -> new InitialParticipantViewMediaReader()
+                .read(call.getArgument(0), call.getArgument(1), call.getArgument(2))).when(mediaReader).read(any(), any(), any());
         authoredExplanation = "protected-explanation";
         username = "acceptance-" + UUID.randomUUID().toString().substring(0, 12);
         ownerId = user(username, true);
@@ -583,6 +586,13 @@ class ImmediateResultReleaseMySqlIntegrationTest {
     }
 
     @Test void mediaOnlyMatchingUsesRealRetentionPublicationAcceptanceAndGradeWithoutStorageIoDuringExecution() {
+        matchingMediaFixture(true);
+    }
+
+    private record MediaFixture(UUID attempt, ParticipantForm.Item item, UUID asset) { }
+    private static final String GRANTED_INLINE_URL = "https://display.example.invalid/reader-authorized-original";
+    private MediaFixture matchingMediaFixture(boolean complete) {
+        quizId = newQuiz();
         var asset = tx.execute(s -> {
             var a = new uk.gegc.quizmaker.features.media.domain.model.MediaAsset(); a.setId(UUID.randomUUID());
             a.setType(uk.gegc.quizmaker.features.media.domain.model.MediaAssetType.IMAGE);
@@ -597,17 +607,36 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         tx.executeWithoutResult(s -> {
             var q = questions.findById(id).orElseThrow(); var content = authored(QuestionType.MATCHING);
             var left = (ObjectNode) content.path("left").get(0); left.remove("text"); left.putObject("media").put("assetId", asset.toString());
+            var right = (ObjectNode) content.path("right").get(1); right.remove("text"); right.putObject("media").put("assetId", asset.toString());
             q.setContent(content.toString()); questions.saveAndFlush(q); retainedImages.bind(id, Set.of(asset), Set.of(), username);
         });
         var revision = publish(0, List.of(id)); binding.bind(quizId, revision);
         var publication = publications.read(quizId, revision);
         assertThat(publication.images()).hasSize(1);
         retainedImages.remove(asset, username);
-        var started = starts.start(command(revision, AnswerOrder.SHUFFLED_PER_ATTEMPT, "matching-media-start"));
-        var item = delivery.read(started.attemptId()).form().items().get(0);
+        var started = starts.start(command(revision, AnswerOrder.SHUFFLED_PER_ATTEMPT, "matching-media-start-" + UUID.randomUUID()));
+        doAnswer(call -> {
+            assertThat((UUID) call.getArgument(0)).isEqualTo(started.attemptId());
+            assertThat((UUID) call.getArgument(1)).isEqualTo(revision);
+            List<ParticipantViewMediaReader.Reference> refs = call.getArgument(2);
+            assertThat(refs).hasSize(2); assertThat(refs.stream().map(ParticipantViewMediaReader.Reference::optionId).distinct()).hasSize(2);
+            var result = new HashMap<ParticipantViewMediaReader.Reference, ParticipantViewMediaReader.Image>();
+            for (var ref : refs) {
+                assertThat(ref.assetId()).isEqualTo(asset); assertThat(ref.optionId()).isNotNull();
+                assertThat(ref.questionRevisionId()).isEqualTo(publication.content().items().get(0).question().id());
+                result.put(ref, new ParticipantViewMediaReader.Image(ParticipantViewMediaReader.Availability.AVAILABLE, GRANTED_INLINE_URL));
+            }
+            return result;
+        }).when(mediaReader).read(any(), any(), any());
+        var delivered = delivery.read(started.attemptId());
+        var item = delivered.form().items().get(0);
         var matching = (ParticipantContent.Matching) item.content();
         assertThat(matching.left().get(0).text()).isNull(); assertThat(matching.left().get(0).image().width()).isEqualTo(640);
-        assertThat(matching.left().get(0).image().url()).contains(publication.images().get(0).objectKey());
+        assertThat(matching.left().get(0).image().assetId()).isEqualTo(asset);
+        var publicForm = AttemptFormResponse.from(delivered);
+        assertThat(((AttemptFormResponse.Matching) publicForm.items().get(0).content()).left().get(0).image().url()).isEqualTo(GRANTED_INLINE_URL);
+        assertThat(((AttemptFormResponse.Matching) view(started.attemptId()).items().get(0).content()).left().get(0).image().url()).isEqualTo(GRANTED_INLINE_URL);
+        if (!complete) return new MediaFixture(started.attemptId(), item, asset);
         var raw = input(item, true);
         // Input helper uses displayed order. Address the exact captured right identity after shuffling.
         var rightId = publication.content().items().get(0).question().options().stream()
@@ -622,6 +651,89 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         assertThat(results.finalizeSubmission(submitted.submissionId()).score().earned()).isEqualTo(1); releases.release(submitted.submissionId());
         assertThat(view(started.attemptId()).result().totalScore().earned()).isEqualTo(1);
         assertThat(imageStorage.calls).isEqualTo(storageCalls);
+        return new MediaFixture(started.attemptId(), item, asset);
+    }
+
+    private void inlineAvailability(ParticipantViewMediaReader.Availability availability) {
+        doAnswer(call -> {
+            List<ParticipantViewMediaReader.Reference> refs = call.getArgument(2);
+            assertThat(refs).hasSize(2);
+            var result = new HashMap<ParticipantViewMediaReader.Reference, ParticipantViewMediaReader.Image>();
+            refs.forEach(ref -> result.put(ref, new ParticipantViewMediaReader.Image(availability,
+                    availability == ParticipantViewMediaReader.Availability.AVAILABLE ? GRANTED_INLINE_URL : null)));
+            return result;
+        }).when(mediaReader).read(any(), any(), any());
+    }
+
+    @ParameterizedTest @EnumSource(ParticipantViewMediaReader.Availability.class)
+    void releasedInlineImagesUseOneCurrentAuthorityBatchAndNeverCapturedUrls(ParticipantViewMediaReader.Availability availability) throws Exception {
+        var fixture = matchingMediaFixture(true); var original = view(fixture.attempt());
+        var evidence = List.of(count("attempt_accepted_response"), count("attempt_submission"), count("attempt_automatic_result"),
+                count("attempt_result_release"), count("attempt_trace_event"));
+        inlineAvailability(availability); clearInvocations(mediaReader);
+        var payload = json.readTree(mvc().perform(get("/api/v2/attempts/{id}", fixture.attempt())
+                .principal(SecurityContextHolder.getContext().getAuthentication())).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+        assertThat(payload.at("/items/0/content/left/0/image/availability").asText()).isEqualTo(availability.name());
+        var columns = payload.at("/items/0/content");
+        for (String side : List.of("left", "right")) for (var option : columns.path(side)) if (option.has("image")) {
+            assertThat(option.path("image").has("url")).isEqualTo(availability == ParticipantViewMediaReader.Availability.AVAILABLE);
+            if (availability == ParticipantViewMediaReader.Availability.AVAILABLE)
+                assertThat(option.at("/image/url").asText()).isEqualTo(GRANTED_INLINE_URL);
+        }
+        assertThat(payload.toString()).doesNotContain("retained-images/", "assetId", "cdnUrl");
+        verify(mediaReader, times(1)).read(eq(fixture.attempt()), any(), argThat(refs -> refs.size() == 2));
+        assertThat(payload.at("/result/totalScore/earned").asLong()).isEqualTo(original.result().totalScore().earned());
+        assertThat(List.of(count("attempt_accepted_response"), count("attempt_submission"), count("attempt_automatic_result"),
+                count("attempt_result_release"), count("attempt_trace_event"))).isEqualTo(evidence);
+    }
+
+    @ParameterizedTest @EnumSource(value = ParticipantViewMediaReader.Availability.class, names = {"UNAVAILABLE", "RESTRICTED"})
+    void activeInlineImagesDenyBothViewAndFormWithoutMutatingAnswersOrState(ParticipantViewMediaReader.Availability availability) throws Exception {
+        var fixture = matchingMediaFixture(false); var version = view(fixture.attempt()).stateVersion();
+        inlineAvailability(availability);
+        mvc().perform(get("/api/v2/attempts/{id}", fixture.attempt())
+                .principal(SecurityContextHolder.getContext().getAuthentication())).andExpect(status().isServiceUnavailable());
+        var formMvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new AttemptFormController(delivery))
+                .setControllerAdvice(new AttemptDeliveryErrorHandler()).build();
+        var body = formMvc.perform(get("/api/v2/attempts/{id}/form", fixture.attempt()))
+                .andExpect(status().isServiceUnavailable()).andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain(GRANTED_INLINE_URL, "retained-images/", "assetId", "cdnUrl");
+        assertThat(count("attempt_accepted_response")).isZero(); assertThat(count("attempt_submission")).isZero();
+        inlineAvailability(ParticipantViewMediaReader.Availability.AVAILABLE);
+        assertThat(view(fixture.attempt()).stateVersion()).isEqualTo(version);
+        assertThat(AttemptFormResponse.from(delivery.read(fixture.attempt())).items()).hasSize(1);
+    }
+
+    @Test void missingInlineMediaIntegrationFailsClosedAfterRealSuccessfulControl() {
+        var fixture = matchingMediaFixture(true);
+        doAnswer(call -> new InitialParticipantViewMediaReader()
+                .read(call.getArgument(0), call.getArgument(1), call.getArgument(2))).when(mediaReader).read(any(), any(), any());
+        assertThatThrownBy(() -> view(fixture.attempt())).isInstanceOfSatisfying(
+                uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException.class,
+                failure -> assertThat(failure.reason().name()).isEqualTo("UNSUPPORTED"));
+        inlineAvailability(ParticipantViewMediaReader.Availability.AVAILABLE);
+        assertThat(view(fixture.attempt()).result().totalScore().earned()).isEqualTo(1);
+        var active = matchingMediaFixture(false);
+        var absent = new AttemptDeliveryServiceImpl(context.getBean(AttemptReadFactsService.class), manager, metrics, context.getBean(Clock.class));
+        assertThatThrownBy(() -> absent.read(active.attempt())).isInstanceOfSatisfying(
+                uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException.class,
+                failure -> assertThat(failure.reason().name()).isEqualTo("UNSUPPORTED"));
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"missing", "foreign-option"})
+    void incompleteOrWrongOccurrenceInlinePermissionCannotReleaseAnyUrl(String defect) {
+        var fixture = matchingMediaFixture(true);
+        doAnswer(call -> {
+            List<ParticipantViewMediaReader.Reference> refs = call.getArgument(2);
+            var first = refs.get(0);
+            var key = defect.equals("missing") ? first : new ParticipantViewMediaReader.Reference(
+                    first.formItemId(), first.questionRevisionId(), first.assetId(), UUID.randomUUID());
+            return Map.of(key, new ParticipantViewMediaReader.Image(ParticipantViewMediaReader.Availability.AVAILABLE, GRANTED_INLINE_URL));
+        }).when(mediaReader).read(any(), any(), any());
+        assertThatThrownBy(() -> view(fixture.attempt())).isInstanceOfSatisfying(
+                uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException.class,
+                failure -> assertThat(failure.reason().name()).isEqualTo("CORRUPT"));
     }
 
     private record OpenAttempt(UUID id, ParticipantForm.Item item) { }

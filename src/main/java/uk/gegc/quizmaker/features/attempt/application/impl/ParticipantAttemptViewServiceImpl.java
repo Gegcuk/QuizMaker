@@ -68,17 +68,6 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
         var granted = saved.access();
         var lifecycle = granted.lifecycle();
         var sources = saved.revision().items().stream().collect(Collectors.toMap(i -> i.id(), i -> i.question()));
-        var references = new ArrayList<ParticipantViewMediaReader.Reference>();
-        for (var item : saved.form().items()) {
-            if (saved.oneAtATime() && !lifecycle.state().terminal() && !saved.visible(item.id())) continue;
-            var question = sources.get(item.sourceItemId());
-            if (question == null) throw new AttemptDeliveryException(CORRUPT);
-            if (question.attachmentAssetId() != null || question.attachmentUrl() != null) {
-                if (question.attachmentAssetId() == null) throw new AttemptDeliveryException(CORRUPT);
-                references.add(new ParticipantViewMediaReader.Reference(item.id(), question.id(), question.attachmentAssetId()));
-            }
-        }
-        var mediaIds = references.stream().map(ParticipantViewMediaReader.Reference::formItemId).collect(Collectors.toSet());
         // Validate the complete immutable form even when its content must be withheld.
         var allMediaIds = saved.form().items().stream().filter(i -> {
             var q = sources.get(i.sourceItemId()); return q != null && q.attachmentAssetId() != null;
@@ -89,16 +78,15 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
         if (visibility == null) throw new AttemptDeliveryException(CORRUPT);
         List<ParticipantAttemptView.Item> items = null;
         if (visibility == VISIBLE) {
-            var images = media.read(attemptId, saved.revision().id(), List.copyOf(references));
-            if (images == null || !images.keySet().equals(mediaIds) || images.values().stream().anyMatch(Objects::isNull))
-                throw new AttemptDeliveryException(CORRUPT);
-            // Partial active-attempt media behavior is not approved here. Never grant time or mark an answer wrong.
-            if (!lifecycle.state().terminal() && images.values().stream()
-                    .anyMatch(image -> image.availability() != ParticipantViewMediaReader.Availability.AVAILABLE))
-                throw new AttemptDeliveryException(UNAVAILABLE);
-            items = AttemptFormResponse.items(projected).stream()
-                    .filter(item -> lifecycle.state().terminal() || saved.visible(item.id())).map(item -> {
-                var image = images.get(item.id());
+            var visible = projected.items().stream().filter(item -> lifecycle.state().terminal() || saved.visible(item.id()))
+                    .map(uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm.Item::id).collect(Collectors.toSet());
+            var images = ParticipantFormMedia.read(media, attemptId, saved.form(), saved.revision(), projected, visible, lifecycle.state().terminal());
+            var attachments = images.entrySet().stream().filter(e -> e.getKey().optionId() == null)
+                    .collect(Collectors.toMap(e -> e.getKey().formItemId(), Map.Entry::getValue));
+            var permitted = new uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm(projected.id(), projected.schemaVersion(),
+                    projected.items().stream().filter(item -> visible.contains(item.id())).toList());
+            items = AttemptFormResponse.items(permitted, images).stream().map(item -> {
+                var image = attachments.get(item.id());
                 return new ParticipantAttemptView.Item(item.id(), item.position(), item.type(), item.questionText(), item.content(),
                         image == null ? null : new ParticipantAttemptView.Image(image.availability(), image.url()));
             }).toList();

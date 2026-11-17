@@ -43,11 +43,11 @@ public final class MatchingResponseContractV1 implements VersionedResponseContra
             ParticipantContent.MatchingImage image = null;
             if (item.hasNonNull("media")) {
                 var media = item.get("media");
-                // Only publication-resolved, retained images can be presented. No mutable URL/asset lookup.
-                if (!media.path("cdnUrl").isTextual() || !media.path("width").isIntegralNumber()
+                // Captured metadata establishes identity, never current permission to expose a URL.
+                if (!media.path("width").isIntegralNumber()
                         || !media.path("height").isIntegralNumber() || !media.path("mimeType").isTextual())
                     throw new ContractResolutionException(ContractResolutionException.Reason.UNSUPPORTED_CONTRACT);
-                image = new ParticipantContent.MatchingImage(media.get("cdnUrl").textValue(), media.get("width").intValue(),
+                image = new ParticipantContent.MatchingImage(UUID.fromString(media.get("assetId").textValue()), media.get("width").intValue(),
                         media.get("height").intValue(), media.get("mimeType").textValue());
             }
             result.add(new ParticipantContent.MatchingOption(options.next().id(), item.hasNonNull("text") ? item.get("text").textValue() : null, image));

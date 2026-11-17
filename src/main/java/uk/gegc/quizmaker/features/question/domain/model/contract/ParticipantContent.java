@@ -39,16 +39,11 @@ public sealed interface ParticipantContent {
         @Override public String toString() { return "MatchingOption[redacted]"; }
     }
 
-    /** Publication-resolved rendering metadata; asset IDs and retained-storage keys stay internal. */
-    record MatchingImage(String url, int width, int height, String mimeType) {
+    /** Internal retained-image reference only. Current display authority must supply every public URL. */
+    record MatchingImage(@com.fasterxml.jackson.annotation.JsonIgnore UUID assetId, int width, int height, String mimeType) {
         public MatchingImage {
-            require(url != null && url.length() <= 10_000 && width > 0 && height > 0
+            require(assetId != null && width > 0 && height > 0
                     && mimeType != null && mimeType.startsWith("image/") && mimeType.length() <= 100);
-            try {
-                var uri = java.net.URI.create(url);
-                require(("https".equals(uri.getScheme()) || "http".equals(uri.getScheme()))
-                        && uri.getHost() != null && uri.getRawUserInfo() == null);
-            } catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("Invalid participant image"); }
         }
         @Override public String toString() { return "MatchingImage[redacted]"; }
     }

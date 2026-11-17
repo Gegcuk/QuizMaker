@@ -111,9 +111,13 @@ class MatchingContractV1Test {
         media.put("cdnUrl", "https://cdn.example.invalid/retained/original.png").put("width", 640).put("height", 480).put("mimeType", "image/png");
         var rendered = (ParticipantContent.Matching) response.participantContent(question(content));
         assertThat(rendered.left().get(0).text()).isNull(); assertThat(rendered.left().get(0).image().width()).isEqualTo(640);
-        assertThat(JSON.writeValueAsString(rendered)).doesNotContain("matchId", "assetId", "private", "sourceKey");
+        assertThat(JSON.writeValueAsString(rendered)).doesNotContain("matchId", "assetId", "private", "sourceKey", "cdn.example.invalid", "url");
         media.put("cdnUrl", "javascript:alert(1)");
-        assertThatThrownBy(() -> response.participantContent(question(content))).isInstanceOf(IllegalArgumentException.class);
+        assertThat(JSON.writeValueAsString(response.participantContent(question(content)))).doesNotContain("javascript:", "cdnUrl", "url");
+        var form = new uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm(UUID.randomUUID(), 1,
+                List.of(new uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm.Item(UUID.randomUUID(), 0, QuestionType.MATCHING, "Media", rendered)));
+        assertThatThrownBy(() -> AttemptFormResponse.items(form)).isInstanceOf(
+                uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException.class);
     }
 
     @Test void stableTransportPreservesDuplicatesAndRejectsForeignAndWrongSideIds() throws Exception {

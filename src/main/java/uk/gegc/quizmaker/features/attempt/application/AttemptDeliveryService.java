@@ -13,11 +13,17 @@ import uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm;
 public interface AttemptDeliveryService {
     View read(UUID attemptId);
 
-    record View(UUID attemptId, long stateVersion, ParticipantForm form, List<AttemptCommands.Type> allowedActions, uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Cursor navigation) {
+    record View(UUID attemptId, long stateVersion, ParticipantForm form, List<AttemptCommands.Type> allowedActions,
+                uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Cursor navigation,
+                java.util.Map<ParticipantViewMediaReader.Reference, ParticipantViewMediaReader.Image> images) {
+        public View(UUID attemptId, long stateVersion, ParticipantForm form, List<AttemptCommands.Type> allowedActions,
+                    uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Cursor navigation) {
+            this(attemptId, stateVersion, form, allowedActions, navigation, java.util.Map.of());
+        }
         public View(UUID attemptId, long stateVersion, ParticipantForm form, List<AttemptCommands.Type> allowedActions) {
             this(attemptId, stateVersion, form, allowedActions, null);
         }
-        public View { allowedActions = List.copyOf(allowedActions); }
+        public View { allowedActions = List.copyOf(allowedActions); images = java.util.Map.copyOf(images); }
         @Override public String toString() { return "AttemptDeliveryView"; }
     }
 }

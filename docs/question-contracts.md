@@ -293,8 +293,13 @@ or automatic deduplication. At most 100 submitted pairs and the existing JSON/st
 
 Media-only items remain valid. Presentation requires publication-resolved image metadata from
 the retained-image pipeline; an author-supplied asset ID alone cannot materialize an image.
-The typed inline image contains only its captured URL, dimensions and MIME type, without separate asset,
-binding or storage-version identifier fields. Execution does not fetch remote URLs, inspect storage,
+Internal forms retain image identities without URLs. Every visible attachment and inline occurrence
+passes one `ParticipantViewMediaReader` batch keyed by form item, question revision, asset and
+optional column-option UUID. Public form/view DTOs expose only the reader-authorized AVAILABLE
+URL, saved dimensions/MIME type and current availability, without separate asset, binding or
+storage-version identifier fields. A captured CDN URL never supplies display authority.
+Missing integration or incomplete/mismatched reader output fails closed. Active UNAVAILABLE or
+RESTRICTED images deny the complete read; completed review retains the image marker without a URL. Execution does not fetch remote URLs, inspect storage,
 or substitute the current author-library image. Removing an image from the library preserves
 its existing published binding. This internal path is not production availability, exceptional
 restriction or full-cutover evidence; the existing capability-specific activation gates remain.

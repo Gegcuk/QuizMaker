@@ -30,7 +30,13 @@ grading and release writers. Inject faults after real answer/lifecycle/trace/rec
 inspect fresh transactions before retry. Retained-media tests call the actual image preparation
 and binding services with a storage fake, publish the media-only question, remove it from the
 library, then accept and grade against its retained original. Storage calls during execution
-fail the test. This does not prove provider availability or authorize public activation.
+fail the test. Inline images in both columns must reach the same batched current-authority port
+as attachments. Test reader-authorized URLs different from the captured CDN URL, RESTRICTED,
+UNAVAILABLE, the default missing-integration reader, incomplete output and wrong occurrence
+keys. Active `/form` and view refuse unavailable images; released review emits markers without
+URLs and preserves results. Reusing one image in two column options must produce two scoped
+references. A successful real start/accept/grade/release control precedes each denial.
+This does not prove provider availability or authorize public activation.
 
 Measure released views across three parent attempts with 1 and 20 MATCHING questions and
 assert equal bounded application SELECT counts. Typed requests, forms, drafts and released
