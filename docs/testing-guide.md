@@ -7,7 +7,7 @@ This guide explains which test style to use, what behavior to prove, and how to 
 Run `OpenContractV1Test`, `OpenQuestionHandlerTest`, `FamilyContractV1Test` and
 `StableResponseNormalizerTest` first, then `PublishedFamilyContractsMySqlIntegrationTest`,
 `ImmediateResultReleaseMySqlIntegrationTest`, `ResponseAcceptanceOpenApiTest`,
-`AttemptFormOpenApiContractTest` and `ParticipantAttemptViewOpenApiContractTest` in the existing
+`DraftCommandOpenApiTest`, `AttemptFormOpenApiContractTest` and `ParticipantAttemptViewOpenApiContractTest` in the existing
 isolated MySQL/offline environment. The existing database suites retain their inventory slots; the programmatic-context
 `OpenContractV1Test` is added to the context inventory. No new worker group or reduced fixture
 is introduced. Finish with the unchanged full
@@ -18,6 +18,9 @@ rollback accepted rows/receipts/state/trace together, retry the same identity, r
 and prove that a later author edit/publication cannot change historical text or scores. The
 version-2 adapters in the publication suite are deliberately different test doubles only for
 exact saved-version resolution; production still supports OPEN contract version 1 exclusively.
+Use the second revision's correct answer to distinguish real v1 scoring (one point) from the
+test-only v2 scorer (zero), and assert the resolved scorer version as well as its binding.
+An OPEN draft accepted by HTTP must validate against both the full and grouped OpenAPI schemas.
 Use English/Turkish/Lithuanian locale controls for the approved ROOT rule and assert the
 unchanged legacy Turkish difference. Empty/blank valid text scores zero; malformed public
 input never becomes an accepted wrong answer.

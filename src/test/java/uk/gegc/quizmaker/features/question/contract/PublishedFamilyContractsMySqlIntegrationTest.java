@@ -462,9 +462,13 @@ class PublishedFamilyContractsMySqlIntegrationTest {
         var secondPair = restarted.resolve(ownerId, second).get(q2.id());
         assertThat(firstPair.binding()).isEqualTo(SupportedQuestionContracts.binding(q1));
         assertThat(secondPair.binding()).isEqualTo(v2);
+        assertThat(firstPair.scoring().version()).isEqualTo(SupportedQuestionContracts.OPEN_SCORING);
+        assertThat(secondPair.scoring().version()).isEqualTo(v2.scoring());
         var response = BaselineFamilyFixtures.JSON.createObjectNode().put("answer", "Paris");
         assertThat(firstPair.scoring().score(q1, response).earned()).isEqualByComparingTo("1");
-        assertThat(secondPair.scoring().score(q2, response).earned()).isEqualByComparingTo("0");
+        var secondResponse = BaselineFamilyFixtures.JSON.createObjectNode().put("answer", "replacement");
+        assertThat(new OpenScoringContractV1().score(q2, secondResponse).earned()).isEqualByComparingTo("1");
+        assertThat(secondPair.scoring().score(q2, secondResponse).earned()).isEqualByComparingTo("0");
         assertThat(firstPair.scoring().score(q1, response).earned()).isEqualByComparingTo("1");
     }
 

@@ -89,6 +89,33 @@ class DraftCommandOpenApiTest {
         assertThat(c.toString()).doesNotContain("exact-key", ATTEMPT.toString(), "answer");
     }
 
+    @ParameterizedTest @WithMockUser
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"Paris", "", " Москва 😀 "})
+    void openDraftMatchesBothPublishedSchemasAndTheActualHttpCommand(String answer) throws Exception {
+        when(drafts.execute(any())).thenReturn(new uk.gegc.quizmaker.features.attempt.application.DraftCommandService.Result(
+                ATTEMPT, ITEM, 1, 1, uk.gegc.quizmaker.features.attempt.domain.model.draft.AnswerDraft.Status.PRESENT, false));
+        var body = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(BODY);
+        body.putObject("response").put("type", "OPEN").put("answer", answer);
+        var result = mvc.perform(put(PATH, ATTEMPT, ITEM).header("Idempotency-Key", "open-draft")
+                        .contentType("application/json").content(body.toString()))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.status").value("PRESENT")).andReturn().getResponse().getContentAsString();
+        assertThat(result).doesNotContain("answer", "correct", "score", "explanation");
+        for (String url : List.of("/v3/api-docs", "/v3/api-docs/attempts-v2")) {
+            var spec = json.readTree(mvc.perform(get(url)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            assertThat(matchesFormSchema(spec, spec.at("/components/schemas/SaveDraftRequest"), body, 0))
+                    .as("OPEN request accepted by HTTP must match %s", url).isTrue();
+            assertThat(matchesFormSchema(spec, spec.at("/components/schemas/DraftCommandAcknowledgement"), json.readTree(result), 0)).isTrue();
+        }
+        var captured = org.mockito.ArgumentCaptor.forClass(uk.gegc.quizmaker.features.attempt.application.DraftCommandService.Command.class);
+        verify(drafts).execute(captured.capture());
+        assertThat(captured.getValue().type()).isEqualTo(QuestionType.OPEN);
+        assertThat(captured.getValue().response().path("answer").textValue()).isEqualTo(answer);
+        assertThat(captured.getValue().operation()).isEqualTo(AttemptCommands.Type.SAVE_DRAFT);
+        assertThat(captured.getValue().expectedStateVersion()).isEqualTo(1);
+        assertThat(captured.getValue().expectedDraftVersion()).isZero();
+    }
+
     @Test @WithMockUser void deleteUsesBodyFreeVersionParametersAndNeverAcceptsAValue() throws Exception {
         when(drafts.execute(any())).thenReturn(new uk.gegc.quizmaker.features.attempt.application.DraftCommandService.Result(
                 ATTEMPT, ITEM, 2, 4, uk.gegc.quizmaker.features.attempt.domain.model.draft.AnswerDraft.Status.DELETED, true));
@@ -120,7 +147,7 @@ class DraftCommandOpenApiTest {
     }
 
     @Test @WithMockUser void malformedMissingUnknownCoercedAndOversizedValuesNeverReachService() throws Exception {
-        for (String invalid : List.of("{}", BODY.replace("TRUE_FALSE", "OPEN"), BODY.replace("true", "null"),
+        for (String invalid : List.of("{}", BODY.replace("TRUE_FALSE", "MATCHING"), BODY.replace("TRUE_FALSE", "OPEN"), BODY.replace("true", "null"),
                 BODY.replace("\"expectedDraftVersion\":0,", ""), BODY.replace(":0,", ":-1,"), BODY.replace(":0,", ":0.5,"),
                 BODY.replace("true", "\"true\""), BODY.replace("true", "1"), BODY.replace("true", "true,\"answer\":false"),
                 BODY.replace("true", "true,\"ownerId\":\"private\""),
@@ -177,7 +204,9 @@ class DraftCommandOpenApiTest {
             }
             var put = spec.path("paths").path(PATH).path("put");
             assertThat(put.at("/requestBody/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/SaveDraftRequest");
-            assertThat(schemas.at("/SaveDraftRequest/properties/response/oneOf")).hasSize(5);
+            assertThat(schemas.at("/SaveDraftRequest/properties/response/oneOf")).hasSize(6);
+            assertThat(schemas.at("/SaveDraftRequest/properties/response/oneOf").findValuesAsText("$ref"))
+                    .contains("#/components/schemas/ConfirmedOpenAnswer");
             var example = put.at("/requestBody/content/application~1json/example");
             if (example.isMissingNode()) example = put.at("/requestBody/content/application~1json/examples").elements().next().path("value");
             assertThat(matchesFormSchema(spec, schemas.path("SaveDraftRequest"), example, 0)).isTrue();
