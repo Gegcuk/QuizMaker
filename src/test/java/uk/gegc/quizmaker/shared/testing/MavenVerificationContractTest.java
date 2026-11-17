@@ -34,6 +34,30 @@ class MavenVerificationContractTest {
     );
 
     @Test
+    @DisplayName("CI budgets Maven separately from test forks without overriding agents or worker counts")
+    void ciJvmBudgets_boundMavenAndEveryTestFork() throws Exception {
+        var workflow = (Map<?, ?>) new Yaml().load(
+                Files.readString(projectDirectory().resolve(".github/workflows/ci.yml")));
+        var build = (Map<?, ?>) ((Map<?, ?>) workflow.get("jobs")).get("build-and-test");
+        var environment = (Map<?, ?>) build.get("env");
+        assertThat(environment.get("JAVA_TOOL_OPTIONS")).isEqualTo("-Xms256m -Xmx2g");
+        assertThat(environment.get("MAVEN_OPTS")).isEqualTo("-Xms128m -Xmx1g -XshowSettings:vm");
+
+        // Surefire command-line flags would take precedence over inherited JAVA_TOOL_OPTIONS.
+        NodeList argLines = readPom().getElementsByTagName("argLine");
+        for (int index = 0; index < argLines.getLength(); index++) {
+            assertThat(argLines.item(index).getTextContent())
+                    .doesNotContain("-Xmx", "-XX:MaxHeapSize", "-XX:MaxRAMPercentage");
+        }
+        // Exercise the effective fork budget in CI/the safe local launcher; ordinary IDE runs
+        // may deliberately choose their own JVM options and still validate the workflow above.
+        String inheritedOptions = System.getenv("JAVA_TOOL_OPTIONS");
+        if (inheritedOptions != null && inheritedOptions.contains("-Xmx2g")) {
+            assertThat(Runtime.getRuntime().maxMemory()).isEqualTo(2L * 1024 * 1024 * 1024);
+        }
+    }
+
+    @Test
     @DisplayName("default verification excludes live providers and bounds parallel workers")
     void defaultVerification_isOfflineAndBounded() throws Exception {
         Document pom = readPom();

@@ -321,6 +321,44 @@ python3 -B -m unittest discover -s .github/scripts -p 'test_*.py' -v
 python3 -B -m unittest discover -s tools/testing -p 'test_*.py' -v
 ```
 
+### CI JVM memory budget
+
+CI sets `JAVA_TOOL_OPTIONS=-Xms256m -Xmx2g` for forked test JVMs and
+`MAVEN_OPTS=-Xms128m -Xmx1g -XshowSettings:vm` for Maven itself. Maven's explicit
+command-line heap flags override the inherited JVM flags; `MAVEN_OPTS` alone does not
+budget Surefire child JVMs. The safe local launcher reads these same checked-in values
+and adds only its existing IPv4 option, so local verification exercises the CI budgets.
+Maven prints its effective heap settings at startup; each isolated worker's JSON evidence
+records `max_heap_bytes` and `java_version` alongside its PID and database identity.
+
+The four-worker pool permits at most **9 GiB Java heap** concurrently: 1 GiB for Maven
+plus 2 GiB per test JVM. The unit lane and the exclusive fixture run in separate phases;
+the exclusive JVM does not overlap the four-worker pool. These are heap limits, not RSS
+limits: reserve additional memory for metaspace, code caches, stacks, MySQL and the OS.
+Test inventory, four-worker scheduling, fixture sizes, context cleanup, offline execution,
+merged coverage thresholds, complete verify/package and post-merge CI are preserved.
+
+The first instrumented CI run at `cd61966d` (run `44118311685`) had four CPUs and about
+15.6 GiB RAM. Four context JVMs reached sampled RSS peaks of 2.8–3.5 GiB each, Maven
+reached about 1.7 GiB, available memory fell to 99 MiB, and only 7 MiB of swap remained.
+OOM-kill counters stayed zero; this is evidence of memory pressure, not proof of the earlier
+runner shutdown cause or a Java object leak. Closing JPA contexts after each top-level suite
+was already enabled. The old local launcher capped JVMs at 2 GiB while CI relied on JVM
+ergonomics, allowing each process to size itself independently from the host's memory.
+
+Compare complete runs on the same runner class: exact test identities, coverage checks,
+effective worker heap limits, elapsed time, available memory, swap deltas and pressure.
+A small heap can increase GC activity or expose an OOM; a green result alone does not
+prove adequate headroom. Retain the existing resource diagnostics for that comparison.
+
+Local validation on 17 November 2026 passed the full four-worker clean verify: 9,960 tests,
+zero failures/errors/skips, all 9,959 previous test identities retained plus the new budget
+contract. Every context/exclusive JVM reported a 2 GiB maximum heap; Maven reported 1 GiB.
+Maven elapsed time was 794.95 seconds versus 803.36 seconds for the earlier local run, with
+identical application bytecode. A 15-second sampler observed a peak summed Java RSS of
+6.80 GiB. This single local comparison is not a CI capacity or throughput guarantee; the
+instrumented GitHub runner remains the reference for available-memory/swap measurements.
+
 ### Immediate Result Release
 
 Run the focused #556 checks with Java 17 and the existing test MySQL configuration:

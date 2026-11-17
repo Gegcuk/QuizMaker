@@ -53,6 +53,10 @@ jobs:
     env:
       # Keep the baseline until repeated measurements on this runner justify opting in.
       CONTEXT_TEST_WORKERS: ${{ inputs.context_workers || vars.CONTEXT_TEST_WORKERS || '0' }}
+      # Each test fork inherits 2 GiB; Maven's explicit command-line budget overrides it.
+      # Four context forks + Maven permit 9 GiB heap, leaving RAM for native memory/MySQL.
+      JAVA_TOOL_OPTIONS: '-Xms256m -Xmx2g'
+      MAVEN_OPTS: '-Xms128m -Xmx1g -XshowSettings:vm'
       # Fixed fake provider credentials prove that nonblank values cannot opt CI into live calls.
       OPENAI_API_KEY: 'sk-ci-offline-not-real'
       OPENAI_MODEL: 'disabled'
