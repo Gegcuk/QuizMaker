@@ -106,6 +106,10 @@ public class AutomaticResultServiceImpl implements AutomaticResultService {
                 String field=q.type()==QuestionType.MCQ_MULTI?"selectedOptionIds":"orderedItemIds";
                 var values=stable.putArray(field); response.get(field).forEach(key->values.add(id.apply(key)));
             }
+            case COMPLIANCE -> {
+                var values=stable.putArray("selectedStatementIds");
+                response.get("selectedStatementIds").forEach(key->values.add(id.apply(key)));
+            }
             case TRUE_FALSE, FILL_GAP, OPEN -> { }
             case MATCHING -> {
                 var matches=stable.putArray("matches");

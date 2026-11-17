@@ -36,6 +36,12 @@ public final class StableResponseNormalizer {
                 require(answer.codePointCount(0, answer.length()) <= 10000, INVALID_INPUT);
                 result.put("answer", answer);
             }
+            case COMPLIANCE -> {
+                // Order is immaterial, but repeated selections must survive: duplicates score zero.
+                var values = array(input.path("selectedStatementIds")).stream()
+                        .map(StableResponseNormalizer::option).sorted().toList();
+                var target = result.putArray("selectedStatementIds"); values.forEach(target::add);
+            }
             case TRUE_FALSE -> {
                 require(input.path("answer").isBoolean(), INVALID_INPUT);
                 result.put("answer", input.path("answer").booleanValue());
@@ -93,6 +99,13 @@ public final class StableResponseNormalizer {
                 } catch (IOException corrupt) { throw new ResponseAcceptanceException(CORRUPT); }
             }
             case TRUE_FALSE, OPEN -> { }
+            case COMPLIANCE -> {
+                var target = result.putArray("selectedStatementIds");
+                for (var id : stable.path("selectedStatementIds")) {
+                    try { target.add(Integer.parseInt(key(keys, id))); }
+                    catch (NumberFormatException corrupt) { throw new ResponseAcceptanceException(CORRUPT); }
+                }
+            }
             case MATCHING -> {
                 var target = result.putArray("matches");
                 for (var pair : stable.path("matches")) target.addObject()

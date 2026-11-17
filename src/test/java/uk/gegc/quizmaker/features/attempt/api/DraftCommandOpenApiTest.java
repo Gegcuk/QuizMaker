@@ -109,6 +109,24 @@ class DraftCommandOpenApiTest {
         assertThat(captured.getValue().response().path("matches")).isEqualTo(pairs);
     }
 
+    @org.junit.jupiter.api.Test @WithMockUser
+    void complianceDraftAgreesWithBothSchemasAndPreservesRepeatedSelectionsThroughHttp() throws Exception {
+        when(drafts.execute(any())).thenReturn(new uk.gegc.quizmaker.features.attempt.application.DraftCommandService.Result(
+                ATTEMPT, ITEM, 1, 1, uk.gegc.quizmaker.features.attempt.domain.model.draft.AnswerDraft.Status.PRESENT, false));
+        var body = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(BODY);
+        var ids = body.putObject("response").put("type", "COMPLIANCE").putArray("selectedStatementIds");
+        var id = UUID.randomUUID().toString(); ids.add(id).add(id);
+        mvc.perform(put(PATH, ATTEMPT, ITEM).header("Idempotency-Key", "compliance-draft").contentType("application/json").content(body.toString()))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"));
+        for (String url : List.of("/v3/api-docs", "/v3/api-docs/attempts-v2")) {
+            var spec = json.readTree(mvc.perform(get(url)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            assertThat(matchesFormSchema(spec, spec.at("/components/schemas/SaveDraftRequest"), body, 0)).as(url).isTrue();
+        }
+        var captured = org.mockito.ArgumentCaptor.forClass(uk.gegc.quizmaker.features.attempt.application.DraftCommandService.Command.class);
+        verify(drafts).execute(captured.capture()); assertThat(captured.getValue().type()).isEqualTo(QuestionType.COMPLIANCE);
+        assertThat(captured.getValue().response().path("selectedStatementIds")).isEqualTo(ids);
+    }
+
     @ParameterizedTest @WithMockUser
     @org.junit.jupiter.params.provider.ValueSource(strings = {"Paris", "", " Москва 😀 "})
     void openDraftMatchesBothPublishedSchemasAndTheActualHttpCommand(String answer) throws Exception {
@@ -224,7 +242,7 @@ class DraftCommandOpenApiTest {
             }
             var put = spec.path("paths").path(PATH).path("put");
             assertThat(put.at("/requestBody/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/SaveDraftRequest");
-            assertThat(schemas.at("/SaveDraftRequest/properties/response/oneOf")).hasSize(7);
+            assertThat(schemas.at("/SaveDraftRequest/properties/response/oneOf")).hasSize(8);
             assertThat(schemas.at("/SaveDraftRequest/properties/response/oneOf").findValuesAsText("$ref"))
                     .contains("#/components/schemas/ConfirmedOpenAnswer");
             var example = put.at("/requestBody/content/application~1json/example");

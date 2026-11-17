@@ -120,11 +120,11 @@ class AttemptFormOpenApiContractTest {
             for (String code : List.of("400", "401", "404", "409", "422", "500", "503"))
                 assertThat(operation.path("responses").path(code).findValuesAsText("$ref")).contains("#/components/schemas/ProblemDetail");
             for (String name : List.of("AttemptFormResponse", "AttemptFormItem", "AttemptFormContent", "AttemptFormChoices",
-                    "AttemptFormTrueFalse", "AttemptFormFillGap", "AttemptFormOrdering", "AttemptFormOpen", "AttemptFormMatching", "AttemptFormMatchingOption", "AttemptFormMatchingImage", "AttemptFormOption", "AttemptFormGap"))
+                    "AttemptFormTrueFalse", "AttemptFormFillGap", "AttemptFormOrdering", "AttemptFormOpen", "AttemptFormMatching", "AttemptFormMatchingOption", "AttemptFormMatchingImage", "AttemptFormCompliance", "AttemptFormComplianceStatement", "AttemptFormComplianceImage", "AttemptFormOption", "AttemptFormGap"))
                 assertThat(schemas.has(name)).as(name).isTrue();
-            assertThat(schemas.path("AttemptFormItem").at("/properties/content/oneOf")).hasSize(6);
+            assertThat(schemas.path("AttemptFormItem").at("/properties/content/oneOf")).hasSize(7);
             assertThat(schemas.path("AttemptFormContent").has("oneOf")).isFalse();
-            assertThat(schemas.path("AttemptFormContent").at("/discriminator/mapping").size()).isEqualTo(6);
+            assertThat(schemas.path("AttemptFormContent").at("/discriminator/mapping").size()).isEqualTo(7);
             assertThat(schemas.path("AttemptFormResponse").path("required").toString()).contains("formId", "stateVersion", "items", "allowedActions");
             var example = operation.at("/responses/200/content").elements().next().path("example");
             if (example.isMissingNode()) example = operation.at("/responses/200/content").elements().next().path("examples").elements().next().path("value");
@@ -137,6 +137,16 @@ class AttemptFormOpenApiContractTest {
             openItem.put("type", "OPEN"); openItem.putObject("content").put("kind", "OPEN");
             assertThat(matchesFormSchema(spec, schemas.path("AttemptFormResponse"), open, 0)).isTrue();
             assertThat(json.treeToValue(open, AttemptFormResponse.class).items().get(0).content()).isInstanceOf(AttemptFormResponse.Open.class);
+            var compliance = (com.fasterxml.jackson.databind.node.ObjectNode) example.deepCopy();
+            var complianceItem = (com.fasterxml.jackson.databind.node.ObjectNode) compliance.at("/items/0");
+            complianceItem.put("type", "COMPLIANCE");
+            var statements = complianceItem.putObject("content").put("kind", "COMPLIANCE").putArray("statements");
+            statements.addObject().put("id", UUID.randomUUID().toString()).put("text", "Statement one");
+            statements.addObject().put("id", UUID.randomUUID().toString()).putObject("image")
+                    .put("availability", "AVAILABLE").put("url", "https://cdn.example.invalid/permitted/image")
+                    .put("width", 640).put("height", 480).put("mimeType", "image/png");
+            assertThat(matchesFormSchema(spec, schemas.path("AttemptFormResponse"), compliance, 0)).isTrue();
+            assertThat(json.treeToValue(compliance, AttemptFormResponse.class).items().get(0).content()).isInstanceOf(AttemptFormResponse.Compliance.class);
             var matching = (com.fasterxml.jackson.databind.node.ObjectNode) example.deepCopy();
             var matchingItem = (com.fasterxml.jackson.databind.node.ObjectNode) matching.at("/items/0");
             matchingItem.put("type", "MATCHING"); var columns = matchingItem.putObject("content").put("kind", "MATCHING");

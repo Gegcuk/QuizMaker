@@ -2037,6 +2037,34 @@ Correct answers use stable domain IDs rather than:
 
 ---
 
+### COMPLIANCE immutable contract v1 (#829)
+
+`question.compliance.response/1` and `question.compliance.binary/1` interpret the saved
+question revision, never the current mutable authoring handler. Author content has 2–6
+uniquely identified statements, boolean `compliant` flags and at least one compliant statement.
+The complete, duplicate-free set of compliant statements earns exactly one point; empty,
+partial, extra or repeated selections earn zero. Response order does not change grading.
+No partial credit or change to the legacy COMPLIANCE handler is introduced.
+
+The established v2 response and draft DTOs add `type: COMPLIANCE` with
+`selectedStatementIds` containing saved statement UUIDs. Canonicalization sorts UUIDs while
+preserving multiplicity; binding resolves only identities from that exact question revision.
+Malformed or foreign references cannot become accepted wrong answers. Existing response-size
+bounds, receipts, RC composition and per-attempt serialization remain authoritative.
+
+Participant forms use a named `COMPLIANCE` content variant with saved statement order and
+no correctness flags. Released submitted/correct answers use the existing typed `OPTIONS`
+envelope, with duplicates retained in submitted answers and independent disclosure checks.
+Inline images retain their original publication binding and use the existing current-authority
+batch reader per statement occurrence; captured CDN URLs grant no display authority.
+Active unavailable media fails closed, while released review preserves explicit unavailable
+markers and the original grade. The default reader still rejects media without an integration.
+
+This adds an internal family capability, not public start or full-cutover activation.
+#609 and the runtime media integrations #818/#831 keep their separate gates. No migration,
+legacy rewrite, new permission, provider activation or change to #701's five-family catalogue
+is required. Publication and contract binding retain their independent transaction boundaries.
+
 ### Versioned registry and immutable bindings (#598)
 
 `QuestionRevisionContractService` binds the complete distinct question-revision set of an

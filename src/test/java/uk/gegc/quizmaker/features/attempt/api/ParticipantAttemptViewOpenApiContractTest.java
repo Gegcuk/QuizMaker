@@ -239,6 +239,19 @@ class ParticipantAttemptViewOpenApiContractTest {
             assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), open, 0)).isTrue();
             assertThat(json.treeToValue(open, ParticipantAttemptView.class).result().items().get(0).submittedAnswer())
                     .isInstanceOf(uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView.TextAnswer.class);
+            var compliance = (com.fasterxml.jackson.databind.node.ObjectNode) value.deepCopy();
+            var complianceItem = (com.fasterxml.jackson.databind.node.ObjectNode) compliance.at("/items/0");
+            complianceItem.put("type", "COMPLIANCE");
+            var statementIds = List.of(UUID.randomUUID(), UUID.randomUUID());
+            var statements = complianceItem.putObject("content").put("kind", "COMPLIANCE").putArray("statements");
+            for (var id : statementIds) statements.addObject().put("id", id.toString()).put("text", "Statement");
+            for (String field : List.of("submittedAnswer", "correctAnswer")) {
+                var ids = ((com.fasterxml.jackson.databind.node.ObjectNode) compliance.at("/result/items/0"))
+                        .putObject(field).put("kind", "OPTIONS").putArray("optionIds");
+                ids.add(statementIds.get(0).toString());
+            }
+            assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), compliance, 0)).isTrue();
+            assertThat(json.treeToValue(compliance, ParticipantAttemptView.class).items().get(0).content()).isInstanceOf(AttemptFormResponse.Compliance.class);
             var matching = (com.fasterxml.jackson.databind.node.ObjectNode) value.deepCopy();
             var matchingItem = (com.fasterxml.jackson.databind.node.ObjectNode) matching.at("/items/0"); matchingItem.put("type", "MATCHING");
             var columns = matchingItem.putObject("content").put("kind", "MATCHING");

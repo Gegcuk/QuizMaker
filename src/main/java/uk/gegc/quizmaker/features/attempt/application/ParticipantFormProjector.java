@@ -109,6 +109,14 @@ public final class ParticipantFormProjector {
                 yield new ParticipantContent.Matching(matching.left(), order.subList(matching.left().size(), order.size())
                         .stream().map(all::get).toList());
             }
+            case COMPLIANCE -> {
+                require(content instanceof ParticipantContent.Compliance, INVALID_MATERIAL);
+                var statements = ((ParticipantContent.Compliance) content).statements();
+                var byId = new HashMap<UUID, ParticipantContent.ComplianceStatement>();
+                statements.forEach(statement -> byId.put(statement.id(), statement));
+                require(byId.size() == order.size() && new java.util.HashSet<>(order).equals(byId.keySet()), INVALID_MATERIAL);
+                yield new ParticipantContent.Compliance(order.stream().map(byId::get).toList());
+            }
             case FILL_GAP -> {
                 require(content instanceof ParticipantContent.FillGap, INVALID_MATERIAL);
                 var gap = (ParticipantContent.FillGap) content;

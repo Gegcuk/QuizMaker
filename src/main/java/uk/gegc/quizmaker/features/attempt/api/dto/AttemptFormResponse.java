@@ -54,10 +54,10 @@ public record AttemptFormResponse(
     public record Item(
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED) UUID id,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int position,
-            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"MCQ_SINGLE", "MCQ_MULTI", "TRUE_FALSE", "FILL_GAP", "ORDERING", "OPEN", "MATCHING"}) QuestionType type,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = {"MCQ_SINGLE", "MCQ_MULTI", "TRUE_FALSE", "FILL_GAP", "ORDERING", "OPEN", "MATCHING", "COMPLIANCE"}) QuestionType type,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String questionText,
             @Schema(requiredMode = Schema.RequiredMode.REQUIRED,
-                    oneOf = {Choices.class, TrueFalse.class, FillGap.class, Ordering.class, Open.class, Matching.class}) Content content) {
+                    oneOf = {Choices.class, TrueFalse.class, FillGap.class, Ordering.class, Open.class, Matching.class, Compliance.class}) Content content) {
         @Override public String toString() { return "AttemptFormItem[type=" + type + "]"; }
     }
 
@@ -67,15 +67,17 @@ public record AttemptFormResponse(
             @JsonSubTypes.Type(value = FillGap.class, name = "FILL_GAP"),
             @JsonSubTypes.Type(value = Ordering.class, name = "ORDERING"),
             @JsonSubTypes.Type(value = Open.class, name = "OPEN"),
-            @JsonSubTypes.Type(value = Matching.class, name = "MATCHING")})
+            @JsonSubTypes.Type(value = Matching.class, name = "MATCHING"),
+            @JsonSubTypes.Type(value = Compliance.class, name = "COMPLIANCE")})
     @Schema(name = "AttemptFormContent", discriminatorProperty = "kind", discriminatorMapping = {
             @DiscriminatorMapping(value = "CHOICES", schema = Choices.class),
             @DiscriminatorMapping(value = "TRUE_FALSE", schema = TrueFalse.class),
             @DiscriminatorMapping(value = "FILL_GAP", schema = FillGap.class),
             @DiscriminatorMapping(value = "ORDERING", schema = Ordering.class),
             @DiscriminatorMapping(value = "OPEN", schema = Open.class),
-            @DiscriminatorMapping(value = "MATCHING", schema = Matching.class)})
-    public sealed interface Content permits Choices, TrueFalse, FillGap, Ordering, Open, Matching {
+            @DiscriminatorMapping(value = "MATCHING", schema = Matching.class),
+            @DiscriminatorMapping(value = "COMPLIANCE", schema = Compliance.class)})
+    public sealed interface Content permits Choices, TrueFalse, FillGap, Ordering, Open, Matching, Compliance {
         @JsonProperty("kind") String kind();
     }
 
@@ -125,6 +127,7 @@ public record AttemptFormResponse(
         if (value instanceof ParticipantContent.TrueFalse) return new TrueFalse();
         if (value instanceof ParticipantContent.Open) return new Open();
         if (value instanceof ParticipantContent.Matching matching) return new Matching(matchingOptions(matching.left(), images), matchingOptions(matching.right(), images));
+        if (value instanceof ParticipantContent.Compliance compliance) return new Compliance(complianceStatements(compliance.statements(), images));
         if (value instanceof ParticipantContent.FillGap gap) return new FillGap(gap.text(),
                 gap.gaps().stream().map(g -> new Gap(g.id())).toList(), options(gap.options()));
         if (value instanceof ParticipantContent.Ordering order) return new Ordering(options(order.items()));
@@ -155,6 +158,42 @@ public record AttemptFormResponse(
                                 @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String mimeType,
                                 @Schema(requiredMode = Schema.RequiredMode.REQUIRED) ParticipantViewMediaReader.Availability availability) {
         @Override public String toString() { return "AttemptFormMatchingImage[redacted]"; }
+    }
+    @Schema(name = "AttemptFormCompliance", description = "Saved statement order and UUIDs. No compliant flags, answer key or authoring IDs.")
+    public record Compliance(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) @jakarta.validation.constraints.Size(min = 2, max = 6) List<ComplianceStatement> statements) implements Content {
+        public Compliance { statements = List.copyOf(statements); }
+        @JsonProperty("kind") @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "COMPLIANCE")
+        public String kind() { return "COMPLIANCE"; }
+        @Override public String toString() { return "AttemptFormCompliance[redacted]"; }
+    }
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    @Schema(name = "AttemptFormComplianceStatement", description = "Text, an exact retained image, or both. A media-only statement omits text.")
+    public record ComplianceStatement(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) UUID id,
+                                      @Schema(maxLength = 10000) String text, ComplianceImage image) {
+        @Override public String toString() { return "AttemptFormComplianceStatement[redacted]"; }
+    }
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    @Schema(name = "AttemptFormComplianceImage", description = "Current display status of the original retained inline image. Only AVAILABLE includes a reader-authorized URL; no captured URL fallback.")
+    public record ComplianceImage(String url,
+                                  @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") int width,
+                                  @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") int height,
+                                  @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String mimeType,
+                                  @Schema(requiredMode = Schema.RequiredMode.REQUIRED) ParticipantViewMediaReader.Availability availability) {
+        @Override public String toString() { return "AttemptFormComplianceImage[redacted]"; }
+    }
+    private static List<ComplianceStatement> complianceStatements(List<ParticipantContent.ComplianceStatement> statements, Map<UUID, AuthorizedImage> images) {
+        return statements.stream().map(statement -> {
+            ComplianceImage image = null;
+            if (statement.image() != null) {
+                var permitted = images.get(statement.id());
+                if (permitted == null) throw new AttemptDeliveryException(AttemptDeliveryException.Reason.UNSUPPORTED);
+                if (!permitted.reference().assetId().equals(statement.image().assetId()))
+                    throw new AttemptDeliveryException(AttemptDeliveryException.Reason.CORRUPT);
+                image = new ComplianceImage(permitted.image().url(), statement.image().width(), statement.image().height(),
+                        statement.image().mimeType(), permitted.image().availability());
+            }
+            return new ComplianceStatement(statement.id(), statement.text(), image);
+        }).toList();
     }
     private record AuthorizedImage(ParticipantViewMediaReader.Reference reference, ParticipantViewMediaReader.Image image) { }
     private static List<MatchingOption> matchingOptions(List<ParticipantContent.MatchingOption> options, Map<UUID, AuthorizedImage> images) {
