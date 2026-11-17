@@ -53,6 +53,10 @@ jobs:
     env:
       # Keep the baseline until repeated measurements on this runner justify opting in.
       CONTEXT_TEST_WORKERS: ${{ inputs.context_workers || vars.CONTEXT_TEST_WORKERS || '0' }}
+      # Each test fork inherits 2 GiB; Maven's explicit command-line budget overrides it.
+      # Four context forks + Maven permit 9 GiB heap, leaving RAM for native memory/MySQL.
+      JAVA_TOOL_OPTIONS: '-Xms256m -Xmx2g'
+      MAVEN_OPTS: '-Xms128m -Xmx1g -XshowSettings:vm'
       # Fixed fake provider credentials prove that nonblank values cannot opt CI into live calls.
       OPENAI_API_KEY: 'sk-ci-offline-not-real'
       OPENAI_MODEL: 'disabled'
@@ -421,11 +425,22 @@ jobs:
           CONTEXT_PROXY_PIDS=()
           MAVEN_CONTEXT_ARGS=()
           VERIFICATION_LOG="${RUNNER_TEMP}/quizmaker-verify.log"
+          RESOURCE_MONITOR_PID=""
 
           cleanup_offline_network() {
             EXIT_CODE=$?
             trap - EXIT INT TERM
             set +e
+            # Diagnostics cannot hold up cleanup, even if their process stops responding.
+            if [ -n "$RESOURCE_MONITOR_PID" ]; then
+              kill "$RESOURCE_MONITOR_PID" 2>/dev/null || true
+              for ((RESOURCE_POLL=0; RESOURCE_POLL<5; RESOURCE_POLL++)); do
+                kill -0 "$RESOURCE_MONITOR_PID" 2>/dev/null || break
+                sleep 0.1
+              done
+              kill -KILL "$RESOURCE_MONITOR_PID" 2>/dev/null || true
+              wait "$RESOURCE_MONITOR_PID" 2>/dev/null || true
+            fi
             if sudo ip netns list | grep -q "^${NETNS}"; then
               for PID in $(sudo ip netns pids "$NETNS"); do
                 sudo kill "$PID" 2>/dev/null || true
@@ -442,6 +457,13 @@ jobs:
             exit "$EXIT_CODE"
           }
           trap cleanup_offline_network EXIT INT TERM
+
+          # One small sample per minute, outside the test namespace and target/clean.
+          # Live output survives runner shutdowns that prevent artifact upload.
+          python3 -u .github/scripts/ci_resource_monitor.py \
+            --output "${RUNNER_TEMP}/quizmaker-resources.jsonl" \
+            --workspace "$GITHUB_WORKSPACE" &
+          RESOURCE_MONITOR_PID=$!
 
           sudo ip netns delete "$NETNS" 2>/dev/null || true
           sudo ip link delete "$HOST_VETH" 2>/dev/null || true
@@ -602,6 +624,16 @@ jobs:
             target/surefire-reports/**
             ${{ runner.temp }}/context-resources/**
             ${{ runner.temp }}/quizmaker-verify.log
+          retention-days: 7
+
+      - name: Upload CI resource diagnostics
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-resource-diagnostics
+          path: ${{ runner.temp }}/quizmaker-resources.jsonl
+          if-no-files-found: ignore
           retention-days: 7
 
       - name: Show root cause errors

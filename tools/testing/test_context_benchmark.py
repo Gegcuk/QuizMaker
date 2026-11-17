@@ -112,6 +112,13 @@ class RunnerTest(unittest.TestCase):
         self.assertNotIn('private-value', environment.values())
         self.assertEqual('33901', environment['TEST_MYSQL_PORT'])
 
+    def test_safe_environment_uses_ci_heap_budgets_instead_of_caller_overrides(self):
+        with patch.dict(os.environ, {'JAVA_HOME': '/test/jdk17',
+                                     'MAVEN_OPTS': '-Xmx8g', 'JAVA_TOOL_OPTIONS': '-Xmx8g'}):
+            environment = bench.safe_environment()
+        self.assertEqual('-Xms128m -Xmx1g -XshowSettings:vm', environment['MAVEN_OPTS'])
+        self.assertEqual('-Xms256m -Xmx2g -Djava.net.preferIPv4Stack=true', environment['JAVA_TOOL_OPTIONS'])
+
     def test_new_and_duplicate_manifest_classes_fail_validation(self):
         self.assertTrue(bench.inventory()['contexts'])
         original = bench.MANIFEST.read_text()

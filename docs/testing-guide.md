@@ -290,6 +290,75 @@ The release-quality command is `./mvnw verify`. It runs the bounded parallel lan
 - Test profiles disable automatic Stripe pack synchronization. A test that needs pack synchronization must provide a fake `StripePackSyncService` or explicitly opt into the live-provider lane; a real-looking key must never activate background network access.
 - When CI fails, download the `surefire-reports` artifact. It includes Surefire/Failsafe reports, fork dumps, and JaCoCo output, subject to the workflow retention policy.
 
+### CI runner interruption diagnostics
+
+During the offline verification step, a separate stdlib-only Python process emits a compact
+`[ci-resources]` JSON record at startup, once every 60 seconds, and when stopped. It runs
+outside the test network namespace, reads Linux counters without elevated privileges, and
+does not inspect command arguments, environments, test payloads, or arbitrary process names.
+Records include available memory/swap, load and pressure, OOM/swap counters, visible cgroup-v2
+memory/PID limits and events, free disk space/inodes, and bounded process RSS/thread summaries.
+Compare counters between samples: an existing nonzero `oom_kill` count alone does not prove
+that this verification was killed. Summed process RSS can count shared pages more than once.
+Missing or unreadable metrics are marked unavailable; v1-only cgroups have no v2 evidence.
+
+The primary evidence is the live Actions log. `quizmaker-resources.jsonl` lives in runner temp
+so Maven `clean` cannot remove it, and an independent best-effort `ci-resource-diagnostics`
+artifact uses the existing seven-day diagnostic retention. A terminated runner may never
+reach artifact upload or the final sample; the last live sample remains useful but cannot
+prove a shutdown cause by itself. For example, rising memory use plus a new OOM event supports
+memory-pressure investigation; `shutdown signal` without those observations remains unexplained.
+
+The collector uses no subprocesses or Docker queries, scans at most 4096 PIDs per sample,
+reports only the eight largest RSS entries with allowlisted process kinds, and records its
+own sample wall/CPU time. It waits between samples. Diagnostic failures do not change the
+verification result; cleanup allows at most five 100 ms polling intervals before stopping an
+unresponsive collector. Test selection, worker settings, offline isolation, coverage thresholds,
+Maven exit propagation, and post-merge verification remain the same. Focused checks are:
+
+```bash
+python3 -B -m unittest discover -s .github/scripts -p 'test_*.py' -v
+python3 -B -m unittest discover -s tools/testing -p 'test_*.py' -v
+```
+
+### CI JVM memory budget
+
+CI sets `JAVA_TOOL_OPTIONS=-Xms256m -Xmx2g` for forked test JVMs and
+`MAVEN_OPTS=-Xms128m -Xmx1g -XshowSettings:vm` for Maven itself. Maven's explicit
+command-line heap flags override the inherited JVM flags; `MAVEN_OPTS` alone does not
+budget Surefire child JVMs. The safe local launcher reads these same checked-in values
+and adds only its existing IPv4 option, so local verification exercises the CI budgets.
+Maven prints its effective heap settings at startup; each isolated worker's JSON evidence
+records `max_heap_bytes` and `java_version` alongside its PID and database identity.
+
+The four-worker pool permits at most **9 GiB Java heap** concurrently: 1 GiB for Maven
+plus 2 GiB per test JVM. The unit lane and the exclusive fixture run in separate phases;
+the exclusive JVM does not overlap the four-worker pool. These are heap limits, not RSS
+limits: reserve additional memory for metaspace, code caches, stacks, MySQL and the OS.
+Test inventory, four-worker scheduling, fixture sizes, context cleanup, offline execution,
+merged coverage thresholds, complete verify/package and post-merge CI are preserved.
+
+The first instrumented CI run at `cd61966d` (run `44118311685`) had four CPUs and about
+15.6 GiB RAM. Four context JVMs reached sampled RSS peaks of 2.8–3.5 GiB each, Maven
+reached about 1.7 GiB, available memory fell to 99 MiB, and only 7 MiB of swap remained.
+OOM-kill counters stayed zero; this is evidence of memory pressure, not proof of the earlier
+runner shutdown cause or a Java object leak. Closing JPA contexts after each top-level suite
+was already enabled. The old local launcher capped JVMs at 2 GiB while CI relied on JVM
+ergonomics, allowing each process to size itself independently from the host's memory.
+
+Compare complete runs on the same runner class: exact test identities, coverage checks,
+effective worker heap limits, elapsed time, available memory, swap deltas and pressure.
+A small heap can increase GC activity or expose an OOM; a green result alone does not
+prove adequate headroom. Retain the existing resource diagnostics for that comparison.
+
+Local validation on 17 November 2026 passed the full four-worker clean verify: 9,960 tests,
+zero failures/errors/skips, all 9,959 previous test identities retained plus the new budget
+contract. Every context/exclusive JVM reported a 2 GiB maximum heap; Maven reported 1 GiB.
+Maven elapsed time was 794.95 seconds versus 803.36 seconds for the earlier local run, with
+identical application bytecode. A 15-second sampler observed a peak summed Java RSS of
+6.80 GiB. This single local comparison is not a CI capacity or throughput guarantee; the
+instrumented GitHub runner remains the reference for available-memory/swap measurements.
+
 ### Immediate Result Release
 
 Run the focused #556 checks with Java 17 and the existing test MySQL configuration:

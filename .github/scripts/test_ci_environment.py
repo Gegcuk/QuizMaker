@@ -15,7 +15,7 @@ HELPER = Path(__file__).with_name("run_with_ci_environment.py").resolve()
 WORKFLOW = HELPER.parents[1] / "workflows" / "ci.yml"
 CHILD = """
 import json, os, sys
-keys = ('JAVA_HOME', 'PATH', 'FIXTURE_SECRET', 'JAVA_TOOL_OPTIONS', 'SUDO_ONLY')
+keys = ('JAVA_HOME', 'PATH', 'FIXTURE_SECRET', 'JAVA_TOOL_OPTIONS', 'MAVEN_OPTS', 'SUDO_ONLY')
 print(json.dumps({'environment': {key: os.environ.get(key) for key in keys}, 'arguments': sys.argv[1:]}))
 sys.exit(int(os.environ.get('FIXTURE_EXIT_CODE', '0')))
 """
@@ -40,7 +40,8 @@ class CiEnvironmentTest(unittest.TestCase):
     def environment(self, exit_code=0):
         return {"JAVA_HOME": "/fixture/JDK 17", "PATH": "/fixture/JDK 17/bin" + os.pathsep + os.defpath,
                 "FIXTURE_SECRET": "private-fixture=\n'\"$(not-a-command)\u2615",
-                "JAVA_TOOL_OPTIONS": "fixture options", "FIXTURE_EXIT_CODE": str(exit_code)}
+                "JAVA_TOOL_OPTIONS": "-Xms256m -Xmx2g", "MAVEN_OPTS": "-Xms128m -Xmx1g -XshowSettings:vm",
+                "FIXTURE_EXIT_CODE": str(exit_code)}
 
     def invoke(self, captured, arguments=None):
         return subprocess.run(
@@ -53,7 +54,7 @@ class CiEnvironmentTest(unittest.TestCase):
         result = self.invoke(payload(self.environment()))
         self.assertEqual(0, result.returncode, result.stderr)
         actual = json.loads(result.stdout)
-        self.assertEqual({**{key: self.environment()[key] for key in ('JAVA_HOME', 'PATH', 'FIXTURE_SECRET', 'JAVA_TOOL_OPTIONS')},
+        self.assertEqual({**{key: self.environment()[key] for key in ('JAVA_HOME', 'PATH', 'FIXTURE_SECRET', 'JAVA_TOOL_OPTIONS', 'MAVEN_OPTS')},
                           'SUDO_ONLY': None}, actual['environment'])
         self.assertEqual(['literal argument'], actual['arguments'])
 
@@ -127,6 +128,7 @@ class CiEnvironmentTest(unittest.TestCase):
         self.assertEqual(environment['PATH'], actual['environment']['PATH'])
         self.assertEqual(environment['FIXTURE_SECRET'], actual['environment']['FIXTURE_SECRET'])
         self.assertEqual(environment['JAVA_TOOL_OPTIONS'], actual['environment']['JAVA_TOOL_OPTIONS'])
+        self.assertEqual(environment['MAVEN_OPTS'], actual['environment']['MAVEN_OPTS'])
         self.assertIsNone(actual['environment']['SUDO_ONLY'])
         self.assertIn('clean', actual['arguments'])
         self.assertIn('verify', actual['arguments'])

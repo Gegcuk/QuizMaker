@@ -33,7 +33,9 @@ public final class ContextWorkerEvidence implements BeforeAllCallback {
                 result.next();
                 new ObjectMapper().writeValue(directory.resolve("worker-" + fork + ".json").toFile(), Map.of(
                         "fork", fork, "pid", ProcessHandle.current().pid(), "server_uuid", result.getString(1),
-                        "mysql_version", result.getString(2), "isolation", result.getString(3)));
+                        "mysql_version", result.getString(2), "isolation", result.getString(3),
+                        "max_heap_bytes", Runtime.getRuntime().maxMemory(),
+                        "java_version", System.getProperty("java.version")));
             }
             recorded = true;
         }

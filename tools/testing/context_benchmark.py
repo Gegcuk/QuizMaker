@@ -108,7 +108,7 @@ def safe_environment():
                JWT_SECRET=base64.b64encode(b'local-test-only-' * 5).decode(),
                TOKEN_PEPPER_SECRET='local-test-only-pepper-not-for-production',
                AWS_EC2_METADATA_DISABLED='true',
-               JAVA_TOOL_OPTIONS='-Djava.net.preferIPv4Stack=true -Xms256m -Xmx2g')
+               JAVA_TOOL_OPTIONS=env['JAVA_TOOL_OPTIONS'] + ' -Djava.net.preferIPv4Stack=true')
     return env
 
 
