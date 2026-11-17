@@ -2,6 +2,44 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Protected internal trace query (#540)
+
+Start with `TraceQueryTest`, `ExecutionTraceTest` and `ContextTestManifestTest` on JDK 17.
+Use the existing disposable MySQL/offline environment for `TraceQueryMySqlIntegrationTest`
+and `ExecutionTraceMySqlIntegrationTest`. The former opens a small programmatic Spring context
+and has one context inventory entry; preserve all existing worker/exclusive selections.
+
+Run the real append writer and prerequisite stores before querying. Cover ascending pages,
+changed page sizes, same timestamps, append after the first cut, service reconstruction and
+exact continuation. An append must successfully commit before releasing a held reader barrier;
+neither both workers failing nor a runner-speed assertion proves independence. Verify that a
+new first-page query includes the later event while the original cut excludes it.
+
+Exercise authentication through the actual Spring method-security proxy. The SQL-backed context
+fixture grants only exact principal/attempt/purpose rows; global operator-role text alone grants
+nothing. Cover missing/ambiguous context integration, foreign resource/organization/no grant,
+revocation between pages, cross-attempt/purpose cursor reuse and successful controls. Context
+fixtures establish consumer enforcement, not the production #627 permissions or #698 audit.
+Explicit expired/retained-away/unknown facts test query classification only, not #699 cleanup.
+Missing rows must never be silently classified as erased or reconstructed from mutable content.
+
+Corrupt the second stored event, stream version/counter and an interior sequence under isolated
+test-only constraint control. Assert a bounded typed failure and no partial page, restore each
+constraint and prove the valid control still succeeds. Inject an actual query timeout checkpoint,
+prove it was reached and confirm fresh reads retain all committed evidence. Verify actual RC,
+compatible outer writable/read-only RC, caller rollback, early incompatible-caller refusal and
+restoration of isolation/read-only state across the entire small pool. Existing writer RR cases
+remain enabled and unchanged.
+
+For three parents with 3, 30 and 250 events, serialize a two-row query page and measure SQL and
+actual returned rows/bytes. Expect two scalar trace statements plus the context fixture's one
+authorization statement; the event page selects the same two bounded metadata rows regardless
+of total history. Inspect both head/tail and page plans for primary-key access without filesort.
+No JPA graph or document/question content is involved. Future production context readers must
+separately establish their own bounds. Finish with the unchanged four-worker clean-verify,
+complete inventory, exclusive scheduling and merged coverage gates. No HTTP schema or endpoint
+is introduced by this issue; #627 retains that contract work.
+
 ## HOTSPOT internal response/scoring contract (#828)
 
 Start with `HotspotContractV1Test`, `HotspotHandlerTest`, `HotspotSemanticsTest`,

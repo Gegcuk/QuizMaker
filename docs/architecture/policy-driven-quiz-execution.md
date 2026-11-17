@@ -5790,6 +5790,66 @@ from this writer. Cleanup/hold execution and protected query behavior require th
 implementations. Disable unused code before first target writes; after writes, preserve evidence
 and use additive forward fixes rather than destructive schema downgrade.
 
+### Protected internal trace queries (#540)
+
+`TraceQueryService` is a separate internal read boundary over the existing #538 stream, not a
+participant route or operator HTTP endpoint. It requires authentication and exactly one trusted
+`TraceQueryContextReader`. That reader resolves the current caller's exact resource/scope,
+purpose (`DISPUTE` or `OPERATIONS`) and `READ_PAGE` operation, independently of request IDs or
+global roles. Missing, ambiguous, denied or mismatched context fails before trace SQL. Every
+continuation reauthorizes. Real operator grants, required access audit and their HTTP mapping
+remain #627/#698 integration gates; the query does not grant a role or activate a route.
+
+The context reader also supplies current evidence availability: `AVAILABLE`, `EXPIRED`,
+`RETAINED_AWAY` or `UNKNOWN`. These are trusted governance facts, not age guesses or HTTP input.
+A29's retention and documented hold exceptions remain unchanged. #699 owns actual retention,
+hold and erasure execution. Missing/unknown facts fail unavailable; explicit expiry and retained
+away return distinct bounded errors. A missing stream with claimed available evidence is corrupt,
+not proof of deletion or an invitation to reconstruct history. Only an existing valid empty
+stream returns a successful empty page. No cleanup, hold or retention clock is implemented here.
+Context integrations must retain necessary authority/governance protection until the read commits
+and perform no remote I/O while that transaction is held.
+
+Queries own read-only READ_COMMITTED or join compatible RC, using the existing composition guard
+before context/domain work. Incompatible callers are rejected rather than suspended. The #538
+writer's separate transaction and RR compatibility contracts remain intact. A joined return is
+provisional until its caller completes; query execution performs no business writes or retries.
+An audited consumer that needs an atomic audit write owns a writable RC transaction and joins
+the query to it; this reader must not invent an independent audit commit or suspend the caller.
+
+Ascending pages retain the existing maximum of 100 events and use the attempt/sequence primary
+key. One scalar statement reads the stream and physical tail in the same snapshot, rejecting a
+counter/tail mismatch. The first page captures a sequence upper bound; subsequent pages retain
+that cut while later appends can commit independently. Each page checks the complete expected
+contiguous range before returning anything. Missing rows, unknown versions, corrupt enum/state
+values and scope inconsistencies fail without a partial page.
+
+The versioned, bounded Base64url cursor contains a metadata-only scope/purpose/operation digest
+and sequence positions, without raw resource IDs. It is an untrusted continuation position, not
+a credential, signature or saved-content integrity proof. It needs no secret or cursor table;
+current scope authorization and range validation still apply to every use. Reconstruction of the
+service preserves continuation; a cursor never authorizes a different attempt, purpose or scope.
+
+The response allow-list contains only sequence, server timestamp, event type, actor category,
+reason and paired lifecycle states. It excludes event/command/item IDs, participant identities,
+policy/form references, source content, answers and arbitrary payloads. The JDBC query explicitly
+selects these columns; it never serializes the writer's internal `Stored` type. Diagnostics and
+metrics expose fixed outcome/version values, without cursors, queried IDs or original exceptions.
+
+For example, a dispute service can inspect answer-submission and terminal-state metadata without
+receiving the answer itself. If another answer arrives while support pages through the original
+cut, that event appears only in a new query. Revoked access prevents the next page even when the
+caller retains a previously valid cursor.
+
+`TraceQueryTest` and `TraceQueryMySqlIntegrationTest` cover the query contract, real #538 appends,
+Spring method security, current-context denial/revocation, service reconstruction, append/read
+barriers, corruption, reached query failure, caller rollback and pool-state restoration. Their
+SQL-backed context fixture proves this consumer boundary, not production grants, audit, holds or
+erasure. Three-parent fixtures measure two scalar trace statements plus one context-fixture
+statement per nonempty page, fixed returned page rows/bytes and primary-key plans, including
+serialization. No JPA relationships, question aggregates or documents are loaded. Real future
+context readers need their own query-volume and authorization evidence before exposure.
+
 ### Candidate extensions and access evidence
 
 Full event sourcing is not required.
