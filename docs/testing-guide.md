@@ -290,6 +290,37 @@ The release-quality command is `./mvnw verify`. It runs the bounded parallel lan
 - Test profiles disable automatic Stripe pack synchronization. A test that needs pack synchronization must provide a fake `StripePackSyncService` or explicitly opt into the live-provider lane; a real-looking key must never activate background network access.
 - When CI fails, download the `surefire-reports` artifact. It includes Surefire/Failsafe reports, fork dumps, and JaCoCo output, subject to the workflow retention policy.
 
+### CI runner interruption diagnostics
+
+During the offline verification step, a separate stdlib-only Python process emits a compact
+`[ci-resources]` JSON record at startup, once every 60 seconds, and when stopped. It runs
+outside the test network namespace, reads Linux counters without elevated privileges, and
+does not inspect command arguments, environments, test payloads, or arbitrary process names.
+Records include available memory/swap, load and pressure, OOM/swap counters, visible cgroup-v2
+memory/PID limits and events, free disk space/inodes, and bounded process RSS/thread summaries.
+Compare counters between samples: an existing nonzero `oom_kill` count alone does not prove
+that this verification was killed. Summed process RSS can count shared pages more than once.
+Missing or unreadable metrics are marked unavailable; v1-only cgroups have no v2 evidence.
+
+The primary evidence is the live Actions log. `quizmaker-resources.jsonl` lives in runner temp
+so Maven `clean` cannot remove it, and an independent best-effort `ci-resource-diagnostics`
+artifact uses the existing seven-day diagnostic retention. A terminated runner may never
+reach artifact upload or the final sample; the last live sample remains useful but cannot
+prove a shutdown cause by itself. For example, rising memory use plus a new OOM event supports
+memory-pressure investigation; `shutdown signal` without those observations remains unexplained.
+
+The collector uses no subprocesses or Docker queries, scans at most 4096 PIDs per sample,
+reports only the eight largest RSS entries with allowlisted process kinds, and records its
+own sample wall/CPU time. It waits between samples. Diagnostic failures do not change the
+verification result; cleanup allows at most five 100 ms polling intervals before stopping an
+unresponsive collector. Test selection, worker settings, offline isolation, coverage thresholds,
+Maven exit propagation, and post-merge verification remain the same. Focused checks are:
+
+```bash
+python3 -B -m unittest discover -s .github/scripts -p 'test_*.py' -v
+python3 -B -m unittest discover -s tools/testing -p 'test_*.py' -v
+```
+
 ### Immediate Result Release
 
 Run the focused #556 checks with Java 17 and the existing test MySQL configuration:
