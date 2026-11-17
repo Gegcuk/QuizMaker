@@ -67,6 +67,10 @@ import uk.gegc.quizmaker.features.media.domain.model.SavedImageVersion;
 import uk.gegc.quizmaker.features.question.application.*;
 import uk.gegc.quizmaker.features.question.application.impl.*;
 import uk.gegc.quizmaker.features.question.config.BaselineQuestionContractConfig;
+import uk.gegc.quizmaker.features.question.application.contract.v1.*;
+import uk.gegc.quizmaker.features.question.application.contract.VersionedResponseContract;
+import uk.gegc.quizmaker.features.question.application.contract.VersionedScoringContract;
+import uk.gegc.quizmaker.features.question.domain.model.contract.*;
 import uk.gegc.quizmaker.features.question.domain.model.*;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
@@ -124,6 +128,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         uk.gegc.quizmaker.features.question.config.OpenQuestionContractConfig.class,
         uk.gegc.quizmaker.features.question.config.MatchingQuestionContractConfig.class,
         uk.gegc.quizmaker.features.question.config.ComplianceQuestionContractConfig.class,
+        uk.gegc.quizmaker.features.question.config.HotspotQuestionContractConfig.class,
         FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
         ResponseAcceptanceServiceImpl.class, JdbcAcceptedResponseRepository.class,
@@ -176,6 +181,8 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         @Bean SimpleMeterRegistry metrics() { return new SimpleMeterRegistry(); }
         @Bean MediaStorageProperties mediaProperties() { return new MediaStorageProperties(); }
         @Bean TestImageStorage storage() { return new TestImageStorage(); }
+        @Bean VersionedResponseContract fixtureHotspotResponseV2() { return hotspotResponseV2(); }
+        @Bean VersionedScoringContract fixtureHotspotScoringV2() { return hotspotScoringV2(); }
         @Bean static BeanPostProcessor measuredSql() {
             return new BeanPostProcessor() {
                 @Override public Object postProcessAfterInitialization(Object bean, String name) {
@@ -207,6 +214,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
     @Autowired org.springframework.context.ApplicationContext context;
     final com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules().disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     @Autowired PublishedQuestionContractService binding;
+    @Autowired QuestionRevisionContractService questionContracts;
     @Autowired QuizRevisionPublicationService publications;
     @Autowired QuizRepository quizzes;
     @Autowired QuestionRepository questions;
@@ -279,6 +287,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
             case MCQ_SINGLE -> "{\"options\":[{\"id\":\"a\",\"text\":\"Paris\",\"correct\":true},{\"id\":\"b\",\"text\":\"Rome\",\"correct\":false}]}";
             case MCQ_MULTI -> "{\"options\":[{\"id\":\"a\",\"text\":\"A\",\"correct\":true},{\"id\":\"b\",\"text\":\"B\",\"correct\":false},{\"id\":\"c\",\"text\":\"C\",\"correct\":true}]}";
             case COMPLIANCE -> "{\"statements\":[{\"id\":1,\"text\":\"One\",\"compliant\":true},{\"id\":2,\"text\":\"Two\",\"compliant\":false},{\"id\":3,\"text\":\"Three\",\"compliant\":true}]}";
+            case HOTSPOT -> "{\"imageUrl\":\"https://source.example.invalid/diagram\",\"imageDescription\":\"Three shapes\",\"regions\":[{\"id\":1,\"x\":0,\"y\":0,\"width\":20,\"height\":20,\"correct\":true,\"label\":\"Circle\"},{\"id\":2,\"x\":0,\"y\":0,\"width\":0,\"height\":0,\"correct\":false},{\"id\":3,\"x\":50,\"y\":10,\"width\":30,\"height\":40,\"correct\":true}]}";
             case TRUE_FALSE -> "{\"answer\":true}";
             case OPEN -> "{\"answer\":\"Paris\"}";
             case MATCHING -> "{\"left\":[{\"id\":1,\"text\":\"Apple\",\"matchId\":10},{\"id\":2,\"text\":\"Banana\",\"matchId\":11}],\"right\":[{\"id\":10,\"text\":\"Red\"},{\"id\":11,\"text\":\"Yellow\"}]}";
@@ -799,6 +808,248 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         assertThat(view(start.attemptId())).isEqualTo(original);
         assertThat(results.finalizeSubmission(submitted.submissionId())).isEqualTo(result);
         assertThat(restarted().release(submitted.submissionId()).replayed()).isTrue();
+    }
+
+    // HOTSPOT proves the internal response/scoring foundation. Public image/description delivery
+    // is deliberately not supplied by these fixtures and remains gated by #818/#609.
+    record HotspotPublication(UUID revision, UUID asset, List<UUID> questions) { }
+    record HotspotAttempt(HotspotPublication publication, AttemptStartService.Result start, ParticipantForm form) { }
+
+    private HotspotPublication hotspotPublication(int size) {
+        quizId = newQuiz();
+        UUID asset = tx.execute(s -> {
+            var a = new uk.gegc.quizmaker.features.media.domain.model.MediaAsset(); a.setId(UUID.randomUUID());
+            a.setType(uk.gegc.quizmaker.features.media.domain.model.MediaAssetType.IMAGE);
+            a.setStatus(uk.gegc.quizmaker.features.media.domain.model.MediaAssetStatus.READY);
+            a.setKey("hotspot/" + a.getId()); a.setMimeType("image/png"); a.setSizeBytes(1024L); a.setWidth(640); a.setHeight(480);
+            a.setCreatedBy(username); return mediaAssets.saveAndFlush(a).getId();
+        });
+        imageStorage.preparing = true;
+        try { retainedImages.prepare(Set.of(asset), username); } finally { imageStorage.preparing = false; }
+        var ids = new ArrayList<UUID>();
+        for (int i = 0; i < size; i++) {
+            var id = draft(QuestionType.HOTSPOT); ids.add(id);
+            tx.executeWithoutResult(s -> {
+                var q = questions.findById(id).orElseThrow(); q.setAttachmentAssetId(asset); questions.saveAndFlush(q);
+                retainedImages.bind(id, Set.of(asset), Set.of(), username);
+            });
+        }
+        var revision = publish(0, ids);
+        assertThat(publications.read(quizId, revision).images()).hasSize(size);
+        return new HotspotPublication(revision, asset, List.copyOf(ids));
+    }
+    private HotspotAttempt hotspotAttempt(int size, AnswerOrder order) {
+        var publication = hotspotPublication(size); binding.bind(quizId, publication.revision());
+        var started = starts.start(command(publication.revision(), order, "hotspot-start-" + UUID.randomUUID()));
+        return new HotspotAttempt(publication, started, hotspotForm(started.attemptId()));
+    }
+    private ParticipantForm hotspotForm(UUID attempt) {
+        var read = new TransactionTemplate(manager); read.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED); read.setReadOnly(true);
+        return read.execute(s -> {
+            var facts = context.getBean(AttemptReadFactsService.class).read(attempt, AttemptReadFactsService.Purpose.PARTICIPANT_VIEW);
+            return ParticipantFormProjector.project(facts.form(), facts.revision(), facts.order(), facts.contracts());
+        });
+    }
+    private ObjectNode hotspotInput(HotspotAttempt attempt, int item, String sourceKey) {
+        var captured = publications.read(quizId, attempt.publication().revision()).content().items().get(item).question();
+        var id = captured.options().stream().filter(o -> o.sourceKey().equals(sourceKey)).findFirst().orElseThrow().id();
+        return json.createObjectNode().put("selectedRegionId", id.toString());
+    }
+    private ResponseAcceptanceService.Command hotspotCommand(HotspotAttempt attempt, String key, ObjectNode payload) {
+        return new ResponseAcceptanceService.Command(attempt.start().attemptId(), attempt.form().items().get(0).id(), 1,
+                CommandReceipt.Key.from(key), QuestionType.HOTSPOT, payload);
+    }
+    private QuestionRevisionContractService restartedHotspotContracts() {
+        var registry = new QuestionContractRegistryImpl(List.of(new HotspotResponseContractV1(), hotspotResponseV2()),
+                List.of(new HotspotScoringContractV1(), hotspotScoringV2()), new SimpleMeterRegistry());
+        return new QuestionRevisionContractServiceImpl(new JdbcQuestionContractBindingRepository(
+                context.getBean(org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate.class)), registry, manager);
+    }
+    private static VersionedResponseContract hotspotResponseV2() {
+        return new VersionedResponseContract() {
+            public ContractVersion version() { return new ContractVersion("question.hotspot.response", 2); }
+            public void validate(uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision q, com.fasterxml.jackson.databind.JsonNode value) {
+                new HotspotResponseContractV1().validate(q, value);
+            }
+        };
+    }
+    private static VersionedScoringContract hotspotScoringV2() {
+        // Deliberately distinguishable test-only version, never a production scoring-policy change.
+        return new VersionedScoringContract() {
+            public ContractVersion version() { return new ContractVersion("question.hotspot.binary", 2); }
+            public ContractScore score(uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision q, com.fasterxml.jackson.databind.JsonNode value) {
+                var v1 = new HotspotScoringContractV1().score(q, value);
+                return new ContractScore(java.math.BigDecimal.ONE.subtract(v1.earned()), java.math.BigDecimal.ONE);
+            }
+        };
+    }
+
+    @ParameterizedTest @EnumSource(AnswerOrder.class)
+    void hotspotRealStartAcceptedAnswerAndExactGradeSurviveEditsAndRestart(AnswerOrder order) {
+        var attempt = hotspotAttempt(1, order); var command = hotspotCommand(attempt, "hotspot-answer", hotspotInput(attempt, 0, "3"));
+        int storageCalls = imageStorage.calls;
+        var accepted = responses.accept(command);
+        assertThat(responses.accept(command).replayed()).isTrue();
+        String savedResponse = tx.execute(s -> sql.queryForObject("SELECT normalized_response FROM attempt_accepted_response WHERE id=UUID_TO_BIN(?)",
+                String.class, accepted.acceptedResponseId().toString()));
+        assertThat(savedResponse).isEqualTo("{\"selectedRegionId\":3}");
+        var submitted = submissions.submit(new AttemptSubmissionService.Command(attempt.start().attemptId(), accepted.stateVersion(), true,
+                CommandReceipt.Key.from("hotspot-submit")));
+        var result = results.finalizeSubmission(submitted.submissionId()); assertThat(result.score().earned()).isEqualTo(1);
+        retainedImages.remove(attempt.publication().asset(), username);
+        tx.executeWithoutResult(s -> {
+            var q = questions.findById(attempt.publication().questions().get(0)).orElseThrow(); var edited = authored(QuestionType.HOTSPOT);
+            edited.path("regions").forEach(r -> ((ObjectNode) r).put("correct", r.path("id").asInt() == 2));
+            ((ObjectNode) edited.path("regions").get(0)).put("x", 600).put("label", "Changed label");
+            edited.put("imageDescription", "Changed description"); q.setContent(edited.toString()); questions.saveAndFlush(q);
+        });
+        var later = publish(1, attempt.publication().questions()); binding.bind(quizId, later);
+        assertThat(hotspotForm(attempt.start().attemptId())).isEqualTo(attempt.form());
+        var recreated = new AutomaticResultServiceImpl(context.getBean(SubmittedAttemptSource.class), context.getBean(AutomaticResultRepository.class),
+                context.getBean(ExecutionTraceService.class), context.getBean(Clock.class), metrics, manager);
+        assertThat(recreated.finalizeSubmission(submitted.submissionId())).isEqualTo(result);
+        assertThat(restartedHotspotContracts().resolve(ownerId, attempt.publication().revision()).values())
+                .allSatisfy(pair -> assertThat(pair.binding().response()).isEqualTo(SupportedQuestionContracts.HOTSPOT_RESPONSE));
+        assertThat(count("attempt_accepted_response")).isEqualTo(1); assertThat(imageStorage.calls).isEqualTo(storageCalls);
+        assertThatThrownBy(() -> AttemptFormResponse.items(attempt.form())).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test void hotspotExactSavedV1AndTestV2RemainDistinctAfterAuthorEdits() {
+        var publication = hotspotPublication(1); binding.bind(quizId, publication.revision());
+        tx.executeWithoutResult(s -> {
+            var q = questions.findById(publication.questions().get(0)).orElseThrow(); var content = authored(QuestionType.HOTSPOT);
+            content.path("regions").forEach(r -> ((ObjectNode) r).put("correct", r.path("id").asInt() == 2));
+            q.setContent(content.toString()); questions.saveAndFlush(q);
+        });
+        var later = publish(1, publication.questions()); var q2 = publications.read(quizId, later).content().items().get(0).question();
+        var bindingV2 = new QuestionContractBinding(q2.id(), hotspotResponseV2().version(), hotspotScoringV2().version());
+        questionContracts.bind(ownerId, later, List.of(bindingV2));
+        var q1 = publications.read(quizId, publication.revision()).content().items().get(0).question();
+        var payload = json.createObjectNode().put("selectedRegionId", 1); var restarted = restartedHotspotContracts();
+        assertThat(restarted.resolve(ownerId, publication.revision()).get(q1.id()).scoring().score(q1, payload).earned()).isEqualByComparingTo("1");
+        assertThat(new HotspotScoringContractV1().score(q2, payload).earned()).isEqualByComparingTo("0");
+        assertThat(restarted.resolve(ownerId, later).get(q2.id()).scoring().score(q2, payload).earned()).isEqualByComparingTo("1");
+        assertThat(restarted.resolve(ownerId, later).get(q2.id()).binding()).isEqualTo(bindingV2);
+    }
+
+    @Test void hotspotUnknownContractAndReachedBindingFailurePreserveCommittedPublication() {
+        var publication = hotspotPublication(2); var before = publications.current(quizId).orElseThrow();
+        var expected = new ArrayList<>(publications.read(quizId, publication.revision()).content().items().stream()
+                .map(item -> SupportedQuestionContracts.binding(item.question())).toList());
+        var last = expected.get(1); expected.set(1, new QuestionContractBinding(last.questionRevisionId(), last.response(),
+                new ContractVersion(last.scoring().id(), 99)));
+        assertThatThrownBy(() -> questionContracts.bind(ownerId, publication.revision(), expected)).isInstanceOf(ContractResolutionException.class);
+        assertThat(count("question_revision_contract_bindings")).isZero(); assertThat(publications.current(quizId).orElseThrow()).isEqualTo(before);
+        var reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.startsWith("INSERT INTO question_revision_contract_bindings") && reached.compareAndSet(false, true))
+                throw new SQLException("hotspot-binding-write-failure", "08006");
+        };
+        assertThatThrownBy(() -> binding.bind(quizId, publication.revision())).isInstanceOf(ContractResolutionException.class);
+        assertThat(reached).isTrue(); observer().reset();
+        assertThat(count("question_revision_contract_bindings")).isZero(); assertThat(publications.current(quizId).orElseThrow()).isEqualTo(before);
+        assertThat(count("quiz_publications")).isEqualTo(1); assertThat(count("quiz_publication_receipts")).isEqualTo(1);
+        assertThat(binding.bind(quizId, publication.revision())).hasSize(2);
+        assertThat(binding.bind(quizId, publication.revision())).hasSize(2);
+    }
+
+    @Test void hotspotCompetingBindingsHaveOneDurableWinnerAfterReconstruction() throws Exception {
+        var publication = hotspotPublication(1); var q = publications.read(quizId, publication.revision()).content().items().get(0).question();
+        var a = SupportedQuestionContracts.binding(q); var b = new QuestionContractBinding(q.id(), hotspotResponseV2().version(), hotspotScoringV2().version());
+        var barrier = new CyclicBarrier(2); var pool = Executors.newFixedThreadPool(2);
+        java.util.function.Function<QuestionContractBinding, Boolean> write = value -> {
+            authenticate(username);
+            try { barrier.await(120, TimeUnit.SECONDS); questionContracts.bind(ownerId, publication.revision(), List.of(value)); return true; }
+            catch (ContractResolutionException failure) { assertThat(failure.reason()).isEqualTo(ContractResolutionException.Reason.BINDING_CONFLICT); return false; }
+            catch (Exception failure) { throw new AssertionError(failure); }
+            finally { SecurityContextHolder.clearContext(); }
+        };
+        try {
+            var first = pool.submit(() -> write.apply(a)); var second = pool.submit(() -> write.apply(b));
+            assertThat(List.of(first.get(180, TimeUnit.SECONDS), second.get(180, TimeUnit.SECONDS))).containsExactlyInAnyOrder(true, false);
+        } finally { pool.shutdownNow(); assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue(); }
+        var saved = restartedHotspotContracts().resolve(ownerId, publication.revision()).get(q.id()).binding();
+        assertThat(saved).isIn(a, b); assertThat(count("question_revision_contract_bindings")).isEqualTo(1);
+        assertThatThrownBy(() -> questionContracts.bind(ownerId, publication.revision(), List.of(saved.equals(a) ? b : a)))
+                .isInstanceOf(ContractResolutionException.class);
+        assertThat(restartedHotspotContracts().resolve(ownerId, publication.revision()).get(q.id()).binding()).isEqualTo(saved);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"attempt_accepted_response", "attempt_lifecycle_state", "attempt_trace_event", "attempt_command_receipt"})
+    void hotspotAcceptanceRollbackReplayForeignReferencesAndAuthorityUseRealWriters(String table) {
+        var attempt = hotspotAttempt(2, AnswerOrder.AUTHORED); var command = hotspotCommand(attempt, "hotspot-durable", hotspotInput(attempt, 0, "1"));
+        long receipts = count("attempt_command_receipt"), traces = count("attempt_trace_event"); var reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> {
+            boolean checkpoint = statement.contains(table) && (table.equals("attempt_accepted_response") || table.equals("attempt_trace_event")
+                    ? statement.stripLeading().startsWith("INSERT") : statement.stripLeading().startsWith("UPDATE"));
+            if (checkpoint && reached.compareAndSet(false, true))
+                throw new SQLException("hotspot-accept-write-failure", "08006");
+        };
+        try { assertThatThrownBy(() -> responses.accept(command)).isInstanceOfAny(ResponseAcceptanceException.class,
+                uk.gegc.quizmaker.features.attempt.domain.model.receipt.ReceiptException.class); }
+        finally { observer().reset(); }
+        assertThat(reached).isTrue();
+        assertThat(count("attempt_accepted_response")).isZero(); assertThat(count("attempt_command_receipt")).isEqualTo(receipts);
+        assertThat(count("attempt_trace_event")).isEqualTo(traces);
+        assertThat(tx.execute(s -> sql.queryForObject("SELECT row_version FROM attempt_lifecycle_state WHERE attempt_id=UUID_TO_BIN(?)",
+                Long.class, attempt.start().attemptId().toString())).longValue()).isEqualTo(1);
+        var foreign = hotspotInput(attempt, 1, "1"); // A real region from another item in the same form.
+        assertThatThrownBy(() -> responses.accept(hotspotCommand(attempt, "hotspot-foreign", foreign))).isInstanceOf(ResponseAcceptanceException.class);
+        assertThat(count("attempt_accepted_response")).isZero();
+        var accepted = responses.accept(command);
+        var recreated = new ResponseAcceptanceServiceImpl(context.getBean(AuthenticatedSubjectResolver.class), context.getBean(AttemptAccessService.class),
+                context.getBean(AttemptReadFactsService.class), context.getBean(AttemptLifecycleService.class), context.getBean(AcceptedResponseRepository.class),
+                context.getBean(CommandReceiptService.class), context.getBean(ExecutionTraceService.class), context.getBean(Clock.class), metrics, manager);
+        assertThat(recreated.accept(command).acceptedResponseId()).isEqualTo(accepted.acceptedResponseId());
+        assertThat(recreated.accept(command).replayed()).isTrue();
+        SecurityContextHolder.clearContext(); assertThatThrownBy(() -> recreated.accept(command)).isInstanceOf(ResponseAcceptanceException.class);
+        var other = "hotspot-other-" + UUID.randomUUID().toString().substring(0, 8); var otherId = user(other, true);
+        grant(otherId, "ATTEMPT_READ", "ATTEMPT_CREATE"); authenticate(other);
+        assertThatThrownBy(() -> recreated.accept(command)).isInstanceOf(ResponseAcceptanceException.class);
+        authenticate(username); assertThat(recreated.accept(command).replayed()).isTrue();
+        tx.executeWithoutResult(s -> sql.update("DELETE rp FROM role_permissions rp JOIN roles r ON r.role_id=rp.role_id "
+                + "JOIN user_roles ur ON ur.role_id=r.role_id JOIN permissions p ON p.permission_id=rp.permission_id "
+                + "WHERE ur.user_id=UUID_TO_BIN(?) AND p.permission_name='ATTEMPT_CREATE'", ownerId.toString()));
+        assertThatThrownBy(() -> recreated.accept(command)).isInstanceOf(ResponseAcceptanceException.class);
+        grant(ownerId, "ATTEMPT_CREATE"); assertThat(recreated.accept(command).replayed()).isTrue();
+        assertThat(count("attempt_accepted_response")).isEqualTo(1);
+    }
+
+    @Test void hotspotBatchAndCallerRollbackRetainOneAtomicOutcome() {
+        var attempt = hotspotAttempt(2, AnswerOrder.SHUFFLED_PER_ATTEMPT);
+        var items = IntStream.range(0, 2).mapToObj(i -> new ResponseBatchAcceptanceService.BatchItem(attempt.form().items().get(i).id(),
+                QuestionType.HOTSPOT, hotspotInput(attempt, i, i == 0 ? "1" : "2"))).toList();
+        var command = new ResponseBatchAcceptanceService.BatchCommand(attempt.start().attemptId(), 1, CommandReceipt.Key.from("hotspot-batch"), items);
+        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        outer.executeWithoutResult(s -> { batches.acceptBatch(command); assertThat(count("attempt_accepted_response")).isEqualTo(2); s.setRollbackOnly(); });
+        assertThat(count("attempt_accepted_response")).isZero();
+        var accepted = batches.acceptBatch(command); assertThat(batches.acceptBatch(command).replayed()).isTrue();
+        assertThat(count("attempt_accepted_response")).isEqualTo(2);
+        var submitted = submissions.submit(new AttemptSubmissionService.Command(attempt.start().attemptId(), accepted.stateVersion(), true,
+                CommandReceipt.Key.from("hotspot-batch-submit")));
+        assertThat(results.finalizeSubmission(submitted.submissionId()).score().earned()).isEqualTo(1);
+    }
+
+    @Test void hotspotInternalFormsHaveBoundedSqlAndVersionResolutionDoesNotReadContentOrStorage() throws Exception {
+        var totals = new ArrayList<Integer>();
+        for (int size : List.of(1, 20)) {
+            var attempts = new ArrayList<HotspotAttempt>();
+            for (int parent = 0; parent < 3; parent++) attempts.add(hotspotAttempt(size, AnswerOrder.SHUFFLED_PER_ATTEMPT));
+            int storageCalls = imageStorage.calls; observer().selects.clear();
+            for (var attempt : attempts) {
+                var rendered = json.readTree(json.writeValueAsString(hotspotForm(attempt.start().attemptId())));
+                assertThat(rendered.path("items")).hasSize(size);
+                assertThat(rendered.toString()).doesNotContain("correct", "imageUrl", "sourceKey", "https:");
+            }
+            totals.add(observer().selects.size()); assertThat(imageStorage.calls).isEqualTo(storageCalls);
+            observer().selects.clear();
+            assertThat(restartedHotspotContracts().resolve(ownerId, attempts.get(0).publication().revision())).hasSize(size);
+            assertThat(observer().selects).isNotEmpty().hasSizeLessThan(10)
+                    .allSatisfy(statement -> assertThat(statement).doesNotContain("content", "question_text", "normalized_text", "documents"));
+            assertThat(imageStorage.calls).isEqualTo(storageCalls);
+        }
+        assertThat(totals.get(0)).isPositive().isLessThan(150); assertThat(totals.get(1)).isEqualTo(totals.get(0));
+        System.out.println("HOTSPOT internal form SQL for 3 parents with 1/20 items: " + totals);
     }
 
     private MediaFixture complianceMediaFixture(boolean complete) {

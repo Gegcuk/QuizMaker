@@ -60,13 +60,18 @@ public final class ParticipantFormProjector {
             require(pair != null && pair.binding().equals(options.binding()), INPUT_MISMATCH);
             // Media retention/generation authority belongs to the real publication/media integrations.
             boolean media = question.attachmentAssetId() != null || question.attachmentUrl() != null;
-            require(!media || mediaItems.contains(item.id()), UNSUPPORTED_MEDIA);
+            // HOTSPOT has an explicit internal retained-image projection. Public rendering is still
+            // unsupported; this opt-in permits real start/answer/grading integration without a URL fallback.
+            require(!media || mediaItems.contains(item.id()) || question.type() == QuestionType.HOTSPOT, UNSUPPORTED_MEDIA);
             require(!mediaItems.contains(item.id()) || question.attachmentAssetId() != null, INPUT_MISMATCH);
             ParticipantContent content;
             try {
                 content = mediaItems.contains(item.id()) ? pair.response().participantContentWithSeparateAttachment(question)
                         : pair.response().participantContent(question);
                 require(content != null, INVALID_MATERIAL);
+                if (media && !mediaItems.contains(item.id()))
+                    require(content instanceof ParticipantContent.Hotspot hotspot
+                            && hotspot.imageAssetId().equals(question.attachmentAssetId()), UNSUPPORTED_MEDIA);
                 content = orderedContent(question.type(), content, options.optionIds());
             } catch (ContractResolutionException failure) {
                 // A bounded message does not make adapter-supplied causes/suppressed data safe.
@@ -116,6 +121,15 @@ public final class ParticipantFormProjector {
                 statements.forEach(statement -> byId.put(statement.id(), statement));
                 require(byId.size() == order.size() && new java.util.HashSet<>(order).equals(byId.keySet()), INVALID_MATERIAL);
                 yield new ParticipantContent.Compliance(order.stream().map(byId::get).toList());
+            }
+            case HOTSPOT -> {
+                require(content instanceof ParticipantContent.Hotspot, INVALID_MATERIAL);
+                var hotspot = (ParticipantContent.Hotspot) content;
+                var byId = new HashMap<UUID, ParticipantContent.HotspotRegion>();
+                hotspot.regions().forEach(region -> byId.put(region.id(), region));
+                require(byId.size() == order.size() && new java.util.HashSet<>(order).equals(byId.keySet()), INVALID_MATERIAL);
+                yield new ParticipantContent.Hotspot(hotspot.imageAssetId(), hotspot.imageDescription(),
+                        order.stream().map(byId::get).toList());
             }
             case FILL_GAP -> {
                 require(content instanceof ParticipantContent.FillGap, INVALID_MATERIAL);

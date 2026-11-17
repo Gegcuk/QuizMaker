@@ -164,7 +164,9 @@ class MatchingContractV1Test {
             assertThatThrownBy(() -> registry.resolve(new QuestionContractBinding(q.id(),
                     SupportedQuestionContracts.COMPLIANCE_RESPONSE, SupportedQuestionContracts.COMPLIANCE_SCORING)))
                     .isInstanceOf(ContractResolutionException.class);
-            assertThatThrownBy(() -> SupportedQuestionContracts.response(QuestionType.HOTSPOT)).isInstanceOf(ContractResolutionException.class);
+            assertThatThrownBy(() -> registry.resolve(new QuestionContractBinding(UUID.randomUUID(),
+                    SupportedQuestionContracts.HOTSPOT_RESPONSE, SupportedQuestionContracts.HOTSPOT_SCORING)))
+                    .isInstanceOf(ContractResolutionException.class);
         }
     }
 

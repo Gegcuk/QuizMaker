@@ -144,7 +144,9 @@ class ComplianceContractV1Test {
                         unknownResponse ? new ContractVersion(binding.response().id(), 99) : binding.response(),
                         unknownResponse ? binding.scoring() : new ContractVersion(binding.scoring().id(), 99))))
                         .isInstanceOf(ContractResolutionException.class);
-            assertThatThrownBy(() -> SupportedQuestionContracts.response(QuestionType.HOTSPOT)).isInstanceOf(ContractResolutionException.class);
+            assertThatThrownBy(() -> registry.resolve(new QuestionContractBinding(UUID.randomUUID(),
+                    SupportedQuestionContracts.HOTSPOT_RESPONSE, SupportedQuestionContracts.HOTSPOT_SCORING)))
+                    .isInstanceOf(ContractResolutionException.class);
             assertThatThrownBy(() -> BaselineQuestionContracts.response(QuestionType.COMPLIANCE)).isInstanceOf(ContractResolutionException.class);
         }
     }
