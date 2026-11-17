@@ -87,6 +87,7 @@ import static org.assertj.core.api.Assertions.*;
         HotspotHandler.class, OpenQuestionHandler.class, MatchingHandler.class, ComplianceHandler.class,
         QuestionContractRegistryImpl.class, QuestionRevisionContractServiceImpl.class, JdbcQuestionContractBindingRepository.class,
         PublishedQuestionContractServiceImpl.class, BaselineQuestionContractConfig.class,
+        uk.gegc.quizmaker.features.question.config.ComplianceQuestionContractConfig.class,
         FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
         ResponseAcceptanceServiceImpl.class, JdbcAcceptedResponseRepository.class,
@@ -340,6 +341,25 @@ class DraftCommandMySqlIntegrationTest {
             }
         } finally { observer().reset(); logger.detachAppender(events); logger.setLevel(oldLevel); events.stop(); }
         assertThat(count("attempt_answer_draft")).isZero(); assertThat(count("attempt_draft_command_result")).isZero();
+    }
+
+    @Test void complianceDraftPreservesDuplicatesAndDurableReplayWithoutConfirmingOrGrading() throws Exception {
+        var revision = publish(0, List.of(draft(QuestionType.COMPLIANCE))); binding.bind(quizId, revision);
+        var started = starts.start(command(revision, AnswerOrder.AUTHORED, "compliance-draft-start"));
+        var item = delivery.read(started.attemptId()).form().items().get(0); var ref = reference(started, item);
+        var statement = ((ParticipantContent.Compliance) item.content()).statements().get(0).id().toString();
+        var payload = json.createObjectNode(); payload.putArray("selectedStatementIds").add(statement).add(statement);
+        var command = new DraftCommandService.Command(uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands.Type.SAVE_DRAFT,
+                started.attemptId(), item.id(), 1, 0, CommandReceipt.Key.from("compliance-draft"), QuestionType.COMPLIANCE, payload);
+        var result = commands.execute(command); assertThat(result.draftVersion()).isEqualTo(1); assertThat(result.stateVersion()).isEqualTo(1);
+        assertThat(restarted().execute(command).replayed()).isTrue();
+        var saved = recreated().read(ownerId, ref).orElseThrow();
+        assertThat(json.readTree(saved.normalizedResponse()).path("selectedStatementIds")).hasSize(2);
+        assertThat(count("attempt_accepted_response")).isZero(); assertThat(count("attempt_submission")).isZero();
+        var changed = payload.deepCopy(); changed.withArray("selectedStatementIds").remove(1);
+        commandRejected(() -> commands.execute(new DraftCommandService.Command(command.operation(), started.attemptId(), item.id(),
+                1, 0, command.key(), QuestionType.COMPLIANCE, changed)), DraftCommandException.Reason.CONFLICT);
+        assertThat(recreated().read(ownerId, ref).orElseThrow()).isEqualTo(saved);
     }
 
     @Test void replayKeepsOriginalAcknowledgementAfterNewerSaveDeleteCompletionAndRestart() {

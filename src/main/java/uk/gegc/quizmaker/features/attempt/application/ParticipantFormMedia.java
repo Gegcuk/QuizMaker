@@ -30,6 +30,11 @@ public final class ParticipantFormMedia {
                     if (option.image() != null) references.add(new ParticipantViewMediaReader.Reference(
                             item.id(), question.id(), option.image().assetId(), option.id()));
             }
+            if (content.get(item.id()) instanceof ParticipantContent.Compliance compliance) {
+                for (var statement : compliance.statements()) if (statement.image() != null)
+                    references.add(new ParticipantViewMediaReader.Reference(item.id(), question.id(),
+                            statement.image().assetId(), statement.id()));
+            }
         }
         var expected = new HashSet<>(references);
         if (expected.size() != references.size()) throw new AttemptDeliveryException(CORRUPT);

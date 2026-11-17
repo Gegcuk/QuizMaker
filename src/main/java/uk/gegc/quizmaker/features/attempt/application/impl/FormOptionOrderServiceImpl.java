@@ -34,7 +34,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.ordering.OptionOrd
 @Service
 public class FormOptionOrderServiceImpl implements FormOptionOrderService {
     private static final Set<QuestionType> FAMILIES = Set.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
-            QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING, QuestionType.OPEN, QuestionType.MATCHING);
+            QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING, QuestionType.OPEN, QuestionType.MATCHING, QuestionType.COMPLIANCE);
     private final QuizRevisionRepository revisions;
     private final QuestionRevisionContractService contracts;
     private final FixedFormRepository forms;

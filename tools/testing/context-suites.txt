@@ -171,6 +171,7 @@ uk/gegc/quizmaker/features/media/domain/repository/MediaAssetRepositoryResolutio
 uk/gegc/quizmaker/features/question/api/QuestionContractsOpenApiTest.java
 uk/gegc/quizmaker/features/question/application/QuestionContractsIntegrationTest.java
 uk/gegc/quizmaker/features/question/application/QuestionSourceMigrationMySqlIntegrationTest.java
+uk/gegc/quizmaker/features/question/contract/ComplianceContractV1Test.java
 uk/gegc/quizmaker/features/question/contract/FamilyContractV1Test.java
 uk/gegc/quizmaker/features/question/contract/MatchingContractV1Test.java
 uk/gegc/quizmaker/features/question/contract/OpenContractV1Test.java

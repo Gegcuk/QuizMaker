@@ -2,6 +2,47 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## COMPLIANCE immutable answer contract (#829)
+
+Run `ComplianceContractV1Test`, `ComplianceHandlerTest`, `MatchingContractV1Test`,
+`OpenContractV1Test`, `FamilyContractV1Test` and `StableResponseNormalizerTest` first.
+Then run `PublishedFamilyContractsMySqlIntegrationTest`,
+`ImmediateResultReleaseMySqlIntegrationTest`, `DraftCommandMySqlIntegrationTest`,
+`ResponseAcceptanceOpenApiTest`, `DraftCommandOpenApiTest`, `AttemptFormOpenApiContractTest`
+and `ParticipantAttemptViewOpenApiContractTest` through the existing isolated MySQL/offline
+launcher. Finish with the full four-worker clean-verify gate; keep all previous inventory
+entries, exclusive scheduling and coverage thresholds.
+
+Golden fixtures compare the actual public legacy handler with frozen COMPLIANCE v1.
+Cover multiple compliant statements, exact/partial/extra/empty/unknown selections,
+order independence and duplicate selections. Duplicates are valid answers worth zero;
+canonical transport sorts UUIDs but must never deduplicate them. Public transport rejects
+foreign or malformed UUIDs before an accepted answer is written. Author fixtures include
+2–6 statements, missing/non-boolean flags, duplicate/signed-boundary IDs and media-only
+statements. The five-family #701 catalogue stays frozen.
+
+Publication evidence must distinguish saved v1 from deliberately different test-only v2,
+reach binding-write failures, retain the independent committed publication/pointer, and
+prove one durable concurrent binding winner. Production supports only COMPLIANCE v1.
+The existing metadata-only registry tests cover large scopes without selecting document
+or question content; text-only family storage fakes reject all external access.
+
+Execution evidence uses real publication, start, acceptance, batch, terminal submission,
+grading and release writers. Reach failures after answer/state/trace/receipt SQL and inspect
+fresh transactions before retry. Preserve caller RC rollback, replay authorization, original
+statement UUID/order and historical results after author edits. Draft save/restart/replay
+must retain duplicates without confirming or grading the answer. Measure serialized released
+views for three parents with 1 and 20 COMPLIANCE questions and assert equal bounded SELECTs.
+
+Media fixtures prepare/bind/remove an actual retained image and publish media-only statements.
+Only storage and the current display-authority port are faked. Repeated use of one asset in
+two statements must retain two occurrence identities. Reader-authorized URLs must differ
+from captured publication URLs; unavailable/restricted review keeps markers and scores,
+active delivery refuses missing access, and missing/foreign occurrence output fails closed.
+The default missing integration must refuse media. No provider availability or public
+activation is established by these local component integrations; #818/#831 and #609 retain
+their respective rollout gates.
+
 ## MATCHING immutable answer contract (#827)
 
 Run `MatchingContractV1Test`, `MatchingHandlerTest`, `FamilyContractV1Test`,

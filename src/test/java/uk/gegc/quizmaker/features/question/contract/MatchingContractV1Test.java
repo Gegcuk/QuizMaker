@@ -161,8 +161,10 @@ class MatchingContractV1Test {
             assertThat(registry.resolve(binding).scoring().version()).isEqualTo(SupportedQuestionContracts.MATCHING_SCORING);
             assertThatThrownBy(() -> registry.resolve(new QuestionContractBinding(q.id(), binding.response(),
                     new ContractVersion(binding.scoring().id(), 99)))).isInstanceOf(ContractResolutionException.class);
-            for (var type : List.of(QuestionType.COMPLIANCE, QuestionType.HOTSPOT))
-                assertThatThrownBy(() -> SupportedQuestionContracts.response(type)).isInstanceOf(ContractResolutionException.class);
+            assertThatThrownBy(() -> registry.resolve(new QuestionContractBinding(q.id(),
+                    SupportedQuestionContracts.COMPLIANCE_RESPONSE, SupportedQuestionContracts.COMPLIANCE_SCORING)))
+                    .isInstanceOf(ContractResolutionException.class);
+            assertThatThrownBy(() -> SupportedQuestionContracts.response(QuestionType.HOTSPOT)).isInstanceOf(ContractResolutionException.class);
         }
     }
 

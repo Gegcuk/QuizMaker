@@ -123,6 +123,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         PublishedQuestionContractServiceImpl.class, BaselineQuestionContractConfig.class,
         uk.gegc.quizmaker.features.question.config.OpenQuestionContractConfig.class,
         uk.gegc.quizmaker.features.question.config.MatchingQuestionContractConfig.class,
+        uk.gegc.quizmaker.features.question.config.ComplianceQuestionContractConfig.class,
         FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
         ResponseAcceptanceServiceImpl.class, JdbcAcceptedResponseRepository.class,
@@ -277,6 +278,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         String content=switch(type) {
             case MCQ_SINGLE -> "{\"options\":[{\"id\":\"a\",\"text\":\"Paris\",\"correct\":true},{\"id\":\"b\",\"text\":\"Rome\",\"correct\":false}]}";
             case MCQ_MULTI -> "{\"options\":[{\"id\":\"a\",\"text\":\"A\",\"correct\":true},{\"id\":\"b\",\"text\":\"B\",\"correct\":false},{\"id\":\"c\",\"text\":\"C\",\"correct\":true}]}";
+            case COMPLIANCE -> "{\"statements\":[{\"id\":1,\"text\":\"One\",\"compliant\":true},{\"id\":2,\"text\":\"Two\",\"compliant\":false},{\"id\":3,\"text\":\"Three\",\"compliant\":true}]}";
             case TRUE_FALSE -> "{\"answer\":true}";
             case OPEN -> "{\"answer\":\"Paris\"}";
             case MATCHING -> "{\"left\":[{\"id\":1,\"text\":\"Apple\",\"matchId\":10},{\"id\":2,\"text\":\"Banana\",\"matchId\":11}],\"right\":[{\"id\":10,\"text\":\"Red\"},{\"id\":11,\"text\":\"Yellow\"}]}";
@@ -298,6 +300,11 @@ class ImmediateResultReleaseMySqlIntegrationTest {
                         .put("rightId", matching.right().get(correct ? 0 : 1).id().toString());
                 pairs.addObject().put("leftId", matching.left().get(1).id().toString())
                         .put("rightId", matching.right().get(1).id().toString());
+            }
+            case COMPLIANCE -> {
+                var statements = ((ParticipantContent.Compliance) item.content()).statements();
+                var selected = value.putArray("selectedStatementIds").add(statements.get(0).id().toString());
+                if (correct) selected.add(statements.get(2).id().toString());
             }
             case MCQ_SINGLE -> value.put("selectedOptionId",((ParticipantContent.Choices)item.content()).options().get(correct?0:1).id().toString());
             case MCQ_MULTI -> {
@@ -583,6 +590,318 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         }
         assertThat(totals.get(0)).isPositive().isLessThan(150); assertThat(totals.get(1)).isEqualTo(totals.get(0));
         System.out.println("MATCHING released result SQL for 3 parents with 1/20 items: " + totals);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"correct", "reversed", "partial", "empty", "extra", "duplicate"})
+    void realComplianceSelectionsKeepBinaryPointsAndIndependentReviewDisclosure(String variant) throws Exception {
+        var attempt = complianceAttempt(AnswerOrder.AUTHORED); var payload = input(attempt.item(), true);
+        var statements = ((ParticipantContent.Compliance) attempt.item().content()).statements();
+        var ids = payload.withArray("selectedStatementIds");
+        switch (variant) {
+            case "reversed" -> { var first = ids.remove(0); ids.add(first); }
+            case "partial" -> ids.remove(1);
+            case "empty" -> ids.removeAll();
+            case "extra" -> ids.add(statements.get(1).id().toString());
+            case "duplicate" -> ids.add(ids.get(0));
+            case "correct" -> { }
+            default -> throw new AssertionError(variant);
+        }
+        var accepted = responses.accept(complianceCommand(attempt, "selection-flow", payload));
+        assertThat(responses.accept(complianceCommand(attempt, "selection-flow", payload)).replayed()).isTrue();
+        assertThat(view(attempt.id()).result()).isNull();
+        var submitted = submissions.submit(new AttemptSubmissionService.Command(attempt.id(), accepted.stateVersion(), true,
+                CommandReceipt.Key.from("selection-flow-submit")));
+        boolean correct = variant.equals("correct") || variant.equals("reversed");
+        var result = results.finalizeSubmission(submitted.submissionId());
+        assertThat(result.score().earned()).isEqualTo(correct ? 1 : 0);
+        assertThat(result.items().get(0).responseContract()).isEqualTo(
+                uk.gegc.quizmaker.features.question.application.contract.v1.SupportedQuestionContracts.COMPLIANCE_RESPONSE);
+        releases.release(submitted.submissionId()); var item = view(attempt.id()).result().items().get(0);
+        assertThat(item.correctness()).isEqualTo(correct);
+        assertThat(((ParticipantResultView.Options) item.submittedAnswer()).optionIds()).hasSize(ids.size());
+        assertThat(((ParticipantResultView.Options) item.correctAnswer()).optionIds())
+                .containsExactly(statements.get(0).id(), statements.get(2).id());
+        mvc().perform(get("/api/v2/attempts/{id}/review", attempt.id())
+                .principal(SecurityContextHolder.getContext().getAuthentication()).param("includeCorrectAnswers", "false"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.result.items[0].correctAnswer").doesNotExist());
+        assertThat(count("attempt_accepted_response")).isEqualTo(1); assertThat(count("answers")).isZero();
+    }
+
+    private record ComplianceAttempt(UUID id, ParticipantForm.Item item) { }
+    private ComplianceAttempt complianceAttempt(AnswerOrder order) {
+        quizId = newQuiz(); var revision = publish(0, List.of(draft(QuestionType.COMPLIANCE))); binding.bind(quizId, revision);
+        var start = starts.start(command(revision, order, "compliance-start-" + UUID.randomUUID()));
+        return new ComplianceAttempt(start.attemptId(), delivery.read(start.attemptId()).form().items().get(0));
+    }
+    private ResponseAcceptanceService.Command complianceCommand(ComplianceAttempt attempt, String key, com.fasterxml.jackson.databind.JsonNode payload) {
+        return new ResponseAcceptanceService.Command(attempt.id(), attempt.item().id(), 1, CommandReceipt.Key.from(key), QuestionType.COMPLIANCE, payload);
+    }
+
+    @Test void duplicateComplianceSelectionsStayAcceptedWrongAnswersThroughDurableGradingAndReview() throws Exception {
+        var attempt = complianceAttempt(AnswerOrder.AUTHORED); var payload = input(attempt.item(), true);
+        payload.withArray("selectedStatementIds").add(payload.path("selectedStatementIds").get(0));
+        var command = complianceCommand(attempt, "duplicate-statements", payload);
+        var accepted = responses.accept(command); assertThat(responses.accept(command).replayed()).isTrue();
+        String storedJson = tx.execute(s -> sql.queryForObject("SELECT normalized_response FROM attempt_accepted_response", String.class));
+        var stored = json.readTree(storedJson);
+        assertThat(stored.path("selectedStatementIds")).hasSize(3);
+        var changed = payload.deepCopy(); changed.withArray("selectedStatementIds").remove(2);
+        assertThatThrownBy(() -> responses.accept(complianceCommand(attempt, "duplicate-statements", changed))).isInstanceOf(ResponseAcceptanceException.class);
+        var submitted = submissions.submit(new AttemptSubmissionService.Command(attempt.id(), accepted.stateVersion(), true, CommandReceipt.Key.from("compliance-submit")));
+        assertThat(results.finalizeSubmission(submitted.submissionId()).score().earned()).isZero(); releases.release(submitted.submissionId());
+        var item = view(attempt.id()).result().items().get(0);
+        assertThat(((ParticipantResultView.Options) item.submittedAnswer()).optionIds()).hasSize(3);
+        assertThat(((ParticipantResultView.Options) item.correctAnswer()).optionIds()).hasSize(2);
+        assertThat(item.correctness()).isFalse(); assertThat(count("attempt_accepted_response")).isEqualTo(1);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"foreign", "malformed"})
+    void invalidComplianceReferencesLeaveNoAnswerReceiptStateOrTraceAndValidControlCommits(String defect) {
+        var own = complianceAttempt(AnswerOrder.AUTHORED); var payload = input(own.item(), true);
+        payload.withArray("selectedStatementIds").set(0, json.getNodeFactory().textNode(defect.equals("malformed") ? "1" : UUID.randomUUID().toString()));
+        var before = view(own.id()); var receipts = count("attempt_command_receipt"); var traces = count("attempt_trace_event");
+        assertThatThrownBy(() -> responses.accept(complianceCommand(own, "invalid-compliance", payload))).isInstanceOf(ResponseAcceptanceException.class);
+        assertThat(count("attempt_accepted_response")).isZero(); assertThat(count("attempt_command_receipt")).isEqualTo(receipts);
+        assertThat(count("attempt_trace_event")).isEqualTo(traces); assertThat(view(own.id())).isEqualTo(before);
+        assertThat(responses.accept(complianceCommand(own, "invalid-compliance", input(own.item(), true))).replayed()).isFalse();
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"attempt_accepted_response", "attempt_lifecycle_state", "attempt_trace_event", "attempt_command_receipt"})
+    void reachedComplianceWriteFailuresRollBackThenRetryAndReplayOnce(String table) {
+        var attempt = complianceAttempt(AnswerOrder.AUTHORED); var command = complianceCommand(attempt, "durable-compliance", input(attempt.item(), true));
+        var before = view(attempt.id()); var receipts = count("attempt_command_receipt"); var traces = count("attempt_trace_event");
+        var reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> {
+            boolean checkpoint = statement.contains(table) && (table.equals("attempt_accepted_response") || table.equals("attempt_trace_event")
+                    ? statement.stripLeading().startsWith("INSERT") : statement.stripLeading().startsWith("UPDATE"));
+            if (checkpoint && reached.compareAndSet(false, true)) throw new SQLException("compliance-write-fixture", "08006");
+        };
+        try { assertThatThrownBy(() -> responses.accept(command)).isInstanceOf(RuntimeException.class); }
+        finally { observer().reset(); }
+        assertThat(reached).isTrue(); assertThat(count("attempt_accepted_response")).isZero();
+        assertThat(count("attempt_command_receipt")).isEqualTo(receipts); assertThat(count("attempt_trace_event")).isEqualTo(traces);
+        assertThat(view(attempt.id())).isEqualTo(before);
+        var accepted = responses.accept(command);
+        var recreated = new ResponseAcceptanceServiceImpl(context.getBean(AuthenticatedSubjectResolver.class), context.getBean(AttemptAccessService.class),
+                context.getBean(AttemptReadFactsService.class), context.getBean(AttemptLifecycleService.class), context.getBean(AcceptedResponseRepository.class),
+                context.getBean(CommandReceiptService.class), context.getBean(ExecutionTraceService.class), context.getBean(Clock.class), metrics, manager);
+        assertThat(recreated.accept(command).acceptedResponseId()).isEqualTo(accepted.acceptedResponseId());
+        assertThat(recreated.accept(command).replayed()).isTrue(); assertThat(count("attempt_accepted_response")).isEqualTo(1);
+    }
+
+    @Test void complianceParticipatesInCallerRcRollbackAndReauthorizesReplay() {
+        var own = complianceAttempt(AnswerOrder.AUTHORED); var command = complianceCommand(own, "outer-compliance", input(own.item(), true));
+        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        outer.executeWithoutResult(s -> { responses.accept(command); s.setRollbackOnly(); });
+        assertThat(count("attempt_accepted_response")).isZero(); assertThat(view(own.id()).stateVersion()).isEqualTo(1);
+        responses.accept(command); SecurityContextHolder.clearContext();
+        assertThatThrownBy(() -> responses.accept(command)).isInstanceOf(ResponseAcceptanceException.class);
+        var foreign = user("compliance-foreign-" + UUID.randomUUID().toString().substring(0, 8), true); grant(foreign, "ATTEMPT_READ", "ATTEMPT_CREATE");
+        authenticate(sql.queryForObject("SELECT username FROM users WHERE user_id=UUID_TO_BIN(?)", String.class, foreign.toString()));
+        assertThatThrownBy(() -> responses.accept(command)).isInstanceOf(ResponseAcceptanceException.class);
+        authenticate(username); assertThat(responses.accept(command).replayed()).isTrue();
+    }
+
+    @Test void concurrentIdenticalComplianceCommandsCommitOneAcceptanceAndReplayTheWinner() throws Exception {
+        var attempt = complianceAttempt(AnswerOrder.AUTHORED); var command = complianceCommand(attempt, "concurrent-compliance", input(attempt.item(), true));
+        var barrier = new CyclicBarrier(2); var pool = Executors.newFixedThreadPool(2);
+        Callable<ResponseAcceptanceService.Result> work = () -> {
+            authenticate(username);
+            try { barrier.await(10, TimeUnit.SECONDS); return responses.accept(command); }
+            finally { SecurityContextHolder.clearContext(); }
+        };
+        try {
+            var first = pool.submit(work); var second = pool.submit(work);
+            var a = first.get(20, TimeUnit.SECONDS); var b = second.get(20, TimeUnit.SECONDS);
+            assertThat(List.of(a.replayed(), b.replayed())).containsExactlyInAnyOrder(true, false);
+            assertThat(a.acceptedResponseId()).isEqualTo(b.acceptedResponseId());
+        } finally { pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+        assertThat(count("attempt_accepted_response")).isEqualTo(1); assertThat(view(attempt.id()).stateVersion()).isEqualTo(2);
+    }
+
+    @Test void mixedComplianceBatchRejectsForeignReferencesAtomicallyThenReplaysAndGradesRealWrites() {
+        quizId = newQuiz(); var revision = publish(0, List.of(draft(QuestionType.TRUE_FALSE), draft(QuestionType.COMPLIANCE))); binding.bind(quizId, revision);
+        var start = starts.start(command(revision, AnswerOrder.AUTHORED, "compliance-batch-start"));
+        var items = delivery.read(start.attemptId()).form().items(); var payload = input(items.get(1), true);
+        var truth = new ResponseBatchAcceptanceService.BatchItem(items.get(0).id(), QuestionType.TRUE_FALSE, json.createObjectNode().put("answer", true));
+        var invalid = payload.deepCopy(); invalid.withArray("selectedStatementIds").set(0, json.getNodeFactory().textNode(UUID.randomUUID().toString()));
+        var key = CommandReceipt.Key.from("compliance-batch"); var receipts = count("attempt_command_receipt"); var traces = count("attempt_trace_event");
+        assertThatThrownBy(() -> batches.acceptBatch(new ResponseBatchAcceptanceService.BatchCommand(start.attemptId(), 1, key,
+                List.of(truth, new ResponseBatchAcceptanceService.BatchItem(items.get(1).id(), QuestionType.COMPLIANCE, invalid)))))
+                .isInstanceOf(uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatchException.class);
+        assertThat(count("attempt_accepted_response")).isZero(); assertThat(count("attempt_command_receipt")).isEqualTo(receipts);
+        assertThat(count("attempt_trace_event")).isEqualTo(traces);
+        var command = new ResponseBatchAcceptanceService.BatchCommand(start.attemptId(), 1, key,
+                List.of(truth, new ResponseBatchAcceptanceService.BatchItem(items.get(1).id(), QuestionType.COMPLIANCE, payload)));
+        var accepted = batches.acceptBatch(command); assertThat(accepted.responses()).hasSize(2);
+        assertThat(batches.acceptBatch(command).responses()).isEqualTo(accepted.responses()); assertThat(batches.acceptBatch(command).replayed()).isTrue();
+        var submitted = submissions.submit(new AttemptSubmissionService.Command(start.attemptId(), accepted.stateVersion(), true, CommandReceipt.Key.from("compliance-batch-submit")));
+        assertThat(results.finalizeSubmission(submitted.submissionId()).score().earned()).isEqualTo(2);
+    }
+
+    @Test void complianceReleasedViewsKeepSqlBoundedAcrossThreeParentsAndOneVersusTwentyItems() throws Exception {
+        var totals = new ArrayList<Integer>();
+        for (int size : List.of(1, 20)) {
+            var fixtures = new ArrayList<Fixture>();
+            for (int parent = 0; parent < 3; parent++) {
+                var f = fixture(Collections.nCopies(size, QuestionType.COMPLIANCE), size, size);
+                results.finalizeSubmission(f.submission()); releases.release(f.submission()); fixtures.add(f);
+            }
+            observer().selects.clear();
+            for (var f : fixtures) {
+                var rendered = json.readTree(json.writeValueAsString(view(f.attempt())));
+                assertThat(rendered.path("result").path("items")).hasSize(size);
+                assertThat(rendered.at("/result/totalScore/earned").intValue()).isEqualTo(size);
+                assertThat(rendered.toString()).doesNotContain("compliant", "sourceKey", "selectedStatementIds");
+            }
+            totals.add(observer().selects.size());
+        }
+        assertThat(totals.get(0)).isPositive().isLessThan(150); assertThat(totals.get(1)).isEqualTo(totals.get(0));
+        System.out.println("COMPLIANCE released result SQL for 3 parents with 1/20 items: " + totals);
+    }
+
+    @Test void complianceSelectionFromAnotherRealFormIsRejectedWithoutMutation() {
+        var own = complianceAttempt(AnswerOrder.AUTHORED); var other = complianceAttempt(AnswerOrder.AUTHORED);
+        var payload = input(own.item(), true);
+        payload.withArray("selectedStatementIds").set(0, json.getNodeFactory().textNode(
+                ((ParticipantContent.Compliance) other.item().content()).statements().get(0).id().toString()));
+        var before = view(own.id()); var receipts = count("attempt_command_receipt"); var traces = count("attempt_trace_event");
+        assertThatThrownBy(() -> responses.accept(complianceCommand(own, "cross-item", payload))).isInstanceOf(ResponseAcceptanceException.class);
+        assertThat(count("attempt_accepted_response")).isZero(); assertThat(count("attempt_command_receipt")).isEqualTo(receipts);
+        assertThat(count("attempt_trace_event")).isEqualTo(traces); assertThat(view(own.id())).isEqualTo(before);
+        assertThat(responses.accept(complianceCommand(own, "cross-item", input(own.item(), true))).replayed()).isFalse();
+    }
+
+    @ParameterizedTest @EnumSource(AnswerOrder.class)
+    void complianceSavedStatementOrderResponseAndScoreSurviveAuthorEdits(AnswerOrder order) {
+        var id = draft(QuestionType.COMPLIANCE); var revision = publish(0, List.of(id)); binding.bind(quizId, revision);
+        var captured = publications.read(quizId, revision).content().items().get(0).question();
+        var start = starts.start(command(revision, order, "compliance-order"));
+        var item = delivery.read(start.attemptId()).form().items().get(0);
+        var payload = json.createObjectNode(); var ids = payload.putArray("selectedStatementIds");
+        captured.options().stream().filter(o -> o.sourceKey().equals("1") || o.sourceKey().equals("3"))
+                .forEach(o -> ids.add(o.id().toString()));
+        var accepted = responses.accept(new ResponseAcceptanceService.Command(start.attemptId(), item.id(), 1,
+                CommandReceipt.Key.from("compliance-captured"), QuestionType.COMPLIANCE, payload));
+        var submitted = submissions.submit(new AttemptSubmissionService.Command(start.attemptId(), accepted.stateVersion(), true,
+                CommandReceipt.Key.from("compliance-captured-submit")));
+        var result = results.finalizeSubmission(submitted.submissionId()); releases.release(submitted.submissionId());
+        var original = view(start.attemptId());
+        assertThat(result.score().earned()).isEqualTo(1);
+        assertThat(original.items().get(0).content()).isEqualTo(AttemptFormResponse.items(
+                new ParticipantForm(UUID.randomUUID(), 1, List.of(item))).get(0).content());
+        tx.executeWithoutResult(s -> {
+            var q = questions.findById(id).orElseThrow(); var content = authored(QuestionType.COMPLIANCE);
+            content.path("statements").forEach(v -> ((ObjectNode) v).put("compliant", v.path("id").asInt() == 2));
+            q.setContent(content.toString()); q.setQuestionText("Changed author text"); questions.saveAndFlush(q);
+        });
+        var later = publish(1, List.of(id)); binding.bind(quizId, later);
+        assertThat(view(start.attemptId())).isEqualTo(original);
+        assertThat(results.finalizeSubmission(submitted.submissionId())).isEqualTo(result);
+        assertThat(restarted().release(submitted.submissionId()).replayed()).isTrue();
+    }
+
+    private MediaFixture complianceMediaFixture(boolean complete) {
+        quizId = newQuiz();
+        UUID asset = tx.execute(s -> {
+            var a = new uk.gegc.quizmaker.features.media.domain.model.MediaAsset(); a.setId(UUID.randomUUID());
+            a.setType(uk.gegc.quizmaker.features.media.domain.model.MediaAssetType.IMAGE);
+            a.setStatus(uk.gegc.quizmaker.features.media.domain.model.MediaAssetStatus.READY);
+            a.setKey("compliance/" + a.getId()); a.setMimeType("image/png"); a.setSizeBytes(1024L); a.setWidth(640); a.setHeight(480);
+            a.setCreatedBy(username); return mediaAssets.saveAndFlush(a).getId();
+        });
+        imageStorage.preparing = true;
+        try { retainedImages.prepare(Set.of(asset), username); } finally { imageStorage.preparing = false; }
+        assertThat(imageStorage.calls).isPositive(); var storageCalls = imageStorage.calls;
+        var id = draft(QuestionType.COMPLIANCE);
+        tx.executeWithoutResult(s -> {
+            var q = questions.findById(id).orElseThrow(); var content = authored(QuestionType.COMPLIANCE);
+            for (int i : List.of(0, 2)) {
+                var statement = (ObjectNode) content.path("statements").get(i); statement.remove("text");
+                statement.putObject("media").put("assetId", asset.toString());
+            }
+            q.setContent(content.toString()); questions.saveAndFlush(q); retainedImages.bind(id, Set.of(asset), Set.of(), username);
+        });
+        var revision = publish(0, List.of(id)); binding.bind(quizId, revision);
+        var publication = publications.read(quizId, revision); var question = publication.content().items().get(0).question();
+        assertThat(publication.images()).hasSize(1); retainedImages.remove(asset, username);
+        var start = starts.start(command(revision, AnswerOrder.SHUFFLED_PER_ATTEMPT, "compliance-media-start-" + UUID.randomUUID()));
+        doAnswer(call -> {
+            assertThat((UUID) call.getArgument(0)).isEqualTo(start.attemptId());
+            assertThat((UUID) call.getArgument(1)).isEqualTo(revision);
+            List<ParticipantViewMediaReader.Reference> refs = call.getArgument(2);
+            assertThat(refs).hasSize(2); assertThat(refs.stream().map(ParticipantViewMediaReader.Reference::optionId).distinct()).hasSize(2);
+            var images = new HashMap<ParticipantViewMediaReader.Reference, ParticipantViewMediaReader.Image>();
+            for (var ref : refs) {
+                assertThat(ref.assetId()).isEqualTo(asset); assertThat(ref.questionRevisionId()).isEqualTo(question.id());
+                assertThat(ref.optionId()).isNotNull();
+                images.put(ref, new ParticipantViewMediaReader.Image(ParticipantViewMediaReader.Availability.AVAILABLE, GRANTED_INLINE_URL));
+            }
+            return images;
+        }).when(mediaReader).read(any(), any(), any());
+        var delivered = delivery.read(start.attemptId()); var item = delivered.form().items().get(0);
+        var form = (AttemptFormResponse.Compliance) AttemptFormResponse.from(delivered).items().get(0).content();
+        assertThat(form.statements().stream().filter(s -> s.image() != null)).hasSize(2);
+        form.statements().stream().filter(s -> s.image() != null).forEach(s -> {
+            assertThat(s.text()).isNull(); assertThat(s.image().url()).isEqualTo(GRANTED_INLINE_URL);
+            assertThat(s.image().width()).isEqualTo(640);
+        });
+        assertThat(((AttemptFormResponse.Compliance) view(start.attemptId()).items().get(0).content()).statements()).isEqualTo(form.statements());
+        if (complete) {
+            var raw = json.createObjectNode(); var selected = raw.putArray("selectedStatementIds");
+            question.options().stream().filter(o -> o.sourceKey().equals("1") || o.sourceKey().equals("3"))
+                    .forEach(o -> selected.add(o.id().toString()));
+            var accepted = responses.accept(new ResponseAcceptanceService.Command(start.attemptId(), item.id(), 1,
+                    CommandReceipt.Key.from("compliance-media-answer"), QuestionType.COMPLIANCE, raw));
+            var submitted = submissions.submit(new AttemptSubmissionService.Command(start.attemptId(), accepted.stateVersion(), true,
+                    CommandReceipt.Key.from("compliance-media-submit")));
+            assertThat(results.finalizeSubmission(submitted.submissionId()).score().earned()).isEqualTo(1); releases.release(submitted.submissionId());
+            assertThat(view(start.attemptId()).result().totalScore().earned()).isEqualTo(1);
+        }
+        assertThat(imageStorage.calls).isEqualTo(storageCalls);
+        return new MediaFixture(start.attemptId(), item, asset);
+    }
+
+    @ParameterizedTest @EnumSource(ParticipantViewMediaReader.Availability.class)
+    void complianceReleasedImagesUseCurrentAuthorityWithoutChangingPersistedResults(ParticipantViewMediaReader.Availability availability) throws Exception {
+        var fixture = complianceMediaFixture(true); var original = view(fixture.attempt());
+        var before = List.of(count("attempt_accepted_response"), count("attempt_submission"), count("attempt_automatic_result"),
+                count("attempt_result_release"), count("attempt_trace_event"));
+        inlineAvailability(availability); clearInvocations(mediaReader);
+        var payload = json.readTree(json.writeValueAsString(view(fixture.attempt())));
+        for (var statement : payload.at("/items/0/content/statements")) if (statement.has("image")) {
+            assertThat(statement.at("/image/availability").asText()).isEqualTo(availability.name());
+            assertThat(statement.path("image").has("url")).isEqualTo(availability == ParticipantViewMediaReader.Availability.AVAILABLE);
+            if (availability == ParticipantViewMediaReader.Availability.AVAILABLE)
+                assertThat(statement.at("/image/url").asText()).isEqualTo(GRANTED_INLINE_URL);
+        }
+        assertThat(payload.toString()).doesNotContain("retained-images/", "assetId", "cdnUrl", "compliant");
+        verify(mediaReader, times(1)).read(eq(fixture.attempt()), any(), argThat(refs -> refs.size() == 2));
+        assertThat(payload.at("/result/totalScore/earned").asLong()).isEqualTo(original.result().totalScore().earned());
+        assertThat(List.of(count("attempt_accepted_response"), count("attempt_submission"), count("attempt_automatic_result"),
+                count("attempt_result_release"), count("attempt_trace_event"))).isEqualTo(before);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"UNAVAILABLE", "RESTRICTED", "missing-reader", "missing-occurrence", "foreign-occurrence"})
+    void complianceMediaDenialsPreserveStateAndSuccessfulCurrentAuthorityRestoresTheSameForm(String defect) {
+        var fixture = complianceMediaFixture(false); var before = view(fixture.attempt());
+        switch (defect) {
+            case "UNAVAILABLE", "RESTRICTED" -> inlineAvailability(ParticipantViewMediaReader.Availability.valueOf(defect));
+            case "missing-reader" -> doAnswer(call -> new InitialParticipantViewMediaReader()
+                    .read(call.getArgument(0), call.getArgument(1), call.getArgument(2))).when(mediaReader).read(any(), any(), any());
+            default -> doAnswer(call -> {
+                List<ParticipantViewMediaReader.Reference> refs = call.getArgument(2); var ref = refs.get(0);
+                if (defect.equals("foreign-occurrence")) ref = new ParticipantViewMediaReader.Reference(
+                        ref.formItemId(), ref.questionRevisionId(), ref.assetId(), UUID.randomUUID());
+                return Map.of(ref, new ParticipantViewMediaReader.Image(ParticipantViewMediaReader.Availability.AVAILABLE, GRANTED_INLINE_URL));
+            }).when(mediaReader).read(any(), any(), any());
+        }
+        assertThatThrownBy(() -> view(fixture.attempt())).isInstanceOf(uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException.class);
+        assertThatThrownBy(() -> delivery.read(fixture.attempt())).isInstanceOf(uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException.class);
+        assertThat(count("attempt_accepted_response")).isZero(); assertThat(count("attempt_submission")).isZero();
+        inlineAvailability(ParticipantViewMediaReader.Availability.AVAILABLE);
+        assertThat(view(fixture.attempt())).isEqualTo(before);
+        assertThat(AttemptFormResponse.from(delivery.read(fixture.attempt())).items()).hasSize(1);
     }
 
     @Test void mediaOnlyMatchingUsesRealRetentionPublicationAcceptanceAndGradeWithoutStorageIoDuringExecution() {

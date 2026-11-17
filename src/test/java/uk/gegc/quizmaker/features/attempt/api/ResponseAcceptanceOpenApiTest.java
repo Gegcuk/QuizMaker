@@ -283,6 +283,36 @@ class ResponseAcceptanceOpenApiTest {
 
     @ParameterizedTest @WithMockUser
     @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void complianceHttpAndBothSchemasPreserveSelectionsWithoutDisclosingThem(boolean empty) throws Exception {
+        var attempt = UUID.randomUUID(); var accepted = UUID.randomUUID();
+        when(responses.accept(any())).thenReturn(new uk.gegc.quizmaker.features.attempt.application.ResponseAcceptanceService.Result(attempt, accepted, 2, false));
+        var body = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(BODY);
+        var ids = body.putObject("response").put("type", "COMPLIANCE").putArray("selectedStatementIds");
+        if (!empty) { var id = UUID.randomUUID().toString(); ids.add(id).add(id); }
+        var rendered = mvc.perform(post(PATH, attempt).header("Idempotency-Key", "compliance-response").contentType("application/json").content(body.toString()))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store")).andReturn().getResponse().getContentAsString();
+        for (String url : List.of("/v3/api-docs", "/v3/api-docs/attempts-v2")) {
+            var spec = json.readTree(mvc.perform(get(url)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            assertThat(matchesFormSchema(spec, spec.at("/components/schemas/AcceptResponseRequest"), body, 0)).as(url).isTrue();
+        }
+        var capture = org.mockito.ArgumentCaptor.forClass(uk.gegc.quizmaker.features.attempt.application.ResponseAcceptanceService.Command.class);
+        verify(responses).accept(capture.capture()); assertThat(capture.getValue().type()).isEqualTo(QuestionType.COMPLIANCE);
+        assertThat(capture.getValue().response().path("selectedStatementIds")).isEqualTo(ids);
+        assertThat(rendered).doesNotContain("selectedStatementIds", "compliant", "correct", "score");
+    }
+    @ParameterizedTest @WithMockUser
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"{}", "{\"selectedStatementIds\":null}", "{\"selectedStatementIds\":[null]}",
+            "{\"selectedStatementIds\":[1]}", "{\"selectedStatementIds\":[true]}", "{\"selectedStatementIds\":[\"invalid\"]}"})
+    void malformedComplianceHttpNeverCallsTheWriter(String raw) throws Exception {
+        var body = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(BODY);
+        var payload = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(raw); payload.put("type", "COMPLIANCE"); body.set("response", payload);
+        mvc.perform(post(PATH, UUID.randomUUID()).header("Idempotency-Key", "invalid-compliance").contentType("application/json").content(body.toString()))
+                .andExpect(status().isBadRequest()).andExpect(content().contentTypeCompatibleWith("application/problem+json"));
+        verifyNoInteractions(responses);
+    }
+
+    @ParameterizedTest @WithMockUser
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
     void matchingHttpInputAndBothSchemasAgreeAndAcknowledgementDisclosesNoPairs(boolean empty) throws Exception {
         var attempt = UUID.randomUUID(); var accepted = UUID.randomUUID();
         when(responses.accept(any())).thenReturn(new uk.gegc.quizmaker.features.attempt.application.ResponseAcceptanceService.Result(attempt, accepted, 2, false));
@@ -333,11 +363,11 @@ class ResponseAcceptanceOpenApiTest {
             assertThat(operation.at("/requestBody/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/AcceptResponseRequest");
             assertThat(operation.at("/responses/200/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/AcceptedResponseAcknowledgement");
             for (String name : List.of("AcceptResponseRequest", "AcceptedResponseAcknowledgement", "ConfirmedResponse", "ConfirmedSingleChoice",
-                    "ConfirmedMultipleChoice", "ConfirmedTrueFalse", "ConfirmedOrdering", "ConfirmedGapAnswers", "ConfirmedGapAnswer", "ConfirmedOpenAnswer", "ConfirmedMatching", "ConfirmedMatch"))
+                    "ConfirmedMultipleChoice", "ConfirmedTrueFalse", "ConfirmedOrdering", "ConfirmedGapAnswers", "ConfirmedGapAnswer", "ConfirmedOpenAnswer", "ConfirmedMatching", "ConfirmedMatch", "ConfirmedCompliance"))
                 assertThat(schemas.has(name)).as(name).isTrue();
-            assertThat(schemas.at("/AcceptResponseRequest/properties/response/oneOf")).hasSize(7);
+            assertThat(schemas.at("/AcceptResponseRequest/properties/response/oneOf")).hasSize(8);
             assertThat(schemas.path("ConfirmedResponse").has("oneOf")).isFalse();
-            assertThat(schemas.at("/ConfirmedResponse/discriminator/mapping")).hasSize(7);
+            assertThat(schemas.at("/ConfirmedResponse/discriminator/mapping")).hasSize(8);
             for (String code : List.of("400", "401", "404", "409", "422", "500", "503"))
                 assertThat(operation.path("responses").path(code).findValuesAsText("$ref")).contains("#/components/schemas/ProblemDetail");
             for (var variant : List.of(

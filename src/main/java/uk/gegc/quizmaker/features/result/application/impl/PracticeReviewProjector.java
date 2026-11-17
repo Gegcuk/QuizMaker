@@ -70,6 +70,7 @@ final class PracticeReviewProjector {
         return switch (q.type()) {
             case MCQ_SINGLE -> new Options(List.of(option(keys, response.path("selectedOptionId"))));
             case MCQ_MULTI -> new Options(values(response.path("selectedOptionIds")).stream().map(v -> option(keys, v)).toList());
+            case COMPLIANCE -> new Options(values(response.path("selectedStatementIds")).stream().map(v -> option(keys, v)).toList());
             case TRUE_FALSE -> new BooleanAnswer(response.path("answer").booleanValue());
             case OPEN -> new TextAnswer(response.path("answer").textValue());
             case MATCHING -> new MatchingPairs(values(response.path("matches")).stream().map(pair ->
@@ -86,6 +87,8 @@ final class PracticeReviewProjector {
         return switch (q.type()) {
             case MCQ_SINGLE, MCQ_MULTI -> new Options(values(content.path("options")).stream()
                     .filter(v -> v.path("correct").booleanValue()).map(v -> option(keys, v.path("id"))).toList());
+            case COMPLIANCE -> new Options(values(content.path("statements")).stream()
+                    .filter(v -> v.path("compliant").booleanValue()).map(v -> option(keys, v.path("id"))).toList());
             case TRUE_FALSE -> new BooleanAnswer(content.path("answer").booleanValue());
             case OPEN -> new TextAnswer(content.path("answer").textValue());
             case MATCHING -> new MatchingPairs(values(content.path("left")).stream().map(item ->

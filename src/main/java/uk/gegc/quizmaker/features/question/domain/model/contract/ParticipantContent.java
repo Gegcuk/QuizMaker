@@ -22,6 +22,32 @@ public sealed interface ParticipantContent {
 
     record Open() implements ParticipantContent { }
 
+    record Compliance(List<ComplianceStatement> statements) implements ParticipantContent {
+        public Compliance {
+            require(statements != null && statements.size() >= 2 && statements.size() <= 6);
+            var ids = new HashSet<UUID>();
+            for (var statement : statements) require(statement != null && ids.add(statement.id()));
+            statements = List.copyOf(statements);
+        }
+    }
+
+    record ComplianceStatement(UUID id, String text, ComplianceImage image) {
+        public ComplianceStatement {
+            require(id != null && (text == null || text.codePointCount(0, text.length()) <= 10_000));
+            require(text != null && !text.isBlank() || image != null);
+        }
+        @Override public String toString() { return "ComplianceStatement[redacted]"; }
+    }
+
+    /** Exact retained reference only; a separate current-authority reader supplies public URLs. */
+    record ComplianceImage(@com.fasterxml.jackson.annotation.JsonIgnore UUID assetId, int width, int height, String mimeType) {
+        public ComplianceImage {
+            require(assetId != null && width > 0 && height > 0
+                    && mimeType != null && mimeType.startsWith("image/") && mimeType.length() <= 100);
+        }
+        @Override public String toString() { return "ComplianceImage[redacted]"; }
+    }
+
     record Matching(List<MatchingOption> left, List<MatchingOption> right) implements ParticipantContent {
         public Matching {
             left = copyMatching(left); right = copyMatching(right);
