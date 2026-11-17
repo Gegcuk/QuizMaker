@@ -270,3 +270,44 @@ composes real start/accept/submit/grade/release/read, mixed atomic batches, reac
 rollback/retry, caller RC rollback, current access, historical edits and multi-parent measured
 reads. The v2 OpenAPI suites check named OPEN/TEXT schemas, examples, strict parsing and the
 existing grouping/discovery contracts.
+
+## Revision-bound MATCHING execution (#827)
+
+The internal v2 catalogue additionally registers `question.matching.response:1` and
+`question.matching.binary:1`. This does not enable target routes or replace legacy training.
+The five-family #701 catalogue remains frozen; OPEN and MATCHING have separate registrations.
+
+Published MATCHING questions retain distinct `left/<integer>` and `right/<integer>` option
+identities, including when the same integer occurs in both columns. V2 forms expose their
+stable UUIDs in typed `MATCHING` left/right lists. The left column keeps authored order;
+the existing shuffled ordering mode shuffles only the right column and saves that order.
+Responses and drafts use `{"type":"MATCHING","matches":[{"leftId":"<left-option-uuid>",
+"rightId":"<right-option-uuid>"}]}`. Both references must belong to the appropriate side
+of this saved question. Legacy v1 continues to use its existing integer response IDs.
+
+The frozen scorer preserves current binary behavior: every authored left pair must match
+to earn one point; otherwise the score is zero. Empty and partial arrays remain valid wrong
+answers. Repeated left references preserve request order, and the last pair wins. Many-to-one
+authoring remains supported. There is no partial credit, inferred bijection, new normalization,
+or automatic deduplication. At most 100 submitted pairs and the existing JSON/string limits apply.
+
+Media-only items remain valid. Presentation requires publication-resolved image metadata from
+the retained-image pipeline; an author-supplied asset ID alone cannot materialize an image.
+Internal forms retain image identities without URLs. Every visible attachment and inline occurrence
+passes one `ParticipantViewMediaReader` batch keyed by form item, question revision, asset and
+optional column-option UUID. Public form/view DTOs expose only the reader-authorized AVAILABLE
+URL, saved dimensions/MIME type and current availability, without separate asset, binding or
+storage-version identifier fields. A captured CDN URL never supplies display authority.
+Missing integration or incomplete/mismatched reader output fails closed. Active UNAVAILABLE or
+RESTRICTED images deny the complete read; completed review retains the image marker without a URL. Execution does not fetch remote URLs, inspect storage,
+or substitute the current author-library image. Removing an image from the library preserves
+its existing published binding. This internal path is not production availability, exceptional
+restriction or full-cutover evidence; the existing capability-specific activation gates remain.
+
+Accepted pairs are immutable, and grading resolves the exact captured contract versions.
+Released `MATCHING_PAIRS` answers use the same saved option UUIDs and retain submitted pair
+order. Submitted answers, correct pairs and explanations remain independently disclosure-filtered.
+Unknown versions, foreign/wrong-side UUIDs, and malformed input cannot leave a partial answer.
+Single commands, drafts and atomic batches retain their existing authorization, idempotency,
+READ_COMMITTED composition and rollback contracts. OpenAPI adds typed alternatives within the
+existing `attempts-v2` group; existing endpoints, schemas and defaults remain compatible.

@@ -122,6 +122,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         QuestionContractRegistryImpl.class, QuestionRevisionContractServiceImpl.class, JdbcQuestionContractBindingRepository.class,
         PublishedQuestionContractServiceImpl.class, BaselineQuestionContractConfig.class,
         uk.gegc.quizmaker.features.question.config.OpenQuestionContractConfig.class,
+        uk.gegc.quizmaker.features.question.config.MatchingQuestionContractConfig.class,
         FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
         ResponseAcceptanceServiceImpl.class, JdbcAcceptedResponseRepository.class,
@@ -173,13 +174,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         @Bean Clock clock() { return Clock.fixed(Instant.parse("2026-11-05T12:00:00Z"), ZoneOffset.UTC); }
         @Bean SimpleMeterRegistry metrics() { return new SimpleMeterRegistry(); }
         @Bean MediaStorageProperties mediaProperties() { return new MediaStorageProperties(); }
-        @Bean SavedImageStorage storage() {
-            return new SavedImageStorage() {
-                public Source inspect(String key) { throw new AssertionError("Text fixture must not call storage"); }
-                public void retain(SavedImageVersion v) { throw new AssertionError("Text fixture must not call storage"); }
-                public void verify(SavedImageVersion v) { throw new AssertionError("Text fixture must not call storage"); }
-            };
-        }
+        @Bean TestImageStorage storage() { return new TestImageStorage(); }
         @Bean static BeanPostProcessor measuredSql() {
             return new BeanPostProcessor() {
                 @Override public Object postProcessAfterInitialization(Object bean, String name) {
@@ -188,6 +183,18 @@ class ImmediateResultReleaseMySqlIntegrationTest {
             };
         }
     }
+    static class TestImageStorage implements SavedImageStorage {
+        boolean preparing;
+        int calls;
+        private void called() { assertThat(preparing).as("Storage I/O only during explicit image preparation").isTrue(); calls++; }
+        public Source inspect(String key) { called(); return new Source("fixture-etag", 1024, "image/png"); }
+        public void retain(SavedImageVersion v) { called(); }
+        public void verify(SavedImageVersion v) { called(); }
+    }
+    @org.springframework.test.context.bean.override.mockito.MockitoBean ParticipantViewMediaReader mediaReader;
+    @Autowired TestImageStorage imageStorage;
+    @Autowired uk.gegc.quizmaker.features.media.application.RetainedImageService retainedImages;
+    @Autowired uk.gegc.quizmaker.features.media.domain.repository.MediaAssetRepository mediaAssets;
     @Autowired AutomaticResultService results;
     @Autowired ImmediateResultReleaseService releases;
     @Autowired ParticipantAttemptViewService views;
@@ -224,6 +231,9 @@ class ImmediateResultReleaseMySqlIntegrationTest {
 
     @BeforeEach void setup() {
         tx = new TransactionTemplate(manager); observer().reset();
+        imageStorage.preparing = false; imageStorage.calls = 0;
+        doAnswer(call -> new InitialParticipantViewMediaReader()
+                .read(call.getArgument(0), call.getArgument(1), call.getArgument(2))).when(mediaReader).read(any(), any(), any());
         authoredExplanation = "protected-explanation";
         username = "acceptance-" + UUID.randomUUID().toString().substring(0, 12);
         ownerId = user(username, true);
@@ -238,7 +248,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
             TARGET_TABLES.forEach(table -> sql.update("DELETE FROM " + table));
             for (String table : List.of("question_revision_contract_bindings", "quiz_publication_receipts", "quiz_publication_heads",
                     "quiz_revision_images", "quiz_publications", "quiz_revision_items", "question_option_revisions", "question_revisions",
-                    "quiz_revisions", "quiz_questions", "question_tags", "question_source_confirmations", "questions", "quizzes",
+                    "quiz_revisions", "saved_image_bindings", "saved_image_versions", "media_assets", "quiz_questions", "question_tags", "question_source_confirmations", "questions", "quizzes",
                     "categories", "user_roles", "users")) sql.update("DELETE FROM " + table);
             sql.update("DELETE rp FROM role_permissions rp JOIN roles r ON r.role_id=rp.role_id WHERE r.role_name LIKE 'acceptance-%'");
             sql.update("DELETE FROM roles WHERE role_name LIKE 'acceptance-%'");
@@ -269,6 +279,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
             case MCQ_MULTI -> "{\"options\":[{\"id\":\"a\",\"text\":\"A\",\"correct\":true},{\"id\":\"b\",\"text\":\"B\",\"correct\":false},{\"id\":\"c\",\"text\":\"C\",\"correct\":true}]}";
             case TRUE_FALSE -> "{\"answer\":true}";
             case OPEN -> "{\"answer\":\"Paris\"}";
+            case MATCHING -> "{\"left\":[{\"id\":1,\"text\":\"Apple\",\"matchId\":10},{\"id\":2,\"text\":\"Banana\",\"matchId\":11}],\"right\":[{\"id\":10,\"text\":\"Red\"},{\"id\":11,\"text\":\"Yellow\"}]}";
             case FILL_GAP -> "{\"text\":\"Capital: {1}\",\"gaps\":[{\"id\":1,\"answer\":\"Paris\"}]}";
             case ORDERING -> "{\"items\":[{\"id\":1,\"text\":\"One\"},{\"id\":2,\"text\":\"Two\"}],\"correctOrder\":[2,1]}";
             default -> throw new AssertionError(type);
@@ -280,6 +291,14 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         switch(item.type()) {
             case TRUE_FALSE -> value.put("answer",correct);
             case OPEN -> value.put("answer", correct ? " pARIS " : "Rome");
+            case MATCHING -> {
+                var matching = (ParticipantContent.Matching) item.content();
+                var pairs = value.putArray("matches");
+                pairs.addObject().put("leftId", matching.left().get(0).id().toString())
+                        .put("rightId", matching.right().get(correct ? 0 : 1).id().toString());
+                pairs.addObject().put("leftId", matching.left().get(1).id().toString())
+                        .put("rightId", matching.right().get(1).id().toString());
+            }
             case MCQ_SINGLE -> value.put("selectedOptionId",((ParticipantContent.Choices)item.content()).options().get(correct?0:1).id().toString());
             case MCQ_MULTI -> {
                 var options=((ParticipantContent.Choices)item.content()).options();
@@ -397,6 +416,324 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         assertThat(restarted().release(fixture.submission()).replayed()).isTrue();
         assertThat(count("attempt_accepted_response")).isEqualTo(1);
         verifyNoInteractions(legacy);
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {true, false})
+    void matchingResponseFlowsThroughRealWritesGradeReleaseAndHistoricalReview(boolean correct) throws Exception {
+        var fixture = fixture(List.of(QuestionType.MATCHING), 1, correct ? 1 : 0);
+        assertThat(fixture.items().get(0).content()).isInstanceOf(ParticipantContent.Matching.class);
+        assertThat(json.writeValueAsString(fixture.items())).doesNotContain("matchId", "sourceKey", "protected-explanation");
+        assertThat(view(fixture.attempt()).result()).isNull();
+        var result = results.finalizeSubmission(fixture.submission());
+        assertThat(result.score().earned()).isEqualTo(correct ? 1 : 0);
+        assertThat(result.items().get(0).responseContract()).isEqualTo(
+                uk.gegc.quizmaker.features.question.application.contract.v1.SupportedQuestionContracts.MATCHING_RESPONSE);
+        releases.release(fixture.submission()); var original = view(fixture.attempt());
+        var matching = (ParticipantContent.Matching) fixture.items().get(0).content();
+        var expected = new ParticipantResultView.MatchingPairs(List.of(
+                new ParticipantResultView.MatchingPair(matching.left().get(0).id(), matching.right().get(0).id()),
+                new ParticipantResultView.MatchingPair(matching.left().get(1).id(), matching.right().get(1).id())));
+        assertThat(original.result().items().get(0).correctAnswer()).isEqualTo(expected);
+        assertThat(original.result().items().get(0).correctness()).isEqualTo(correct);
+        mvc().perform(get("/api/v2/attempts/{id}/review", fixture.attempt())
+                .principal(SecurityContextHolder.getContext().getAuthentication()).param("includeCorrectAnswers", "false"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.result.items[0].correctAnswer").doesNotExist());
+        tx.executeWithoutResult(s -> {
+            for (var q : questions.findAll()) {
+                var content = authored(QuestionType.MATCHING);
+                ((ObjectNode) content.path("left").get(0)).put("matchId", 11);
+                q.setContent(content.toString()); questions.saveAndFlush(q);
+            }
+        });
+        var later = publish(1, tx.execute(s -> questions.findAll().stream().map(Question::getId).toList())); binding.bind(quizId, later);
+        assertThat(view(fixture.attempt())).isEqualTo(original);
+        assertThat(results.finalizeSubmission(fixture.submission())).isEqualTo(result);
+        assertThat(restarted().release(fixture.submission()).replayed()).isTrue();
+        assertThat(count("attempt_accepted_response")).isEqualTo(1); verifyNoInteractions(legacy);
+    }
+
+    private record MatchingAttempt(UUID id, ParticipantForm.Item item) { }
+    private MatchingAttempt matchingAttempt(AnswerOrder order) {
+        quizId = newQuiz(); var revision = publish(0, List.of(draft(QuestionType.MATCHING))); binding.bind(quizId, revision);
+        var start = starts.start(command(revision, order, "matching-start-" + UUID.randomUUID()));
+        return new MatchingAttempt(start.attemptId(), delivery.read(start.attemptId()).form().items().get(0));
+    }
+    private ResponseAcceptanceService.Command matchingCommand(MatchingAttempt attempt, String key, com.fasterxml.jackson.databind.JsonNode payload) {
+        return new ResponseAcceptanceService.Command(attempt.id(), attempt.item().id(), 1, CommandReceipt.Key.from(key), QuestionType.MATCHING, payload);
+    }
+
+    @Test void repeatedMatchingLeftIdsKeepTheirOrderThroughDurableAcceptanceAndGrading() {
+        var attempt = matchingAttempt(AnswerOrder.AUTHORED); var payload = input(attempt.item(), true);
+        var last = payload.withArray("matches").get(0).deepCopy();
+        ((ObjectNode) payload.path("matches").get(0)).put("rightId", ((ParticipantContent.Matching) attempt.item().content()).right().get(1).id().toString());
+        payload.withArray("matches").add(last); var command = matchingCommand(attempt, "duplicate-pairs", payload);
+        var accepted = responses.accept(command); assertThat(responses.accept(command).replayed()).isTrue();
+        var stored = tx.execute(s -> sql.queryForObject("SELECT normalized_response FROM attempt_accepted_response", String.class));
+        assertThat(stored).contains("\"leftId\":1", "\"rightId\":10", "\"rightId\":11");
+        var changed = payload.deepCopy(); var array = changed.withArray("matches"); var first = array.remove(0); array.add(first);
+        assertThatThrownBy(() -> responses.accept(matchingCommand(attempt, "duplicate-pairs", changed))).isInstanceOf(RuntimeException.class);
+        var submitted = submissions.submit(new AttemptSubmissionService.Command(attempt.id(), accepted.stateVersion(), true, CommandReceipt.Key.from("matching-submit")));
+        assertThat(results.finalizeSubmission(submitted.submissionId()).score().earned()).isEqualTo(1);
+        releases.release(submitted.submissionId());
+        assertThat(((ParticipantResultView.MatchingPairs) view(attempt.id()).result().items().get(0).submittedAnswer()).matches()).hasSize(3);
+        assertThat(count("attempt_accepted_response")).isEqualTo(1);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"foreign", "wrong-side", "malformed"})
+    void invalidMatchingReferencesLeaveNoAnswerReceiptStateOrTraceAndValidControlCommits(String defect) {
+        var own = matchingAttempt(AnswerOrder.AUTHORED); var payload = input(own.item(), true);
+        String id = defect.equals("foreign") ? UUID.randomUUID().toString() : ((ParticipantContent.Matching) own.item().content()).right().get(0).id().toString();
+        ((ObjectNode) payload.path("matches").get(0)).put("leftId", defect.equals("malformed") ? "1" : id);
+        var before = view(own.id()); var receipts = count("attempt_command_receipt"); var traces = count("attempt_trace_event");
+        assertThatThrownBy(() -> responses.accept(matchingCommand(own, "invalid-match", payload))).isInstanceOf(ResponseAcceptanceException.class);
+        assertThat(count("attempt_accepted_response")).isZero(); assertThat(count("attempt_command_receipt")).isEqualTo(receipts);
+        assertThat(count("attempt_trace_event")).isEqualTo(traces); assertThat(view(own.id())).isEqualTo(before);
+        assertThat(responses.accept(matchingCommand(own, "invalid-match", input(own.item(), true))).replayed()).isFalse();
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"attempt_accepted_response", "attempt_lifecycle_state", "attempt_trace_event", "attempt_command_receipt"})
+    void reachedMatchingWriteFailuresRollBackThenRetryAndReplayOnce(String table) {
+        var attempt = matchingAttempt(AnswerOrder.AUTHORED); var command = matchingCommand(attempt, "durable-matching", input(attempt.item(), true));
+        var before = view(attempt.id()); var receipts = count("attempt_command_receipt"); var traces = count("attempt_trace_event");
+        var reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> {
+            boolean checkpoint = statement.contains(table) && (table.equals("attempt_accepted_response") || table.equals("attempt_trace_event")
+                    ? statement.stripLeading().startsWith("INSERT") : statement.stripLeading().startsWith("UPDATE"));
+            if (checkpoint && reached.compareAndSet(false, true)) throw new SQLException("matching-write-fixture", "08006");
+        };
+        try { assertThatThrownBy(() -> responses.accept(command)).isInstanceOf(RuntimeException.class); }
+        finally { observer().reset(); }
+        assertThat(reached).isTrue(); assertThat(count("attempt_accepted_response")).isZero();
+        assertThat(count("attempt_command_receipt")).isEqualTo(receipts); assertThat(count("attempt_trace_event")).isEqualTo(traces);
+        assertThat(view(attempt.id())).isEqualTo(before);
+        var accepted = responses.accept(command);
+        var recreated = new ResponseAcceptanceServiceImpl(context.getBean(AuthenticatedSubjectResolver.class), context.getBean(AttemptAccessService.class),
+                context.getBean(AttemptReadFactsService.class), context.getBean(AttemptLifecycleService.class), context.getBean(AcceptedResponseRepository.class),
+                context.getBean(CommandReceiptService.class), context.getBean(ExecutionTraceService.class), context.getBean(Clock.class), metrics, manager);
+        assertThat(recreated.accept(command).acceptedResponseId()).isEqualTo(accepted.acceptedResponseId());
+        assertThat(recreated.accept(command).replayed()).isTrue(); assertThat(count("attempt_accepted_response")).isEqualTo(1);
+    }
+
+    @Test void matchingParticipatesInCallerRcRollbackAndReauthorizesReplay() {
+        var own = matchingAttempt(AnswerOrder.AUTHORED); var command = matchingCommand(own, "outer-matching", input(own.item(), true));
+        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        outer.executeWithoutResult(s -> { responses.accept(command); s.setRollbackOnly(); });
+        assertThat(count("attempt_accepted_response")).isZero(); assertThat(view(own.id()).stateVersion()).isEqualTo(1);
+        responses.accept(command); SecurityContextHolder.clearContext();
+        assertThatThrownBy(() -> responses.accept(command)).isInstanceOf(ResponseAcceptanceException.class);
+        var foreign = user("matching-foreign-" + UUID.randomUUID().toString().substring(0, 8), true); grant(foreign, "ATTEMPT_READ", "ATTEMPT_CREATE");
+        authenticate(sql.queryForObject("SELECT username FROM users WHERE user_id=UUID_TO_BIN(?)", String.class, foreign.toString()));
+        assertThatThrownBy(() -> responses.accept(command)).isInstanceOf(ResponseAcceptanceException.class);
+        authenticate(username); assertThat(responses.accept(command).replayed()).isTrue();
+    }
+
+    @Test void concurrentIdenticalMatchingCommandsCommitOneAcceptanceAndReplayTheWinner() throws Exception {
+        var attempt = matchingAttempt(AnswerOrder.AUTHORED); var command = matchingCommand(attempt, "concurrent-matching", input(attempt.item(), true));
+        var barrier = new CyclicBarrier(2); var pool = Executors.newFixedThreadPool(2);
+        Callable<ResponseAcceptanceService.Result> work = () -> {
+            authenticate(username);
+            try { barrier.await(10, TimeUnit.SECONDS); return responses.accept(command); }
+            finally { SecurityContextHolder.clearContext(); }
+        };
+        try {
+            var first = pool.submit(work); var second = pool.submit(work);
+            var a = first.get(20, TimeUnit.SECONDS); var b = second.get(20, TimeUnit.SECONDS);
+            assertThat(List.of(a.replayed(), b.replayed())).containsExactlyInAnyOrder(true, false);
+            assertThat(a.acceptedResponseId()).isEqualTo(b.acceptedResponseId());
+        } finally { pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+        assertThat(count("attempt_accepted_response")).isEqualTo(1); assertThat(view(attempt.id()).stateVersion()).isEqualTo(2);
+    }
+
+    @Test void mixedMatchingBatchRejectsForeignReferencesAtomicallyThenReplaysAndGradesRealWrites() {
+        quizId = newQuiz(); var revision = publish(0, List.of(draft(QuestionType.TRUE_FALSE), draft(QuestionType.MATCHING))); binding.bind(quizId, revision);
+        var start = starts.start(command(revision, AnswerOrder.AUTHORED, "matching-batch-start"));
+        var items = delivery.read(start.attemptId()).form().items(); var payload = input(items.get(1), true);
+        var truth = new ResponseBatchAcceptanceService.BatchItem(items.get(0).id(), QuestionType.TRUE_FALSE, json.createObjectNode().put("answer", true));
+        var invalid = payload.deepCopy(); ((ObjectNode) invalid.path("matches").get(0)).put("rightId", UUID.randomUUID().toString());
+        var key = CommandReceipt.Key.from("matching-batch"); var receipts = count("attempt_command_receipt"); var traces = count("attempt_trace_event");
+        assertThatThrownBy(() -> batches.acceptBatch(new ResponseBatchAcceptanceService.BatchCommand(start.attemptId(), 1, key,
+                List.of(truth, new ResponseBatchAcceptanceService.BatchItem(items.get(1).id(), QuestionType.MATCHING, invalid)))))
+                .isInstanceOf(uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseBatchException.class);
+        assertThat(count("attempt_accepted_response")).isZero(); assertThat(count("attempt_command_receipt")).isEqualTo(receipts);
+        assertThat(count("attempt_trace_event")).isEqualTo(traces);
+        var command = new ResponseBatchAcceptanceService.BatchCommand(start.attemptId(), 1, key,
+                List.of(truth, new ResponseBatchAcceptanceService.BatchItem(items.get(1).id(), QuestionType.MATCHING, payload)));
+        var accepted = batches.acceptBatch(command); assertThat(accepted.responses()).hasSize(2);
+        assertThat(batches.acceptBatch(command).responses()).isEqualTo(accepted.responses()); assertThat(batches.acceptBatch(command).replayed()).isTrue();
+        var submitted = submissions.submit(new AttemptSubmissionService.Command(start.attemptId(), accepted.stateVersion(), true, CommandReceipt.Key.from("matching-batch-submit")));
+        assertThat(results.finalizeSubmission(submitted.submissionId()).score().earned()).isEqualTo(2);
+    }
+
+    @Test void matchingReleasedViewsKeepSqlBoundedAcrossThreeParentsAndOneVersusTwentyItems() throws Exception {
+        var totals = new ArrayList<Integer>();
+        for (int size : List.of(1, 20)) {
+            var fixtures = new ArrayList<Fixture>();
+            for (int parent = 0; parent < 3; parent++) {
+                var f = fixture(Collections.nCopies(size, QuestionType.MATCHING), size, size);
+                results.finalizeSubmission(f.submission()); releases.release(f.submission()); fixtures.add(f);
+            }
+            observer().selects.clear();
+            for (var f : fixtures) {
+                var rendered = json.readTree(json.writeValueAsString(view(f.attempt())));
+                assertThat(rendered.path("result").path("items")).hasSize(size);
+                assertThat(rendered.at("/result/totalScore/earned").intValue()).isEqualTo(size);
+                assertThat(rendered.toString()).doesNotContain("matchId", "sourceKey", "left/", "right/");
+            }
+            totals.add(observer().selects.size());
+        }
+        assertThat(totals.get(0)).isPositive().isLessThan(150); assertThat(totals.get(1)).isEqualTo(totals.get(0));
+        System.out.println("MATCHING released result SQL for 3 parents with 1/20 items: " + totals);
+    }
+
+    @Test void mediaOnlyMatchingUsesRealRetentionPublicationAcceptanceAndGradeWithoutStorageIoDuringExecution() {
+        matchingMediaFixture(true);
+    }
+
+    private record MediaFixture(UUID attempt, ParticipantForm.Item item, UUID asset) { }
+    private static final String GRANTED_INLINE_URL = "https://display.example.invalid/reader-authorized-original";
+    private MediaFixture matchingMediaFixture(boolean complete) {
+        quizId = newQuiz();
+        var asset = tx.execute(s -> {
+            var a = new uk.gegc.quizmaker.features.media.domain.model.MediaAsset(); a.setId(UUID.randomUUID());
+            a.setType(uk.gegc.quizmaker.features.media.domain.model.MediaAssetType.IMAGE);
+            a.setStatus(uk.gegc.quizmaker.features.media.domain.model.MediaAssetStatus.READY);
+            a.setKey("matching/" + a.getId()); a.setMimeType("image/png"); a.setSizeBytes(1024L); a.setWidth(640); a.setHeight(480);
+            a.setCreatedBy(username); return mediaAssets.saveAndFlush(a).getId();
+        });
+        imageStorage.preparing = true;
+        try { retainedImages.prepare(Set.of(asset), username); } finally { imageStorage.preparing = false; }
+        assertThat(imageStorage.calls).isPositive(); var storageCalls = imageStorage.calls;
+        var id = draft(QuestionType.MATCHING);
+        tx.executeWithoutResult(s -> {
+            var q = questions.findById(id).orElseThrow(); var content = authored(QuestionType.MATCHING);
+            var left = (ObjectNode) content.path("left").get(0); left.remove("text"); left.putObject("media").put("assetId", asset.toString());
+            var right = (ObjectNode) content.path("right").get(1); right.remove("text"); right.putObject("media").put("assetId", asset.toString());
+            q.setContent(content.toString()); questions.saveAndFlush(q); retainedImages.bind(id, Set.of(asset), Set.of(), username);
+        });
+        var revision = publish(0, List.of(id)); binding.bind(quizId, revision);
+        var publication = publications.read(quizId, revision);
+        assertThat(publication.images()).hasSize(1);
+        retainedImages.remove(asset, username);
+        var started = starts.start(command(revision, AnswerOrder.SHUFFLED_PER_ATTEMPT, "matching-media-start-" + UUID.randomUUID()));
+        doAnswer(call -> {
+            assertThat((UUID) call.getArgument(0)).isEqualTo(started.attemptId());
+            assertThat((UUID) call.getArgument(1)).isEqualTo(revision);
+            List<ParticipantViewMediaReader.Reference> refs = call.getArgument(2);
+            assertThat(refs).hasSize(2); assertThat(refs.stream().map(ParticipantViewMediaReader.Reference::optionId).distinct()).hasSize(2);
+            var result = new HashMap<ParticipantViewMediaReader.Reference, ParticipantViewMediaReader.Image>();
+            for (var ref : refs) {
+                assertThat(ref.assetId()).isEqualTo(asset); assertThat(ref.optionId()).isNotNull();
+                assertThat(ref.questionRevisionId()).isEqualTo(publication.content().items().get(0).question().id());
+                result.put(ref, new ParticipantViewMediaReader.Image(ParticipantViewMediaReader.Availability.AVAILABLE, GRANTED_INLINE_URL));
+            }
+            return result;
+        }).when(mediaReader).read(any(), any(), any());
+        var delivered = delivery.read(started.attemptId());
+        var item = delivered.form().items().get(0);
+        var matching = (ParticipantContent.Matching) item.content();
+        assertThat(matching.left().get(0).text()).isNull(); assertThat(matching.left().get(0).image().width()).isEqualTo(640);
+        assertThat(matching.left().get(0).image().assetId()).isEqualTo(asset);
+        var publicForm = AttemptFormResponse.from(delivered);
+        assertThat(((AttemptFormResponse.Matching) publicForm.items().get(0).content()).left().get(0).image().url()).isEqualTo(GRANTED_INLINE_URL);
+        assertThat(((AttemptFormResponse.Matching) view(started.attemptId()).items().get(0).content()).left().get(0).image().url()).isEqualTo(GRANTED_INLINE_URL);
+        if (!complete) return new MediaFixture(started.attemptId(), item, asset);
+        var raw = input(item, true);
+        // Input helper uses displayed order. Address the exact captured right identity after shuffling.
+        var rightId = publication.content().items().get(0).question().options().stream()
+                .filter(o -> o.sourceKey().equals("right/10")).findFirst().orElseThrow().id();
+        var secondRight = publication.content().items().get(0).question().options().stream()
+                .filter(o -> o.sourceKey().equals("right/11")).findFirst().orElseThrow().id();
+        ((ObjectNode) raw.path("matches").get(0)).put("rightId", rightId.toString());
+        ((ObjectNode) raw.path("matches").get(1)).put("rightId", secondRight.toString());
+        var accepted = responses.accept(new ResponseAcceptanceService.Command(started.attemptId(), item.id(), 1,
+                CommandReceipt.Key.from("matching-media-answer"), QuestionType.MATCHING, raw));
+        var submitted = submissions.submit(new AttemptSubmissionService.Command(started.attemptId(), accepted.stateVersion(), true, CommandReceipt.Key.from("matching-media-submit")));
+        assertThat(results.finalizeSubmission(submitted.submissionId()).score().earned()).isEqualTo(1); releases.release(submitted.submissionId());
+        assertThat(view(started.attemptId()).result().totalScore().earned()).isEqualTo(1);
+        assertThat(imageStorage.calls).isEqualTo(storageCalls);
+        return new MediaFixture(started.attemptId(), item, asset);
+    }
+
+    private void inlineAvailability(ParticipantViewMediaReader.Availability availability) {
+        doAnswer(call -> {
+            List<ParticipantViewMediaReader.Reference> refs = call.getArgument(2);
+            assertThat(refs).hasSize(2);
+            var result = new HashMap<ParticipantViewMediaReader.Reference, ParticipantViewMediaReader.Image>();
+            refs.forEach(ref -> result.put(ref, new ParticipantViewMediaReader.Image(availability,
+                    availability == ParticipantViewMediaReader.Availability.AVAILABLE ? GRANTED_INLINE_URL : null)));
+            return result;
+        }).when(mediaReader).read(any(), any(), any());
+    }
+
+    @ParameterizedTest @EnumSource(ParticipantViewMediaReader.Availability.class)
+    void releasedInlineImagesUseOneCurrentAuthorityBatchAndNeverCapturedUrls(ParticipantViewMediaReader.Availability availability) throws Exception {
+        var fixture = matchingMediaFixture(true); var original = view(fixture.attempt());
+        var evidence = List.of(count("attempt_accepted_response"), count("attempt_submission"), count("attempt_automatic_result"),
+                count("attempt_result_release"), count("attempt_trace_event"));
+        inlineAvailability(availability); clearInvocations(mediaReader);
+        var payload = json.readTree(mvc().perform(get("/api/v2/attempts/{id}", fixture.attempt())
+                .principal(SecurityContextHolder.getContext().getAuthentication())).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+        assertThat(payload.at("/items/0/content/left/0/image/availability").asText()).isEqualTo(availability.name());
+        var columns = payload.at("/items/0/content");
+        for (String side : List.of("left", "right")) for (var option : columns.path(side)) if (option.has("image")) {
+            assertThat(option.path("image").has("url")).isEqualTo(availability == ParticipantViewMediaReader.Availability.AVAILABLE);
+            if (availability == ParticipantViewMediaReader.Availability.AVAILABLE)
+                assertThat(option.at("/image/url").asText()).isEqualTo(GRANTED_INLINE_URL);
+        }
+        assertThat(payload.toString()).doesNotContain("retained-images/", "assetId", "cdnUrl");
+        verify(mediaReader, times(1)).read(eq(fixture.attempt()), any(), argThat(refs -> refs.size() == 2));
+        assertThat(payload.at("/result/totalScore/earned").asLong()).isEqualTo(original.result().totalScore().earned());
+        assertThat(List.of(count("attempt_accepted_response"), count("attempt_submission"), count("attempt_automatic_result"),
+                count("attempt_result_release"), count("attempt_trace_event"))).isEqualTo(evidence);
+    }
+
+    @ParameterizedTest @EnumSource(value = ParticipantViewMediaReader.Availability.class, names = {"UNAVAILABLE", "RESTRICTED"})
+    void activeInlineImagesDenyBothViewAndFormWithoutMutatingAnswersOrState(ParticipantViewMediaReader.Availability availability) throws Exception {
+        var fixture = matchingMediaFixture(false); var version = view(fixture.attempt()).stateVersion();
+        inlineAvailability(availability);
+        mvc().perform(get("/api/v2/attempts/{id}", fixture.attempt())
+                .principal(SecurityContextHolder.getContext().getAuthentication())).andExpect(status().isServiceUnavailable());
+        var formMvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new AttemptFormController(delivery))
+                .setControllerAdvice(new AttemptDeliveryErrorHandler()).build();
+        var body = formMvc.perform(get("/api/v2/attempts/{id}/form", fixture.attempt()))
+                .andExpect(status().isServiceUnavailable()).andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain(GRANTED_INLINE_URL, "retained-images/", "assetId", "cdnUrl");
+        assertThat(count("attempt_accepted_response")).isZero(); assertThat(count("attempt_submission")).isZero();
+        inlineAvailability(ParticipantViewMediaReader.Availability.AVAILABLE);
+        assertThat(view(fixture.attempt()).stateVersion()).isEqualTo(version);
+        assertThat(AttemptFormResponse.from(delivery.read(fixture.attempt())).items()).hasSize(1);
+    }
+
+    @Test void missingInlineMediaIntegrationFailsClosedAfterRealSuccessfulControl() {
+        var fixture = matchingMediaFixture(true);
+        doAnswer(call -> new InitialParticipantViewMediaReader()
+                .read(call.getArgument(0), call.getArgument(1), call.getArgument(2))).when(mediaReader).read(any(), any(), any());
+        assertThatThrownBy(() -> view(fixture.attempt())).isInstanceOfSatisfying(
+                uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException.class,
+                failure -> assertThat(failure.reason().name()).isEqualTo("UNSUPPORTED"));
+        inlineAvailability(ParticipantViewMediaReader.Availability.AVAILABLE);
+        assertThat(view(fixture.attempt()).result().totalScore().earned()).isEqualTo(1);
+        var active = matchingMediaFixture(false);
+        var absent = new AttemptDeliveryServiceImpl(context.getBean(AttemptReadFactsService.class), manager, metrics, context.getBean(Clock.class));
+        assertThatThrownBy(() -> absent.read(active.attempt())).isInstanceOfSatisfying(
+                uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException.class,
+                failure -> assertThat(failure.reason().name()).isEqualTo("UNSUPPORTED"));
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"missing", "foreign-option"})
+    void incompleteOrWrongOccurrenceInlinePermissionCannotReleaseAnyUrl(String defect) {
+        var fixture = matchingMediaFixture(true);
+        doAnswer(call -> {
+            List<ParticipantViewMediaReader.Reference> refs = call.getArgument(2);
+            var first = refs.get(0);
+            var key = defect.equals("missing") ? first : new ParticipantViewMediaReader.Reference(
+                    first.formItemId(), first.questionRevisionId(), first.assetId(), UUID.randomUUID());
+            return Map.of(key, new ParticipantViewMediaReader.Image(ParticipantViewMediaReader.Availability.AVAILABLE, GRANTED_INLINE_URL));
+        }).when(mediaReader).read(any(), any(), any());
+        assertThatThrownBy(() -> view(fixture.attempt())).isInstanceOfSatisfying(
+                uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException.class,
+                failure -> assertThat(failure.reason().name()).isEqualTo("CORRUPT"));
     }
 
     private record OpenAttempt(UUID id, ParticipantForm.Item item) { }

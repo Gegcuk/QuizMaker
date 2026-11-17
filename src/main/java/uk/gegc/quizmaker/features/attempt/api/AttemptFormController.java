@@ -27,7 +27,7 @@ public class AttemptFormController {
     @GetMapping(value = "/{attemptId}/form", produces = "application/json")
     @Operation(operationId = "readAttemptForm", summary = "Read the saved flat attempt form",
             description = "Requires authentication, ATTEMPT_READ, the bound participant, and current quiz ownership or full question editing authority. " +
-                    "Active flat ALL_AT_ONCE returns the complete permitted form; ONE_AT_A_TIME returns only its current permitted item and navigation version. Returns immutable text-only content for the five baseline question families, " +
+                    "Active flat ALL_AT_ONCE returns the complete permitted form; ONE_AT_A_TIME returns only its current permitted item and navigation version. Returns immutable content for the five baseline families, OPEN and MATCHING with publication-resolved inline images, " +
                     "stable item/option IDs and order; author edits do not replace saved content. No answer keys, correctness, explanations or private provenance. " +
                     "Include flags confer no authority. Wrong, missing, legacy and unauthorized attempts share 404. " +
                     "Read-only and repeatable without an idempotency key; no partial form on failure. No filters, sorting or pagination. " +

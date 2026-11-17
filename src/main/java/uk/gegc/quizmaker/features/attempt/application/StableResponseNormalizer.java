@@ -40,6 +40,15 @@ public final class StableResponseNormalizer {
                 require(input.path("answer").isBoolean(), INVALID_INPUT);
                 result.put("answer", input.path("answer").booleanValue());
             }
+            case MATCHING -> {
+                var target = result.putArray("matches");
+                for (var pair : array(input.path("matches"))) {
+                    require(pair.isObject(), INVALID_INPUT);
+                    // Repeated left references are order-sensitive in the frozen binary scorer.
+                    target.addObject().put("leftId", option(pair.path("leftId")))
+                            .put("rightId", option(pair.path("rightId")));
+                }
+            }
             case FILL_GAP -> {
                 var ids = new HashSet<Integer>();
                 var answers = array(input.path("answers"));
@@ -84,6 +93,12 @@ public final class StableResponseNormalizer {
                 } catch (IOException corrupt) { throw new ResponseAcceptanceException(CORRUPT); }
             }
             case TRUE_FALSE, OPEN -> { }
+            case MATCHING -> {
+                var target = result.putArray("matches");
+                for (var pair : stable.path("matches")) target.addObject()
+                        .put("leftId", matchingKey(keys, pair.path("leftId"), "left/"))
+                        .put("rightId", matchingKey(keys, pair.path("rightId"), "right/"));
+            }
             default -> throw new ResponseAcceptanceException(UNSUPPORTED);
         }
         contracts.response().validate(question, result);
@@ -94,6 +109,12 @@ public final class StableResponseNormalizer {
     private static String key(Map<UUID, String> keys, JsonNode id) {
         var key = keys.get(UUID.fromString(id.textValue()));
         require(key != null, INVALID_INPUT); return key;
+    }
+    private static int matchingKey(Map<UUID, String> keys, JsonNode id, String prefix) {
+        String value = key(keys, id);
+        require(value.startsWith(prefix), INVALID_INPUT);
+        try { return Integer.parseInt(value.substring(prefix.length())); }
+        catch (NumberFormatException corrupt) { throw new ResponseAcceptanceException(CORRUPT); }
     }
     private static String option(JsonNode node) {
         require(node.isTextual() && node.textValue().length() == 36, INVALID_INPUT);

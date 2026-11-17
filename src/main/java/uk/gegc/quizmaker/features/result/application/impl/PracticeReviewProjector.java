@@ -72,6 +72,9 @@ final class PracticeReviewProjector {
             case MCQ_MULTI -> new Options(values(response.path("selectedOptionIds")).stream().map(v -> option(keys, v)).toList());
             case TRUE_FALSE -> new BooleanAnswer(response.path("answer").booleanValue());
             case OPEN -> new TextAnswer(response.path("answer").textValue());
+            case MATCHING -> new MatchingPairs(values(response.path("matches")).stream().map(pair ->
+                    new MatchingPair(matchingOption(keys, "left/", pair.path("leftId")),
+                            matchingOption(keys, "right/", pair.path("rightId")))).toList());
             case ORDERING -> new OrderedItems(values(response.path("orderedItemIds")).stream().map(v -> option(keys, v)).toList());
             case FILL_GAP -> new Gaps(values(response.path("answers")).stream()
                     .map(v -> new Gap(v.path("gapId").intValue(), v.path("answer").textValue())).toList());
@@ -85,6 +88,9 @@ final class PracticeReviewProjector {
                     .filter(v -> v.path("correct").booleanValue()).map(v -> option(keys, v.path("id"))).toList());
             case TRUE_FALSE -> new BooleanAnswer(content.path("answer").booleanValue());
             case OPEN -> new TextAnswer(content.path("answer").textValue());
+            case MATCHING -> new MatchingPairs(values(content.path("left")).stream().map(item ->
+                    new MatchingPair(matchingOption(keys, "left/", item.path("id")),
+                            matchingOption(keys, "right/", item.path("matchId")))).toList());
             case ORDERING -> new OrderedItems(values(content.path("correctOrder")).stream().map(v -> option(keys, v)).toList());
             case FILL_GAP -> new Gaps(values(content.path("gaps")).stream()
                     .map(v -> new Gap(v.path("id").intValue(), v.path("answer").textValue())).toList());
@@ -93,5 +99,8 @@ final class PracticeReviewProjector {
     }
     private static List<JsonNode> values(JsonNode array) {
         var result = new ArrayList<JsonNode>(); array.forEach(result::add); return result;
+    }
+    private static UUID matchingOption(Map<String, UUID> keys, String prefix, JsonNode source) {
+        UUID id = keys.get(prefix + source.asText()); require(id != null, CORRUPT); return id;
     }
 }

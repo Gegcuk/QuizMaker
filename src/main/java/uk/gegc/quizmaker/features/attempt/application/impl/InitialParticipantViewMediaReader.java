@@ -10,7 +10,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryExcep
 /** Text-only baseline. Missing media integration is not evidence of a temporary storage outage. */
 @Service
 public class InitialParticipantViewMediaReader implements ParticipantViewMediaReader {
-    @Override public Map<UUID, Image> read(UUID attemptId, UUID quizRevisionId, List<Reference> references) {
+    @Override public Map<Reference, Image> read(UUID attemptId, UUID quizRevisionId, List<Reference> references) {
         if (!references.isEmpty()) throw new AttemptDeliveryException(AttemptDeliveryException.Reason.UNSUPPORTED);
         return Map.of();
     }

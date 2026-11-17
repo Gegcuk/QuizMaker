@@ -8,15 +8,19 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision;
 public final class SupportedQuestionContracts {
     public static final ContractVersion OPEN_RESPONSE = new ContractVersion("question.open.response", 1);
     public static final ContractVersion OPEN_SCORING = new ContractVersion("question.open.binary", 1);
+    public static final ContractVersion MATCHING_RESPONSE = new ContractVersion("question.matching.response", 1);
+    public static final ContractVersion MATCHING_SCORING = new ContractVersion("question.matching.binary", 1);
 
     private SupportedQuestionContracts() { }
 
     public static ContractVersion response(QuestionType type) {
-        return type == QuestionType.OPEN ? OPEN_RESPONSE : BaselineQuestionContracts.response(type);
+        if (type == QuestionType.OPEN) return OPEN_RESPONSE;
+        return type == QuestionType.MATCHING ? MATCHING_RESPONSE : BaselineQuestionContracts.response(type);
     }
 
     public static ContractVersion scoring(QuestionType type) {
-        return type == QuestionType.OPEN ? OPEN_SCORING : BaselineQuestionContracts.scoring(type);
+        if (type == QuestionType.OPEN) return OPEN_SCORING;
+        return type == QuestionType.MATCHING ? MATCHING_SCORING : BaselineQuestionContracts.scoring(type);
     }
 
     public static QuestionContractBinding binding(QuestionRevision question) {

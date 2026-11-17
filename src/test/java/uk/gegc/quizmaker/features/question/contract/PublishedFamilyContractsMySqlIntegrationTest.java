@@ -90,6 +90,7 @@ import static uk.gegc.quizmaker.features.question.contract.BaselineFamilyFixture
         QuestionContractRegistryImpl.class, QuestionRevisionContractServiceImpl.class, JdbcQuestionContractBindingRepository.class,
         PublishedQuestionContractServiceImpl.class, BaselineQuestionContractConfig.class,
         uk.gegc.quizmaker.features.question.config.OpenQuestionContractConfig.class,
+        uk.gegc.quizmaker.features.question.config.MatchingQuestionContractConfig.class,
         FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
         PublishedFamilyContractsMySqlIntegrationTest.Config.class})
@@ -128,6 +129,8 @@ class PublishedFamilyContractsMySqlIntegrationTest {
         // Deliberately different test-only v2: proves exact stored resolution, not a new product policy.
         @Bean uk.gegc.quizmaker.features.question.application.contract.VersionedResponseContract fixtureOpenResponseV2() { return openResponseV2(); }
         @Bean uk.gegc.quizmaker.features.question.application.contract.VersionedScoringContract fixtureOpenScoringV2() { return openScoringV2(); }
+        @Bean uk.gegc.quizmaker.features.question.application.contract.VersionedResponseContract fixtureMatchingResponseV2() { return matchingResponseV2(); }
+        @Bean uk.gegc.quizmaker.features.question.application.contract.VersionedScoringContract fixtureMatchingScoringV2() { return matchingScoringV2(); }
         @Bean Faults faults(JdbcTemplate sql) { return new Faults(sql); }
         @Bean static BeanPostProcessor measuredSql() {
             return new BeanPostProcessor() {
@@ -293,7 +296,7 @@ class PublishedFamilyContractsMySqlIntegrationTest {
     @EnumSource(value = QuestionType.class, names = {"OPEN", "MATCHING", "COMPLIANCE"})
     void mixedQuizBindsOnlyDeliveredFamilies(QuestionType unsupported) {
         UUID revision = publish(0, List.of(draft(QuestionType.TRUE_FALSE), draft(unsupported)));
-        if (unsupported == QuestionType.OPEN) {
+        if (unsupported == QuestionType.OPEN || unsupported == QuestionType.MATCHING) {
             assertThat(binding.bind(quizId, revision)).hasSize(2);
             assertThat(count("question_revision_contract_bindings")).isEqualTo(2);
         } else {
@@ -530,6 +533,105 @@ class PublishedFamilyContractsMySqlIntegrationTest {
         assertThat(restartedContracts().resolve(ownerId, revision)).hasSize(1);
     }
 
+    private static uk.gegc.quizmaker.features.question.application.contract.VersionedResponseContract matchingResponseV2() {
+        return new uk.gegc.quizmaker.features.question.application.contract.VersionedResponseContract() {
+            public ContractVersion version() { return new ContractVersion(SupportedQuestionContracts.MATCHING_RESPONSE.id(), 2); }
+            public void validate(uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision q, com.fasterxml.jackson.databind.JsonNode value) {
+                new MatchingResponseContractV1().validate(q, value);
+            }
+        };
+    }
+    private static uk.gegc.quizmaker.features.question.application.contract.VersionedScoringContract matchingScoringV2() {
+        return new uk.gegc.quizmaker.features.question.application.contract.VersionedScoringContract() {
+            public ContractVersion version() { return new ContractVersion(SupportedQuestionContracts.MATCHING_SCORING.id(), 2); }
+            public uk.gegc.quizmaker.features.question.domain.model.contract.ContractScore score(
+                    uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision q, com.fasterxml.jackson.databind.JsonNode value) {
+                new MatchingResponseContractV1().validate(q, value);
+                return new uk.gegc.quizmaker.features.question.domain.model.contract.ContractScore(java.math.BigDecimal.ZERO, java.math.BigDecimal.ONE);
+            }
+        };
+    }
+
+    @Test void matchingRevisionsKeepExactDifferentScorersAfterAuthorEditsAndRestart() {
+        var id = draft(QuestionType.MATCHING); var first = publish(0, List.of(id)); binding.bind(quizId, first);
+        var q1 = publications.read(quizId, first).content().items().get(0).question();
+        var changed = (ObjectNode) QuestionContracts.example(QuestionType.MATCHING, QuestionContracts.View.AUTHOR);
+        ((ObjectNode) changed.path("left").get(0)).put("matchId", 11);
+        edit(id, changed); var second = publish(1, List.of(id));
+        var q2 = publications.read(quizId, second).content().items().get(0).question();
+        var v2 = new QuestionContractBinding(q2.id(), matchingResponseV2().version(), matchingScoringV2().version());
+        contracts.bind(ownerId, second, List.of(v2));
+        var restarted = restartedContracts();
+        var original = restarted.resolve(ownerId, first).get(q1.id()); var later = restarted.resolve(ownerId, second).get(q2.id());
+        var firstResponse = QuestionContracts.example(QuestionType.MATCHING, QuestionContracts.View.RESPONSE);
+        var secondResponse = firstResponse.deepCopy(); ((ObjectNode) secondResponse.path("matches").get(0)).put("rightId", 11);
+        assertThat(original.binding()).isEqualTo(SupportedQuestionContracts.binding(q1));
+        assertThat(original.scoring().version()).isEqualTo(SupportedQuestionContracts.MATCHING_SCORING);
+        assertThat(later.scoring().version()).isEqualTo(v2.scoring());
+        assertThat(original.scoring().score(q1, firstResponse).earned()).isEqualByComparingTo("1");
+        assertThat(new MatchingScoringContractV1().score(q2, secondResponse).earned()).isEqualByComparingTo("1");
+        assertThat(later.scoring().score(q2, secondResponse).earned()).isEqualByComparingTo("0");
+        assertThat(original.scoring().score(q1, firstResponse).earned()).isEqualByComparingTo("1");
+    }
+
+    @Test void matchingUnknownContractRollsBackAllBindingsAndPreservesTheIndependentPublication() {
+        var revision = publish(0, List.of(draft(QuestionType.TRUE_FALSE), draft(QuestionType.MATCHING)));
+        var before = publications.current(quizId).orElseThrow();
+        var expected = new ArrayList<>(publications.read(quizId, revision).content().items().stream()
+                .map(item -> SupportedQuestionContracts.binding(item.question())).toList());
+        var last = expected.get(1);
+        expected.set(1, new QuestionContractBinding(last.questionRevisionId(), last.response(), new ContractVersion(last.scoring().id(), 99)));
+        assertThatThrownBy(() -> contracts.bind(ownerId, revision, expected)).isInstanceOf(ContractResolutionException.class);
+        assertThat(count("question_revision_contract_bindings")).isZero();
+        assertThat(publications.current(quizId).orElseThrow()).isEqualTo(before);
+        assertThat(count("quiz_publications")).isEqualTo(1); assertThat(count("quiz_publication_receipts")).isEqualTo(1);
+        // #700 explicitly rejects publication inside an outer transaction. A family adapter cannot change that contract.
+        assertThatThrownBy(() -> tx.executeWithoutResult(status -> publish(1,
+                tx.execute(s -> questions.findAll().stream().map(Question::getId).toList()))))
+                .isInstanceOfSatisfying(PublicationException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(PublicationException.Reason.TRANSACTION_NOT_ALLOWED));
+        assertThat(publications.current(quizId).orElseThrow()).isEqualTo(before);
+        assertThat(binding.bind(quizId, revision)).hasSize(2);
+    }
+
+    @Test void reachedMatchingBindingFailureRollsBackTheWholeSetThenRetriesExactlyOnce() {
+        var revision = publish(0, List.of(draft(QuestionType.MATCHING), draft(QuestionType.TRUE_FALSE)));
+        faults.failAfterInsert = true;
+        assertThatThrownBy(() -> binding.bind(quizId, revision)).isInstanceOf(ContractResolutionException.class);
+        assertThat(faults.reached).isTrue(); assertThat(count("question_revision_contract_bindings")).isZero();
+        faults.failAfterInsert = false; var expected = binding.bind(quizId, revision);
+        assertThat(binding.bind(quizId, revision)).isEqualTo(expected);
+        assertThat(restartedContracts().resolve(ownerId, revision)).hasSize(2);
+    }
+
+    @Test void competingMatchingBindingsLeaveOneDurableImmutableWinnerAfterRestart() throws Exception {
+        var revision = publish(0, List.of(draft(QuestionType.MATCHING)));
+        var q = publications.read(quizId, revision).content().items().get(0).question();
+        var a = SupportedQuestionContracts.binding(q);
+        var b = new QuestionContractBinding(q.id(), matchingResponseV2().version(), matchingScoringV2().version());
+        var barrier = new CyclicBarrier(2); var pool = Executors.newFixedThreadPool(2);
+        java.util.function.Function<QuestionContractBinding, Boolean> write = value -> asOwner(() -> {
+            try { barrier.await(10, TimeUnit.SECONDS); contracts.bind(ownerId, revision, List.of(value)); return true; }
+            catch (ContractResolutionException failure) {
+                assertThat(failure.reason()).isEqualTo(ContractResolutionException.Reason.BINDING_CONFLICT); return false;
+            } catch (Exception failure) { throw new AssertionError(failure); }
+        });
+        try {
+            var first = pool.submit(() -> write.apply(a)); var second = pool.submit(() -> write.apply(b));
+            assertThat(List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS))).containsExactlyInAnyOrder(true, false);
+        } finally { pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+        var saved = restartedContracts().resolve(ownerId, revision).get(q.id()).binding();
+        assertThat(saved).isIn(a, b); assertThat(count("question_revision_contract_bindings")).isEqualTo(1);
+        assertThatThrownBy(() -> contracts.bind(ownerId, revision, List.of(saved.equals(a) ? b : a))).isInstanceOf(ContractResolutionException.class);
+        assertThat(restartedContracts().resolve(ownerId, revision).get(q.id()).binding()).isEqualTo(saved);
+    }
+
+    @Test void matchingMetadataResolutionNeverOpensExternalContentOrStorage() {
+        var revision = publish(0, List.of(draft(QuestionType.MATCHING)));
+        binding.bind(quizId, revision);
+        assertThat(restartedContracts().resolve(ownerId, revision)).hasSize(1);
+    }
+
     private UUID draft(QuestionType type) {
         return tx.execute(s -> {
             var q = new Question(); q.setType(type); q.setDifficulty(Difficulty.EASY); q.setQuestionText("Frozen " + type);
@@ -560,9 +662,11 @@ class PublishedFamilyContractsMySqlIntegrationTest {
         var responses = new ArrayList<uk.gegc.quizmaker.features.question.application.contract.VersionedResponseContract>(
                 FAMILIES.stream().map(FamilyResponseContractV1::new).toList());
         responses.add(new OpenResponseContractV1()); responses.add(openResponseV2());
+        responses.add(new MatchingResponseContractV1()); responses.add(matchingResponseV2());
         var scoring = new ArrayList<uk.gegc.quizmaker.features.question.application.contract.VersionedScoringContract>(
                 FAMILIES.stream().map(FamilyScoringContractV1::new).toList());
         scoring.add(new OpenScoringContractV1()); scoring.add(openScoringV2());
+        scoring.add(new MatchingScoringContractV1()); scoring.add(matchingScoringV2());
         var restartedRegistry = new QuestionContractRegistryImpl(responses, scoring, new SimpleMeterRegistry());
         return new QuestionRevisionContractServiceImpl(new JdbcQuestionContractBindingRepository(new NamedParameterJdbcTemplate(source)), restartedRegistry, manager);
     }

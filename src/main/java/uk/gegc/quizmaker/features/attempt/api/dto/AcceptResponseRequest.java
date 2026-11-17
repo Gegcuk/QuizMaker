@@ -11,7 +11,7 @@ import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 
 @Schema(name = "AcceptResponseRequest", description = "One confirmed answer to a saved form item. No subject, grading or disclosure authority is accepted.")
 public record AcceptResponseRequest(@NotNull UUID formItemId, @NotNull @Min(0) Long expectedStateVersion,
-                                    @NotNull @Valid @Schema(oneOf = {Single.class, Multiple.class, Truth.class, Ordering.class, Gaps.class, Open.class}) Response response) {
+                                    @NotNull @Valid @Schema(oneOf = {Single.class, Multiple.class, Truth.class, Ordering.class, Gaps.class, Open.class, Matching.class}) Response response) {
     @Override public String toString() { return "AcceptResponseRequest[redacted]"; }
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY, property = "type")
@@ -20,15 +20,17 @@ public record AcceptResponseRequest(@NotNull UUID formItemId, @NotNull @Min(0) L
             @JsonSubTypes.Type(value = Truth.class, name = "TRUE_FALSE"),
             @JsonSubTypes.Type(value = Ordering.class, name = "ORDERING"),
             @JsonSubTypes.Type(value = Gaps.class, name = "FILL_GAP"),
-            @JsonSubTypes.Type(value = Open.class, name = "OPEN")})
+            @JsonSubTypes.Type(value = Open.class, name = "OPEN"),
+            @JsonSubTypes.Type(value = Matching.class, name = "MATCHING")})
     @Schema(name = "ConfirmedResponse", discriminatorProperty = "type",
             discriminatorMapping = {@DiscriminatorMapping(value = "MCQ_SINGLE", schema = Single.class),
             @DiscriminatorMapping(value = "MCQ_MULTI", schema = Multiple.class),
             @DiscriminatorMapping(value = "TRUE_FALSE", schema = Truth.class),
             @DiscriminatorMapping(value = "ORDERING", schema = Ordering.class),
             @DiscriminatorMapping(value = "FILL_GAP", schema = Gaps.class),
-            @DiscriminatorMapping(value = "OPEN", schema = Open.class)})
-    public sealed interface Response permits Single, Multiple, Truth, Ordering, Gaps, Open {
+            @DiscriminatorMapping(value = "OPEN", schema = Open.class),
+            @DiscriminatorMapping(value = "MATCHING", schema = Matching.class)})
+    public sealed interface Response permits Single, Multiple, Truth, Ordering, Gaps, Open, Matching {
         @JsonProperty("type") QuestionType type();
     }
     @Schema(name = "ConfirmedSingleChoice")
@@ -70,5 +72,16 @@ public record AcceptResponseRequest(@NotNull UUID formItemId, @NotNull @Min(0) L
     @Schema(name = "ConfirmedGapAnswer")
     public record Gap(@NotNull Integer gapId, @NotNull @Schema(maxLength = 10000) String answer) {
         @Override public String toString() { return "ConfirmedGapAnswer[redacted]"; }
+    }
+    @Schema(name = "ConfirmedMatching", description = "Ordered pairs of saved left/right option UUIDs from this question. Empty/partial answers are valid and score zero. Repeated left IDs retain order: the last pair wins. No partial credit or display indexes.")
+    public record Matching(@NotNull @Size(max = 100) List<@NotNull @Valid Match> matches) implements Response {
+        public Matching { matches = matches == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(matches)); }
+        @JsonProperty("type") @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "MATCHING")
+        public QuestionType type() { return QuestionType.MATCHING; }
+        @Override public String toString() { return "ConfirmedMatching[redacted]"; }
+    }
+    @Schema(name = "ConfirmedMatch", description = "Both UUIDs must belong to the named side of the same saved question.")
+    public record Match(@NotNull UUID leftId, @NotNull UUID rightId) {
+        @Override public String toString() { return "ConfirmedMatch[redacted]"; }
     }
 }

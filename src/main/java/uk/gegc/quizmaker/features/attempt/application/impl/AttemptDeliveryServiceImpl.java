@@ -21,9 +21,16 @@ public class AttemptDeliveryServiceImpl implements AttemptDeliveryService {
     private final TransactionTemplate transaction;
     private final MeterRegistry metrics;
     private final java.time.Clock clock;
+    private final ParticipantViewMediaReader media;
 
     public AttemptDeliveryServiceImpl(AttemptReadFactsService facts, PlatformTransactionManager manager, MeterRegistry metrics, java.time.Clock clock) {
+        this(facts, manager, metrics, clock, null);
+    }
+    @org.springframework.beans.factory.annotation.Autowired
+    public AttemptDeliveryServiceImpl(AttemptReadFactsService facts, PlatformTransactionManager manager, MeterRegistry metrics,
+                                     java.time.Clock clock, @org.springframework.lang.Nullable ParticipantViewMediaReader media) {
         this.facts = facts; this.metrics = metrics; this.clock = clock;
+        this.media = media == null ? new InitialParticipantViewMediaReader() : media;
         this.transaction = AttemptTransactions.readCommitted(manager);
         this.transaction.setReadOnly(true);
     }
@@ -59,6 +66,9 @@ public class AttemptDeliveryServiceImpl implements AttemptDeliveryService {
         var participant = ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
         participant = new uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm(participant.id(), participant.schemaVersion(),
                 participant.items().stream().filter(i -> saved.visible(i.id())).toList());
+        var visible = participant.items().stream().map(uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm.Item::id)
+                .collect(java.util.stream.Collectors.toSet());
+        var images = ParticipantFormMedia.read(media, attemptId, saved.form(), saved.revision(), participant, visible, false);
         // Sample execution age only; this never establishes a per-question timer or write authority.
         if (saved.oneAtATime()) try {
             io.micrometer.core.instrument.DistributionSummary.builder("quizmaker.attempt.delivery.active.age")
@@ -69,6 +79,6 @@ public class AttemptDeliveryServiceImpl implements AttemptDeliveryService {
                 granted.stateVersion(), null, null);
         return new View(attemptId, granted.stateVersion(), participant, saved.oneAtATime()
                 ? CurrentItemDelivery.actions(saved) : AttemptCommands.allowedActions(context).actions(),
-                saved.oneAtATime() ? saved.navigation().cursor() : null);
+                saved.oneAtATime() ? saved.navigation().cursor() : null, images);
     }
 }

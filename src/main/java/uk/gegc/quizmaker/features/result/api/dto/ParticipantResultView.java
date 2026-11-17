@@ -37,14 +37,16 @@ public record ParticipantResultView(
             @JsonSubTypes.Type(value = OrderedItems.class, name = "ORDERED_ITEMS"),
             @JsonSubTypes.Type(value = BooleanAnswer.class, name = "BOOLEAN"),
             @JsonSubTypes.Type(value = Gaps.class, name = "GAPS"),
-            @JsonSubTypes.Type(value = TextAnswer.class, name = "TEXT")})
+            @JsonSubTypes.Type(value = TextAnswer.class, name = "TEXT"),
+            @JsonSubTypes.Type(value = MatchingPairs.class, name = "MATCHING_PAIRS")})
     @Schema(name = "ReleasedPracticeAnswer", discriminatorProperty = "kind", discriminatorMapping = {
             @DiscriminatorMapping(value = "OPTIONS", schema = Options.class),
             @DiscriminatorMapping(value = "ORDERED_ITEMS", schema = OrderedItems.class),
             @DiscriminatorMapping(value = "BOOLEAN", schema = BooleanAnswer.class),
             @DiscriminatorMapping(value = "GAPS", schema = Gaps.class),
-            @DiscriminatorMapping(value = "TEXT", schema = TextAnswer.class)})
-    public sealed interface Answer permits Options, OrderedItems, BooleanAnswer, Gaps, TextAnswer {
+            @DiscriminatorMapping(value = "TEXT", schema = TextAnswer.class),
+            @DiscriminatorMapping(value = "MATCHING_PAIRS", schema = MatchingPairs.class)})
+    public sealed interface Answer permits Options, OrderedItems, BooleanAnswer, Gaps, TextAnswer, MatchingPairs {
         @JsonProperty("kind") String kind();
     }
     @Schema(name = "ReleasedPracticeOptions", description = "Saved stable option UUIDs, never display indexes or authoring source keys.")
@@ -84,5 +86,17 @@ public record ParticipantResultView(
     public record Gap(@Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") int gapId,
                       @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String answer) {
         @Override public String toString() { return "ReleasedPracticeGap"; }
+    }
+    @Schema(name = "ReleasedPracticeMatchingPairs", description = "Ordered saved pairs. Submitted duplicates remain visible in their original order; correct pairs are disclosed only when authorized.")
+    public record MatchingPairs(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<MatchingPair> matches) implements Answer {
+        public MatchingPairs { matches = List.copyOf(matches); }
+        @JsonProperty("kind") @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "MATCHING_PAIRS")
+        public String kind() { return "MATCHING_PAIRS"; }
+        @Override public String toString() { return "ReleasedPracticeMatchingPairs[redacted]"; }
+    }
+    @Schema(name = "ReleasedPracticeMatchingPair", description = "Stable revision option UUIDs, never authoring IDs or display positions.")
+    public record MatchingPair(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) UUID leftId,
+                               @Schema(requiredMode = Schema.RequiredMode.REQUIRED) UUID rightId) {
+        @Override public String toString() { return "ReleasedPracticeMatchingPair[redacted]"; }
     }
 }
