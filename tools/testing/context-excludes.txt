@@ -461,6 +461,12 @@ uk/gegc/quizmaker/features/result/disclosure/ResultDisclosureServiceTest.java
 uk/gegc/quizmaker/features/result/disclosure/ResultDisclosureServiceTest$*.java
 uk/gegc/quizmaker/features/result/domain/repository/QuizAnalyticsSnapshotRepositoryTest.java
 uk/gegc/quizmaker/features/result/domain/repository/QuizAnalyticsSnapshotRepositoryTest$*.java
+uk/gegc/quizmaker/features/result/release/ReleaseConfigurationActivationTest.java
+uk/gegc/quizmaker/features/result/release/ReleaseConfigurationActivationTest$*.java
+uk/gegc/quizmaker/features/result/release/ReleaseConfigurationMySqlIntegrationTest.java
+uk/gegc/quizmaker/features/result/release/ReleaseConfigurationMySqlIntegrationTest$*.java
+uk/gegc/quizmaker/features/result/release/ReleaseConfigurationOpenApiTest.java
+uk/gegc/quizmaker/features/result/release/ReleaseConfigurationOpenApiTest$*.java
 uk/gegc/quizmaker/features/tag/domain/repository/TagRepositoryTest.java
 uk/gegc/quizmaker/features/tag/domain/repository/TagRepositoryTest$*.java
 uk/gegc/quizmaker/integration/UserAvatarIntegrationTest.java

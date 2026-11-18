@@ -2,6 +2,52 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Immutable release configuration (#697)
+
+Start on JDK 17 with `ReleaseConfigurationTest` and `ReleaseConfigurationActivationTest`.
+Use the existing offline/disposable-MySQL launcher for `ReleaseConfigurationOpenApiTest` and
+`ReleaseConfigurationMySqlIntegrationTest`. The context manifest includes both programmatic/MVC
+contexts and the standalone database companion; exclusive scheduling and existing suites remain.
+
+Validate explicit trigger/category combinations, the independent canonical golden bytes, strict
+unknown/null/version parsing, rejection of numeric enum ordinals, IANA gap/overlap controls and
+exact existing practice mapping.
+For each denied time input retain a successful same-path control. Reconstruct the codec/service
+under another process timezone and compare the saved local/zone/offset/UTC evidence unchanged.
+The HTTP suite checks real security filters, named full/grouped schemas, actual responses,
+request examples, safe ProblemDetail errors, discovery and default-disabled authoring. SQL-backed
+author tests prove owner/permission/public-moderation/active-account checks, including replay.
+The wrong-owner control must have real `QUIZ_UPDATE`, so denial reaches ownership validation.
+Source reads use the actual `TransactionInterceptor` around `JdbcQuizPublicationRepository`.
+Inject driver failures after each reached user/permission/quiz/revision SELECT, capture TRACE
+messages and throwable graphs, and assert that private diagnostics and SQL are absent before
+the outer adapter translates the error. Catch the safe failure inside an outer RC transaction,
+prove writes both before and after it were reached, then verify their rollback in fresh reads.
+Disable the fault and prove the same authorized publication/replay path still succeeds.
+
+The MySQL suite owns actual version/head/receipt writes. Inject faults after each reached SQL
+checkpoint, inspect through fresh transactions, and prove one successful retry. Preserve outer-RC
+rollback, caught-failure rollback-only and incompatible-caller refusal. Race identical and stale
+commands with real committed fixtures; prove one durable version and a permitted winner. Hold
+one publication after INSERT and require another quiz with the same author to commit before
+releasing the holder. Finite watchdogs guard the barriers, not performance promises.
+Lose the acknowledgement after the real commit, reconstruct the service, and reconcile the
+same durable version/receipt. A future-version fixture must carry its corresponding canonical
+metadata hash; reject it without moving the current binding or inventing a current format.
+
+Configuration reads select bounded scalar metadata, without JPA relationships or content reads;
+JPA N+1 is inapplicable. The source revision fixture uses the real immutable revision repository
+but does not claim full publication/start/release conformance. Manual/scheduled execution,
+notification delivery and certificate issuance remain separate integration gates.
+
+After final inputs are stable, run the unchanged four-worker complete clean-verify gate with a
+fresh output path and compare its `source` fingerprint with the candidate implementation:
+
+```bash
+python3 tools/testing/context_benchmark.py verify --workers 4 \
+  --output /private/tmp/quizmaker-697-verify-<RUN>
+```
+
 ## Ungraded activity contract (#566)
 
 On JDK 17, start with the pure contract and existing scored compatibility cases in the offline

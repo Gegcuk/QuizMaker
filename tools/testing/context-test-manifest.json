@@ -213,6 +213,8 @@
     "uk.gegc.quizmaker.features.result.application.impl.QuizAnalyticsSnapshotIntegrationTest",
     "uk.gegc.quizmaker.features.result.disclosure.ResultDisclosureServiceTest",
     "uk.gegc.quizmaker.features.result.domain.repository.QuizAnalyticsSnapshotRepositoryTest",
+    "uk.gegc.quizmaker.features.result.release.ReleaseConfigurationActivationTest",
+    "uk.gegc.quizmaker.features.result.release.ReleaseConfigurationOpenApiTest",
     "uk.gegc.quizmaker.features.tag.domain.repository.TagRepositoryTest",
     "uk.gegc.quizmaker.integration.UserAvatarIntegrationTest",
     "uk.gegc.quizmaker.model.question.QuestionSoftDeleteTest",
@@ -259,7 +261,8 @@
     "uk.gegc.quizmaker.features.question.contract.QuestionRevisionContractsMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.quiz.revision.QuizRevisionCasesMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.quiz.revision.QuizRevisionMySqlIntegrationTest",
-    "uk.gegc.quizmaker.features.quiz.revision.QuizRevisionSectionsMySqlIntegrationTest"
+    "uk.gegc.quizmaker.features.quiz.revision.QuizRevisionSectionsMySqlIntegrationTest",
+    "uk.gegc.quizmaker.features.result.release.ReleaseConfigurationMySqlIntegrationTest"
   ],
   "excluded": [
     "uk.gegc.quizmaker.controller.AiChatControllerIntegrationTest",
