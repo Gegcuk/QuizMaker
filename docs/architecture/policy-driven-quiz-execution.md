@@ -5053,6 +5053,65 @@ The three-parent fixture uses 102 queries for both 1 and 20 items per attempt. T
 `PracticeReviewProjectorTest` separately composes #555's real decision table and the projector
 for category isolation; its decision fixtures do not prove a future runtime policy writer.
 
+### Immutable release-configuration publication (#697)
+
+`ReleaseConfigurationService` publishes prospective, revision-bound formal release rules. It
+does not open a participant result. The author endpoints under
+`/api/v1/quizzes/{quizId}/revisions/{revisionId}/release-configurations` belong to `quizzes` and
+are absent unless `quizmaker.results.release-configuration-enabled=true`. POST publishes,
+POST `/preview` validates without writes, GET reads the current authoring pointer, and GET
+`/{configurationId}` reads a captured version. These additive JSON contracts require current
+`QUIZ_UPDATE` plus ownership or the established moderation exception; publishing for a PUBLIC
+quiz retains the moderator requirement. Identical retries recheck that authority. They confer
+no assignment/organization manual-release permission.
+
+Formal triggers must be explicit: IMMEDIATE alone, MANUAL, SCHEDULED, or MANUAL plus SCHEDULED.
+The latter retains D37's first-valid-committed-release rule for future executors. Missing/null
+categories map to R05's `{TOTAL_SCORE,PASS_FAIL}`; an explicit empty set grants nothing. Other
+categories require explicit entries. Manual rules capture the requirement for a dedicated
+assignment-and-organization-scoped permission, not an actor grant. The v1 notification boundary
+requires durable post-commit outcome events; event production/delivery remains #837/#800.
+The pure practice adapter reuses `ResultDisclosure.Policy.practice` exactly, including its
+absence of a separate PASS_FAIL grant, without changing existing policy bytes or routes.
+
+Publication resolves IANA local time once, retaining local time, zone, selected offset and UTC
+instant at microsecond precision. Gaps reject; overlaps require an explicit valid occurrence.
+No new future-time requirement is inferred. Reads verify captured arithmetic and canonical
+metadata/hash, never reinterpret the instant using process timezone or current tzdb rules.
+Only bounded configuration metadata enters the digest; no document/question content is read.
+
+V115 adds immutable versions, per-quiz/revision authoring heads and actor-scoped command
+receipts. A publication serializes on its own quiz's existing author row, checks expectedVersion,
+and commits version/head/receipt together in RC. Identical effective-rule publication at the
+current version reuses that version; exact command replay returns its original acknowledgement
+after later publications. Changed command input or a stale fresh publication conflicts. A
+compatible outer RC transaction owns final commit/rollback; incompatible callers reject before
+work. Update triggers protect versions/receipts and composite foreign keys preserve binding
+scope. There is no historical backfill, cascade, cleanup or destructive downgrade. Retain
+protected references under their owning retention policy; after writes use additive forward fixes.
+
+Consumers capture the configuration ID. `ReleaseConfigurationReader` reads that exact reference
+in a caller-owned RC transaction, scoped to the immutable content owner/quiz/revision, with one
+metadata SELECT. Its caller must independently establish current participant/assignment access
+and release authority; the reader is not a credential or a replacement for #555. No JPA graph
+or relationship-backed list is introduced. Source revision metadata in local configuration
+tests does not prove an actual attempt binding or release. #633/#634 execute release, #668
+proves the formal composition, and #836/#557 consume it for finality/issuance. Their activation
+requires their real integrations; existing practice and participant HTTP responses remain intact.
+
+Failures return bounded `RELEASE_CONFIGURATION_*` ProblemDetail codes: 400 malformed/invalid
+input, 401 unauthenticated, non-enumerating 404 unavailable authority/reference, 409 stale or
+conflicting command, 422 invalid schedule/unsupported version, 500 corrupt saved evidence, and
+503 unavailable storage or unknown commit. Reconcile unknown outcomes with the same command.
+Responses use no-store. Operation/version/outcome metrics carry no identities or raw input;
+bounded failure logs preserve reasons without exception diagnostics or private input, and
+publication receipts retain the exact local actor/command/version evidence. Alerting/escalation
+for storage or unknown-commit outcomes belongs to the result-operation owner; this increment
+adds no arbitrary lag threshold or runtime polling/retry policy. Offline mutation is unsupported.
+The success metric describes boundary execution; a participating return remains provisional
+until its caller commits. MySQL DDL is not an atomic multi-statement transaction: a failed V115
+stops startup and requires inspection of actual DDL/Flyway state before explicit recovery.
+
 ### Result visibility
 
 Candidate scopes:
