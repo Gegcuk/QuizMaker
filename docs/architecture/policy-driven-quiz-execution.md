@@ -1,5 +1,57 @@
 # Policy-Driven Quiz Execution Architecture
 
+## Scheduled result release (#634)
+
+`ScheduledResultReleaseService` is an internal, independently committed RC boundary. It has no
+HTTP route, automatic registrar or polling activation. A trusted consumer registers a committed
+binary result with the exact #697 configuration captured by its start/assignment workflow;
+passing identifiers does not grant participant access. Registration verifies the server-owned
+submission/result/revision/owner binding, reads that immutable configuration and retains its ID,
+hash, UTC instant and one stable release-event identity. It never reads an authoring head.
+
+V116 adds work metadata without backfilling legacy attempts. Intent/lifecycle locks precede work
+locks, matching grading and immediate release. The durable registered row identifies work;
+transactional row locks claim execution without a process-local lease. Release, trace and completed
+work commit together. A terminated transaction leaves pending work, while a committed release with
+a lost acknowledgement is reconciled before any retry. Immediate release refuses a registered
+scheduled result, including when registration and immediate execution overlap.
+
+Each execution revalidates the current supported result binding, captured rule and injected clock.
+At `T - 1 ms` it cannot release; at or after T an eligible execution may commit. This is not a
+polling-frequency or exact wall-clock latency promise. If the registering host was ahead, execution
+also waits until its clock reaches the persisted registration instant. This leaves work and retry
+budget unchanged and makes the first committed release satisfy the same temporal bounds as replay.
+A later clock regression cannot invalidate an already committed valid replay.
+Unknown or inconsistent evidence enters
+review instead of falling back to immediate disclosure. Q60–Q62 govern confirmed temporary
+failures: after the initial failure, persist waits of 1, 5 and 15 minutes, then require operator
+handling. A restart preserves this budget. Unknown commits are reconciled first, and another
+worker observing the same failed work version cannot spend its retry twice. #707 owns the wider
+repair/status/operator-resume integration; no automatic resume is supplied here.
+
+Release repository JDBC failures are sanitized inside each method, before a nested transaction
+interceptor can log them. Keep bounded conflict classification for retry decisions while dropping
+driver messages, SQL and private throwable graphs; an outer worker catch is too late for this boundary.
+
+Bounded keyset batches continue beyond a failed row. The due index follows `(next_at, submission_id)`;
+the worker reads scalar metadata and bounded configuration bytes rather than question content,
+answers or all grade items. Committed-outcome counters, release lag, due count and oldest-due age
+use bounded labels. Operational alert thresholds and automatic polling remain activation work.
+
+Participant projection still resolves current access independently. A scheduled binding supplies
+only its captured category allow-list to #555; it never inherits practice's answer-key or unlimited
+review grants. The existing compatible DTO can render an allowed total score. #555 separately
+decides `PASS_FAIL`; its formal client representation and an explicit formal review-window binding
+remain #668 integration work. No new public fields, routes or release permissions are introduced.
+
+The MySQL worker fixtures use real #603 results and real #697/#538/#556 persistence. They prove the
+scheduled component, including durable identity and failure recovery, but do not claim a formal
+start captured the rule before participation. #668 owns that real start/answer/result composition.
+Dual-trigger rules remain unsupported until real #633/#634 race conformance. Notification events
+and delivery (#837/#800), certificates (#557), assignment revocation composition and public
+activation retain their separately owned gates. Retain V116 records on application rollback and
+use a forward fix after writes; no schedule is inferred from historical timestamps.
+
 ## Learning clean-start refinement
 
 The owner confirms that no current quizzes/questions use repetitions. Plan new Learning without SM-2 import or mandatory legacy repetition adapters; ordinary quiz/API/training compatibility remains separate. The [approved clean-start contract](decision-register.md#learning-clean-start) supersedes earlier preservation/migration assumptions for the unused repetition subsystem. Verify the target-scope assumption before any later destructive cleanup; do not invent migration work or reset unexpected records.

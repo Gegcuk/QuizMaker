@@ -2,6 +2,56 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Scheduled result release (#634)
+
+On JDK 17, run `ScheduledReleaseTest` first. Use the existing offline/disposable-MySQL launcher
+for `ImmediateResultReleaseMySqlIntegrationTest#scheduled*`, then the complete release suite,
+`ReleaseConfigurationMySqlIntegrationTest` and disclosure tests. The scheduled scenarios share
+the established release context; they do not introduce a duplicate database/context fixture.
+
+The worker fixtures use real publication/start/answers/submit/automatic-result commands to supply
+committed binary results, and real configuration publication/reading, trace and release writers.
+Attaching a captured rule at this component boundary does not prove formal-start capture; #668
+owns that integration. No external provider or fake release flag supplies a successful outcome.
+
+Check T minus one millisecond, T, saved configuration A after authoring B, timezone changes,
+strict unknown-version handling, authorization negatives and category withholding. Reach faults
+after trace, release and completed-work writes; inspect fresh transactions for rollback, persisted
+retry time and a successful same-path control. Lose actual commit acknowledgements for registration
+and execution, then reconstruct and verify the same retained identities and unchanged retry budget.
+Advance all three approved retry waits across reconstruction and prove exhaustion cannot auto-resume.
+
+Use actual Spring transaction proxies for worker dependencies, including reconstructed repositories.
+Inject reached failures in release lookup and insertion and capture the nested `TransactionInterceptor`
+at TRACE, proving that the exception completion was logged without driver messages, SQL, cause,
+suppressed or chained-exception payloads. Retain bounded deadlock/timeout classification, real rollback
+and successful retry/replay controls through those same proxies. An unproxied `new` repository cannot
+establish this logging guarantee.
+
+Register a due job at 13:00:10, then execute with another host's clock at 13:00:09 and just before
+the captured registration instant. Both calls must return NOT_DUE without writes or retry-budget use.
+At 13:00:10, the first release or its lost-acknowledgement reconciliation succeeds; reconstruct and
+repeat with recovered and subsequently regressed clocks, preserving one release and its exact receipt.
+
+For concurrency, hold a reached write, prove the duplicate is waiting, then require both callers to
+converge on one committed release. A separate participant attempt using the same revision and
+configuration must commit before the holder is released. Race registration with immediate release
+to prove the immediate worker cannot bypass a captured schedule. Verify actual RC on the enlisted
+connection and restoration of a suspended outer RR caller; worker work remains independently committed.
+
+Measure worker SQL for three parents with 1 and 20 items. No question/document/response payload or
+grade collection is selected by the worker, so JPA relationship N+1 is inapplicable there. The
+existing participant-read multi-parent tests also remain part of compatibility coverage. Validate
+the due cursor query's covering index and absence of a filesort, and ensure a poison row cannot
+starve later pages. Keep inventory, four-worker scheduling and coverage gates unchanged.
+
+After the final inputs are stable:
+
+```bash
+python3 tools/testing/context_benchmark.py verify --workers 4 \
+  --output /private/tmp/quizmaker-634-verify-<RUN>
+```
+
 ## Immutable release configuration (#697)
 
 Start on JDK 17 with `ReleaseConfigurationTest` and `ReleaseConfigurationActivationTest`.
