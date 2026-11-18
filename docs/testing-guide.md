@@ -2,6 +2,47 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Ungraded activity contract (#566)
+
+On JDK 17, start with the pure contract and existing scored compatibility cases in the offline
+test environment:
+
+```bash
+./mvnw test -Dtest=ActivityContractTest,ActivityContractSerializationTest,ActivityContractPurityTest,ResolvedAttemptPolicyTest,AttemptLifecycleTest,AutomaticResultTest
+```
+
+Cover both explicit response-retention modes. No-retention start requires the advance notice;
+ordinary retained-response start remains a successful control without that additional gate.
+Exhaust required/optional participation subsets and both final-submit choices. Missing required
+participation, foreign/duplicate items, not-started, abandoned, expired and completed states must
+not produce a new completion. These are pure plans over trusted form/participation facts, not
+proof of real response storage, final-submit transactions or durable replay.
+
+Verify actual graded zero/nonzero results as positive controls, with unchanged pass semantics,
+canonical policy bytes/hash and provenance. Include an unanswered graded item with its valid
+explicit null `responseId`; missing fields and null required identities still reject.
+An ungraded completion must structurally omit score,
+denominator, correctness, pass, grader and rating fields. JSON rejects these fields even when
+null/zero, at the root and nested levels. Also cover both retention modes, every incomplete state,
+missing/null fields, unknown kind/version, partial legacy metadata, invalid timestamps/UUIDs,
+duplicate keys, trailing documents and forbidden scalar coercions. Reconstruct the codec for a
+round trip; no global ObjectMapper or default-typing change is needed. Failures must retain no
+private input, parser cause or suppressed exception.
+
+The purity check excludes framework, I/O, application-scorer and clock-lookup dependencies.
+The contract performs no persistence or JPA relationship read, so transaction/concurrency and
+N+1 tests are inapplicable here. Actual writer/access/disclosure/API integration belongs to
+#567/#642, reporting/certificate/ranking consumers to their named issues, and activation to #695.
+Do not present these contract tests as proof of those integrations.
+
+After implementation inputs are stable, run the existing complete four-worker clean-verify
+launcher with a fresh output path, preserving inventory, exclusive scheduling and merged coverage:
+
+```bash
+python3 tools/testing/context_benchmark.py verify --workers 4 \
+  --output "/private/tmp/quizmaker-566-verify-<RUN>"
+```
+
 ## Fixed-form integrity (#613)
 
 Start on JDK 17 with `./mvnw test -Dtest=FormFingerprintTest,FixedFormTest,LegacyCompatibilityTest`.
