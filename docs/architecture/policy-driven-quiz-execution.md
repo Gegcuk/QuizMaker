@@ -18,12 +18,20 @@ scheduled result, including when registration and immediate execution overlap.
 
 Each execution revalidates the current supported result binding, captured rule and injected clock.
 At `T - 1 ms` it cannot release; at or after T an eligible execution may commit. This is not a
-polling-frequency or exact wall-clock latency promise. Unknown or inconsistent evidence enters
+polling-frequency or exact wall-clock latency promise. If the registering host was ahead, execution
+also waits until its clock reaches the persisted registration instant. This leaves work and retry
+budget unchanged and makes the first committed release satisfy the same temporal bounds as replay.
+A later clock regression cannot invalidate an already committed valid replay.
+Unknown or inconsistent evidence enters
 review instead of falling back to immediate disclosure. Q60–Q62 govern confirmed temporary
 failures: after the initial failure, persist waits of 1, 5 and 15 minutes, then require operator
 handling. A restart preserves this budget. Unknown commits are reconciled first, and another
 worker observing the same failed work version cannot spend its retry twice. #707 owns the wider
 repair/status/operator-resume integration; no automatic resume is supplied here.
+
+Release repository JDBC failures are sanitized inside each method, before a nested transaction
+interceptor can log them. Keep bounded conflict classification for retry decisions while dropping
+driver messages, SQL and private throwable graphs; an outer worker catch is too late for this boundary.
 
 Bounded keyset batches continue beyond a failed row. The due index follows `(next_at, submission_id)`;
 the worker reads scalar metadata and bounded configuration bytes rather than question content,

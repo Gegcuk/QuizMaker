@@ -21,6 +21,18 @@ retry time and a successful same-path control. Lose actual commit acknowledgemen
 and execution, then reconstruct and verify the same retained identities and unchanged retry budget.
 Advance all three approved retry waits across reconstruction and prove exhaustion cannot auto-resume.
 
+Use actual Spring transaction proxies for worker dependencies, including reconstructed repositories.
+Inject reached failures in release lookup and insertion and capture the nested `TransactionInterceptor`
+at TRACE, proving that the exception completion was logged without driver messages, SQL, cause,
+suppressed or chained-exception payloads. Retain bounded deadlock/timeout classification, real rollback
+and successful retry/replay controls through those same proxies. An unproxied `new` repository cannot
+establish this logging guarantee.
+
+Register a due job at 13:00:10, then execute with another host's clock at 13:00:09 and just before
+the captured registration instant. Both calls must return NOT_DUE without writes or retry-budget use.
+At 13:00:10, the first release or its lost-acknowledgement reconciliation succeeds; reconstruct and
+repeat with recovered and subsequently regressed clocks, preserving one release and its exact receipt.
+
 For concurrency, hold a reached write, prove the duplicate is waiting, then require both callers to
 converge on one committed release. A separate participant attempt using the same revision and
 configuration must commit before the holder is released. Race registration with immediate release

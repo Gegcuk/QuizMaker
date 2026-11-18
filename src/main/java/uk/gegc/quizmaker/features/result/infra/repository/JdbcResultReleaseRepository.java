@@ -24,11 +24,16 @@ public class JdbcResultReleaseRepository implements ResultReleaseRepository {
     public JdbcResultReleaseRepository(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
 
     @Override public Optional<UUID> submission(UUID attemptId) {
-        return jdbc.query("SELECT BIN_TO_UUID(id) id FROM attempt_submission WHERE attempt_id=UUID_TO_BIN(:id) FOR SHARE",
-                Map.of("id", attemptId.toString()), (r, n) -> UUID.fromString(r.getString("id"))).stream().findFirst();
+        try {
+            return jdbc.query("SELECT BIN_TO_UUID(id) id FROM attempt_submission WHERE attempt_id=UUID_TO_BIN(:id) FOR SHARE",
+                    Map.of("id", attemptId.toString()), (r, n) -> UUID.fromString(r.getString("id"))).stream().findFirst();
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
     @Override public Optional<ResultRelease> find(UUID resultId) {
-        return jdbc.query("""
+        try {
+            return jdbc.query("""
                 SELECT BIN_TO_UUID(r.id) id,r.schema_version,r.released_at,t.event_type,t.actor_type,t.reason_code,
                     BIN_TO_UUID(t.command_id) command_id,t.item_id,t.from_execution,t.to_execution,
                     t2.policy_snapshot_id=a.policy_snapshot_id AND t.form_id=a.form_id
@@ -44,7 +49,10 @@ public class JdbcResultReleaseRepository implements ResultReleaseRepository {
                     && r.getString("to_execution") == null && r.getBoolean("binding_matches"), CORRUPT);
             return new ResultRelease(UUID.fromString(r.getString("id")), r.getInt("schema_version"), resultId,
                     r.getObject("released_at", LocalDateTime.class).toInstant(ZoneOffset.UTC));
-        }).stream().findFirst();
+            }).stream().findFirst();
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
     @Override public boolean scheduled(UUID resultId) {
         try {
@@ -79,10 +87,14 @@ public class JdbcResultReleaseRepository implements ResultReleaseRepository {
         }
     }
     @Override public void insert(ResultRelease release) {
-        jdbc.update("""
+        try {
+            jdbc.update("""
                 INSERT INTO attempt_result_release(id,schema_version,result_id,released_at)
                 VALUES(UUID_TO_BIN(:id),:version,UUID_TO_BIN(:result),:at)
                 """, Map.of("id", release.id().toString(), "version", release.version(), "result", release.resultId().toString(),
                 "at", LocalDateTime.ofInstant(release.releasedAt(), ZoneOffset.UTC)));
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
     }
 }

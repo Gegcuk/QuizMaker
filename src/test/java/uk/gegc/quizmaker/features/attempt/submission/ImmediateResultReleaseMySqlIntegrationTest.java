@@ -38,6 +38,8 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -52,6 +54,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.*;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
 import uk.gegc.quizmaker.features.attempt.application.*;
 import uk.gegc.quizmaker.features.attempt.application.impl.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.*;
@@ -110,6 +113,9 @@ import uk.gegc.quizmaker.features.result.infra.repository.JdbcScheduledReleaseRe
 import uk.gegc.quizmaker.features.result.infra.repository.JdbcReleaseConfigurationRepository;
 import uk.gegc.quizmaker.features.result.infra.release.QuizReleaseConfigurationSource;
 import uk.gegc.quizmaker.features.result.domain.model.disclosure.ResultDisclosure;
+import uk.gegc.quizmaker.features.result.domain.repository.ResultReleaseRepository;
+import uk.gegc.quizmaker.features.result.domain.repository.ReleaseConfigurationRepository;
+import uk.gegc.quizmaker.features.result.domain.repository.ScheduledReleaseRepository;
 import uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.attempt.api.*;
@@ -1771,15 +1777,26 @@ class ImmediateResultReleaseMySqlIntegrationTest {
     }
     JdbcScheduledReleaseRepository repository() { return new JdbcScheduledReleaseRepository(named()); }
     ScheduledResultReleaseService worker() {
-        return new ScheduledResultReleaseServiceImpl(repository(),new ReleaseConfigurationReaderImpl(
-                new JdbcReleaseConfigurationRepository(named()),manager),new JdbcResultReleaseRepository(named()),
-                context.getBean(ExecutionTraceService.class),clock,metrics,manager);
+        return worker(manager,context.getBean(ExecutionTraceService.class),context.getBean(ResultReleaseRepository.class));
     }
     ScheduledResultReleaseService reconstructedWorker() {
         var independent=new DataSourceTransactionManager(source);
-        return new ScheduledResultReleaseServiceImpl(repository(),new ReleaseConfigurationReaderImpl(
-                new JdbcReleaseConfigurationRepository(named()),independent),new JdbcResultReleaseRepository(named()),
-                new ExecutionTraceServiceImpl(new JdbcExecutionTraceRepository(named()),independent,clock,metrics),clock,metrics,independent);
+        var trace=new ExecutionTraceServiceImpl(transactional(uk.gegc.quizmaker.features.attempt.domain.repository.ExecutionTraceRepository.class,
+                new JdbcExecutionTraceRepository(named()),independent),independent,clock,metrics);
+        return worker(independent,trace,transactional(ResultReleaseRepository.class,new JdbcResultReleaseRepository(named()),independent));
+    }
+    ScheduledResultReleaseService worker(PlatformTransactionManager transactions,ExecutionTraceService trace,ResultReleaseRepository releases) {
+        assertThat(AopUtils.isAopProxy(releases)).as("Exercise the nested release transaction interceptor").isTrue();
+        var configurations=transactional(ReleaseConfigurationRepository.class,new JdbcReleaseConfigurationRepository(named()),transactions);
+        var reader=transactional(uk.gegc.quizmaker.features.result.application.ReleaseConfigurationReader.class,
+                new ReleaseConfigurationReaderImpl(configurations,transactions),transactions);
+        return new ScheduledResultReleaseServiceImpl(transactional(ScheduledReleaseRepository.class,repository(),transactions),
+                reader,releases,trace,clock,metrics,transactions);
+    }
+    <T> T transactional(Class<T> contract,Object target,PlatformTransactionManager transactions) {
+        var proxy=new ProxyFactory(target);
+        proxy.addAdvice(new TransactionInterceptor(transactions,new AnnotationTransactionAttributeSource()));
+        return contract.cast(proxy.getProxy());
     }
     ReleaseConfigurationService author() {
         return new ReleaseConfigurationServiceImpl(new QuizReleaseConfigurationSource(context.getBean(QuizPublicationRepository.class)),
@@ -2148,6 +2165,103 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         } finally { observer().reset(); logger.detachAppender(logs); logger.setLevel(old); logs.stop(); }
         time.set(saved(f).nextAt());
         assertThat(reconstructedWorker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+    }
+    @ParameterizedTest @CsvSource({"find,0,UNAVAILABLE","insert,0,UNAVAILABLE",
+            "find,1205,BUSY","insert,1205,BUSY","find,1213,RETRYABLE","insert,1213,RETRYABLE"})
+    void scheduledReleaseFailureIsSanitizedBeforeNestedProxyLogging(String operation,int code,ResultReleaseException.Reason reason) {
+        var f=scheduled(1); time.set(due); var reached=new AtomicBoolean();
+        var requestThread=Thread.currentThread();
+        var captured=new ListAppender<ILoggingEvent>() {
+            @Override protected void append(ILoggingEvent event) {
+                if(Thread.currentThread()==requestThread) { event.prepareForDeferredProcessing(); super.append(event); }
+            }
+        };
+        var root=(Logger)LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
+        var loggers=List.of((Logger)LoggerFactory.getLogger(TransactionInterceptor.class),
+                (Logger)LoggerFactory.getLogger(TransactionTemplate.class));
+        var levels=new HashMap<Logger,Level>();
+        captured.setContext(root.getLoggerContext()); captured.start(); root.addAppender(captured);
+        loggers.forEach(logger->{ levels.put(logger,logger.getLevel()); logger.setLevel(Level.TRACE); });
+        try {
+            observer().afterSql=(statement,connection)->{
+                boolean target=operation.equals("find")?statement.contains("FROM attempt_result_release r JOIN")
+                        :statement.stripLeading().startsWith("INSERT INTO attempt_result_release");
+                if(target && reached.compareAndSet(false,true)) {
+                    var failure=new SQLException("private-release-driver-message",code==1213?"40001":code==1205?"HY000":"08006",code);
+                    failure.initCause(new IllegalStateException("private-release-driver-cause"));
+                    failure.addSuppressed(new IllegalStateException("private-release-driver-suppressed"));
+                    failure.setNextException(new SQLException("private-release-driver-next","08006")); throw failure;
+                }
+            };
+            var failed=worker().execute(f.attempt().submission()); observer().reset();
+            assertThat(reached).isTrue(); assertThat(failed.outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.DEFERRED);
+            assertThat(failed.reason()).isEqualTo(reason);
+            assertThat(count("attempt_result_release")).isZero(); assertThat(releaseEvents()).isZero();
+            var retry=saved(f); assertThat(retry.state()).isEqualTo(ScheduledRelease.State.RETRY); assertThat(retry.failures()).isEqualTo(1);
+            time.set(retry.nextAt()); var success=reconstructedWorker().execute(f.attempt().submission());
+            assertThat(success.outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+            assertThat(worker().execute(f.attempt().submission()).release()).isEqualTo(success.release());
+            assertThat(releaseEvents()).isEqualTo(1);
+            // The participant submission lookup is another entry point on the same repository proxy.
+            var lookupReached=new AtomicBoolean();
+            observer().afterSql=(statement,connection)->{
+                if(statement.contains("FROM attempt_submission WHERE attempt_id=") && lookupReached.compareAndSet(false,true))
+                    throw new SQLException("private-release-driver-lookup","08006");
+            };
+            assertThatThrownBy(()->rc(()->context.getBean(ResultReleaseRepository.class).submission(f.attempt().attempt())))
+                    .isInstanceOf(org.springframework.dao.DataAccessException.class);
+            observer().reset(); assertThat(lookupReached).isTrue();
+            assertThat(rc(()->context.getBean(ResultReleaseRepository.class).submission(f.attempt().attempt())))
+                    .contains(f.attempt().submission());
+            assertThat(captured.list).anySatisfy(event->{
+                assertThat(event.getLoggerName()).isEqualTo(TransactionInterceptor.class.getName());
+                assertThat(event.getLevel()).isEqualTo(Level.TRACE);
+                assertThat(event.getFormattedMessage()).contains("JdbcResultReleaseRepository."+operation+"]","after exception");
+            });
+            assertThat(captured.list).anySatisfy(event->{
+                assertThat(event.getLoggerName()).isEqualTo(TransactionInterceptor.class.getName());
+                assertThat(event.getFormattedMessage()).contains("JdbcResultReleaseRepository.submission]","after exception");
+            });
+            assertThat(captured.list).allSatisfy(event->{
+                assertThat(event.getFormattedMessage()).doesNotContain("private-release-driver-","SQL [");
+                if(event.getThrowableProxy()!=null) assertThat(ThrowableProxyUtil.asString(event.getThrowableProxy()))
+                        .doesNotContain("private-release-driver-","SQL [");
+            });
+        } finally {
+            observer().reset(); loggers.forEach(logger->logger.setLevel(levels.get(logger)));
+            root.detachAppender(captured); captured.stop();
+        }
+    }
+    @ParameterizedTest @ValueSource(booleans={false,true})
+    void scheduledLateRegistrationWaitsForClockRecoveryAndKeepsReplayConsistent(boolean loseAcknowledgement) {
+        var registered=due.plusSeconds(10); time.set(registered); var f=scheduled(1);
+        assertThat(f.work().registeredAt()).isEqualTo(registered);
+        time.set(due.plusSeconds(9));
+        assertThat(reconstructedWorker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.NOT_DUE);
+        time.set(registered.minusNanos(1));
+        assertThat(worker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.NOT_DUE);
+        assertThat(saved(f)).isEqualTo(f.work());
+        assertThat(count("attempt_result_release")).isZero(); assertThat(releaseEvents()).isZero();
+        assertThat(view(f.attempt().attempt()).result()).isNull();
+        var reached=new AtomicBoolean();
+        observer().afterSql=(statement,connection)->{
+            if(statement.stripLeading().startsWith("UPDATE attempt_scheduled_release") && reached.compareAndSet(false,true)
+                    && loseAcknowledgement) observer().failAfterCommit.set(true);
+        };
+        time.set(registered);
+        var success=reconstructedWorker().execute(f.attempt().submission()); observer().reset();
+        assertThat(reached).isTrue();
+        assertThat(success.outcome()).isEqualTo(loseAcknowledgement?ScheduledResultReleaseService.Outcome.REPLAYED:ScheduledResultReleaseService.Outcome.RELEASED);
+        assertThat(success.release().releasedAt()).isEqualTo(registered);
+        assertThat(success.release().id()).isEqualTo(f.work().eventId());
+        var completed=saved(f); assertThat(completed.state()).isEqualTo(ScheduledRelease.State.RELEASED); assertThat(completed.failures()).isZero();
+        for(var at:List.of(registered.plusSeconds(20),registered.minusSeconds(1))) {
+            time.set(at); var replay=worker().execute(f.attempt().submission());
+            assertThat(replay.outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.REPLAYED);
+            assertThat(replay.release()).isEqualTo(success.release()); assertThat(saved(f)).isEqualTo(completed);
+        }
+        assertThat(releaseEvents()).isEqualTo(1);
+        assertThat(view(f.attempt().attempt()).result().totalScore().earned()).isEqualTo(1);
     }
     @Test void scheduledConcurrentFailuresOfSameWorkVersionSpendOnlyOneRetry() throws Exception {
         var f=scheduled(1); time.set(due);

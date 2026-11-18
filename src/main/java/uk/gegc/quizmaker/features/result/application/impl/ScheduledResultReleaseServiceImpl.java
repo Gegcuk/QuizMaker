@@ -95,7 +95,9 @@ public class ScheduledResultReleaseServiceImpl implements ScheduledResultRelease
         require(existing.isEmpty(),CORRUPT);
         if(saved.state()==ScheduledRelease.State.REVIEW) return new Result(Outcome.REVIEW,null,saved.lastFailure());
         var at=now();
-        if(at.isBefore(saved.dueAt()) || at.isBefore(saved.nextAt())) return new Result(Outcome.NOT_DUE,null,null);
+        // A registering host may be ahead. Never persist a release that exact replay would reject.
+        if(at.isBefore(saved.dueAt()) || at.isBefore(saved.nextAt()) || at.isBefore(saved.registeredAt()))
+            return new Result(Outcome.NOT_DUE,null,null);
         require(!at.isBefore(source.createdAt()),CORRUPT);
         var release=new ResultRelease(saved.eventId(),1,saved.resultId(),at);
         var b=source.binding();
