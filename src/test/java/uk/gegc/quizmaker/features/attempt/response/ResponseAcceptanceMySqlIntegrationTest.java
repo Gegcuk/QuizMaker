@@ -586,6 +586,12 @@ class ResponseAcceptanceMySqlIntegrationTest {
         tx.executeWithoutResult(s -> {
             var row = sql.queryForMap("SELECT * FROM attempt_form_item_option_order WHERE item_id=UUID_TO_BIN(?)", itemId.toString());
             assertThat(row.get("option_count")).isEqualTo(0);
+            var formBytes=java.nio.ByteBuffer.wrap((byte[])row.get("form_id"));
+            UUID formId=new UUID(formBytes.getLong(),formBytes.getLong());
+            var form=context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.FixedFormRepository.class)
+                    .findByIds(ownerId,List.of(formId)).get(0);
+            var order=context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.FormOptionOrderRepository.class)
+                    .findByIds(ownerId,List.of(formId)).get(0);
             sql.update("DELETE FROM attempt_form_item_option_order WHERE item_id=UUID_TO_BIN(?)", itemId.toString());
             var bytes = java.nio.ByteBuffer.wrap((byte[]) row.get("question_revision_id"));
             var savedBinding = new uk.gegc.quizmaker.features.question.domain.model.contract.QuestionContractBinding(
@@ -597,6 +603,15 @@ class ResponseAcceptanceMySqlIntegrationTest {
             row.put("response_contract_version", version);
             sql.update("INSERT INTO attempt_form_item_option_order (" + String.join(",", row.keySet()) + ") VALUES (" +
                     String.join(",", Collections.nCopies(row.size(), "?")) + ")", row.values().toArray());
+            // This synthetic future catalogue must be coherent, including its fingerprint.
+            // Otherwise #613 correctly reports CORRUPT before the unsupported-version check.
+            // No production writer is allowed to reseal an existing form this way.
+            var changed=new uk.gegc.quizmaker.features.attempt.domain.model.ordering.FormOptionOrder(formId,order.schemaVersion(),order.policy(),
+                    order.items().stream().map(item -> item.formItemId().equals(itemId)
+                            ? new uk.gegc.quizmaker.features.attempt.domain.model.ordering.FormOptionOrder.Item(
+                            item.formItemId(),item.sourceItemId(),savedBinding,item.optionIds()) : item).toList());
+            var digest=uk.gegc.quizmaker.features.attempt.domain.model.form.FormFingerprint.compute(form,changed).digest();
+            assertThat(sql.update("UPDATE attempt_form_option_order SET form_fingerprint=? WHERE form_id=?",digest,row.get("form_id"))).isEqualTo(1);
         });
     }
 

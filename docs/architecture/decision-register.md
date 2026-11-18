@@ -6,6 +6,25 @@ Synchronized: **23 October 2026**. This register summarizes approved issue claus
 
 Use [open questions](open-questions.md) for unresolved choices, conflicting clauses, engineering preparation, and ownership gaps. The [target architecture](policy-driven-quiz-execution.md) explains the model.
 
+<a id="fixed-form-integrity"></a>
+## Fixed-form integrity and pre-fingerprint forms (#613) — DECIDED
+
+**Decision date/source:** 18 November 2026, explicit owner approval of #613, including selection
+of the strict transition option and the requirement to exclude large content from hashing.
+
+New complete v2 forms/orders persist a versioned SHA-256 over identity, saved positions, contract
+bindings and option order only. No document/question text, answer, image or source payload enters
+the digest. Calculate it while writing the aggregate and verify the already selected metadata
+before delivery; do not add content reads or assemble an aggregate JSON buffer for this purpose.
+The fingerprint detects accidental changes, not a privileged rewrite of both evidence and digest.
+
+Existing v2 order rows without fingerprint evidence remain explicitly unverified. Reads and exact
+replays must not initialize their digest or fall back to mutable questions/legacy. Inventory any
+such rows before rollout; their presence requires an explicit transition rather than an automatic
+backfill. The owner's current context is that policy-driven execution is unused and only legacy
+quizzes are in use; this is not a production-database inventory. Legacy v1 and its classified
+no-form history keep their existing compatibility path. Activation remains separately owned.
+
 <a id="v2-read-committed"></a>
 ## V2 execution transaction contract (#905) — DECIDED
 

@@ -82,6 +82,10 @@ class LegacyCompatibilityHttpIntegrationTest extends BaseIntegrationTest {
                 .findings().getOrDefault(Finding.LEGACY_HISTORY, 0L)).isPositive();
         assertThat(json.writeValueAsString(report)).doesNotContain("Edited synthetic question", "Synthetic explanation", attempt.toString());
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM answers WHERE attempt_id=UUID_TO_BIN(?)", Integer.class, attempt.toString())).isEqualTo(1);
+        // This retained legacy fixture intentionally has no target schema: all nine real
+        // answer/review paths must remain usable without creating/reconstructing a v2 form.
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()"
+                + " AND table_name IN ('attempt_form','attempt_form_option_order')",Integer.class)).isZero();
     }
 
     @ParameterizedTest @EnumSource(AttemptMode.class)

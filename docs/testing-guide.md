@@ -2,6 +2,42 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Fixed-form integrity (#613)
+
+Start on JDK 17 with `./mvnw test -Dtest=FormFingerprintTest,FixedFormTest,LegacyCompatibilityTest`.
+The independent golden fixture fixes the v1 byte format; mutation cases cover identity, revision,
+position, policy, response/scoring bindings and option sequence. The large fixture measures actual
+canonical bytes for 500 items/3000 options and maximum-length contract IDs. The encoder accepts
+metadata only and streams to SHA-256 without source reads or aggregate JSON allocation.
+
+Use the existing disposable MySQL/offline environment for `FormOptionOrderMySqlIntegrationTest`
+and `FixedFormMaterializerMySqlIntegrationTest`. The V89-to-V114 fixture preserves an existing
+unverified row without inventing a fingerprint. Exercise structurally valid position/option
+changes, altered digest, unsupported version and absent evidence with successful controls.
+Exact replay must not reseal corruption or an unverified row. Restore only each deliberately
+corrupted field and prove the same read/replay succeeds after service reconstruction. A corrupt
+second parent must reject the entire batch. Keep constraint, lost-acknowledgement, reached-write
+rollback, outer rollback and concurrency fixtures; both racing workers failing is not success.
+Synthetic coherent future-contract fixtures must also carry their corresponding form fingerprint;
+changing binding metadata alone is corruption and cannot prove unsupported-contract behavior.
+
+The measured metadata read uses three parent forms of 500 items and six options each. Assert
+three SELECTs, actual returned rows/bytes and absence of question/document payload columns; inspect
+the joined item lookup plan. Smaller existing multi-parent fixtures retain the same query count.
+The extra join follows `(form_id,item_id)` keys and loads no JPA relationship graph.
+Measured on 18 November 2026: three 500-item/six-option forms returned 10,503 metadata rows and
+784,617 bytes in three SELECTs. The maximum-contract-ID encoder fixture consumes 212,068 bytes
+for AUTHORED and 212,080 for SHUFFLED_PER_ATTEMPT; these are input sizes, not latency guarantees.
+
+Then run `AttemptDeliveryMySqlIntegrationTest`, `ParticipantAttemptViewMySqlIntegrationTest`,
+`LegacyCompatibilityHttpIntegrationTest`, the affected OpenAPI suites and terminal submission/expiry
+coverage. Real HTTP tests must preserve the existing safe 500 integrity problem (503 is storage
+unavailability), return no partial content and perform no repair. Preserve authentication/permission/
+ownership denials, compatible RC participation, incompatible-caller refusal and no target-to-legacy
+fallback. All nine legacy families must still answer/review through the actual old path without
+creating any target forms. Finish with the unchanged four-worker clean-verify, inventory, exclusive
+scheduling and merged coverage gates. Do not infer production row absence from local fixtures.
+
 ## Protected internal trace query (#540)
 
 Start with `TraceQueryTest`, `ExecutionTraceTest` and `ContextTestManifestTest` on JDK 17.

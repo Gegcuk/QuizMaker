@@ -348,7 +348,7 @@ class ParticipantAttemptViewMySqlIntegrationTest {
         assertThat(targetSnapshot()).isEqualTo(before); org.mockito.Mockito.verifyNoInteractions(legacy);
     }
 
-    @ParameterizedTest @ValueSource(strings = {"order", "item", "policy-json", "binding"})
+    @ParameterizedTest @ValueSource(strings = {"order", "item", "policy-json", "binding", "fingerprint", "fingerprint-version", "unverified", "form-position"})
     void corruptionNeverBecomesAPartialViewOrLegacyRead(String fault) {
         var started = starts.start(command(prepared(), AnswerOrder.AUTHORED, "view"));
         assertThat(view(started.attemptId()).items()).hasSize(5);
@@ -358,6 +358,10 @@ class ParticipantAttemptViewMySqlIntegrationTest {
                 case "item" -> sql.update("UPDATE attempt_form SET item_count=item_count+1");
                 case "policy-json" -> sql.update("UPDATE attempt_policy_snapshot SET canonical_json='{}'");
                 case "binding" -> sql.update("UPDATE question_revision_contract_bindings SET binding_hash=REPEAT('0',64)");
+                case "fingerprint" -> sql.update("UPDATE attempt_form_option_order SET form_fingerprint=REPEAT(CHAR(0),32)");
+                case "fingerprint-version" -> sql.update("UPDATE attempt_form_option_order SET fingerprint_version=99");
+                case "unverified" -> sql.update("UPDATE attempt_form_option_order SET fingerprint_version=NULL,form_fingerprint=NULL");
+                case "form-position" -> sql.update("UPDATE attempt_form_item SET position=position+100");
             }
         });
         var before = targetSnapshot(); reject(started.attemptId(), "CORRUPT");

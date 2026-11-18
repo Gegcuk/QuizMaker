@@ -99,6 +99,7 @@ class FixedFormMaterializerMySqlIntegrationTest {
         migrate("materialization_revision_history", "80", "82");
         migrate("materialization_form_history", "83", "85");
         migrate("materialization_order_history", "88", "89");
+        migrate("materialization_integrity_history", "113", "114");
     }
 
     private static void migrate(String history, String baseline, String target) {
@@ -130,7 +131,7 @@ class FixedFormMaterializerMySqlIntegrationTest {
         for (String table : List.of("attempt_trace_identity", "attempt_trace_event", "attempt_trace_stream")) sql.execute("DROP TABLE IF EXISTS " + table);
         for (String table : TABLES) sql.execute("DROP TABLE IF EXISTS " + table);
         for (String table : List.of("materialization_revision_history", "materialization_form_history", "materialization_order_history",
-                "materialization_legacy_fixture")) sql.execute("DROP TABLE IF EXISTS " + table);
+                "materialization_integrity_history", "materialization_legacy_fixture")) sql.execute("DROP TABLE IF EXISTS " + table);
     }
 
     @Test
@@ -240,7 +241,7 @@ class FixedFormMaterializerMySqlIntegrationTest {
         var revision = saved(quiz("sql-failure", question("sql-failure-q", QuestionType.MCQ_SINGLE)));
         var cmd = command("sql-failure-form", revision, AUTHORED); var reached = new AtomicBoolean();
         source.beforeSql = (statement, connection) -> {
-            if (statement.startsWith("SELECT o.* FROM attempt_form_option_order o ")) {
+            if (statement.startsWith("SELECT o.*,f.schema_version AS form_schema_version")) {
                 assertThat(count("attempt_form_option")).isPositive(); reached.set(true);
                 throw new SQLException("Synthetic failure after order inserts", "08006");
             }
@@ -448,7 +449,7 @@ class FixedFormMaterializerMySqlIntegrationTest {
             // READ question scopes overlap; duplicate form creation waits on the unique form root.
             if (statement.stripLeading().startsWith("INSERT INTO attempt_form (")
                     && formInsertAttempts.incrementAndGet() == 2) competing.countDown();
-            if (statement.startsWith("SELECT o.* FROM attempt_form_option_order o ") && pause.getAndSet(false)) {
+            if (statement.startsWith("SELECT o.*,f.schema_version AS form_schema_version") && pause.getAndSet(false)) {
                 assertThat(count("attempt_form_option")).isPositive(); inserted.countDown();
                 await(release);
             }
