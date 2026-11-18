@@ -99,6 +99,13 @@ class FormOptionOrderMySqlIntegrationTest {
         assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form_option_order",Integer.class)).isZero();
         assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form",Integer.class)).isEqualTo(1);
         assertThat(sql.queryForObject("SELECT marker FROM option_legacy_fixture",String.class)).isEqualTo("legacy");
+        // A complete pre-upgrade empty form/order remains unverified; migration invents no digest.
+        sql.update("INSERT INTO attempt_form_option_order VALUES (?,1,'AUTHORED',1,0)",bytes(form.id()));
+        migrate("option_integrity_history","113","114");
+        assertThat(sql.queryForObject("SELECT fingerprint_version FROM attempt_form_option_order WHERE form_id=?",
+                Integer.class,bytes(form.id()))).isNull();
+        assertThat(sql.queryForObject("SELECT form_fingerprint FROM attempt_form_option_order WHERE form_id=?",
+                byte[].class,bytes(form.id()))).isNull();
     }
 
     private static void migrate(String history,String baseline,String target) {
@@ -120,7 +127,7 @@ class FormOptionOrderMySqlIntegrationTest {
         if(source==null) return; source.reset();
         for(String table:List.of("attempt_trace_identity","attempt_trace_event","attempt_trace_stream")) sql.execute("DROP TABLE IF EXISTS "+table);
         for(String table:TABLES) sql.execute("DROP TABLE IF EXISTS "+table);
-        for(String table:List.of("option_identity_history","option_form_history","option_order_history","option_legacy_fixture"))
+        for(String table:List.of("option_identity_history","option_form_history","option_order_history","option_integrity_history","option_legacy_fixture"))
             sql.execute("DROP TABLE IF EXISTS "+table);
     }
 
@@ -202,6 +209,11 @@ class FormOptionOrderMySqlIntegrationTest {
         source.beforeCommit=connection->{
             try(var statement=connection.createStatement();var rows=statement.executeQuery("SELECT COUNT(*) FROM attempt_form_option")) {
                 rows.next(); assertThat(rows.getInt(1)).isEqualTo(4); reached.set(true);
+            }
+            try(var statement=connection.createStatement();var rows=statement.executeQuery(
+                    "SELECT fingerprint_version,OCTET_LENGTH(form_fingerprint) FROM attempt_form_option_order")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isEqualTo(1);assertThat(rows.getInt(2)).isEqualTo(32);
             }
             // A confirmed server rollback, rather than an ambiguous still-usable connection
             // that JDBC cleanup could commit when restoring autoCommit=true.
@@ -353,6 +365,88 @@ class FormOptionOrderMySqlIntegrationTest {
         assertThat(plan.get("key")).isEqualTo("PRIMARY");
         var child=sql.queryForMap("EXPLAIN SELECT option_id FROM attempt_form_option WHERE form_id=? ORDER BY item_id,position",bytes(ids.get(0)));
         assertThat(child.get("possible_keys").toString()).contains("PRIMARY","uq_form_option_position");
+        var joined = sql.queryForList("""
+                EXPLAIN SELECT i.*,fi.position,b.binding_hash FROM attempt_form_item_option_order i
+                JOIN attempt_form_item fi ON fi.form_id=i.form_id AND fi.id=i.item_id
+                JOIN question_revision_contract_bindings b ON b.question_revision_id=i.question_revision_id
+                WHERE i.form_id IN (?,?) ORDER BY i.form_id,i.item_id
+                """, bytes(ids.get(0)),bytes(ids.get(1)));
+        assertThat(joined).allSatisfy(row -> assertThat(row.get("key")).isNotNull());
+    }
+
+    @ParameterizedTest @ValueSource(strings={"position","options","digest","version","unverified"})
+    void structurallyValidChangesCannotPassReadOrBeResealedByReplay(String fault) {
+        var revision=saved("fingerprint",question("fingerprint-q",QuestionType.MCQ_SINGLE,3));
+        var form=OptionOrderFixtures.form("fingerprint-form",revision);
+        var expected=service.createOrReplay(OWNER,form,AUTHORED);
+        var digest=sql.queryForObject("SELECT form_fingerprint FROM attempt_form_option_order WHERE form_id=?",byte[].class,bytes(form.id()));
+        assertThat(digest).hasSize(32);
+        switch(fault) {
+            case "position" -> sql.update("UPDATE attempt_form_item SET position=position+10 WHERE form_id=?",bytes(form.id()));
+            case "options" -> {
+                sql.update("UPDATE attempt_form_option SET position=position+100 WHERE form_id=?",bytes(form.id()));
+                sql.update("UPDATE attempt_form_option SET position=MOD(position-100+1,3) WHERE form_id=?",bytes(form.id()));
+            }
+            case "digest" -> sql.update("UPDATE attempt_form_option_order SET form_fingerprint=REPEAT(CHAR(0),32) WHERE form_id=?",bytes(form.id()));
+            case "version" -> sql.update("UPDATE attempt_form_option_order SET fingerprint_version=99 WHERE form_id=?",bytes(form.id()));
+            case "unverified" -> sql.update("UPDATE attempt_form_option_order SET fingerprint_version=NULL,form_fingerprint=NULL WHERE form_id=?",bytes(form.id()));
+        }
+        // Same count, valid IDs and supported versions are insufficient to establish original order.
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_form_option WHERE form_id=?",Integer.class,bytes(form.id()))).isEqualTo(3);
+        rejected(()->service.findByIds(OWNER,List.of(form.id())),INVALID_STORED_ORDER);
+        assertThat(metrics.get("quizmaker.attempt.option.order.operations").tags("operation","read","outcome","integrity_failure").timer().count()).isEqualTo(1);
+        if(!fault.equals("position")) rejected(()->service.createOrReplay(OWNER,form,AUTHORED),INVALID_STORED_ORDER);
+        else assertThatThrownBy(()->service.createOrReplay(OWNER,form,AUTHORED)).hasMessage("Fixed form rejected: FORM_CONFLICT");
+        if(fault.equals("unverified")) assertThat(sql.queryForObject("SELECT fingerprint_version FROM attempt_form_option_order WHERE form_id=?",Integer.class,bytes(form.id()))).isNull();
+        // Restore only the deliberately corrupted field and prove the same real read succeeds.
+        if(fault.equals("position")) sql.update("UPDATE attempt_form_item SET position=position-10 WHERE form_id=?",bytes(form.id()));
+        if(fault.equals("options")) {
+            sql.update("UPDATE attempt_form_option SET position=position+100 WHERE form_id=?",bytes(form.id()));
+            sql.update("UPDATE attempt_form_option SET position=MOD(position-100+2,3) WHERE form_id=?",bytes(form.id()));
+        }
+        sql.update("UPDATE attempt_form_option_order SET fingerprint_version=1,form_fingerprint=? WHERE form_id=?",digest,bytes(form.id()));
+        assertThat(service(OptionOrderFixtures::layout).findByIds(OWNER,List.of(form.id()))).containsExactly(expected);
+        assertThat(service.createOrReplay(OWNER,form,AUTHORED)).isEqualTo(expected);
+        assertThat(sql.queryForObject("SELECT form_fingerprint FROM attempt_form_option_order WHERE form_id=?",byte[].class,bytes(form.id()))).isEqualTo(digest);
+    }
+
+    @Test void three500ItemParentsVerifyInThreeQueriesWithoutReadingAnyQuestionPayload() {
+        var ids=new ArrayList<UUID>();
+        for(int parent=0;parent<3;parent++) {
+            var question=question("metadata-large-"+parent,QuestionType.MCQ_SINGLE,6);
+            var questions=new QuestionRevision[500];Arrays.fill(questions,question);
+            var revision=saved("metadata-large-revision-"+parent,questions);
+            var form=OptionOrderFixtures.form("metadata-large-form-"+parent,revision);
+            service.createOrReplay(OWNER,form,SHUFFLED);ids.add(form.id());
+        }
+        source.reset();source.measureRows=true;
+        var result=service.findByIds(OWNER,ids);
+        source.measureRows=false;
+        assertThat(source.selects).hasSize(3).allSatisfy(query -> assertThat(query)
+                .doesNotContain("question_text","content","explanation","document","question_revisions "));
+        assertThat(result).hasSize(3).allSatisfy(order -> assertThat(order.items()).hasSize(500));
+        assertThat(source.returnedRows).hasValue(3+1500+9000);
+        assertThat(source.returnedBytes.get()).isPositive().isLessThan(2*1024*1024);
+        System.out.println("FORM_INTEGRITY_READ parents=3 items=1500 options=9000 selects="+source.selects.size()
+                +" rows="+source.returnedRows+" metadataBytes="+source.returnedBytes);
+    }
+
+    @Test void corruptSecondParentNeverReturnsAPartialBatchAndTheMigrationConstraintIsEnforced() {
+        var revision=saved("integrity-batch",question("integrity-batch-q",QuestionType.MCQ_SINGLE,2));
+        var first=OptionOrderFixtures.form("integrity-first",revision);
+        var second=OptionOrderFixtures.form("integrity-second",revision);
+        var expected=List.of(service.createOrReplay(OWNER,first,AUTHORED),service.createOrReplay(OWNER,second,AUTHORED));
+        assertThatThrownBy(()->sql.update("UPDATE attempt_form_option_order SET form_fingerprint=NULL WHERE form_id=?",bytes(second.id())))
+                .isInstanceOf(org.springframework.dao.DataAccessException.class)
+                .hasRootCauseInstanceOf(SQLException.class).hasMessageContaining("chk_form_fingerprint_pair");
+        assertThatThrownBy(()->sql.update("UPDATE attempt_form_option_order SET form_fingerprint=? WHERE form_id=?",new byte[31],bytes(second.id())))
+                .isInstanceOf(org.springframework.dao.DataAccessException.class)
+                .hasRootCauseInstanceOf(SQLException.class).hasMessageContaining("chk_form_fingerprint_pair");
+        sql.update("UPDATE attempt_form_item SET position=7 WHERE form_id=?",bytes(second.id()));
+        rejected(()->service.findByIds(OWNER,List.of(first.id(),second.id())),INVALID_STORED_ORDER);
+        assertThat(service.findByIds(OWNER,List.of(first.id()))).containsExactly(expected.get(0));
+        assertThat(service.findByIds(OTHER_OWNER,List.of(second.id()))).isEmpty();
+        assertThat(count("attempt_form_option_order")).isEqualTo(2);
     }
 
     @Test
@@ -456,7 +550,8 @@ class FormOptionOrderMySqlIntegrationTest {
         var revision=saved("exact-fk",question("fk-a",QuestionType.MCQ_SINGLE,2),question("fk-b",QuestionType.MCQ_SINGLE,2));
         var form=OptionOrderFixtures.form("exact-fk-form",revision);
         uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions.readCommitted(manager).executeWithoutResult(status->fixedForms().createOrReplay(OWNER,form));
-        sql.update("INSERT INTO attempt_form_option_order VALUES (?,1,'AUTHORED',1,2)",bytes(form.id()));
+        sql.update("INSERT INTO attempt_form_option_order (form_id,schema_version,strategy,algorithm_version,item_count)"
+                + " VALUES (?,1,'AUTHORED',1,2)",bytes(form.id()));
         var first=form.items().get(0);var other=revision.items().get(1).question();var binding=binding(other);
         assertThatThrownBy(()->sql.update("INSERT INTO attempt_form_item_option_order VALUES (?,?,?,?,?,?,?,?,?,0)",
                 bytes(form.id()),bytes(first.id()),bytes(revision.id()),bytes(first.sourceItemId()),bytes(other.id()),
@@ -464,6 +559,10 @@ class FormOptionOrderMySqlIntegrationTest {
                 .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class)
                 .hasMessageContaining("fk_item_option_order_question");
         // The supported complete writer succeeds using the same source/binding prerequisites.
+        // Remove only the intentionally incomplete SQL fixture. A real create must supply its
+        // fingerprint at the first root INSERT; replay is not allowed to initialize an old root.
+        assertThat(count("attempt_form_item_option_order")).isZero();
+        assertThat(sql.update("DELETE FROM attempt_form_option_order WHERE form_id=?",bytes(form.id()))).isEqualTo(1);
         assertThat(service.createOrReplay(OWNER,form,AUTHORED).items()).hasSize(2);
     }
 
@@ -485,7 +584,7 @@ class FormOptionOrderMySqlIntegrationTest {
     private static FormOptionOrderRepository orders(){return proxy(new JdbcFormOptionOrderRepository(named()));}
     private static NamedParameterJdbcTemplate named(){return new NamedParameterJdbcTemplate(source);}
     private static boolean isOrderComparison(String statement){
-        return statement.startsWith("SELECT o.* FROM attempt_form_option_order o ");
+        return statement.startsWith("SELECT o.*,f.schema_version AS form_schema_version");
     }
     private static int count(String table){return sql.queryForObject("SELECT COUNT(*) FROM "+table,Integer.class);}
     private static <T>T proxy(T target){var factory=new ProxyFactory(target);factory.addAdvice(new TransactionInterceptor(manager,new AnnotationTransactionAttributeSource()));

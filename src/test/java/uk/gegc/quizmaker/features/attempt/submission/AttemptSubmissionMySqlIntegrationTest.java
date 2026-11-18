@@ -1176,7 +1176,7 @@ class AttemptSubmissionMySqlIntegrationTest {
                 "JOIN attempt_trace_stream s ON", "SELECT s.* FROM attempt_policy_snapshot",
                 "FROM quiz_revisions r LEFT JOIN quiz_revision_items", "SELECT locked.id FROM (",
                 "FROM attempt_timing WHERE", "SELECT f.id,f.schema_version", "SELECT form_id,id,source_item_id,position",
-                "SELECT o.* FROM attempt_form_option_order", "SELECT i.*,b.binding_hash", "SELECT form_id,item_id,option_id,position",
+                "SELECT o.*,f.schema_version AS form_schema_version", "SELECT i.*,b.binding_hash", "SELECT form_id,item_id,option_id,position",
                 "SELECT * FROM quiz_revisions WHERE", "SELECT i.id AS item_id", "SELECT o.* FROM question_option_revisions",
                 "FROM question_revision_contract_bindings b", "FROM attempt_accepted_response",
                 "UPDATE attempt_lifecycle_state", "INSERT INTO attempt_trace_stream", "SELECT * FROM attempt_trace_stream",

@@ -89,6 +89,8 @@ class QuizRevisionCasesMySqlIntegrationTest {
         sql = new JdbcTemplate(source); manager = new DataSourceTransactionManager(source);
         restartRepository(); migration("110"); repository.insert(FLAT); repository.insert(SECTIONED);
         flatBefore = root(FLAT.id()); sectionsBefore = root(SECTIONED.id()); migration("111");
+        Flyway.configure().dataSource(source).table("case_form_integrity_history").locations("classpath:db/migration")
+                .baselineOnMigrate(true).baselineVersion("113").target("114").load().migrate();
         sql.execute("CREATE TABLE case_test_bindings (id BINARY(16) PRIMARY KEY, revision_id BINARY(16) NOT NULL, "
                 + "case_id BINARY(16) NOT NULL, FOREIGN KEY(revision_id,case_id) REFERENCES quiz_revision_cases(quiz_revision_id,id))");
     }

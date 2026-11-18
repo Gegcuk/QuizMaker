@@ -91,6 +91,10 @@ class QuizRevisionSectionsMySqlIntegrationTest {
         repository.insert(FLAT);
         flatBefore = sql.queryForMap("SELECT * FROM quiz_revisions WHERE id=UUID_TO_BIN(?)", FLAT.id().toString());
         migration("110");
+        // Keep the section-upgrade fixture at V110; the real current materializer also needs
+        // the independent form integrity migration, without introducing case/publication schemas.
+        Flyway.configure().dataSource(source).table("section_form_integrity_history").locations("classpath:db/migration")
+                .baselineOnMigrate(true).baselineVersion("113").target("114").load().migrate();
     }
 
     @BeforeEach void prepare() {

@@ -2988,6 +2988,50 @@ Stored component fixtures are not proof of those future runtime integrations.
 
 An attempt form represents exactly what may be delivered to a participant.
 
+### Verified fixed-form metadata (#613)
+
+V114 adds nullable `fingerprint_version` and `form_fingerprint` to the existing option-order root.
+Both are supplied by the first aggregate INSERT and never overwritten by exact replay. The
+root and all children still commit together under the existing per-form serialization and RC
+contract. A reached failure rolls back the fingerprint with the form/order; an uncertain commit
+is reconciled with the original identities. No new transaction, retry or table is introduced.
+Ordinary v2 metadata reads remain non-locking RC SELECTs; explicit internal shared reads include
+the saved form positions in their existing shared-read contract, without adding a v2 RR fallback.
+The nullable pair represents pre-upgrade unverified evidence, not permission to serve it.
+
+`form-fingerprint/v1` uses SHA-256 over streamed big-endian metadata. The encoding begins with
+the `QMFF` integer domain marker and version, then form UUID/schema, quiz-revision UUID,
+order schema, ordering enum and algorithm version, and item count. In saved position order,
+each item contributes item/source UUIDs, position, question-revision UUID, length-prefixed
+response/scoring contract IDs and versions, option count and the exact option UUID sequence.
+UUIDs are two 64-bit words; lengths, counts, positions and versions are 32-bit integers; strings
+are UTF-8 (fixed enums and bounded ASCII contract IDs). Input collection iteration order is
+not authority. Empty forms have an explicit encoding. The golden one-item fixture hashes
+191 bytes to `9d1351585d3818df2041b4dcc278e8e2eafbf1dcbc7c4934613788135e253110`.
+
+The encoder accepts only `FixedForm` and `FormOptionOrder`, streams directly into the digest
+and records actual input bytes for diagnostics. No question/document content, private answer,
+image, URL or storage call is available to it. Five hundred items with six options each and
+maximum-length contract IDs encode about 208 KiB, independent of source-content size. This is
+a measured fixture, not a new product limit. Work is linear in item/option metadata; it does not
+claim constant work for arbitrarily large forms or solve the separately owned whole-quiz reads.
+
+`JdbcFormOptionOrderRepository` includes saved positions in its existing item metadata SELECT
+and verifies the complete fingerprint before returning any order. Its batched read remains three
+SELECTs per up to 500 visible form IDs. Missing/unknown fingerprint evidence rejects before child
+loading; mismatch or incomplete evidence rejects the entire batch. The shared read paths inherit
+the same check. Identity-only #519 reads remain metadata storage, not verified participant forms.
+Application delivery/view paths continue mapping corrupt evidence to their existing safe HTTP 500
+problem and storage outages to 503; no partial DTO or new public schema is introduced. The bounded
+option-order read timer records `integrity_failure` without resource IDs, hashes or content.
+
+The [strict transition decision](decision-register.md#fixed-form-integrity) forbids automatic
+backfill on read/replay. Before rollout, an operator inventories pre-existing v2 order roots with
+either integrity field absent; any such rows require explicit handling before enabling affected
+reads. Legacy v1 attempts remain classified as legacy history and use their existing reader; no
+target form, fingerprint or historical snapshot is fabricated. A corrupt existing target binding
+never becomes a legacy fallback. After writes, retain the additive fields and forward-fix.
+
 ### Fixed-form identity storage boundary (#519)
 
 `FixedFormService` is a dark internal application boundary for already authorized server callers.

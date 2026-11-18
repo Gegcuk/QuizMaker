@@ -8,10 +8,12 @@ import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.ResultSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** Observes/faults actual SQL execution and commit, without replacing persistence or transactions. */
 final class FormDataSource extends DelegatingDataSource {
@@ -21,6 +23,9 @@ final class FormDataSource extends DelegatingDataSource {
     volatile CommitHook beforeCommit;
     volatile CommitHook afterCommit;
     volatile boolean failConnection;
+    volatile boolean measureRows;
+    final AtomicLong returnedRows = new AtomicLong();
+    final AtomicLong returnedBytes = new AtomicLong();
     final List<String> selects = new CopyOnWriteArrayList<>();
     final List<Integer> sqlErrorCodes = new CopyOnWriteArrayList<>();
     private final AtomicInteger connections = new AtomicInteger();
@@ -54,7 +59,26 @@ final class FormDataSource extends DelegatingDataSource {
                         var hook = beforeSql;
                         if (hook != null) hook.run(sql, connectionId);
                     }
-                    try { return method.invoke(target, arguments); }
+                    try {
+                        Object result = method.invoke(target, arguments);
+                        if (measureRows && result instanceof ResultSet rows) {
+                            return Proxy.newProxyInstance(ResultSet.class.getClassLoader(),new Class<?>[]{ResultSet.class},
+                                    (rs,call,args)-> {
+                                        try {
+                                            Object value=call.invoke(rows,args);
+                                            if(call.getName().equals("next") && Boolean.TRUE.equals(value)) {
+                                                returnedRows.incrementAndGet();
+                                                for(int i=1;i<=rows.getMetaData().getColumnCount();i++) {
+                                                    byte[] bytes=rows.getBytes(i);
+                                                    if(bytes!=null) returnedBytes.addAndGet(bytes.length);
+                                                }
+                                            }
+                                            return value;
+                                        } catch(InvocationTargetException failure) {throw failure.getCause();}
+                                    });
+                        }
+                        return result;
+                    }
                     catch (InvocationTargetException failure) {
                         if (failure.getCause() instanceof SQLException sqlFailure) sqlErrorCodes.add(sqlFailure.getErrorCode());
                         throw failure.getCause();
@@ -64,6 +88,7 @@ final class FormDataSource extends DelegatingDataSource {
 
     void reset() {
         beforeSql = null; beforeCommit = null; afterCommit = null; failConnection = false;
+        measureRows = false; returnedRows.set(0); returnedBytes.set(0);
         selects.clear(); sqlErrorCodes.clear();
     }
 }

@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.FixedForm;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.FixedFormException;
+import uk.gegc.quizmaker.features.attempt.domain.model.form.FormFingerprint;
 import uk.gegc.quizmaker.features.attempt.domain.model.ordering.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.AnswerOrder;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.AnswerOrderingPolicy;
@@ -39,17 +40,21 @@ public class JdbcFormOptionOrderRepository implements FormOptionOrderRepository 
         var sourceByItem = new HashMap<UUID, UUID>();
         form.items().forEach(item -> sourceByItem.put(item.id(), item.sourceItemId()));
         order.items().forEach(item -> require(item.sourceItemId().equals(sourceByItem.get(item.formItemId())), INVALID_ORDER));
+        var fingerprint = FormFingerprint.compute(form, order);
         var p = new MapSqlParameterSource("form", bytes(form.id())).addValue("owner", bytes(ownerId))
                 .addValue("schema", order.schemaVersion()).addValue("strategy", order.policy().mode().name())
-                .addValue("algorithm", order.policy().algorithmVersion()).addValue("count", order.items().size());
+                .addValue("algorithm", order.policy().algorithmVersion()).addValue("count", order.items().size())
+                .addValue("fingerprintVersion", FormFingerprint.VERSION).addValue("fingerprint", fingerprint.digest());
         // Protect the referenced form root; immutable children are read normally in RC.
         if (jdbc.queryForList("""
                 SELECT f.id FROM attempt_form f JOIN quiz_revisions r ON r.id=f.quiz_revision_id
                 WHERE f.id=:form AND r.owner_id=:owner FOR SHARE
                 """, p).isEmpty()) throw new FixedFormException(FixedFormException.Reason.FORM_UNAVAILABLE);
         jdbc.update("""
-                INSERT INTO attempt_form_option_order (form_id,schema_version,strategy,algorithm_version,item_count)
-                VALUES (:form,:schema,:strategy,:algorithm,:count) ON DUPLICATE KEY UPDATE form_id=attempt_form_option_order.form_id
+                INSERT INTO attempt_form_option_order
+                (form_id,schema_version,strategy,algorithm_version,item_count,fingerprint_version,form_fingerprint)
+                VALUES (:form,:schema,:strategy,:algorithm,:count,:fingerprintVersion,:fingerprint)
+                ON DUPLICATE KEY UPDATE form_id=attempt_form_option_order.form_id
                 """, p);
         // Serialize before child insertion; the RC owner sees the committed winner and its own writes.
         jdbc.queryForList("SELECT form_id FROM attempt_form_option_order WHERE form_id=:form FOR UPDATE", p);
@@ -110,14 +115,24 @@ public class JdbcFormOptionOrderRepository implements FormOptionOrderRepository 
                 var p = new MapSqlParameterSource("owner", bytes(ownerId)).addValue("ids",
                         ids.subList(start, Math.min(start + SQL_BATCH, ids.size())).stream().map(JdbcFormOptionOrderRepository::bytes).toList());
                 var roots = jdbc.query("""
-                        SELECT o.* FROM attempt_form_option_order o JOIN attempt_form f ON f.id=o.form_id
+                        SELECT o.*,f.schema_version AS form_schema_version,f.quiz_revision_id,f.item_count AS form_item_count
+                        FROM attempt_form_option_order o JOIN attempt_form f ON f.id=o.form_id
                         JOIN quiz_revisions r ON r.id=f.quiz_revision_id WHERE r.owner_id=:owner AND o.form_id IN (:ids)
                         ORDER BY o.form_id
                         """ + suffix, p, (row, index) -> new Root(uuid(row,"form_id"),row.getInt("schema_version"),
-                        new AnswerOrderingPolicy(AnswerOrder.valueOf(row.getString("strategy")), row.getInt("algorithm_version")),row.getInt("item_count")));
+                        new AnswerOrderingPolicy(AnswerOrder.valueOf(row.getString("strategy")), row.getInt("algorithm_version")),
+                        row.getInt("item_count"),row.getInt("form_schema_version"),uuid(row,"quiz_revision_id"),
+                        row.getInt("form_item_count"),row.getInt("fingerprint_version"),row.getBytes("form_fingerprint")));
                 if (roots.isEmpty()) continue;
+                // Missing pre-upgrade evidence and unknown versions fail before loading any children.
+                roots.forEach(root -> require(root.fingerprintVersion() == FormFingerprint.VERSION
+                        && root.fingerprint() != null && root.fingerprint().length == 32, INVALID_STORED_ORDER));
+                var rootById = new HashMap<UUID, Root>();
+                roots.forEach(root -> rootById.put(root.id(), root));
                 p.addValue("ids", roots.stream().map(root -> bytes(root.id())).toList());
-                var items = jdbc.query("SELECT i.*,b.binding_hash FROM attempt_form_item_option_order i "
+                var items = jdbc.query("SELECT i.*,b.binding_hash,fi.position,fi.source_item_id AS form_source_item_id,"
+                        + "fi.quiz_revision_id AS form_item_revision FROM attempt_form_item_option_order i "
+                        + "JOIN attempt_form_item fi ON fi.form_id=i.form_id AND fi.id=i.item_id "
                         + "JOIN question_revision_contract_bindings b ON b.question_revision_id=i.question_revision_id "
                         + "WHERE i.form_id IN (:ids) ORDER BY i.form_id,i.item_id" + suffix, p, (row,index) -> item(row));
                 Map<ItemKey, List<UUID>> options = new HashMap<>();
@@ -128,19 +143,28 @@ public class JdbcFormOptionOrderRepository implements FormOptionOrderRepository 
                     values.add(uuid(row,"option_id"));
                 });
                 Map<UUID, List<FormOptionOrder.Item>> byForm = new HashMap<>();
+                Map<UUID, List<FixedForm.Item>> formItems = new HashMap<>();
                 for (var item : items) {
+                    require(item.revision().equals(rootById.get(item.form()).revision()), INVALID_STORED_ORDER);
                     var values = options.getOrDefault(new ItemKey(item.form(), item.id()), List.of());
                     require(values.size() == item.count(), INVALID_STORED_ORDER);
                     byForm.computeIfAbsent(item.form(), ignored -> new ArrayList<>())
                             .add(new FormOptionOrder.Item(item.id(),item.source(),item.binding(),values));
+                    formItems.computeIfAbsent(item.form(), ignored -> new ArrayList<>())
+                            .add(new FixedForm.Item(item.id(),item.source(),item.position()));
                 }
                 for (var root : roots) {
                     var children = byForm.getOrDefault(root.id(), List.of());
-                    require(root.count() == children.size(), INVALID_STORED_ORDER);
-                    result.put(root.id(), new FormOptionOrder(root.id(),root.version(),root.policy(),children));
+                    var identities = formItems.getOrDefault(root.id(), List.of());
+                    require(root.count() == children.size() && root.formCount() == identities.size(), INVALID_STORED_ORDER);
+                    var order = new FormOptionOrder(root.id(),root.version(),root.policy(),children);
+                    var form = new FixedForm(root.id(),root.formVersion(),root.revision(),identities);
+                    require(java.security.MessageDigest.isEqual(root.fingerprint(),
+                            FormFingerprint.compute(form,order).digest()), INVALID_STORED_ORDER);
+                    result.put(root.id(), order);
                 }
             }
-        } catch (IllegalArgumentException | NullPointerException failure) { throw new OptionOrderException(INVALID_STORED_ORDER); }
+        } catch (FixedFormException | IllegalArgumentException | NullPointerException failure) { throw new OptionOrderException(INVALID_STORED_ORDER); }
         catch (uk.gegc.quizmaker.features.attempt.domain.model.policy.PolicyValidationException
                | uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException failure) {
             throw new OptionOrderException(INVALID_STORED_ORDER);
@@ -152,11 +176,14 @@ public class JdbcFormOptionOrderRepository implements FormOptionOrderRepository 
     }
 
     private ItemRow item(ResultSet row) throws SQLException {
+        require(uuid(row,"source_item_id").equals(uuid(row,"form_source_item_id"))
+                && uuid(row,"quiz_revision_id").equals(uuid(row,"form_item_revision")), INVALID_STORED_ORDER);
         var binding = new QuestionContractBinding(uuid(row,"question_revision_id"),
                 new ContractVersion(row.getString("response_contract_id"), row.getInt("response_contract_version")),
                 new ContractVersion(row.getString("scoring_contract_id"), row.getInt("scoring_contract_version")));
         require(binding.fingerprint().equals(row.getString("binding_hash")), INVALID_STORED_ORDER);
-        return new ItemRow(uuid(row,"form_id"),uuid(row,"item_id"),uuid(row,"source_item_id"),binding,row.getInt("option_count"));
+        return new ItemRow(uuid(row,"form_id"),uuid(row,"item_id"),uuid(row,"source_item_id"),binding,
+                row.getInt("option_count"),row.getInt("position"),uuid(row,"form_item_revision"));
     }
 
     private void batch(String sql, List<MapSqlParameterSource> rows) {
@@ -168,7 +195,8 @@ public class JdbcFormOptionOrderRepository implements FormOptionOrderRepository 
     private static UUID uuid(ResultSet row,String column) throws SQLException {
         var value = ByteBuffer.wrap(row.getBytes(column)); return new UUID(value.getLong(),value.getLong());
     }
-    private record Root(UUID id,int version,AnswerOrderingPolicy policy,int count) { }
+    private record Root(UUID id,int version,AnswerOrderingPolicy policy,int count,int formVersion,UUID revision,
+                        int formCount,int fingerprintVersion,byte[] fingerprint) { }
     private record ItemKey(UUID form,UUID item) { }
-    private record ItemRow(UUID form,UUID id,UUID source,QuestionContractBinding binding,int count) { }
+    private record ItemRow(UUID form,UUID id,UUID source,QuestionContractBinding binding,int count,int position,UUID revision) { }
 }

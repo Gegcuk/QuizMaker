@@ -118,7 +118,9 @@ public class FormOptionOrderServiceImpl implements FormOptionOrderService {
             throw failure;
         } catch (FixedFormException | OptionOrderException | ContractResolutionException
                  | uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException failure) {
-            outcome = failure instanceof ContractResolutionException contractFailure
+            outcome = operation.equals("read") && failure instanceof OptionOrderException orderFailure
+                    && orderFailure.reason() == INVALID_STORED_ORDER ? "integrity_failure"
+                    : failure instanceof ContractResolutionException contractFailure
                     && contractFailure.reason() == ContractResolutionException.Reason.PERSISTENCE_UNAVAILABLE
                     ? "persistence_unavailable" : "rejected";
             throw failure;

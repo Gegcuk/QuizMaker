@@ -6,7 +6,12 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
-/** Transactional immutable metadata port, with owner-scoped batched reads and no update/delete. */
+/**
+ * Transactional immutable metadata port with owner-scoped batched reads. Complete forms/orders
+ * carry a v1 fingerprint; every read verifies saved identity/position/binding/option metadata.
+ * Missing pre-upgrade evidence is rejected, never initialized by a read or identical replay.
+ * Identity-only #519 storage remains a separate foundation, without a deliverable order.
+ */
 public interface FormOptionOrderRepository {
     void createOrReplay(UUID ownerId, FixedForm form, FormOptionOrder order);
     List<FormOptionOrder> findByIds(UUID ownerId, Collection<UUID> formIds);
