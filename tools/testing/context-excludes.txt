@@ -211,6 +211,8 @@ uk/gegc/quizmaker/features/attempt/submission/ImmediateResultReleaseMySqlIntegra
 uk/gegc/quizmaker/features/attempt/submission/ImmediateResultReleaseMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/attempt/trace/ExecutionTraceMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/attempt/trace/ExecutionTraceMySqlIntegrationTest$*.java
+uk/gegc/quizmaker/features/attempt/trace/TraceQueryMySqlIntegrationTest.java
+uk/gegc/quizmaker/features/attempt/trace/TraceQueryMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/auth/OAuthAccountControllerIntegrationTest.java
 uk/gegc/quizmaker/features/auth/OAuthAccountControllerIntegrationTest$*.java
 uk/gegc/quizmaker/features/auth/OAuthAccountServiceIntegrationTest.java
