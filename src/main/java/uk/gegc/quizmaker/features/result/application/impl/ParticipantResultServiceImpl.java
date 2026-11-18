@@ -57,18 +57,21 @@ public class ParticipantResultServiceImpl implements ParticipantResultService {
         var result = found.get();
         var binding = new Binding(granted.attemptId(), granted.formId(), granted.policySnapshotId(), granted.quizRevisionId(), facts.policyHash());
         require(binding.equals(Binding.of(result)) && result.items().size() == facts.form().items().size(), CORRUPT);
+        var scheduled = releases.scheduledRule(result.id());
         var released = releases.find(result.id());
         if (released.isEmpty()) return Optional.empty();
         var release = released.get();
         require(!release.releasedAt().isBefore(result.createdAt()), CORRUPT);
+        if (scheduled.isPresent()) require(!release.releasedAt().isBefore(scheduled.get().schedule().instant()), CORRUPT);
         var decisions = disclosure.evaluate(new Context(1,
                 new Audience(Access.VERIFIED, granted.attemptId(), subject.userId(), subject.userId()),
-                Policy.practice(binding, facts.policy()), new AttemptFacts(binding, granted.lifecycle().state()),
+                scheduled.map(rule -> new Policy(1,binding,rule.family(),rule.categories()))
+                        .orElseGet(() -> Policy.practice(binding, facts.policy())), new AttemptFacts(binding, granted.lifecycle().state()),
                 ResultFacts.finalized(result), new ReleaseFacts(release.version(), binding, result.id(), ReleaseState.RELEASED),
-                ReviewAccess.AVAILABLE, EnumSet.allOf(Category.class)));
-        var items = PracticeReviewProjector.items(facts, result, responses.responses(granted.attemptId()), decisions);
+                scheduled.isPresent() ? ReviewAccess.WITHHELD : ReviewAccess.AVAILABLE, EnumSet.allOf(Category.class)));
         boolean itemCategories = List.of(Category.QUESTION_SCORE, Category.CORRECTNESS, Category.CORRECT_ANSWER,
                 Category.EXPLANATION, Category.SUBMITTED_ANSWERS).stream().anyMatch(decisions::allows);
+        var items = itemCategories ? PracticeReviewProjector.items(facts, result, responses.responses(granted.attemptId()), decisions) : null;
         var score = result.score();
         return Optional.of(new ParticipantResultView(release.version(), release.releasedAt(),
                 decisions.allows(Category.TOTAL_SCORE) ? new ParticipantResultView.Score(score.earned(), score.possible(), score.basisPoints()) : null,

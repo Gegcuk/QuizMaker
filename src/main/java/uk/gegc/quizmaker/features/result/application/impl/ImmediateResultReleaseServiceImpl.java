@@ -67,6 +67,7 @@ public class ImmediateResultReleaseServiceImpl implements ImmediateResultRelease
         require(facts.snapshot().resolution().preset().equals(
                 uk.gegc.quizmaker.features.attempt.domain.model.preset.BuiltInPracticePreset.REFERENCE), UNSUPPORTED);
         var result = results.find(submissionId).orElseThrow(() -> new ResultReleaseException(NOT_READY));
+        require(!releases.scheduled(result.id()), UNSUPPORTED);
         var s = facts.submission();
         require(result.attemptId().equals(s.attemptId()) && result.formId().equals(s.formId())
                 && result.policySnapshotId().equals(s.policySnapshotId()) && result.quizRevisionId().equals(s.quizRevisionId())

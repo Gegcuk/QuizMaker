@@ -98,6 +98,18 @@ import uk.gegc.quizmaker.features.result.infra.repository.JdbcAutomaticResultRep
 import uk.gegc.quizmaker.features.result.application.ImmediateResultReleaseService;
 import uk.gegc.quizmaker.features.result.application.impl.*;
 import uk.gegc.quizmaker.features.result.infra.repository.JdbcResultReleaseRepository;
+import uk.gegc.quizmaker.features.result.application.ScheduledResultReleaseService;
+import uk.gegc.quizmaker.features.result.application.ResultDisclosureService;
+import uk.gegc.quizmaker.features.result.application.ReleaseConfigurationService;
+import uk.gegc.quizmaker.features.result.application.impl.ScheduledResultReleaseServiceImpl;
+import uk.gegc.quizmaker.features.result.application.impl.ReleaseConfigurationReaderImpl;
+import uk.gegc.quizmaker.features.result.application.impl.ReleaseConfigurationServiceImpl;
+import uk.gegc.quizmaker.features.result.domain.model.release.ReleaseConfiguration;
+import uk.gegc.quizmaker.features.result.domain.model.release.ScheduledRelease;
+import uk.gegc.quizmaker.features.result.infra.repository.JdbcScheduledReleaseRepository;
+import uk.gegc.quizmaker.features.result.infra.repository.JdbcReleaseConfigurationRepository;
+import uk.gegc.quizmaker.features.result.infra.release.QuizReleaseConfigurationSource;
+import uk.gegc.quizmaker.features.result.domain.model.disclosure.ResultDisclosure;
 import uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView;
 import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.attempt.api.*;
@@ -228,7 +240,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
     @Autowired SimpleMeterRegistry metrics;
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
-    static final List<String> TARGET_TABLES = List.of("attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_result_release", "attempt_result_created", "attempt_automatic_grade", "attempt_automatic_result", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
+    static final List<String> TARGET_TABLES = List.of("attempt_scheduled_release", "result_release_configuration_receipts", "result_release_configuration_heads", "result_release_configurations", "attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_result_release", "attempt_result_created", "attempt_automatic_grade", "attempt_automatic_result", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     SubmissionDataSource observer() { return (SubmissionDataSource) source; }
@@ -1744,6 +1756,442 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         assertThat(totals.get(1)).isEqualTo(totals.get(0)); assertThat(totals.get(0)).isLessThan(150);
         System.out.println("Released result SQL for 3 parents with 1/20 items: " + totals);
     }
+    /** These are real result/configuration/worker compositions, not a formal-start activation claim.
+     * The existing real practice producer supplies committed binary result fixtures allowed by #634.
+     * #668 separately proves that a formal start captures this configuration before participation. */
+    final Instant due=Instant.parse("2026-11-05T13:00:00Z");
+    final AtomicReference<Instant> time=new AtomicReference<>(due.minusSeconds(60));
+    final Clock clock=new Clock() {
+        public ZoneId getZone() { return ZoneOffset.UTC; }
+        public Clock withZone(ZoneId zone) { return Clock.fixed(instant(),zone); }
+        public Instant instant() { return time.get(); }
+    };
+    org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate named() {
+        return context.getBean(org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate.class);
+    }
+    JdbcScheduledReleaseRepository repository() { return new JdbcScheduledReleaseRepository(named()); }
+    ScheduledResultReleaseService worker() {
+        return new ScheduledResultReleaseServiceImpl(repository(),new ReleaseConfigurationReaderImpl(
+                new JdbcReleaseConfigurationRepository(named()),manager),new JdbcResultReleaseRepository(named()),
+                context.getBean(ExecutionTraceService.class),clock,metrics,manager);
+    }
+    ScheduledResultReleaseService reconstructedWorker() {
+        var independent=new DataSourceTransactionManager(source);
+        return new ScheduledResultReleaseServiceImpl(repository(),new ReleaseConfigurationReaderImpl(
+                new JdbcReleaseConfigurationRepository(named()),independent),new JdbcResultReleaseRepository(named()),
+                new ExecutionTraceServiceImpl(new JdbcExecutionTraceRepository(named()),independent,clock,metrics),clock,metrics,independent);
+    }
+    ReleaseConfigurationService author() {
+        return new ReleaseConfigurationServiceImpl(new QuizReleaseConfigurationSource(context.getBean(QuizPublicationRepository.class)),
+                new JdbcReleaseConfigurationRepository(named()),context.getBean(Clock.class),metrics,manager);
+    }
+    ReleaseConfiguration rule(Instant at) {
+        return ReleaseConfiguration.formal(1,Set.of(ReleaseConfiguration.Trigger.SCHEDULED),null,
+                new ReleaseConfiguration.ScheduleInput(LocalDateTime.ofInstant(at,ZoneOffset.UTC),"Europe/London",ZoneOffset.UTC));
+    }
+    ReleaseConfigurationService.Publication publishRule(AutomaticResult result,long version,ReleaseConfiguration rule) {
+        return author().publish(new ReleaseConfigurationService.Command(quizId,result.quizRevisionId(),UUID.randomUUID(),version,rule));
+    }
+    record ScheduledFixture(Fixture attempt,AutomaticResult result,ReleaseConfigurationService.Publication configuration,ScheduledRelease work) { }
+    ScheduledFixture scheduled(int size) {
+        var f=fixture(size,size,size); var r=results.finalizeSubmission(f.submission()); var c=publishRule(r,0,rule(due));
+        return new ScheduledFixture(f,r,c,worker().register(f.submission(),r.id(),c.id()));
+    }
+    ScheduledRelease saved(ScheduledFixture f) { return rc(()->repository().find(f.attempt().submission(),false).orElseThrow()); }
+    <T> T rc(java.util.function.Supplier<T> action) {
+        return uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions.readCommitted(manager).execute(s->action.get());
+    }
+    ResultDisclosure.Decisions decisions(ScheduledFixture f,UUID requester) {
+        return rc(()->{
+            var persisted=context.getBean(uk.gegc.quizmaker.features.result.domain.repository.AutomaticResultRepository.class)
+                    .find(f.attempt().submission()).orElseThrow();
+            var b=ResultDisclosure.Binding.of(persisted);
+            var rule=new JdbcResultReleaseRepository(named()).scheduledRule(persisted.id()).orElseThrow();
+            var release=new JdbcResultReleaseRepository(named()).find(persisted.id());
+            return context.getBean(ResultDisclosureService.class).evaluate(new ResultDisclosure.Context(1,
+                    new ResultDisclosure.Audience(ResultDisclosure.Access.VERIFIED,b.attemptId(),requester,ownerId),
+                    new ResultDisclosure.Policy(1,b,rule.family(),rule.categories()),
+                    new ResultDisclosure.AttemptFacts(b,lifecycle.lock(b.attemptId()).state()),
+                    ResultDisclosure.ResultFacts.finalized(persisted),new ResultDisclosure.ReleaseFacts(1,b,persisted.id(),
+                        release.isPresent()?ResultDisclosure.ReleaseState.RELEASED:ResultDisclosure.ReleaseState.PENDING),
+                    ResultDisclosure.ReviewAccess.WITHHELD,EnumSet.allOf(ResultDisclosure.Category.class)));
+        });
+    }
+    @Test void scheduledSavedInstantAndRuleControlRealReleaseAndDisclosureAcrossRestartAndTimezoneChange() {
+        var f=scheduled(3); var later=publishRule(f.result(),1,rule(due.plusSeconds(3600)));
+        assertThat(later.id()).isNotEqualTo(f.configuration().id());
+        time.set(due.minusMillis(1));
+        assertThat(worker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.NOT_DUE);
+        assertThat(saved(f)).isEqualTo(f.work());
+        assertThat(view(f.attempt().attempt()).result()).isNull();
+        assertThat(decisions(f,ownerId).category(ResultDisclosure.Category.TOTAL_SCORE).outcome()).isEqualTo(ResultDisclosure.Outcome.PENDING);
+        var original=TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("Asia/Tokyo")); time.set(due);
+                var released=reconstructedWorker().execute(f.attempt().submission());
+            assertThat(released.outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+            assertThat(released.release().releasedAt()).isEqualTo(due);
+            assertThat(released.release().id()).isEqualTo(f.work().eventId());
+            time.set(due.plusSeconds(7200));
+            assertThat(worker().execute(f.attempt().submission()).release()).isEqualTo(released.release());
+        } finally { TimeZone.setDefault(original); }
+        assertThat(saved(f).configurationId()).isEqualTo(f.configuration().id());
+        assertThat(saved(f).state()).isEqualTo(ScheduledRelease.State.RELEASED);
+        assertThat(releaseEvents()).isEqualTo(1);
+        var allowed=decisions(f,ownerId);
+        assertThat(allowed.allows(ResultDisclosure.Category.TOTAL_SCORE)).isTrue();
+        assertThat(allowed.allows(ResultDisclosure.Category.PASS_FAIL)).isTrue();
+        for(var category:ResultDisclosure.Category.values()) if(category!=ResultDisclosure.Category.TOTAL_SCORE && category!=ResultDisclosure.Category.PASS_FAIL)
+            assertThat(allowed.allows(category)).as(category.name()).isFalse();
+        assertThat(decisions(f,UUID.randomUUID()).categories().values()).allMatch(d->d.outcome()==ResultDisclosure.Outcome.DENY);
+        var rendered=view(f.attempt().attempt()).result();
+        assertThat(rendered.totalScore().earned()).isEqualTo(3);
+        assertThat(rendered.items()).isNull(); assertThat(rendered.reviewAvailable()).isNull();
+        assertThat(rc(()->context.getBean(uk.gegc.quizmaker.features.result.domain.repository.AutomaticResultRepository.class)
+                .find(f.attempt().submission()).orElseThrow())).isEqualTo(f.result());
+    }
+    @Test void scheduledOrdinaryImmediateWorkerCannotBypassScheduleAndBindingCannotReplaceAlreadyReleasedResult() {
+        var f=scheduled(1);
+        reject(f.attempt().submission(),ResultReleaseException.Reason.UNSUPPORTED);
+        assertThat(count("attempt_result_release")).isZero();
+        assertThat(worker().register(f.attempt().submission(),f.result().id(),f.configuration().id())).isEqualTo(f.work());
+        var other=fixture(1,1,1); var result=results.finalizeSubmission(other.submission());
+        releases.release(other.submission()); var config=publishRule(result,0,rule(due));
+        assertThatThrownBy(()->worker().register(other.submission(),result.id(),config.id())).isInstanceOf(ResultReleaseException.class);
+        time.set(due); assertThat(worker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+    }
+    @Test void scheduledWrongConfigurationResultAndDualTriggerAreRejectedWithoutRegisteringWork() {
+        var f=fixture(1,1,1); var result=results.finalizeSubmission(f.submission());
+        var manual=ReleaseConfiguration.formal(1,Set.of(ReleaseConfiguration.Trigger.MANUAL),null,null);
+        var c=publishRule(result,0,manual);
+        assertThatThrownBy(()->worker().register(f.submission(),result.id(),c.id())).isInstanceOf(ResultReleaseException.class);
+        assertThatThrownBy(()->worker().register(f.submission(),result.id(),UUID.randomUUID())).isInstanceOf(ResultReleaseException.class);
+        var good=publishRule(result,1,rule(due));
+        assertThatThrownBy(()->worker().register(f.submission(),UUID.randomUUID(),good.id())).isInstanceOf(ResultReleaseException.class);
+        assertThat(count("attempt_scheduled_release")).isZero();
+        var dual=ReleaseConfiguration.formal(1,Set.of(ReleaseConfiguration.Trigger.MANUAL,ReleaseConfiguration.Trigger.SCHEDULED),null,
+                new ReleaseConfiguration.ScheduleInput(LocalDateTime.ofInstant(due,ZoneOffset.UTC),"Europe/London",null));
+        var both=publishRule(result,2,dual);
+        assertThatThrownBy(()->worker().register(f.submission(),result.id(),both.id())).isInstanceOf(ResultReleaseException.class);
+        assertThat(worker().register(f.submission(),result.id(),good.id()).state()).isEqualTo(ScheduledRelease.State.PENDING);
+    }
+    @Test void scheduledCorruptedCurrentResultIsQuarantinedWithoutGuessingAndCannotAutoResume() {
+        var f=scheduled(2); time.set(due);
+        sql.update("UPDATE attempt_automatic_result SET policy_hash=? WHERE id=UUID_TO_BIN(?)","b".repeat(64),f.result().id().toString());
+        var refused=worker().execute(f.attempt().submission());
+        assertThat(refused.outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.REVIEW);
+        assertThat(saved(f).lastFailure()).isEqualTo(ResultReleaseException.Reason.CORRUPT);
+        assertThat(count("attempt_result_release")).isZero();
+        sql.update("UPDATE attempt_automatic_result SET policy_hash=? WHERE id=UUID_TO_BIN(?)",f.result().policyHash(),f.result().id().toString());
+        assertThat(worker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.REVIEW);
+        var control=scheduled(1); assertThat(worker().execute(control.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+    }
+    @ParameterizedTest @ValueSource(strings={"trace","release","work"})
+    void scheduledReachedWriteFailureRollsBackReleaseTraceAndCompletionBeforeOneSuccessfulRetry(String stage) {
+        var f=scheduled(2); time.set(due); var reached=new AtomicBoolean();
+        observer().afterSql=(statement,connection)->{
+            String prefix=switch(stage) { case "trace"->"INSERT INTO attempt_trace_event"; case "release"->"INSERT INTO attempt_result_release"; default->"UPDATE attempt_scheduled_release"; };
+            if(statement.stripLeading().startsWith(prefix) && reached.compareAndSet(false,true)) throw new SQLException("private-scheduled-fault","08006");
+        };
+        assertThat(worker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.DEFERRED);
+        assertThat(reached).isTrue(); observer().reset();
+        assertThat(count("attempt_result_release")).isZero(); assertThat(releaseEvents()).isZero();
+        var retry=saved(f); assertThat(retry.state()).isEqualTo(ScheduledRelease.State.RETRY); assertThat(retry.failures()).isEqualTo(1);
+        assertThat(retry.nextAt()).isEqualTo(due.plusSeconds(60));
+        assertThat(view(f.attempt().attempt()).result()).isNull();
+        time.set(retry.nextAt()); var success=worker().execute(f.attempt().submission());
+        assertThat(success.outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+        assertThat(success.release().id()).isEqualTo(f.work().eventId());
+        assertThat(worker().execute(f.attempt().submission()).release()).isEqualTo(success.release());
+        assertThat(releaseEvents()).isEqualTo(1);
+    }
+    @Test void scheduledLostCommitAcknowledgementReconcilesCommittedWorkWithoutSpendingRetryBudget() {
+        var f=scheduled(1); time.set(due); var reached=new AtomicBoolean();
+        observer().afterSql=(statement,connection)->{
+            if(statement.stripLeading().startsWith("UPDATE attempt_scheduled_release") && reached.compareAndSet(false,true)) observer().failAfterCommit.set(true);
+        };
+        var result=worker().execute(f.attempt().submission()); observer().reset();
+        assertThat(reached).isTrue(); assertThat(result.outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.REPLAYED);
+        assertThat(saved(f).failures()).isZero(); assertThat(releaseEvents()).isEqualTo(1);
+        assertThat(reconstructedWorker().execute(f.attempt().submission()).release()).isEqualTo(result.release());
+    }
+    @Test void scheduledThreeRetriesAndExhaustionSurviveReconstructionAndNeverOpenResultEarly() {
+        var f=scheduled(1); time.set(due);
+        for(int i=0;i<4;i++) {
+            var at=time.get();
+            observer().afterSql=(statement,connection)->{ if(statement.stripLeading().startsWith("INSERT INTO attempt_result_release")) throw new SQLException("private-retry","08006"); };
+            var failed=worker().execute(f.attempt().submission()); observer().reset();
+            var state=saved(f); assertThat(state.failures()).isEqualTo(i+1);
+            if(i<3) {
+                assertThat(failed.outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.DEFERRED);
+                assertThat(state.nextAt()).isEqualTo(at.plusSeconds(List.of(60,300,900).get(i)));
+                time.set(state.nextAt().minusMillis(1));
+                assertThat(worker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.NOT_DUE);
+                assertThat(saved(f)).isEqualTo(state); time.set(state.nextAt());
+            } else assertThat(failed.outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.REVIEW);
+        }
+        assertThat(worker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.REVIEW);
+        assertThat(count("attempt_result_release")).isZero(); assertThat(releaseEvents()).isZero();
+    }
+    @Test void scheduledDuplicateWorkersConvergeAfterReachedReleaseWrite() throws Exception {
+        var f=scheduled(1); time.set(due);
+        var inserted=new CountDownLatch(1); var finish=new CountDownLatch(1); var competing=new CountDownLatch(1);
+        observer().afterSql=(statement,connection)->{ if(statement.stripLeading().startsWith("INSERT INTO attempt_result_release")) { inserted.countDown(); await(finish); } };
+        observer().beforeSql=(statement,connection)->{ if(inserted.getCount()==0 && statement.contains("FOR UPDATE OF i,l")) competing.countDown(); };
+        var pool=Executors.newFixedThreadPool(2);
+        try {
+            var holder=pool.submit(()->worker().execute(f.attempt().submission())); await(inserted);
+            var peer=pool.submit(()->worker().execute(f.attempt().submission())); await(competing);
+            assertThat(peer.isDone()).isFalse(); assertThat(count("attempt_result_release")).isZero(); finish.countDown();
+            var a=holder.get(20,TimeUnit.SECONDS); var b=peer.get(20,TimeUnit.SECONDS);
+            assertThat(a.outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+            assertThat(b.outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.REPLAYED);
+            assertThat(a.release()).isEqualTo(b.release());
+        } finally { finish.countDown(); observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10,TimeUnit.SECONDS)).isTrue(); }
+        assertThat(releaseEvents()).isEqualTo(1);
+    }
+    @ParameterizedTest @ValueSource(booleans={true,false})
+    void scheduledIndependentParticipantsCommitWithSharedOrUnrelatedRevisions(boolean shared) throws Exception {
+        var first=scheduled(2);
+        var firstParticipant=ownerId;
+        username="acceptance-scheduled-peer-"+UUID.randomUUID().toString().substring(0,8);
+        ownerId=user(username,true);
+        // The current dark practice boundary admits the owner or an effective full-content editor.
+        // This is a real second authorized participant, not a replacement subject fixture.
+        grant(ownerId,"ATTEMPT_READ","ATTEMPT_CREATE","QUESTION_UPDATE","QUIZ_MODERATE"); authenticate(username);
+        UUID peerSubmission;
+        AutomaticResult result;
+        if(shared) {
+            var start=starts.start(command(first.result().quizRevisionId(),AnswerOrder.AUTHORED,"scheduled-peer-"+UUID.randomUUID()));
+            var items=delivery.read(start.attemptId()).form().items();
+            for(int i=0;i<items.size();i++) responses.accept(new ResponseAcceptanceService.Command(start.attemptId(),items.get(i).id(),i+1,
+                    CommandReceipt.Key.from("scheduled-peer-answer-"+UUID.randomUUID()),items.get(i).type(),input(items.get(i),true)));
+            var submit=submissions.submit(new AttemptSubmissionService.Command(start.attemptId(),3,true,CommandReceipt.Key.from("scheduled-peer-submit-"+UUID.randomUUID())));
+            peerSubmission=submit.submissionId(); result=results.finalizeSubmission(peerSubmission);
+            worker().register(peerSubmission,result.id(),first.configuration().id());
+        } else {
+            var second=scheduled(2); peerSubmission=second.attempt().submission(); result=second.result();
+        }
+        assertThat(ownerId).isNotEqualTo(firstParticipant);
+        assertThat(sql.queryForObject("SELECT BIN_TO_UUID(user_id) FROM attempt_participant_subject WHERE attempt_id=UUID_TO_BIN(?)",String.class,result.attemptId().toString())).isEqualTo(ownerId.toString());
+        assertThat(sql.queryForObject("SELECT BIN_TO_UUID(user_id) FROM attempt_participant_subject WHERE attempt_id=UUID_TO_BIN(?)",String.class,first.result().attemptId().toString())).isEqualTo(firstParticipant.toString());
+        assertThat(result.quizRevisionId().equals(first.result().quizRevisionId())).isEqualTo(shared);
+        time.set(due);
+        var inserted=new CountDownLatch(1); var finish=new CountDownLatch(1); var firstWrite=new AtomicBoolean();
+        observer().afterSql=(statement,connection)->{ if(statement.stripLeading().startsWith("INSERT INTO attempt_result_release") && firstWrite.compareAndSet(false,true)) { inserted.countDown(); await(finish); } };
+        var pool=Executors.newFixedThreadPool(2);
+        try {
+            var holder=pool.submit(()->worker().execute(first.attempt().submission())); await(inserted);
+            var peer=pool.submit(()->worker().execute(peerSubmission));
+            assertThat(peer.get(20,TimeUnit.SECONDS).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+            assertThat(holder.isDone()).isFalse(); assertThat(releaseEvents()).isEqualTo(1);
+            finish.countDown(); assertThat(holder.get(20,TimeUnit.SECONDS).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+        } finally { finish.countDown(); observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10,TimeUnit.SECONDS)).isTrue(); }
+        assertThat(releaseEvents()).isEqualTo(2);
+    }
+    @Test void scheduledBoundedBatchesDoNotStarveHealthyJobsBehindPoisonAndFutureRows() {
+        var poison=scheduled(1); var good=scheduled(1); var future=scheduled(1);
+        sql.update("UPDATE attempt_automatic_result SET policy_hash=? WHERE id=UUID_TO_BIN(?)","b".repeat(64),poison.result().id().toString());
+        // The third row is not yet due; its original captured schedule stays immutable.
+        sql.update("UPDATE attempt_scheduled_release SET work_state='RETRY',failures=1,row_version=1,last_failure='UNAVAILABLE',next_at=? WHERE submission_id=UUID_TO_BIN(?)",
+                Timestamp.from(due.plusSeconds(60)),future.attempt().submission().toString());
+        time.set(due); ScheduledResultReleaseService.Cursor cursor=null; int reviewed=0,released=0,examined=0;
+        do {
+            var page=worker().runBatch(1,cursor); reviewed+=page.review(); released+=page.released(); examined+=page.examined(); cursor=page.next();
+        } while(cursor!=null);
+        assertThat(reviewed).isEqualTo(1); assertThat(released).isEqualTo(1); assertThat(examined).isEqualTo(2);
+        assertThat(saved(poison).state()).isEqualTo(ScheduledRelease.State.REVIEW);
+        assertThat(saved(good).state()).isEqualTo(ScheduledRelease.State.RELEASED);
+        assertThat(saved(future).state()).isEqualTo(ScheduledRelease.State.RETRY);
+    }
+    @Test void scheduledReleaseIsIndependentRcAndConnectionIsolationReturnsToOuterRrAfterRollback() {
+        var f=scheduled(1); time.set(due); var reached=new AtomicBoolean();
+        observer().beforeSql=(statement,connection)->{ if(statement.contains("FOR UPDATE OF i,l")) {
+            assertThat(DataSourceUtils.getConnection(source).getTransactionIsolation()).isEqualTo(Connection.TRANSACTION_READ_COMMITTED);
+            reached.set(true);
+        } };
+        var rr=new TransactionTemplate(manager); rr.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        rr.executeWithoutResult(s->{
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation",String.class)).isEqualTo("REPEATABLE-READ");
+            worker().execute(f.attempt().submission());
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation",String.class)).isEqualTo("REPEATABLE-READ"); s.setRollbackOnly();
+        });
+        observer().reset(); assertThat(reached).isTrue();
+        assertThat(saved(f).state()).isEqualTo(ScheduledRelease.State.RELEASED); assertThat(releaseEvents()).isEqualTo(1);
+    }
+    @Test void scheduledWorkQueriesStayBoundedForThreeParentsWithOneOrTwentyItems() {
+        var totals=new ArrayList<Integer>();
+        var readTotals=new ArrayList<Integer>();
+        for(int size:List.of(1,20)) {
+            var fixtures=new ArrayList<ScheduledFixture>();
+            for(int i=0;i<3;i++) fixtures.add(scheduled(size));
+            time.set(due); observer().reset();
+            for(var f:fixtures) assertThat(worker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+            totals.add(observer().selects.size());
+            assertThat(observer().selects).noneMatch(s->s.contains("normalized_response") || s.contains("canonical_json")
+                    || s.contains("question_text") || s.contains("attempt_automatic_grade") || s.contains("documents"));
+            observer().reset();
+            for(var f:fixtures) {
+                var projected=view(f.attempt().attempt()).result();
+                assertThat(projected.totalScore().possible()).isEqualTo(size); assertThat(projected.items()).isNull();
+            }
+            readTotals.add(observer().selects.size());
+        }
+        assertThat(totals.get(1)).isEqualTo(totals.get(0)); assertThat(totals.get(0)).isLessThan(70);
+        assertThat(readTotals.get(1)).isEqualTo(readTotals.get(0)); assertThat(readTotals.get(0)).isLessThan(150);
+        System.out.println("Scheduled release SQL for three parents at 1/20 items: "+totals);
+        System.out.println("Scheduled participant-read SQL for three parents at 1/20 items: "+readTotals);
+    }
+    @Test void scheduledDatabaseRejectsBindingMutationAndMissingRetryTimeAndValidWorkStillRuns() {
+        var f=scheduled(1);
+        assertThatThrownBy(()->sql.update("UPDATE attempt_scheduled_release SET configuration_hash=? WHERE submission_id=UUID_TO_BIN(?)","b".repeat(64),f.attempt().submission().toString()))
+                .isInstanceOf(org.springframework.dao.DataAccessException.class);
+        assertThatThrownBy(()->sql.update("UPDATE attempt_scheduled_release SET next_at=NULL WHERE submission_id=UUID_TO_BIN(?)",f.attempt().submission().toString()))
+                .isInstanceOf(org.springframework.dao.DataAccessException.class);
+        time.set(due); assertThat(worker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+    }
+    @Test void scheduledCurrentHttpAuthorityAndWithheldFieldsRemainIndependentOfCommittedRelease() throws Exception {
+        var f=scheduled(2); time.set(due); worker().execute(f.attempt().submission()); var mvc=mvc();
+        mvc.perform(get("/api/v2/attempts/{id}",f.attempt().attempt()).principal(SecurityContextHolder.getContext().getAuthentication()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.result.totalScore.earned").value(2))
+                .andExpect(jsonPath("$.result.items").doesNotExist()).andExpect(jsonPath("$.result.reviewAvailable").doesNotExist());
+        var foreign="acceptance-scheduled-"+UUID.randomUUID().toString().substring(0,8);
+        var other=user(foreign,true); grant(other,"ATTEMPT_READ","ATTEMPT_CREATE"); authenticate(foreign);
+        mvc.perform(get("/api/v2/attempts/{id}",f.attempt().attempt()).principal(SecurityContextHolder.getContext().getAuthentication()))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.status").value(404));
+        SecurityContextHolder.clearContext();
+        mvc.perform(get("/api/v2/attempts/{id}",f.attempt().attempt())).andExpect(status().isUnauthorized());
+        authenticate(username);
+        sql.update("DELETE rp FROM role_permissions rp JOIN user_roles ur ON ur.role_id=rp.role_id JOIN permissions p ON p.permission_id=rp.permission_id WHERE ur.user_id=UUID_TO_BIN(?) AND p.permission_name='ATTEMPT_READ'",ownerId.toString());
+        mvc.perform(get("/api/v2/attempts/{id}",f.attempt().attempt()).principal(SecurityContextHolder.getContext().getAuthentication()))
+                .andExpect(status().isNotFound());
+        grant(ownerId,"ATTEMPT_READ");
+        mvc.perform(get("/api/v2/attempts/{id}",f.attempt().attempt()).principal(SecurityContextHolder.getContext().getAuthentication()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.result.totalScore.earned").value(2));
+        assertThat(releaseEvents()).isEqualTo(1); verifyNoInteractions(legacy);
+    }
+    @Test void scheduledUnknownFutureConfigurationWithValidDigestNeverFallsBackToImmediate() {
+        var f=fixture(1,1,1); var result=results.finalizeSubmission(f.submission()); var c=publishRule(result,0,rule(due));
+        var format=new uk.gegc.quizmaker.features.result.infra.release.ReleaseConfigurationFormat();
+        var future=format.encode(c.rule()).replace("\"version\":1","\"version\":2");
+        var hash=uk.gegc.quizmaker.features.result.infra.release.ReleaseConfigurationFormat.hash(future);
+        var id=UUID.randomUUID();
+        sql.update("INSERT INTO result_release_configurations(id,quiz_id,revision_id,publication_version,configuration_hash,canonical_configuration,published_by,published_at) SELECT UUID_TO_BIN(?),quiz_id,revision_id,publication_version+1,?,?,published_by,published_at FROM result_release_configurations WHERE id=UUID_TO_BIN(?)",
+                id.toString(),hash,future,c.id().toString());
+        assertThatThrownBy(()->worker().register(f.submission(),result.id(),id)).isInstanceOf(ResultReleaseException.class);
+        assertThat(count("attempt_scheduled_release")).isZero();
+        // A persisted newer-writer fixture proves old-worker refusal, not a v2 configuration writer.
+        rc(()->{ repository().insert(new ScheduledRelease(f.submission(),result.id(),id,hash,UUID.randomUUID(),due,time.get(),
+                ScheduledRelease.State.PENDING,0,0,due,null)); return null; });
+        time.set(due);
+        assertThat(worker().execute(f.submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.REVIEW);
+        assertThat(count("attempt_result_release")).isZero();
+        assertThatThrownBy(()->view(f.attempt())).isInstanceOf(uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException.class);
+        var control=scheduled(1); assertThat(worker().execute(control.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+    }
+    @Test void scheduledRegistrationAndImmediateWorkerSerializeBeforeAnyEarlyRelease() throws Exception {
+        var f=fixture(1,1,1); var result=results.finalizeSubmission(f.submission()); var c=publishRule(result,0,rule(due));
+        var inserted=new CountDownLatch(1); var finish=new CountDownLatch(1); var competing=new CountDownLatch(1);
+        observer().afterSql=(statement,connection)->{ if(statement.stripLeading().startsWith("INSERT INTO attempt_scheduled_release")) { inserted.countDown(); await(finish); } };
+        observer().beforeSql=(statement,connection)->{ if(inserted.getCount()==0 && statement.contains("FROM attempt_finalization_intent i") && !statement.contains("FOR UPDATE OF i,l")) competing.countDown(); };
+        var pool=Executors.newFixedThreadPool(2);
+        try {
+            var registering=pool.submit(()->worker().register(f.submission(),result.id(),c.id())); await(inserted);
+            var immediate=pool.submit(()->{ try { releases.release(f.submission()); return null; } catch(ResultReleaseException e) { return e.reason(); } });
+            await(competing); assertThat(immediate.isDone()).isFalse(); finish.countDown();
+            assertThat(registering.get(20,TimeUnit.SECONDS).resultId()).isEqualTo(result.id());
+            assertThat(immediate.get(20,TimeUnit.SECONDS)).isEqualTo(ResultReleaseException.Reason.UNSUPPORTED);
+        } finally { finish.countDown(); observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10,TimeUnit.SECONDS)).isTrue(); }
+        assertThat(count("attempt_result_release")).isZero();
+    }
+    @Test void scheduledLostRegistrationAcknowledgementRetainsOneImmutableIdentityOnRetry() {
+        var f=fixture(1,1,1); var result=results.finalizeSubmission(f.submission()); var c=publishRule(result,0,rule(due)); var reached=new AtomicBoolean();
+        observer().afterSql=(statement,connection)->{ if(statement.stripLeading().startsWith("INSERT INTO attempt_scheduled_release") && reached.compareAndSet(false,true)) observer().failAfterCommit.set(true); };
+        assertThatThrownBy(()->worker().register(f.submission(),result.id(),c.id())).isInstanceOf(ResultReleaseException.class);
+        observer().reset(); assertThat(reached).isTrue();
+        var stored=rc(()->repository().find(f.submission(),false).orElseThrow());
+        assertThat(worker().register(f.submission(),result.id(),c.id())).isEqualTo(stored);
+        assertThat(count("attempt_scheduled_release")).isEqualTo(1);
+        time.set(due); assertThat(worker().execute(f.submission()).release().id()).isEqualTo(stored.eventId());
+    }
+    @Test void scheduledRegistrationFailureAfterInsertRollsBackAndSamePathCanRegister() {
+        var f=fixture(1,1,1); var result=results.finalizeSubmission(f.submission()); var c=publishRule(result,0,rule(due)); var reached=new AtomicBoolean();
+        observer().afterSql=(statement,connection)->{ if(statement.stripLeading().startsWith("INSERT INTO attempt_scheduled_release") && reached.compareAndSet(false,true)) throw new SQLException("private-register-fault","08006"); };
+        assertThatThrownBy(()->worker().register(f.submission(),result.id(),c.id())).isInstanceOf(ResultReleaseException.class);
+        observer().reset(); assertThat(reached).isTrue(); assertThat(count("attempt_scheduled_release")).isZero();
+        assertThat(count("attempt_result_release")).isZero();
+        var registered=worker().register(f.submission(),result.id(),c.id());
+        time.set(due); assertThat(reconstructedWorker().execute(f.submission()).release().id()).isEqualTo(registered.eventId());
+    }
+    @Test void scheduledDueCursorUsesCoveringOrderWithoutFilesort() {
+        scheduled(1); scheduled(1); scheduled(1);
+        for(String suffix:List.of("", " AND (next_at>? OR (next_at=? AND submission_id>UUID_TO_BIN(?)))")) {
+            Object[] args=suffix.isEmpty()?new Object[]{Timestamp.from(due)}:
+                    new Object[]{Timestamp.from(due),Timestamp.from(due.minusSeconds(1)),Timestamp.from(due.minusSeconds(1)),UUID.randomUUID().toString()};
+            var plan=sql.queryForMap("EXPLAIN SELECT next_at,BIN_TO_UUID(submission_id) submission FROM attempt_scheduled_release FORCE INDEX (ix_scheduled_due) WHERE work_state IN ('PENDING','RETRY') AND next_at<=?"+suffix+" ORDER BY next_at,submission_id LIMIT 1",args);
+            assertThat(plan.get("key")).isEqualTo("ix_scheduled_due");
+            assertThat(String.valueOf(plan.get("Extra"))).doesNotContainIgnoringCase("filesort");
+            System.out.println("Scheduled due query plan: key="+plan.get("key")+", type="+plan.get("type")+", extra="+plan.get("Extra"));
+        }
+    }
+    @Test void scheduledDriverFailureIsRedactedBeforeTransactionLoggingAndRetryStillSucceeds() {
+        var f=scheduled(1); time.set(due); var reached=new AtomicBoolean();
+        var logger=(Logger)LoggerFactory.getLogger("org.springframework.transaction.support.TransactionTemplate");
+        var old=logger.getLevel(); var logs=new ListAppender<ILoggingEvent>(); logs.start(); logger.addAppender(logs); logger.setLevel(Level.TRACE);
+        try {
+            observer().afterSql=(statement,connection)->{ if(statement.contains("FOR UPDATE OF i,l") && reached.compareAndSet(false,true)) throw new SQLException("private-scheduled-driver-marker","08006"); };
+            assertThat(worker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.DEFERRED);
+            assertThat(reached).isTrue();
+            assertThat(logs.list).anyMatch(e->e.getThrowableProxy()!=null);
+            assertThat(logs.list).noneMatch(e->e.getFormattedMessage().contains("private-scheduled-driver-marker")
+                    || e.getThrowableProxy()!=null && ThrowableProxyUtil.asString(e.getThrowableProxy()).contains("private-scheduled-driver-marker"));
+        } finally { observer().reset(); logger.detachAppender(logs); logger.setLevel(old); logs.stop(); }
+        time.set(saved(f).nextAt());
+        assertThat(reconstructedWorker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+    }
+    @Test void scheduledConcurrentFailuresOfSameWorkVersionSpendOnlyOneRetry() throws Exception {
+        var f=scheduled(1); time.set(due);
+        var firstThread=new AtomicReference<Thread>(); var reads=new AtomicInteger();
+        var recovering=new CountDownLatch(1); var resume=new CountDownLatch(1);
+        observer().afterSql=(statement,connection)->{ if(statement.stripLeading().startsWith("INSERT INTO attempt_result_release")) throw new SQLException("private-peer-fault","08006"); };
+        observer().beforeSql=(statement,connection)->{
+            if(Thread.currentThread()==firstThread.get() && statement.contains("FROM attempt_scheduled_release WHERE")
+                    && statement.contains("FOR UPDATE") && reads.incrementAndGet()==2) { recovering.countDown(); await(resume); }
+        };
+        var pool=Executors.newFixedThreadPool(2);
+        try {
+            var first=pool.submit(()->{ firstThread.set(Thread.currentThread()); return worker().execute(f.attempt().submission()); });
+            await(recovering);
+            var peer=pool.submit(()->worker().execute(f.attempt().submission()));
+            assertThat(peer.get(20,TimeUnit.SECONDS).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.DEFERRED);
+            assertThat(first.isDone()).isFalse(); resume.countDown();
+            assertThat(first.get(20,TimeUnit.SECONDS).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.DEFERRED);
+        } finally { resume.countDown(); observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10,TimeUnit.SECONDS)).isTrue(); }
+        var retry=saved(f); assertThat(retry.failures()).isEqualTo(1); assertThat(retry.nextAt()).isEqualTo(due.plusSeconds(60));
+        assertThat(releaseEvents()).isZero(); time.set(retry.nextAt());
+        assertThat(reconstructedWorker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+    }
+    @Test void scheduledStaleDiscoveryDoesNotHideFailureOfANewlyDueRetry() throws Exception {
+        var f=scheduled(1); time.set(due);
+        var firstThread=new AtomicReference<Thread>(); var held=new AtomicBoolean();
+        var discovered=new CountDownLatch(1); var resume=new CountDownLatch(1);
+        observer().afterSql=(statement,connection)->{
+            if(statement.stripLeading().startsWith("INSERT INTO attempt_result_release")) throw new SQLException("private-retry-version","08006");
+            if(Thread.currentThread()==firstThread.get() && statement.contains("FROM attempt_scheduled_release WHERE")
+                    && !statement.contains("FOR UPDATE") && held.compareAndSet(false,true)) { discovered.countDown(); await(resume); }
+        };
+        var pool=Executors.newFixedThreadPool(2);
+        try {
+            var delayed=pool.submit(()->{ firstThread.set(Thread.currentThread()); return worker().execute(f.attempt().submission()); }); await(discovered);
+            var peer=pool.submit(()->worker().execute(f.attempt().submission()));
+            assertThat(peer.get(20,TimeUnit.SECONDS).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.DEFERRED);
+            var first=saved(f); assertThat(first.failures()).isEqualTo(1); time.set(first.nextAt());
+            resume.countDown(); assertThat(delayed.get(20,TimeUnit.SECONDS).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.DEFERRED);
+        } finally { resume.countDown(); observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10,TimeUnit.SECONDS)).isTrue(); }
+        var second=saved(f); assertThat(second.failures()).isEqualTo(2); assertThat(second.nextAt()).isEqualTo(due.plusSeconds(360));
+        time.set(second.nextAt()); assertThat(reconstructedWorker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+    }
+
     private static void await(CountDownLatch latch) {
         try { if(!latch.await(10,TimeUnit.SECONDS)) throw new AssertionError("Test barrier timeout"); }
         catch(InterruptedException failure) { Thread.currentThread().interrupt(); throw new AssertionError(failure); }
