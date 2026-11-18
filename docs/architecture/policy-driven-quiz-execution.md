@@ -5198,26 +5198,73 @@ A usable verification link returns the current minimal certificate state, includ
 
 ## Ungraded and Self-Assessment Activities
 
-Not every activity has a correct answer or numeric score.
+Approved D23/D24/R14 distinguish participation from assessment. Initial ungraded v1 supports
+non-scoring responses and explicit completion, without score, correctness, pass/fail, ranking,
+certificate or confidence/self-rating fields. Reflection and surveys do not become an assessment
+with a zero score. Self-rating and mixed graded/ungraded sections are future capabilities, not
+part of this initial contract or evidence of an enabled participant flow.
 
-The platform should support:
+### Internal activity contract (#566)
 
-- reflective free text;
-- confidence rating;
-- self-rating;
-- surveys without correct answers;
-- participation-based completion;
-- mixed graded and ungraded sections.
+`ActivityContract` defines separate version-1 `GradedPolicy` / `UngradedPolicy` and outcome
+variants. The graded wrappers retain the existing `ResolvedAttemptPolicy` and `AutomaticResult`
+unchanged, including a genuine zero score and the original pass calculation. Ungraded variants
+have no nullable assessment slots, scorer, answer payload or release authority.
 
-An ungraded activity must not create:
+`UngradedPolicy` explicitly selects `RETAIN_IMMUTABLE_RESPONSES` (D23's ordinary retained-response
+mode) or `COMPLETION_ONLY_NO_RESPONSE_RETENTION`. The latter requires the start owner to prove
+that the participant saw the privacy notice before starting. `StartFacts` is a trusted server
+fact, not a client credential or substitute for that integration. This contract changes no
+retention period and performs no response storage, erasure or feedback delivery.
 
-- fabricated score;
-- fabricated correctness;
-- pass/fail;
-- certificate eligibility;
-- assessment leaderboard entry.
+Before start the future writer binds immutable form membership and each item's required/optional
+participation flag. An empty requirements list means no additional item-participation conditions;
+it does not establish that an empty form is executable. Only an in-progress activity with explicit
+final submit and all configured required participation can produce `Completed`. Optional items
+may remain incomplete. Unknown/duplicate item evidence rejects. Completion evidence contains
+no response text; participation in the no-retention mode must still be established by the real
+writer before it supplies these facts. A plan is not proof that anything committed.
 
-Ungraded responses may require additional privacy and consent rules beyond ordinary assessment answers.
+`Incomplete` explicitly represents `NOT_STARTED`, `IN_PROGRESS`, `ABANDONED` or `EXPIRED` without
+`completedAt`. `Completed` carries only the contract version and caller-supplied completion time,
+normalized to the existing microsecond precision. No clock is read by this pure model. Viewing,
+expiry and abandonment do not become successful completion. The model does not add lifecycle
+commands, reopen a terminal activity or implement durable idempotency; those remain writer concerns.
+
+For example, Anna participates in a required reflection item, skips an optional item and explicitly
+submits. The pure contract returns a completion time, not `0/2` or a failed assessment. The same
+participation without final submit cannot complete the activity. An actual graded result `0/2`
+remains graded and retains its original meaning.
+
+`classify` treats absent historical kind/version metadata as `LEGACY`; partial metadata, unknown
+versions or unknown kinds reject rather than choosing a default. `assessmentDisposition` supplies
+the pure exclusion input for later pass-rate, score-distribution, best/latest numeric result,
+ranking and certificate consumers. `GRADED_CANDIDATE` indicates kind comparability only; it grants
+neither validity nor release/access/certificate eligibility. `requireGrading` and `assessedResult`
+reject ungraded variants before a consumer can obtain scored configuration or result facts.
+Existing graded services are not routed through a new engine by this contract.
+
+`ActivityContractJson` is an isolated internal codec, without global ObjectMapper registration or
+Java-class discriminators. Its version/kind envelope strictly rejects unknown fields, duplicate
+keys, trailing JSON, scalar coercions and contradictory completion shapes. Even null/zero score
+fields are forbidden on ungraded policy/outcome branches. Parser errors expose bounded reason
+codes without rejected values or causes. Existing canonical policy bytes/hashes, stored results,
+legacy classifications and public API envelopes are not rewritten.
+
+An ungraded completion serializes as:
+
+```json
+{"version":1,"kind":"UNGRADED","completion":{"state":"COMPLETED","completedAt":"2026-11-18T12:00:00.123456Z"}}
+```
+
+This is an internal foundation with no persistence, endpoint, authorization change or activation.
+The participant owns future response/completion evidence; callers must establish current identity,
+resource access, exact saved policy/form and participation facts. Kind does not authorize answer
+keys or authored feedback: release remains independently server-owned. #567 owns actual response
+and submit transactions, #642 the participant API, #568/#644 reports, #643 certificate exclusion,
+#709 ranking exclusion and #695 integrated conformance/activation. No prepared contract fixture
+proves those downstream writes, exclusions or public behavior. A future offline package must
+preserve the explicit kind/version; this contract enables no offline execution.
 
 ---
 
