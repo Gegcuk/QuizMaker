@@ -1,6 +1,14 @@
 package uk.gegc.quizmaker.features.result.release;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
+import java.sql.*;
 import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -10,12 +18,18 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.slf4j.LoggerFactory;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.*;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizPublicationRepository;
+import uk.gegc.quizmaker.features.result.domain.repository.ReleaseConfigurationRepository;
 import uk.gegc.quizmaker.features.attempt.application.transaction.*;
 import uk.gegc.quizmaker.features.quiz.infra.repository.JdbcQuizPublicationRepository;
 import uk.gegc.quizmaker.features.result.application.ReleaseConfigurationService.*;
@@ -71,8 +85,14 @@ class ReleaseConfigurationMySqlIntegrationTest {
     }
     @AfterEach void logout() { SecurityContextHolder.clearContext(); }
     ReleaseConfigurationServiceImpl instance(JdbcReleaseConfigurationRepository repo) {
-        return new ReleaseConfigurationServiceImpl(new QuizReleaseConfigurationSource(new JdbcQuizPublicationRepository(named)),
+        return new ReleaseConfigurationServiceImpl(new QuizReleaseConfigurationSource(
+                transactional(QuizPublicationRepository.class, new JdbcQuizPublicationRepository(named), manager)),
                 repo, CLOCK, new SimpleMeterRegistry(), manager);
+    }
+    static <T> T transactional(Class<T> contract, Object target, DataSourceTransactionManager transactions) {
+        var proxy = new ProxyFactory(target);
+        proxy.addAdvice(new TransactionInterceptor(transactions, new AnnotationTransactionAttributeSource()));
+        return contract.cast(proxy.getProxy());
     }
     static UUID user() {
         UUID id = UUID.randomUUID();
@@ -163,6 +183,7 @@ class ReleaseConfigurationMySqlIntegrationTest {
     }
     @Test void currentAuthorityAndExactRevisionAreCheckedForReadsPreviewAndReplay() {
         var command = command(0, manual()); var saved = service.publish(command);
+        sql.update("INSERT INTO user_roles(user_id,role_id) VALUES(UUID_TO_BIN(?),?)", stranger.toString(), role);
         login(stranger.toString());
         rejected(() -> service.publish(command), NOT_FOUND);
         rejected(() -> service.preview(quiz, revision, manual()), NOT_FOUND);
@@ -249,7 +270,8 @@ class ReleaseConfigurationMySqlIntegrationTest {
             }
             @Override public void rollback(org.springframework.transaction.TransactionStatus status) { manager.rollback(status); }
         };
-        var uncertainService = new ReleaseConfigurationServiceImpl(new QuizReleaseConfigurationSource(new JdbcQuizPublicationRepository(named)),
+        var uncertainService = new ReleaseConfigurationServiceImpl(new QuizReleaseConfigurationSource(
+                transactional(QuizPublicationRepository.class, new JdbcQuizPublicationRepository(named), manager)),
                 repository, CLOCK, new SimpleMeterRegistry(), uncertain);
         var command = command(0, manual());
         rejected(() -> uncertainService.publish(command), UNKNOWN_OUTCOME);
@@ -271,6 +293,106 @@ class ReleaseConfigurationMySqlIntegrationTest {
         rejected(() -> service.read(quiz, revision, futureId), UNSUPPORTED_VERSION);
         assertThat(service.current(quiz, revision)).isEqualTo(a);
         assertThat(count("result_release_configuration_receipts")).isEqualTo(1);
+    }
+    enum AuthorizationRead {
+        USER("SELECT BIN_TO_UUID(user_id) id FROM users", "actor"),
+        PERMISSIONS("SELECT p.permission_name FROM user_roles", "actor"),
+        QUIZ("visibility, estimated_time_min FROM quizzes", "draft"),
+        REVISION("FROM quiz_publications p WHERE", "revision");
+        final String sqlFragment, method;
+        AuthorizationRead(String sqlFragment, String method) { this.sqlFragment = sqlFragment; this.method = method; }
+    }
+    @ParameterizedTest @EnumSource(AuthorizationRead.class)
+    void authorizationReadFailureIsSanitizedBeforeNestedTransactionLogsAndRollsBack(AuthorizationRead read) {
+        var faults = new AuthorizationFaultSource(manager.getDataSource());
+        var transactions = new DataSourceTransactionManager(faults);
+        var jdbc = new JdbcTemplate(faults);
+        var parameters = new NamedParameterJdbcTemplate(faults);
+        var authors = transactional(QuizPublicationRepository.class, new JdbcQuizPublicationRepository(parameters), transactions);
+        var store = transactional(ReleaseConfigurationRepository.class, new JdbcReleaseConfigurationRepository(parameters), transactions);
+        var proxied = new ReleaseConfigurationServiceImpl(new QuizReleaseConfigurationSource(authors), store, CLOCK, new SimpleMeterRegistry(), transactions);
+        var initial = command(0, manual());
+        var saved = proxied.publish(initial); // Successful control through the same real proxies and SQL.
+        var proposed = command(1, scheduled("2026-12-04T17:00:00", "Europe/London", null));
+        String originalTitle = sql.queryForObject("SELECT title FROM quizzes WHERE quiz_id=UUID_TO_BIN(?)", String.class, quiz.toString());
+        var requestThread = Thread.currentThread();
+        var captured = new ListAppender<ILoggingEvent>() {
+            @Override protected void append(ILoggingEvent event) {
+                if (Thread.currentThread() == requestThread) { event.prepareForDeferredProcessing(); super.append(event); }
+            }
+        };
+        var root = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
+        var loggers = List.of((Logger) LoggerFactory.getLogger(TransactionInterceptor.class),
+                (Logger) LoggerFactory.getLogger(TransactionTemplate.class),
+                (Logger) LoggerFactory.getLogger(DataSourceTransactionManager.class));
+        var levels = new HashMap<Logger, Level>();
+        captured.setContext(root.getLoggerContext()); captured.start(); root.addAppender(captured);
+        loggers.forEach(logger -> { levels.put(logger, logger.getLevel()); logger.setLevel(Level.TRACE); });
+        try {
+            faults.read = read;
+            assertThatThrownBy(() -> AttemptTransactions.readCommitted(transactions).executeWithoutResult(status -> {
+                jdbc.update("UPDATE quizzes SET title='before caught authorization failure' WHERE quiz_id=UUID_TO_BIN(?)", quiz.toString());
+                rejected(() -> proxied.publish(proposed), UNAVAILABLE);
+                assertThat(faults.reached).hasValue(1);
+                assertThat(status.isRollbackOnly()).isTrue();
+                jdbc.update("UPDATE quizzes SET title='after caught authorization failure' WHERE quiz_id=UUID_TO_BIN(?)", quiz.toString());
+                assertThat(jdbc.queryForObject("SELECT title FROM quizzes WHERE quiz_id=UUID_TO_BIN(?)", String.class, quiz.toString()))
+                        .isEqualTo("after caught authorization failure");
+            })).isInstanceOf(org.springframework.transaction.UnexpectedRollbackException.class);
+            faults.read = null;
+            assertThat(faults.reached).hasValue(1);
+            assertThat(sql.queryForObject("SELECT title FROM quizzes WHERE quiz_id=UUID_TO_BIN(?)", String.class, quiz.toString())).isEqualTo(originalTitle);
+            assertThat(service.current(quiz, revision)).isEqualTo(saved);
+            assertThat(count("result_release_configurations")).isEqualTo(1);
+            assertThat(count("result_release_configuration_receipts")).isEqualTo(1);
+            assertThat(captured.list).anySatisfy(event -> {
+                assertThat(event.getLoggerName()).isEqualTo(TransactionInterceptor.class.getName());
+                assertThat(event.getLevel()).isEqualTo(Level.TRACE);
+                assertThat(event.getFormattedMessage()).contains("JdbcQuizPublicationRepository." + read.method + "]", "after exception");
+            });
+            assertThat(captured.list).allSatisfy(event -> {
+                assertThat(event.getFormattedMessage()).doesNotContain(AuthorizationFaultSource.PRIVATE, "SQL [", read.sqlFragment);
+                if (event.getThrowableProxy() != null) assertThat(ThrowableProxyUtil.asString(event.getThrowableProxy()))
+                        .doesNotContain(AuthorizationFaultSource.PRIVATE, "SQL [", read.sqlFragment);
+            });
+            assertThat(proxied.publish(initial).replayed()).isTrue();
+            assertThat(proxied.publish(proposed).publicationVersion()).isEqualTo(2);
+            assertThat(proxied.read(quiz, revision, saved.id())).isEqualTo(saved);
+        } finally {
+            faults.read = null;
+            loggers.forEach(logger -> logger.setLevel(levels.get(logger)));
+            root.detachAppender(captured); captured.stop();
+        }
+    }
+    static class AuthorizationFaultSource extends DelegatingDataSource {
+        static final String PRIVATE = "release-authorization-private-driver-diagnostic";
+        AuthorizationRead read;
+        final AtomicInteger reached = new AtomicInteger();
+        AuthorizationFaultSource(javax.sql.DataSource target) { super(target); }
+        @Override public Connection getConnection() throws SQLException {
+            var connection = super.getConnection();
+            return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(), new Class<?>[]{Connection.class}, (proxy, method, args) -> {
+                try {
+                    Object value = method.invoke(connection, args);
+                    if (method.getName().equals("prepareStatement") && args[0] instanceof String statement && value instanceof PreparedStatement prepared)
+                        return Proxy.newProxyInstance(PreparedStatement.class.getClassLoader(), new Class<?>[]{PreparedStatement.class}, (p, operation, arguments) -> {
+                            try {
+                                Object result = operation.invoke(prepared, arguments);
+                                if (operation.getName().equals("executeQuery") && read != null && statement.contains(read.sqlFragment)) {
+                                    if (result instanceof ResultSet rows) rows.close();
+                                    reached.incrementAndGet();
+                                    var failure = new SQLException(PRIVATE, "08006", new IllegalStateException(PRIVATE + "-cause"));
+                                    failure.addSuppressed(new IllegalStateException(PRIVATE + "-suppressed"));
+                                    failure.setNextException(new SQLException(PRIVATE + "-next", "08006"));
+                                    throw failure;
+                                }
+                                return result;
+                            } catch (InvocationTargetException failure) { throw failure.getCause(); }
+                        });
+                    return value;
+                } catch (InvocationTargetException failure) { throw failure.getCause(); }
+            });
+        }
     }
     class HookRepository extends JdbcReleaseConfigurationRepository {
         Fault fault; final AtomicBoolean reached = new AtomicBoolean(); boolean hold;

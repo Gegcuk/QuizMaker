@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.quiz.infra.repository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -12,6 +13,7 @@ import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizPublication.*;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizPublicationRepository;
+import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -30,34 +32,36 @@ public class JdbcQuizPublicationRepository implements QuizPublicationRepository 
     public JdbcQuizPublicationRepository(NamedParameterJdbcTemplate sql) { this.sql = sql; }
 
     @Override public Optional<Actor> actor(String principal) {
-        UUID id;
-        try { id = UUID.fromString(principal); } catch (IllegalArgumentException failure) { id = null; }
-        var parameters = new MapSqlParameterSource("principal", principal).addValue("id", id == null ? null : id.toString());
-        var users = sql.query("""
-                SELECT BIN_TO_UUID(user_id) id FROM users
-                WHERE (username=:principal OR email=:principal OR user_id=UUID_TO_BIN(:id))
-                  AND is_active=TRUE AND is_deleted=FALSE FOR SHARE
-                """, parameters, (rs, row) -> uuid(rs, "id"));
-        if (users.size() != 1) return Optional.empty();
-        // Lock membership and permission rows through commit; use current SQL, never cached User.roles.
-        var names = sql.query("""
-                SELECT p.permission_name FROM user_roles ur
-                JOIN role_permissions rp ON rp.role_id=ur.role_id
-                JOIN permissions p ON p.permission_id=rp.permission_id
-                WHERE ur.user_id=UUID_TO_BIN(:id) FOR SHARE
-                """, Map.of("id", users.get(0).toString()), (rs, row) -> rs.getString(1));
-        return Optional.of(new Actor(users.get(0), new HashSet<>(names)));
+        return safe(() -> {
+            UUID id;
+            try { id = UUID.fromString(principal); } catch (IllegalArgumentException failure) { id = null; }
+            var parameters = new MapSqlParameterSource("principal", principal).addValue("id", id == null ? null : id.toString());
+            var users = sql.query("""
+                    SELECT BIN_TO_UUID(user_id) id FROM users
+                    WHERE (username=:principal OR email=:principal OR user_id=UUID_TO_BIN(:id))
+                      AND is_active=TRUE AND is_deleted=FALSE FOR SHARE
+                    """, parameters, (rs, row) -> uuid(rs, "id"));
+            if (users.size() != 1) return Optional.empty();
+            // Lock membership and permission rows through commit; use current SQL, never cached User.roles.
+            var names = sql.query("""
+                    SELECT p.permission_name FROM user_roles ur
+                    JOIN role_permissions rp ON rp.role_id=ur.role_id
+                    JOIN permissions p ON p.permission_id=rp.permission_id
+                    WHERE ur.user_id=UUID_TO_BIN(:id) FOR SHARE
+                    """, Map.of("id", users.get(0).toString()), (rs, row) -> rs.getString(1));
+            return Optional.of(new Actor(users.get(0), new HashSet<>(names)));
+        });
     }
 
     @Override public Optional<Draft> draft(UUID quizId, boolean exclusive) {
-        return sql.query("""
+        return safe(() -> sql.query("""
                 SELECT BIN_TO_UUID(quiz_id) id, BIN_TO_UUID(creator_id) owner_id, title, description,
                        visibility, estimated_time_min FROM quizzes
                 WHERE quiz_id=UUID_TO_BIN(:quiz) AND is_deleted=FALSE
                 """ + (exclusive ? " FOR UPDATE" : " FOR SHARE"), ids(quizId), (rs, row) ->
                 new Draft(uuid(rs, "id"), uuid(rs, "owner_id"), rs.getString("title"),
                         rs.getString("description"), rs.getString("visibility"), rs.getInt("estimated_time_min")))
-                .stream().findFirst();
+                .stream().findFirst());
     }
 
     @Override public List<Question> lockQuestions(UUID quizId) {
@@ -103,8 +107,8 @@ public class JdbcQuizPublicationRepository implements QuizPublicationRepository 
     }
 
     @Override public Optional<Revision> revision(UUID quizId, UUID revisionId) {
-        return sql.query("SELECT " + REVISION + " FROM quiz_publications p WHERE p.quiz_id=UUID_TO_BIN(:quiz) AND p.revision_id=UUID_TO_BIN(:revision)",
-                ids(quizId).addValue("revision", revisionId.toString()), (rs, row) -> revision(rs)).stream().findFirst();
+        return safe(() -> sql.query("SELECT " + REVISION + " FROM quiz_publications p WHERE p.quiz_id=UUID_TO_BIN(:quiz) AND p.revision_id=UUID_TO_BIN(:revision)",
+                ids(quizId).addValue("revision", revisionId.toString()), (rs, row) -> revision(rs)).stream().findFirst());
     }
 
     @Override public void insert(Revision revision, List<Image> images) {
@@ -163,6 +167,12 @@ public class JdbcQuizPublicationRepository implements QuizPublicationRepository 
                 """, ids(revisionId), (rs, row) -> new Image(uuid(rs, "question_id"), uuid(rs, "asset_id"),
                 uuid(rs, "binding_id"), uuid(rs, "version_id"), rs.getString("object_key"), rs.getString("mime_type"),
                 rs.getLong("size_bytes"), rs.getInt("width"), rs.getInt("height")));
+    }
+
+    /** Discard driver diagnostics before this repository's transaction proxy formats a failure. */
+    private static <T> T safe(java.util.function.Supplier<T> action) {
+        try { return action.get(); }
+        catch (DataAccessException failure) { throw SafeDataAccess.sanitize(failure); }
     }
 
     private static Revision revision(ResultSet rs) throws SQLException {

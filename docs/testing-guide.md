@@ -17,6 +17,13 @@ under another process timezone and compare the saved local/zone/offset/UTC evide
 The HTTP suite checks real security filters, named full/grouped schemas, actual responses,
 request examples, safe ProblemDetail errors, discovery and default-disabled authoring. SQL-backed
 author tests prove owner/permission/public-moderation/active-account checks, including replay.
+The wrong-owner control must have real `QUIZ_UPDATE`, so denial reaches ownership validation.
+Source reads use the actual `TransactionInterceptor` around `JdbcQuizPublicationRepository`.
+Inject driver failures after each reached user/permission/quiz/revision SELECT, capture TRACE
+messages and throwable graphs, and assert that private diagnostics and SQL are absent before
+the outer adapter translates the error. Catch the safe failure inside an outer RC transaction,
+prove writes both before and after it were reached, then verify their rollback in fresh reads.
+Disable the fault and prove the same authorized publication/replay path still succeeds.
 
 The MySQL suite owns actual version/head/receipt writes. Inject faults after each reached SQL
 checkpoint, inspect through fresh transactions, and prove one successful retry. Preserve outer-RC
