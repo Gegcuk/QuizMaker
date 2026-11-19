@@ -35,6 +35,16 @@ Verify actual RC, participating rollback, reached SQL failure/retry and pool iso
 The ordinary Spring-only suite proves absent/ambiguous source providers deny and no scheduler is
 required. Both context suites and the database companion are assigned in the existing inventory.
 
+The Spring/MySQL suite also enables TRACE on the real nested transaction interceptors. Inject
+driver failures after actual SQL for all five repository methods, including create, read and exact
+replay; inspect both formatted messages and rendered throwable graphs for private SQL/driver,
+cause, next-exception and suppressed markers. Require a reached repository exception event so an
+empty capture cannot pass. Direct proxy calls retain only sanitized DataAccessException categories
+and bounded 1205/1213 conflict evidence. A caught service failure rolls back the caller's successful
+control write and all failed-command writes; fresh reads and same-key retry prove recovery. A real
+MySQL SIGNAL trigger independently reproduces the original diagnostic leak and verifies cleanup
+before repository TransactionInterceptor logging, not just the later service translation.
+
 The metadata read fixture has three sessions for each of 1- and 100-item revisions. Count selected
 statements and assert no question/form/answer/schedule content is queried. These JDBC metadata paths
 have no JPA relationship traversal; the test proves bounded source loading rather than relying on
