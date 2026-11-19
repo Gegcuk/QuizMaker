@@ -5731,6 +5731,10 @@ outcome dimensions and cannot change the command result.
 Capture checks a real owned session, matching configuration/source and a saved form containing
 the question. Replacement is refused while captures remain. Release requires the separately
 owned authoritative session-completion verifier; its missing/ambiguous implementation denies.
+A session's binding for that question remains attached to its original cycle after release and
+replacement. A new command cannot move the old session into a later cycle; exact receipt replay
+remains non-mutating. A fresh session can capture that later cycle, and other questions in a
+multi-question session retain their independent bindings.
 #649 does not complete sessions or treat CREATED identity storage as a completed review.
 #578/#650 must compose their real lifecycle and capture/release commands in the same RC
 transaction; the #649 completion fixture is not proof of that future integration.

@@ -39,6 +39,11 @@ successful committed winner. Capture/restart races prove both permitted serial o
 independent item, another learner on the same revision and an unrelated-quiz control must
 commit before releasing a held review. Watchdogs bound hangs, not promised throughput. The strategy-neutral repository
 CAS fixture proves shared slot ownership only, not an implemented custom strategy/switch API.
+After releasing a session's question binding and replacing its cycle, a new capture command
+using that old session must fail without a new binding or receipt. Exact original capture/release
+replays retain their receipts; a fresh session may capture the replacement. A multi-question
+session keeps independent bindings for its other questions. The guard reads historical metadata
+under the already-held slot lock, not only the current cycle/session pair.
 
 The existing Spring/MySQL companion additionally uses real method-security, JDBC MANDATORY
 proxies, UserRepository and SafeJpaTransactionManager. Prove actual RC/pool restoration,

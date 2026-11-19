@@ -373,7 +373,7 @@ class LearningScheduleMySqlIntegrationTest {
     @Test void capturedRealSessionMustFinishBeforeCycleReplacementAndCannotBeRecapturedAfterRelease() {
         var initial = schedules.execute(enroll(0)).snapshot(); var session = sessionWithForm(0);
         var capture = new Capture(1, UUID.randomUUID(), ref(revision), question(0), initial.expected(), session.id());
-        schedules.execute(capture);
+        var captured = schedules.execute(capture);
         rejected(() -> schedules.execute(restart(initial)), ACTIVE_SESSION);
         var release = new Release(1, UUID.randomUUID(), ref(revision), question(0), initial.expected(), session.id());
         rejected(() -> schedules.execute(release), SESSION_INCOMPLETE);
@@ -384,7 +384,33 @@ class LearningScheduleMySqlIntegrationTest {
         completedSessions.add(session.id()); schedules.execute(release);
         assertThat(schedules.execute(release).replayed()).isTrue();
         rejected(() -> schedules.execute(new Capture(1, UUID.randomUUID(), ref(revision), question(0), initial.expected(), session.id())), SESSION_CLOSED);
-        assertThat(schedules.execute(restart(initial)).snapshot().cycleVersion()).isEqualTo(2);
+        var replacement = schedules.execute(restart(initial)).snapshot();
+        assertThat(replacement.cycleVersion()).isEqualTo(2);
+        int receipts = count("learning_schedule_receipt");
+        var rebind = new Capture(1, UUID.randomUUID(), ref(revision), question(0), replacement.expected(), session.id());
+        rejected(() -> schedules.execute(rebind), SESSION_CLOSED);
+        assertThat(count("learning_cycle_session")).isOne();
+        assertThat(count("learning_schedule_receipt")).isEqualTo(receipts);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_schedule_receipt WHERE command_id=UUID_TO_BIN(?)",
+                Integer.class, rebind.id().toString())).isZero();
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_cycle_session WHERE cycle_id=UUID_TO_BIN(?)",
+                Integer.class, replacement.state().identity().cycleId().toString())).isZero();
+        assertThat(schedules.read(ref(revision), question(0))).isEqualTo(replacement);
+        assertThat(schedules.execute(capture)).isEqualTo(new Result(captured.snapshot(), true));
+        assertThat(schedules.execute(release).replayed()).isTrue();
+        assertThat(count("learning_cycle_session")).isOne();
+        assertThat(count("learning_schedule_receipt")).isEqualTo(receipts);
+        // A refused transfer cannot manufacture ACTIVE_SESSION on the replacement cycle.
+        var next = schedules.execute(restart(replacement)).snapshot();
+        assertThat(next.cycleVersion()).isEqualTo(3);
+        var newSession = sessionWithForm(0);
+        var newCapture = new Capture(1, UUID.randomUUID(), ref(revision), question(0), next.expected(), newSession.id());
+        assertThat(schedules.execute(newCapture)).isEqualTo(new Result(next, false));
+        assertThat(count("learning_cycle_session")).isEqualTo(2);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_cycle_session WHERE session_id=UUID_TO_BIN(?)",
+                Integer.class, session.id().toString())).isOne();
+        assertThat(sql.queryForObject("SELECT released FROM learning_cycle_session WHERE session_id=UUID_TO_BIN(?)",
+                Boolean.class, session.id().toString())).isTrue();
         assertThat(sessions.read(session.id())).isEqualTo(session); // #649 never changes session lifecycle.
     }
 
@@ -396,6 +422,24 @@ class LearningScheduleMySqlIntegrationTest {
         var own = sessionWithForm(0);
         assertThat(schedules.execute(new Capture(1, UUID.randomUUID(), ref(revision), question(0), initial.expected(), own.id())).replayed()).isFalse();
         assertThat(count("learning_cycle_session")).isOne();
+    }
+
+    @Test void releasedQuestionHistoryDoesNotBlockAnotherCapturedQuestionInSameSession() {
+        var first = schedules.execute(enroll(0)).snapshot();
+        var other = schedules.execute(enroll(1)).snapshot();
+        var session = sessionWithForm(0, 1);
+        schedules.execute(new Capture(1, UUID.randomUUID(), ref(revision), question(0), first.expected(), session.id()));
+        schedules.execute(new Capture(1, UUID.randomUUID(), ref(revision), question(1), other.expected(), session.id()));
+        completedSessions.add(session.id()); // Named #650 completion-contract fixture, not a lifecycle writer.
+        schedules.execute(new Release(1, UUID.randomUUID(), ref(revision), question(0), first.expected(), session.id()));
+        schedules.execute(restart(first));
+        int bindings = count("learning_cycle_session");
+        var sameOtherQuestion = new Capture(1, UUID.randomUUID(), ref(revision), question(1), other.expected(), session.id());
+        assertThat(schedules.execute(sameOtherQuestion)).isEqualTo(new Result(other, false));
+        assertThat(count("learning_cycle_session")).isEqualTo(bindings);
+        assertThat(schedules.read(ref(revision), question(1))).isEqualTo(other);
+        assertThat(sql.queryForObject("SELECT released FROM learning_cycle_session WHERE cycle_id=UUID_TO_BIN(?) AND session_id=UUID_TO_BIN(?)",
+                Boolean.class, other.state().identity().cycleId().toString(), session.id().toString())).isFalse();
     }
 
     @Test void strategyNeutralCycleCasUsesSameSlotAndFsrsNeverFallsBackFromForeignStrategy() {
@@ -558,16 +602,16 @@ class LearningScheduleMySqlIntegrationTest {
     Restart restart(Snapshot current) { return new Restart(1, UUID.randomUUID(), ref(revision), current.state().identity().questionRevisionId(), current.expected(), FsrsManifest.approved()); }
     static UUID question(int index) { return revision.items().get(index).question().id(); }
     static LearningSession.Source ref(QuizRevision rev) { return new LearningSession.Source(1, rev.quizId(), rev.id(), rev.schemaVersion()); }
-    LearningSession sessionWithForm(int item) {
+    LearningSession sessionWithForm(int... itemIndexes) {
         var session = sessions.create(new LearningSessionService.Create(1, UUID.randomUUID(), ref(revision), FsrsManifest.approved())).session();
-        var selected = revision.items().get(item);
-        var formItem = new LearningForm.Item(selected.id(), selected.question().id(), 1, new ContractVersion("question.mcq-single.response", 1),
-                selected.question().options().stream().map(QuestionRevision.Option::id).toList());
+        var formItems = Arrays.stream(itemIndexes).mapToObj(index -> revision.items().get(index))
+                .map(selected -> new LearningForm.Item(selected.id(), selected.question().id(), 1, new ContractVersion("question.mcq-single.response", 1),
+                        selected.question().options().stream().map(QuestionRevision.Option::id).toList())).toList();
         var forms = new LearningFormServiceImpl(sessions, new JdbcLearningFormRepository(new NamedParameterJdbcTemplate(sql)),
                 List.of((s, items) -> items.stream().map(i -> new LearningFormContent.PresentedItem(i, "Saved question", new ParticipantContent.Choices(
                         i.optionIds().stream().map(id -> new ParticipantContent.Option(id, "Option")).toList()))).toList()),
                 Clock.fixed(TIME, ZoneOffset.UTC), metrics, manager);
-        forms.materialize(new LearningFormService.Materialize(1, session.id(), List.of(formItem)));
+        forms.materialize(new LearningFormService.Materialize(1, session.id(), formItems));
         return session;
     }
     static void rejected(Runnable work, LearningScheduleException.Reason reason) {

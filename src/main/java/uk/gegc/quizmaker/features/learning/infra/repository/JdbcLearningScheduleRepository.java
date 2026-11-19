@@ -209,11 +209,18 @@ public class JdbcLearningScheduleRepository implements LearningScheduleRepositor
         safe(() -> {
             var p = parameters(key).addValue("cycle", bytes(current.state().identity().cycleId()))
                     .addValue("session", bytes(sessionId)).addValue("sequence", current.state().sequence());
+            // The caller holds this question's slot lock. Release does not erase the session's
+            // captured cycle: a new command must not move that binding after a restart.
+            require(Boolean.FALSE.equals(jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM learning_cycle_session s JOIN learning_schedule_cycle c ON c.id=s.cycle_id
+                WHERE s.session_id=:session AND c.learner_id=:learner AND c.quiz_id=:quiz
+                AND c.quiz_revision_id=:revision AND c.question_revision_id=:question
+                AND (s.cycle_id<>:cycle OR s.released=1))
+                """, p, Boolean.class)), SESSION_CLOSED);
             jdbc.update("""
                 INSERT INTO learning_cycle_session(cycle_id,session_id,captured_sequence,released) VALUES(:cycle,:session,:sequence,0)
                 ON DUPLICATE KEY UPDATE session_id=learning_cycle_session.session_id
                 """, p);
-            require(Boolean.FALSE.equals(jdbc.queryForObject("SELECT released FROM learning_cycle_session WHERE cycle_id=:cycle AND session_id=:session", p, Boolean.class)), SESSION_CLOSED);
             return null;
         });
     }
