@@ -5611,6 +5611,41 @@ custom-plan implementation. #575/#649/#578/#667 retain those boundaries; #839/#8
 public mastery #847 remain separately owned. Future observability uses bounded strategy,
 manifest/state/time-mapping version and outcome/drift dimensions, never learner IDs or payloads.
 
+### Independent pre-form Learning sessions (#575)
+
+`LearningSessionService` stores one server-allocated session for each authenticated learner and
+creation command ID. Exact retries return the captured session; a different source/configuration
+under that key conflicts. Different command IDs remain independent: this is neither an active-session
+quota nor the common active-schedule/cycle authority owned by #649.
+
+The additive V118 tables retain learner, exact quiz/revision/schema identity, the complete approved
+FSRS manifest, initial `CREATED` lifecycle/version and UTC microsecond timestamps. `CREATED` means
+stored before form materialization, not started review or enrollment. #578/#650 own later start,
+progress and completion commands and must explicitly evolve the versioned lifecycle schema. No
+Assessment Attempt table or schedule is reused; no legacy history is imported or reset. A separate
+creation receipt commits with the session. Missing receipt/configuration evidence is corruption,
+never repaired by reading or replaying. Personal Learning history has no initial age cleanup;
+separately owned erasure/retention work must classify this family before claiming complete cleanup.
+
+The service resolves the current authenticated account through `AuthenticatedUserLookup` and
+requires exactly one `LearningSessionSourceVerifier`. That project-owned port checks current
+content access, visibility, release and applicable tenant/organization authority through commit,
+including exact retries and reads. It does not inherit Assessment-only owner/editor eligibility or
+the unused legacy repetition flag. No verifier is supplied by this foundation; missing/ambiguous
+providers deny. Source contract fixtures prove #575 storage, not the real #578/#692/#667 access
+integration. A bounded database metadata lookup additionally verifies the exact retained revision.
+
+Standalone operations own READ_COMMITTED transactions. Participating calls require explicit writable
+outer RC metadata and return provisionally until caller commit; incompatible/default/read-only
+callers reject before identity/domain SQL. No hidden independent transaction or retry is introduced.
+Identity eligibility and source protection remain held through commit. Concurrent creators serialize
+on the learner/command key, while retained revisions use shared locks and independent learners can
+commit against the same revision. Retry an uncertain commit with the original command identity.
+
+Reads return bounded session/configuration/revision metadata, without loading question content or
+JPA relationships. Counters use operation and bounded outcome only. #575 adds no public endpoint,
+form, schedule, custom-plan implementation, mastery, notifications or Learning activation.
+
 ### First enrollment, selection and public progress
 
 [23 October scope](decision-register.md#learning-initial-selection-and-mastery) selects bounded page/session sizes without a daily Learning quota. With 100 due items and a batch of 20, finishing the batch permits continuing that day. Command-rate limits are independent. Public mastery is deferred to #847; desired retention, exam scores and finite-plan completion retain distinct names and meanings.

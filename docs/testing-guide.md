@@ -2,6 +2,56 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Independent Learning session storage (#575)
+
+On JDK 17, begin with `LearningSessionTest` and `LearningSessionSpringTest`, then use the existing
+offline/fake environment and disposable MySQL launcher for:
+
+```bash
+./mvnw test -Dtest=LearningSessionMySqlIntegrationTest,LearningSessionSpringMySqlIntegrationTest,ContextTestManifestTest
+```
+
+The MySQL companion migrates the real schema through V117, retains actual legacy quiz/attempt/answer
+rows, then applies additive V118. It uses the real #597 revision writer and real #575 persistence.
+Verify exact source/manifest/microsecond retention, same-key replay after component reconstruction,
+conflicting payloads, unknown/missing/wrong source metadata, foreign ownership, current source denial
+and inactive accounts. Current identity uses a SQL-backed test adapter; source access is an explicit
+contract fake, not proof of future public Learning authorization.
+
+Reach failures after the session insert, after the real receipt insert and before commit; fresh
+connections must see neither record, and an independent retry must succeed. Lose acknowledgement
+after actual commit and reconstruct the service/repository: the same command must replay one stored
+session. Outer RC rollback removes both records; a caught participating write failure marks the
+caller rollback-only. Incompatible/default/read-only callers reject before identity/domain SQL.
+
+Race identical and conflicting creators with reached barriers and an actual MySQL key-wait check.
+One creator must commit; the identical waiter replays, and conflicting data cannot overwrite it.
+Hold a creator after its receipt insert and prove another learner commits on the same revision and
+an unrelated revision before releasing the holder. Finite watchdogs bound hangs, not product latency.
+
+`LearningSessionSpringMySqlIntegrationTest` additionally exercises the real method-security,
+repository and `AuthenticatedUserLookup` proxies, UserRepository and SafeJpaTransactionManager.
+Verify actual RC, participating rollback, reached SQL failure/retry and pool isolation restoration.
+The ordinary Spring-only suite proves absent/ambiguous source providers deny and no scheduler is
+required. Both context suites and the database companion are assigned in the existing inventory.
+
+The metadata read fixture has three sessions for each of 1- and 100-item revisions. Count selected
+statements and assert no question/form/answer/schedule content is queried. These JDBC metadata paths
+have no JPA relationship traversal; the test proves bounded source loading rather than relying on
+an annotation. Retained legacy rows/results and repetition tables must remain unchanged.
+
+No endpoint, new access policy, active-cycle authority or public Learning capability is verified by
+this slice. #647/#649/#578/#650/#692/#667 retain their real integration/activation responsibilities.
+After stable inputs, run the existing full four-worker gate:
+
+```bash
+python3 tools/testing/context_benchmark.py verify --workers 4 \
+  --output /private/tmp/quizmaker-575-verify-<unique-run>
+```
+
+Match its source fingerprint to the reviewed candidate tree before commit; Markdown is reviewed
+separately. Keep complete diagnostics outside the repository and report actual results in the handoff.
+
 ## Reproducible FSRS contract (#577)
 
 On JDK 17, run the pure manifest, calculation, format and boundary cases before the small

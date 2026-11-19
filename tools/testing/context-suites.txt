@@ -165,6 +165,9 @@ uk/gegc/quizmaker/features/documentProcess/infra/repository/NormalizedDocumentOw
 uk/gegc/quizmaker/features/documentProcess/infra/repository/NormalizedDocumentRepositoryTest.java
 uk/gegc/quizmaker/features/documentProcess/integration/NormalizedDocumentSourceVersionMigrationTest.java
 uk/gegc/quizmaker/features/learning/FsrsSpringCompatibilityTest.java
+uk/gegc/quizmaker/features/learning/LearningSessionMySqlIntegrationTest.java
+uk/gegc/quizmaker/features/learning/LearningSessionSpringMySqlIntegrationTest.java
+uk/gegc/quizmaker/features/learning/LearningSessionSpringTest.java
 uk/gegc/quizmaker/features/media/api/MediaControllerTest.java
 uk/gegc/quizmaker/features/media/api/MediaRestoreContractTest.java
 uk/gegc/quizmaker/features/media/application/RetainedImageMySqlIntegrationTest.java
