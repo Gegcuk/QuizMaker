@@ -47,8 +47,10 @@ import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
 import uk.gegc.quizmaker.features.learning.application.*;
 import uk.gegc.quizmaker.features.learning.application.impl.LearningSessionServiceImpl;
+import uk.gegc.quizmaker.features.learning.application.impl.LearningFormServiceImpl;
 import uk.gegc.quizmaker.features.learning.domain.model.*;
 import uk.gegc.quizmaker.features.learning.infra.repository.JdbcLearningSessionRepository;
+import uk.gegc.quizmaker.features.learning.infra.repository.JdbcLearningFormRepository;
 import uk.gegc.quizmaker.features.user.application.AuthenticatedUserLookup;
 import uk.gegc.quizmaker.features.user.application.impl.AuthenticatedUserLookupImpl;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
@@ -80,7 +82,8 @@ import static uk.gegc.quizmaker.features.learning.domain.model.LearningSessionEx
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @TestExecutionListeners(listeners = LearningSessionSpringMySqlIntegrationTest.SchemaCleanup.class,
         mergeMode = TestExecutionListeners.MergeMode.MERGE_WITH_DEFAULTS)
-@Import({LearningSessionServiceImpl.class, JdbcLearningSessionRepository.class, AuthenticatedUserLookupImpl.class,
+@Import({LearningSessionServiceImpl.class, JdbcLearningSessionRepository.class, LearningFormServiceImpl.class,
+        JdbcLearningFormRepository.class, AuthenticatedUserLookupImpl.class,
         TransactionConfig.class, LearningSessionSpringMySqlIntegrationTest.Config.class})
 class LearningSessionSpringMySqlIntegrationTest {
     private static final String SCHEMA = "learning_session_spring_" + UUID.randomUUID().toString().replace("-", "");
@@ -116,9 +119,16 @@ class LearningSessionSpringMySqlIntegrationTest {
             return (learner, source) -> learner.equals(LEARNER) && source.quizId().equals(QUIZ);
         }
         @Bean FaultJdbc faultJdbc(JdbcTemplate jdbc) { return new FaultJdbc(jdbc); }
+        @Bean LearningFormContent formContent() { return (session, items) -> {
+            return items.stream().map(item -> new LearningFormContent.PresentedItem(item, "Saved question",
+                    new uk.gegc.quizmaker.features.question.domain.model.contract.ParticipantContent.Choices(item.optionIds().stream()
+                        .map(id -> new uk.gegc.quizmaker.features.question.domain.model.contract.ParticipantContent.Option(id, "Option")).toList()))).toList();
+        }; }
     }
 
     @Autowired LearningSessionService service;
+    @Autowired LearningFormService forms;
+    @Autowired JdbcLearningFormRepository formRepository;
     @Autowired AuthenticatedUserLookup users;
     @Autowired UserRepository userRepository;
     @Autowired PlatformTransactionManager manager;
@@ -145,7 +155,11 @@ class LearningSessionSpringMySqlIntegrationTest {
     @AfterEach void clean() {
         faultJdbc.reset();
         sql.execute("DROP TRIGGER IF EXISTS learning_receipt_test_failure");
+        sql.execute("DROP TRIGGER IF EXISTS learning_form_test_failure");
         SecurityContextHolder.clearContext();
+        sql.update("DELETE FROM learning_form_option");
+        sql.update("DELETE FROM learning_form_item");
+        sql.update("DELETE FROM learning_form");
         sql.update("DELETE FROM learning_session_create_receipt");
         sql.update("DELETE FROM learning_session");
     }
@@ -166,6 +180,108 @@ class LearningSessionSpringMySqlIntegrationTest {
         assertThat(service.read(saved.id())).isEqualTo(saved);
         assertThat(service.create(command).replayed()).isTrue();
         assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+    }
+
+    @Test void emptyLearningFormUsesRealJpaSecurityRepositoryAndCallerRollback() {
+        assertThat(AopUtils.isAopProxy(forms)).isTrue();
+        assertThat(AopUtils.isAopProxy(formRepository)).isTrue();
+        var outer = new TransactionTemplate(manager);
+        outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        outer.executeWithoutResult(status -> {
+            var session = service.create(command()).session();
+            var result = forms.materialize(new LearningFormService.Materialize(1, session.id(), java.util.List.of()));
+            assertThat(result.view().form().outcome()).isEqualTo(LearningForm.Outcome.EMPTY_COMPLETE);
+            assertThat(forms.read(session.id())).isEqualTo(result.view());
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+            status.setRollbackOnly();
+        });
+        assertEmpty();
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_form", Integer.class)).isZero();
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+    }
+
+    @Test void realAfterInsertFormFailureIsSanitizedBeforeProxyTraceAndRetryWorks() {
+        var session = service.create(command()).session();
+        var command = new LearningFormService.Materialize(1, session.id(), java.util.List.of());
+        sql.execute("""
+            CREATE TRIGGER learning_form_test_failure AFTER INSERT ON learning_form
+            FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='LEARNING_PRIVATE_FORM_AFTER_INSERT'
+            """);
+        var outer = new TransactionTemplate(manager);
+        outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        try (var logs = new TransactionLogs()) {
+            assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
+                service.create(command()); // Successful control write in the same caller transaction.
+                LearningFormTest.rejected(() -> forms.materialize(command), LearningFormException.Reason.PERSISTENCE_UNAVAILABLE);
+                assertThat(status.isRollbackOnly()).isTrue();
+            })).isInstanceOf(UnexpectedRollbackException.class);
+            logs.assertCleanFailure(JdbcLearningFormRepository.class, "insert");
+        } finally { sql.execute("DROP TRIGGER learning_form_test_failure"); }
+        assertCounts(1);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_form", Integer.class)).isZero();
+        assertThat(forms.materialize(command).replayed()).isFalse();
+        assertThat(forms.materialize(command).replayed()).isTrue();
+        assertThat(service.read(session.id())).isEqualTo(session);
+    }
+
+    enum FormFailure {
+        LOCK("SELECT id FROM learning_session", "lockSession", false),
+        HEADER_READ("FROM learning_form WHERE", "find", true),
+        OPTION_READ("FROM learning_form_option", "find", true),
+        ITEM_READ("FROM learning_form_item", "find", true),
+        VERIFY("FROM quiz_revision_items", "verifyItems", false),
+        HEADER_WRITE("INSERT INTO learning_form(", "insert", false),
+        ITEM_WRITE("INSERT INTO learning_form_item(", "insert", false),
+        OPTION_WRITE("INSERT INTO learning_form_option(", "insert", false);
+        final String sql, method; final boolean existing;
+        FormFailure(String sql, String method, boolean existing) { this.sql = sql; this.method = method; this.existing = existing; }
+    }
+    static Stream<Arguments> formFailures() {
+        return Arrays.stream(FormFailure.values()).flatMap(path -> Stream.of(0, 1205, 1213).map(code -> Arguments.of(path, code)));
+    }
+    @ParameterizedTest @MethodSource("formFailures")
+    void formRepositoryFailuresAreCleanBeforeProxyTraceAndPreserveCallerAtomicity(FormFailure path, int code) {
+        // Real retained item/binding metadata; content presentation remains the named Learning fixture.
+        UUID question = UUID.randomUUID(), item = UUID.randomUUID(), optionA = UUID.randomUUID(), optionB = UUID.randomUUID();
+        sql.update("INSERT INTO question_revisions(id,question_id,schema_version,question_type,difficulty,question_text,content,created_at) VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),1,'MCQ_SINGLE','EASY','Saved question',?,?)",
+                question.toString(), UUID.randomUUID().toString(), "{\"options\":[{\"id\":\"a\",\"text\":\"Option\",\"correct\":true},{\"id\":\"b\",\"text\":\"Option\",\"correct\":false}]}", java.sql.Timestamp.from(TIME));
+        sql.update("INSERT INTO quiz_revision_items VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),?)", item.toString(), REVISION.toString(), question.toString(),
+                sql.queryForObject("SELECT COUNT(*) FROM quiz_revision_items WHERE quiz_revision_id=UUID_TO_BIN(?)", Integer.class, REVISION.toString()));
+        sql.update("INSERT INTO question_option_revisions VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),'a',0),(UUID_TO_BIN(?),UUID_TO_BIN(?),'b',1)",
+                optionA.toString(), question.toString(), optionB.toString(), question.toString());
+        sql.update("INSERT INTO question_revision_contract_bindings VALUES(UUID_TO_BIN(?),'question.mcq-single.response',1,'question.mcq-single.binary',1,?)", question.toString(),
+                new uk.gegc.quizmaker.features.question.domain.model.contract.QuestionContractBinding(question,
+                    new uk.gegc.quizmaker.features.question.domain.model.contract.ContractVersion("question.mcq-single.response", 1),
+                    new uk.gegc.quizmaker.features.question.domain.model.contract.ContractVersion("question.mcq-single.binary", 1)).fingerprint());
+        var selected = new LearningForm.Item(item, question, 1,
+                new uk.gegc.quizmaker.features.question.domain.model.contract.ContractVersion("question.mcq-single.response", 1), java.util.List.of(optionB, optionA));
+        var session = service.create(command()).session();
+        var command = new LearningFormService.Materialize(1, session.id(), java.util.List.of(selected));
+        JdbcLearningFormRepository formTarget = AopTestUtils.getUltimateTargetObject(formRepository);
+        org.springframework.test.util.ReflectionTestUtils.setField(formTarget, "sql", faultJdbc);
+        var original = path.existing ? forms.materialize(command).view() : null;
+        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        try (var logs = new TransactionLogs()) {
+            assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
+                service.create(command()); // Successful same-caller control must roll back too.
+                faultJdbc.armForm(path.sql, code);
+                var failure = catchThrowable(() -> {
+                    if (path.existing) forms.read(session.id()); else forms.materialize(command);
+                });
+                if (code == 0) assertThat(failure).isInstanceOfSatisfying(LearningFormException.class,
+                        e -> assertThat(e.reason()).isEqualTo(LearningFormException.Reason.PERSISTENCE_UNAVAILABLE));
+                else assertSafeConflict(failure, code);
+                assertThat(failure).hasNoCause(); assertThat(failure.getSuppressed()).isEmpty();
+                assertThat(faultJdbc.reached).isTrue(); assertThat(status.isRollbackOnly()).isTrue();
+            })).isInstanceOf(UnexpectedRollbackException.class);
+            logs.assertCleanFailure(JdbcLearningFormRepository.class, path.method);
+        } finally { faultJdbc.reset(); }
+        assertCounts(1);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_form", Integer.class)).isEqualTo(path.existing ? 1 : 0);
+        var retry = forms.materialize(command);
+        assertThat(retry.replayed()).isEqualTo(path.existing);
+        if (original != null) assertThat(retry.view()).isEqualTo(original);
+        assertThat(forms.read(session.id())).isEqualTo(retry.view());
     }
 
     @Test void participatingJpaRollbackRemovesBothAuthoritativeWrites() {
@@ -435,23 +551,32 @@ class LearningSessionSpringMySqlIntegrationTest {
     /** Execute real SQL first, then inject a driver graph beneath the repository interceptor. */
     static class FaultJdbc extends NamedParameterJdbcTemplate {
         FailurePath path;
+        String formSql;
         int code, sessionsAtFailure, receiptsAtFailure;
         boolean reached;
         DataAccessException nativeFailure;
         FaultJdbc(JdbcTemplate jdbc) { super(jdbc); }
         void arm(FailurePath path, int code) { this.path = path; this.code = code; this.reached = false; }
-        void reset() { path = null; reached = false; nativeFailure = null; }
+        void armForm(String part, int code) { this.formSql = part; this.code = code; this.reached = false; }
+        void reset() { path = null; formSql = null; reached = false; nativeFailure = null; }
         @Override public int update(String statement, SqlParameterSource arguments) {
             final int count;
             try { count = super.update(statement, arguments); }
             catch (DataAccessException failure) { nativeFailure = failure; throw failure; }
             after(statement); return count;
         }
+        @Override public int[] batchUpdate(String statement, SqlParameterSource[] arguments) {
+            var counts = super.batchUpdate(statement, arguments); after(statement); return counts;
+        }
         @Override public <T> List<T> query(String statement, SqlParameterSource arguments, RowMapper<T> mapper) {
             var rows = super.query(statement, arguments, mapper); after(statement); return rows;
         }
+        @Override public void query(String statement, SqlParameterSource arguments, org.springframework.jdbc.core.RowCallbackHandler handler) {
+            super.query(statement, arguments, handler); after(statement);
+        }
         private void after(String statement) {
-            if (path == null || reached || !statement.contains(path.sqlPart)) return;
+            String part = path == null ? formSql : path.sqlPart;
+            if (part == null || reached || !statement.contains(part)) return;
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
             reached = true;
             sessionsAtFailure = getJdbcOperations().queryForObject("SELECT COUNT(*) FROM learning_session", Integer.class);
