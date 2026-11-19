@@ -17,6 +17,15 @@ public final class LearningSchedule {
     public enum Rating { AGAIN, HARD, GOOD, EASY }
     public enum Phase { LEARNING, REVIEW, RELEARNING }
 
+    public record Expected(UUID cycleId, long cycleVersion, long sequence) {
+        @Override public String toString() { return "ExpectedLearningCycle[redacted]"; }
+    }
+    public record Snapshot(long cycleVersion, State state) {
+        public Snapshot { require(cycleVersion > 0 && state != null, INVALID_STATE); }
+        public Expected expected() { return new Expected(state.identity().cycleId(), cycleVersion, state.sequence()); }
+        @Override public String toString() { return "LearningScheduleSnapshot[version=" + cycleVersion + "]"; }
+    }
+
     /** Same item through another entry point retains this identity; a new revision/cycle does not. */
     public record Identity(UUID learnerId, UUID quizId, UUID quizRevisionId, UUID questionRevisionId, UUID cycleId) {
         public Identity {

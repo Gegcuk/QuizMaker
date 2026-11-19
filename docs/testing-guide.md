@@ -2,6 +2,77 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Durable Learning schedules and common cycles (#649)
+
+Use JDK 17, the existing offline/fake environment and a disposable MySQL server:
+
+```bash
+./mvnw test -Dtest=LearningScheduleSpringTest,LearningScheduleMySqlIntegrationTest,LearningSessionSpringMySqlIntegrationTest,LearningFormMySqlIntegrationTest,LearningSessionMySqlIntegrationTest,FsrsManifestTest,FsrsSchedulingStrategyTest,FsrsStateFormatTest,FsrsBoundaryTest,ContextTestManifestTest
+```
+
+The schedule companion migrates real V119 data to additive V120, retaining actual legacy
+quiz/attempt/answer rows. Enrollment and reviews use the real #597 revision writer, pinned
+#577 engine, #649 application service and JDBC repositories. Capture tests create actual
+#575 sessions and #647 forms. Current content access is an explicit contract fixture; the
+completion verifier is a named future #650 contract fixture. Neither proves public Learning
+access, session completion, custom scheduling or feature activation.
+
+Persist and reconstruct all 28 pinned golden traces, including learning/relearning states,
+four ratings and the 23h59m/24h boundary. Normalize server time to microseconds before calling
+the engine, never afterward. Same-command replay must retain the original state/time even
+after further reviews or cycle replacement; conflicting input must not overwrite the receipt.
+New quiz/question revisions retain separate state. Reads never implicitly enroll.
+For stability/difficulty against the external frozen oracle, reuse #577's shared `1e-12`
+comparison. Java [Math](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/Math.html)
+does not promise bit-identical pow/exp results across JVM platforms; Linux/amd64 CI exposed
+1–2 ULP differences from the macOS/arm64 fixture. Phases, steps and due instants remain exact.
+Keep strict equality between the actual calculated state and its serialized/persisted/replayed
+state. State/events/receipt results retain exact JSON text with database validity/shape/size
+checks, avoiding native binary-JSON rendering changes. Never apply oracle tolerance to these
+round trips, round scheduler parameters/state, or regenerate the oracle from the adapter.
+
+Reach faults after actual cycle, state, active-pointer, event and receipt writes, plus a
+before-commit synchronization. Inspect state through fresh transactions and retry the same
+command. A separate lost acknowledgement occurs after an actual commit and is reconciled
+from the durable receipt after component reconstruction. Preserve outer RC rollback and
+rollback-only after a caught participating failure; incompatible/default/read-only callers
+must reject before identity/domain SQL.
+
+Concurrency tests use reached barriers and Performance Schema receipt/slot waits. Identical
+commands replay; conflicting identities and stale sequences have explicit losers, with one
+successful committed winner. Capture/restart races prove both permitted serial orders. An
+independent item, another learner on the same revision and an unrelated-quiz control must
+commit before releasing a held review. Watchdogs bound hangs, not promised throughput. The strategy-neutral repository
+CAS fixture proves shared slot ownership only, not an implemented custom strategy/switch API.
+After releasing a session's question binding and replacing its cycle, a new capture command
+using that old session must fail without a new binding or receipt. Exact original capture/release
+replays retain their receipts; a fresh session may capture the replacement. A multi-question
+session keeps independent bindings for its other questions. The guard reads historical metadata
+under the already-held slot lock, not only the current cycle/session pair.
+
+The existing Spring/MySQL companion additionally uses real method-security, JDBC MANDATORY
+proxies, UserRepository and SafeJpaTransactionManager. Prove actual RC/pool restoration,
+caller rollback, reached ordinary/1205/1213 failures and clean transaction TRACE messages and
+throwable graphs. A real AFTER INSERT MySQL SIGNAL separately exercises the driver boundary.
+
+Read-volume tests execute against multiple schedules/parents and a 501-question source with
+large raw payloads. Each single-item read selects three rows in three SELECTs, including
+identity and exact source membership. EXPLAIN uses the actual executed SQL and bound values;
+no full scans, question/answer payload or whole-history reads are allowed in this fixture.
+The new state/cycle paths use JDBC scalar projections, without JPA relationship traversal.
+
+After stable inputs, run the existing complete gate and match its source/bytecode fingerprints
+to the reviewed candidate; check documentation separately:
+
+```bash
+python3 tools/testing/context_benchmark.py verify --workers 4 \
+  --output /private/tmp/quizmaker-649-verify-<unique-run>
+```
+
+Public enrollment/start/review, real session completion and current Learning access/rates
+remain #578/#650/#692/#667 gates. Custom plans use #839/#840; no daily quota, mastery metric,
+SM-2 import or ordinary assessment mutation is introduced.
+
 ## Immutable Learning forms (#647)
 
 On JDK 17, use the existing offline/fake environment and disposable MySQL launcher for:

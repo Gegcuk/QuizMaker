@@ -25,6 +25,12 @@ final class FsrsFixtures {
     static State apply(State state, Rating rating, Instant time) {
         return STRATEGY.review(state, command(state, rating, time)).state();
     }
+    /** Existing #577 external-oracle tolerance: Math pow/exp may vary across JVM platforms.
+     * Never use this for state serialization, persistence, command receipts or exact replay. */
+    static void assertGoldenNumber(Double actual, String expected) {
+        if (expected.equals("-")) assertThat(actual).isNull();
+        else assertThat(actual).isCloseTo(Double.parseDouble(expected), within(1e-12));
+    }
     static void rejected(ThrowingCallable work, Reason reason) {
         assertThatThrownBy(work).isInstanceOfSatisfying(LearningScheduleException.class, failure -> {
             assertThat(failure.reason()).isEqualTo(reason);

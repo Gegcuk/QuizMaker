@@ -5683,6 +5683,76 @@ explicit fixture in that test. Assessment facts, legacy repetition storage/route
 public APIs and media/offline capabilities remain outside this foundation. Retention has no
 new age cleanup or mutable-account cascade; separate erasure owners must classify these tables.
 
+### Durable FSRS state and common cycle authority (#649)
+
+`LearningScheduleService` is the dark self-scoped application boundary for explicit item
+enrollment, rating, new-cycle restart and session capture/release. It resolves the current
+authenticated learner and rechecks current exact-source access even for receipt replay. A
+question must belong to the supplied immutable quiz revision. Missing/ambiguous access
+adapters deny; no new author strategy restriction or legacy enrollment flag is inferred.
+
+V120 adds separate Learning slot, cycle, FSRS state, semantic receipt, review event and
+session-capture tables. The slot key is learner + quiz + quiz revision + question revision;
+strategy is not part of that key. Its active-cycle reference and monotonically increasing
+cycle version are the common authority for FSRS and future custom writers. The repository's
+strategy-neutral `lockCycle`/`replaceCycle` boundary serializes replacement and refuses active
+captures. A custom writer must use that same slot/CAS transaction and persist its own state;
+the header contract does not implement a custom algorithm or activate a switch operation.
+
+FSRS enrollment uses the pinned manifest and sequence-zero state, with the first review
+available immediately. Another enrollment does not create a competing schedule. Only an
+explicit Learning rating advances it; ordinary quiz practice and assessment facts are not
+inputs. A restart compares the expected cycle/version/sequence, creates fresh state and
+preserves earlier cycles and events. Changed content has separate revision-bound state,
+without inferred progress transfer. Reads do not enroll, advance or repair missing evidence.
+
+Commands reserve a learner/command receipt with bounded canonical input metadata, then lock
+the slot. The receipt, immutable review transition and next state commit together. Reuse with
+different semantic input conflicts; exact replay returns the original saved snapshot even
+after later reviews/replacement. An old uncommitted command cannot advance a new cycle.
+An incomplete committed receipt, unknown strategy/manifest/state version or inconsistent
+source/state/last-event evidence fails explicitly, never through library defaults or legacy
+fallback. Saved manifests/state contain no question, answer or document payload.
+
+FSRS state, event and receipt encodings use bounded ASCII text with database JSON-validity and
+object-shape checks. MySQL's native binary JSON can render some doubles to a different adjacent
+double on a text round trip; the persisted golden histories exposed two such cases. Retaining
+the exact project-owned JSON text preserves the engine result without numerical tolerances,
+rounding or a change to the #577 manifest/state format.
+
+Standalone operations own RC transactions; participating callers require explicit writable
+outer RC. There is no hidden independent transaction around a command. Participating results
+remain provisional until caller commit. Normalize injected server time to microseconds before
+calculation and retain exactly that instant. Due arithmetic remains the pinned elapsed-time
+FSRS mapping. Database/driver failures are sanitized before repository transaction logging;
+bounded lock-timeout/deadlock classification is retained. Telemetry uses fixed operation and
+outcome dimensions and cannot change the command result.
+
+Capture checks a real owned session, matching configuration/source and a saved form containing
+the question. Replacement is refused while captures remain. Release requires the separately
+owned authoritative session-completion verifier; its missing/ambiguous implementation denies.
+A session's binding for that question remains attached to its original cycle after release and
+replacement. A new command cannot move the old session into a later cycle; exact receipt replay
+remains non-mutating. A fresh session can capture that later cycle, and other questions in a
+multi-question session retain their independent bindings.
+#649 does not complete sessions or treat CREATED identity storage as a completed review.
+#578/#650 must compose their real lifecycle and capture/release commands in the same RC
+transaction; the #649 completion fixture is not proof of that future integration.
+
+The companion tests exercise real enrollment/review persistence, all 28 golden FSRS traces,
+restart/response-loss replay, reached-write rollback, both capture/restart serial orders and
+shared-revision independence. Current source access and future session completion are named
+contract fixtures. Real Spring/JPA proxy tests retain caller rollback, actual RC and clean
+driver-error traces. Single-item reads use bounded scalar metadata/state projections rather
+than whole-form/quiz/history loading; query-count, selected-row and EXPLAIN evidence is in
+the [testing guide](../testing-guide.md#durable-learning-schedules-and-common-cycles-649).
+
+No public endpoint, feature activation, assessment/result write, old repetition import/reset,
+age cleanup, new daily quota or public mastery metric is added. #576 consumes due state;
+#578 exposes explicit enrollment/start, #650 review/session orchestration, #692 current access
+and rate enforcement, and #667 the first real public conformance. Custom lifecycle/scheduling
+and nested selection remain #839/#840/#841. Existing legacy/quiz/training contracts stay intact.
+
 ### First enrollment, selection and public progress
 
 [23 October scope](decision-register.md#learning-initial-selection-and-mastery) selects bounded page/session sizes without a daily Learning quota. With 100 due items and a batch of 20, finishing the batch permits continuing that day. Command-rate limits are independent. Public mastery is deferred to #847; desired retention, exam scores and finite-plan completion retain distinct names and meanings.
