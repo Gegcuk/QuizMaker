@@ -48,9 +48,12 @@ import org.springframework.transaction.interceptor.TransactionInterceptor;
 import uk.gegc.quizmaker.features.learning.application.*;
 import uk.gegc.quizmaker.features.learning.application.impl.LearningSessionServiceImpl;
 import uk.gegc.quizmaker.features.learning.application.impl.LearningFormServiceImpl;
+import uk.gegc.quizmaker.features.learning.application.impl.LearningScheduleServiceImpl;
+import uk.gegc.quizmaker.features.learning.application.impl.FsrsSchedulingStrategyImpl;
 import uk.gegc.quizmaker.features.learning.domain.model.*;
 import uk.gegc.quizmaker.features.learning.infra.repository.JdbcLearningSessionRepository;
 import uk.gegc.quizmaker.features.learning.infra.repository.JdbcLearningFormRepository;
+import uk.gegc.quizmaker.features.learning.infra.repository.JdbcLearningScheduleRepository;
 import uk.gegc.quizmaker.features.user.application.AuthenticatedUserLookup;
 import uk.gegc.quizmaker.features.user.application.impl.AuthenticatedUserLookupImpl;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
@@ -83,7 +86,8 @@ import static uk.gegc.quizmaker.features.learning.domain.model.LearningSessionEx
 @TestExecutionListeners(listeners = LearningSessionSpringMySqlIntegrationTest.SchemaCleanup.class,
         mergeMode = TestExecutionListeners.MergeMode.MERGE_WITH_DEFAULTS)
 @Import({LearningSessionServiceImpl.class, JdbcLearningSessionRepository.class, LearningFormServiceImpl.class,
-        JdbcLearningFormRepository.class, AuthenticatedUserLookupImpl.class,
+        JdbcLearningFormRepository.class, LearningScheduleServiceImpl.class, JdbcLearningScheduleRepository.class,
+        FsrsSchedulingStrategyImpl.class, AuthenticatedUserLookupImpl.class,
         TransactionConfig.class, LearningSessionSpringMySqlIntegrationTest.Config.class})
 class LearningSessionSpringMySqlIntegrationTest {
     private static final String SCHEMA = "learning_session_spring_" + UUID.randomUUID().toString().replace("-", "");
@@ -91,7 +95,7 @@ class LearningSessionSpringMySqlIntegrationTest {
     private static final String ADMIN = System.getenv().getOrDefault("TEST_MYSQL_ADMIN_USERNAME", "root");
     private static final String PASSWORD = System.getenv().getOrDefault("TEST_MYSQL_ADMIN_PASSWORD", "root");
     private static final String OPTIONS = "?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC";
-    private static final UUID LEARNER = UUID.randomUUID(), QUIZ = UUID.randomUUID(), REVISION = UUID.randomUUID();
+    private static final UUID LEARNER = UUID.randomUUID(), QUIZ = UUID.randomUUID(), REVISION = UUID.randomUUID(), QUESTION = UUID.randomUUID();
     private static final Instant TIME = Instant.parse("2026-11-19T09:00:00.123456Z");
 
     static String server() {
@@ -128,6 +132,8 @@ class LearningSessionSpringMySqlIntegrationTest {
 
     @Autowired LearningSessionService service;
     @Autowired LearningFormService forms;
+    @Autowired LearningScheduleService schedules;
+    @Autowired JdbcLearningScheduleRepository scheduleRepository;
     @Autowired JdbcLearningFormRepository formRepository;
     @Autowired AuthenticatedUserLookup users;
     @Autowired UserRepository userRepository;
@@ -148,6 +154,12 @@ class LearningSessionSpringMySqlIntegrationTest {
                 INSERT IGNORE INTO quiz_revisions(id,quiz_id,owner_id,schema_version,title,created_at)
                 VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),1,'Learning source',?)
                 """, REVISION.toString(), QUIZ.toString(), LEARNER.toString(), java.sql.Timestamp.from(TIME));
+        sql.update("""
+                INSERT IGNORE INTO question_revisions(id,question_id,schema_version,question_type,difficulty,question_text,content,created_at)
+                VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),1,'TRUE_FALSE','EASY','Saved question','{"answer":true}',?)
+                """, QUESTION.toString(), QUESTION.toString(), java.sql.Timestamp.from(TIME));
+        sql.update("INSERT IGNORE INTO quiz_revision_items(id,quiz_revision_id,question_revision_id,authored_position) VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),0)",
+                QUESTION.toString(), REVISION.toString(), QUESTION.toString());
         var principal = User.withUsername("anna").password("unused").authorities("ROLE_USER").build();
         SecurityContextHolder.getContext().setAuthentication(UsernamePasswordAuthenticationToken.authenticated(principal, null, principal.getAuthorities()));
     }
@@ -156,7 +168,11 @@ class LearningSessionSpringMySqlIntegrationTest {
         faultJdbc.reset();
         sql.execute("DROP TRIGGER IF EXISTS learning_receipt_test_failure");
         sql.execute("DROP TRIGGER IF EXISTS learning_form_test_failure");
+        sql.execute("DROP TRIGGER IF EXISTS learning_schedule_test_failure");
         SecurityContextHolder.clearContext();
+        sql.update("DELETE FROM learning_cycle_session"); sql.update("DELETE FROM learning_review_event");
+        sql.update("DELETE FROM learning_fsrs_state"); sql.update("UPDATE learning_schedule_slot SET active_cycle_id=NULL,cycle_version=0");
+        sql.update("DELETE FROM learning_schedule_cycle"); sql.update("DELETE FROM learning_schedule_slot"); sql.update("DELETE FROM learning_schedule_receipt");
         sql.update("DELETE FROM learning_form_option");
         sql.update("DELETE FROM learning_form_item");
         sql.update("DELETE FROM learning_form");
@@ -180,6 +196,79 @@ class LearningSessionSpringMySqlIntegrationTest {
         assertThat(service.read(saved.id())).isEqualTo(saved);
         assertThat(service.create(command).replayed()).isTrue();
         assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+    }
+
+    private LearningScheduleService.Enroll enrollSchedule() {
+        return new LearningScheduleService.Enroll(1, UUID.randomUUID(), command().source(), QUESTION, FsrsManifest.approved());
+    }
+    private LearningScheduleService.Rate rateSchedule(LearningSchedule.Snapshot current) {
+        return new LearningScheduleService.Rate(1, UUID.randomUUID(), command().source(), QUESTION, current.expected(), LearningSchedule.Rating.GOOD);
+    }
+
+    @Test void scheduleProductionProxiesUseActualRcRestorePoolAndPreserveCallerRollback() {
+        assertThat(AopUtils.isAopProxy(schedules)).isTrue(); assertThat(AopUtils.isAopProxy(scheduleRepository)).isTrue();
+        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        outer.executeWithoutResult(status -> {
+            var saved = schedules.execute(enrollSchedule()).snapshot();
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+            var rate = rateSchedule(saved); var reviewed = schedules.execute(rate);
+            assertThat(reviewed.snapshot().state().sequence()).isOne();
+            assertThat(schedules.execute(rate).replayed()).isTrue();
+            assertThat(schedules.read(command().source(), QUESTION)).isEqualTo(reviewed.snapshot());
+            status.setRollbackOnly();
+        });
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_schedule_slot", Integer.class)).isZero();
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_schedule_receipt", Integer.class)).isZero();
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+        var committed = schedules.execute(enrollSchedule()).snapshot();
+        assertThat(schedules.read(command().source(), QUESTION)).isEqualTo(committed);
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+    }
+
+    static Stream<Arguments> scheduleFailures() {
+        return Stream.of("INSERT INTO learning_review_event", "UPDATE learning_fsrs_state", "UPDATE learning_schedule_receipt")
+                .flatMap(sql -> Stream.of(0, 1205, 1213).map(code -> Arguments.of(sql, code)));
+    }
+    @ParameterizedTest @MethodSource("scheduleFailures")
+    void reachedScheduleFailuresAreSafeAtRealJpaRepositoryAndTransactionBoundaries(String checkpoint, int code) {
+        var initial = schedules.execute(enrollSchedule()).snapshot(); var rate = rateSchedule(initial);
+        var outer = new TransactionTemplate(manager); outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        String method = checkpoint.contains("receipt") ? "complete" : "advance";
+        try (var logs = new TransactionLogs()) {
+            assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
+                service.create(command()); // Reached caller write must roll back along with the review.
+                faultJdbc.armForm(checkpoint, code);
+                var failure = catchThrowable(() -> schedules.execute(rate));
+                if (code == 0) assertThat(failure).isInstanceOfSatisfying(LearningScheduleException.class,
+                        value -> assertThat(value.reason()).isEqualTo(LearningScheduleException.Reason.PERSISTENCE_UNAVAILABLE));
+                else assertSafeConflict(failure, code);
+                assertThat(failure).hasNoCause(); assertThat(failure.getSuppressed()).isEmpty();
+                assertThat(faultJdbc.reached).isTrue(); assertThat(status.isRollbackOnly()).isTrue();
+            })).isInstanceOf(UnexpectedRollbackException.class);
+            logs.assertCleanFailure(JdbcLearningScheduleRepository.class, method);
+        } finally { faultJdbc.reset(); }
+        assertEmpty();
+        assertThat(schedules.read(command().source(), QUESTION)).isEqualTo(initial);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_review_event", Integer.class)).isZero();
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_schedule_receipt", Integer.class)).isOne();
+        assertThat(schedules.execute(rate).snapshot().state().sequence()).isOne();
+    }
+
+    @Test void realAfterInsertScheduleSignalKeepsDriverGraphOutOfTransactionTraceAndAllowsRetry() {
+        var initial = schedules.execute(enrollSchedule()).snapshot(); var rate = rateSchedule(initial);
+        sql.execute("""
+            CREATE TRIGGER learning_schedule_test_failure AFTER INSERT ON learning_review_event
+            FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='LEARNING_PRIVATE_SCHEDULE_MYSQL'
+            """);
+        try (var logs = new TransactionLogs()) {
+            LearningScheduleMySqlIntegrationTest.rejected(() -> schedules.execute(rate), LearningScheduleException.Reason.PERSISTENCE_UNAVAILABLE);
+            assertThat(faultJdbc.nativeFailure).isNotNull();
+            assertThat(faultJdbc.nativeFailure.getMostSpecificCause()).hasMessageContaining("LEARNING_PRIVATE_SCHEDULE_MYSQL");
+            logs.assertCleanFailure(JdbcLearningScheduleRepository.class, "advance");
+        } finally { sql.execute("DROP TRIGGER learning_schedule_test_failure"); faultJdbc.reset(); }
+        assertThat(schedules.read(command().source(), QUESTION)).isEqualTo(initial);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_review_event", Integer.class)).isZero();
+        assertThat(schedules.execute(rate).snapshot().state().sequence()).isOne();
     }
 
     @Test void emptyLearningFormUsesRealJpaSecurityRepositoryAndCallerRollback() {

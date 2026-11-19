@@ -335,6 +335,10 @@ uk/gegc/quizmaker/features/learning/LearningFormMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/learning/LearningFormMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/learning/LearningFormSpringTest.java
 uk/gegc/quizmaker/features/learning/LearningFormSpringTest$*.java
+uk/gegc/quizmaker/features/learning/LearningScheduleMySqlIntegrationTest.java
+uk/gegc/quizmaker/features/learning/LearningScheduleMySqlIntegrationTest$*.java
+uk/gegc/quizmaker/features/learning/LearningScheduleSpringTest.java
+uk/gegc/quizmaker/features/learning/LearningScheduleSpringTest$*.java
 uk/gegc/quizmaker/features/learning/LearningSessionMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/learning/LearningSessionMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/learning/LearningSessionSpringMySqlIntegrationTest.java
