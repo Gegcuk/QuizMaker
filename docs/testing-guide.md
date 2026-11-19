@@ -22,9 +22,14 @@ four ratings and the 23h59m/24h boundary. Normalize server time to microseconds 
 the engine, never afterward. Same-command replay must retain the original state/time even
 after further reviews or cycle replacement; conflicting input must not overwrite the receipt.
 New quiz/question revisions retain separate state. Reads never implicitly enroll.
-Keep strict double equality: state/events/receipt results retain exact JSON text with database
-validity/shape/size checks, avoiding native binary-JSON rendering changes found by the persisted
-golden traces. Do not loosen the assertions or round scheduler parameters/state.
+For stability/difficulty against the external frozen oracle, reuse #577's shared `1e-12`
+comparison. Java [Math](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/Math.html)
+does not promise bit-identical pow/exp results across JVM platforms; Linux/amd64 CI exposed
+1–2 ULP differences from the macOS/arm64 fixture. Phases, steps and due instants remain exact.
+Keep strict equality between the actual calculated state and its serialized/persisted/replayed
+state. State/events/receipt results retain exact JSON text with database validity/shape/size
+checks, avoiding native binary-JSON rendering changes. Never apply oracle tolerance to these
+round trips, round scheduler parameters/state, or regenerate the oracle from the adapter.
 
 Reach faults after actual cycle, state, active-pointer, event and receipt writes, plus a
 before-commit synchronization. Inspect state through fresh transactions and retry the same

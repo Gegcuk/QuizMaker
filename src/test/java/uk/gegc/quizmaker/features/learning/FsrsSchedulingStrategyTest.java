@@ -205,14 +205,10 @@ class FsrsSchedulingStrategyTest {
     private static void assertState(State actual, String[] row, int phase, int step, int stability, int difficulty, int due) {
         assertThat(actual.phase()).isEqualTo(Phase.valueOf(row[phase]));
         assertThat(actual.step()).isEqualTo(row[step].equals("-") ? null : Integer.valueOf(row[step]));
-        number(actual.stability(), row[stability]);
-        number(actual.difficulty(), row[difficulty]);
+        assertGoldenNumber(actual.stability(), row[stability]);
+        assertGoldenNumber(actual.difficulty(), row[difficulty]);
         assertThat(actual.dueAt()).isEqualTo(Instant.parse(row[due]));
     }
 
-    private static void number(Double actual, String expected) {
-        if (expected.equals("-")) assertThat(actual).isNull();
-        else assertThat(actual).isCloseTo(Double.parseDouble(expected), within(1e-12));
-    }
     private static Instant instant(String value) { return value.equals("-") ? null : Instant.parse(value); }
 }

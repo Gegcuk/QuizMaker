@@ -38,6 +38,7 @@ import java.util.function.*;
 import static org.assertj.core.api.Assertions.*;
 import static uk.gegc.quizmaker.features.learning.application.LearningScheduleService.*;
 import static uk.gegc.quizmaker.features.learning.domain.model.LearningScheduleException.Reason.*;
+import static uk.gegc.quizmaker.features.learning.FsrsFixtures.assertGoldenNumber;
 
 /** Real #597/#575/#647/#649 writers and transactions. Current content authority and future #650
  * completion are named contract fixtures; this suite does not claim public Learning conformance. */
@@ -189,9 +190,11 @@ class LearningScheduleMySqlIntegrationTest {
         var result = schedules(new HookRepository(), Clock.fixed(at, ZoneId.of("Europe/London"))).execute(command).snapshot();
         assertThat(result.state().phase().name()).isEqualTo(row[9]);
         assertThat(result.state().step()).isEqualTo(row[10].equals("-") ? null : Integer.valueOf(row[10]));
-        assertThat(result.state().stability()).isEqualTo(Double.valueOf(row[11]));
-        assertThat(result.state().difficulty()).isEqualTo(Double.valueOf(row[12]));
+        assertGoldenNumber(result.state().stability(), row[11]);
+        assertGoldenNumber(result.state().difficulty(), row[12]);
         assertThat(result.state().dueAt()).isEqualTo(Instant.parse(row[13]).truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+        // Compare the actual calculated state exactly through persistence/replay, independently
+        // of the small platform allowance used only for the external numeric golden oracle.
         assertThat(schedules(new HookRepository(), Clock.fixed(TIME, ZoneOffset.UTC)).execute(command)).isEqualTo(new Result(result, true));
         assertThat(schedules(new HookRepository(), Clock.fixed(TIME, ZoneOffset.UTC)).read(ref(revision), question(0))).isEqualTo(result);
     }
