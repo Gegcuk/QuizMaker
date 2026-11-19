@@ -10,6 +10,8 @@ final class ResultReleaseFailures {
     private ResultReleaseFailures() { }
     static ResultReleaseException safe(RuntimeException failure) {
         if (failure instanceof ResultReleaseException known) return new ResultReleaseException(known.reason());
+        if (failure instanceof uk.gegc.quizmaker.features.result.domain.model.notification.ResultEventException known)
+            return new ResultReleaseException(ResultReleaseException.Reason.valueOf(known.reason().name()));
         if (failure instanceof SubmittedAttemptSource.Failure known)
             return new ResultReleaseException(ResultReleaseException.Reason.valueOf(known.reason().name()));
         if (failure instanceof AutomaticResultException known)

@@ -2,6 +2,56 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Durable first-release events (#837)
+
+On JDK 17, run `ResultNotificationEventTest` first, then
+`ImmediateResultReleaseMySqlIntegrationTest#events*` using the existing offline environment and
+disposable MySQL launcher. The new cases share the established real publication/start/acceptance/
+submission/grading/release context. The final four-worker gate includes the complete release
+suite and disclosure/configuration tests; existing scenarios and fixture sizes stay intact.
+
+The real #556 transaction must save exactly one release/trace/notification reference. Reach
+failures after release, before event insertion, after the actual event insertion and at commit;
+fresh transactions must see none of the three. Retry through the same real writer successfully.
+Lose the actual commit acknowledgement, reconstruct repositories/readers and reconcile the same
+source/event identity. Repeated reads with a lost consumer acknowledgement retain the same row;
+this local consumer double proves no #800 delivery or deduplication implementation.
+
+Hold the first event insert, prove its duplicate reaches the serialization boundary and waits,
+and require another authorized participant on the same revision to commit before releasing the
+holder. Both identical callers must succeed with one new release and one replay. Read before
+commit to prove the event is invisible, then start a fresh scan after commit. Scan cursors are
+not commit watermarks; every new sweep starts at null so a late lower-ID commit remains eligible.
+
+Publish a real later revision, accept/grade/release a new result, and reconstruct/replay the old
+event: its references/categories/bytes and original result remain unchanged. This tests immutable
+source references, not a corrected result or #550 selection. Conditional score/certificate tests
+use typed source facts only and are explicitly classification evidence. Every additionally enabled
+producer still requires its named real writer and its atomic integration scenarios.
+
+Check duplicate/schema/source constraints, bounded page validation, actual RC, incompatible caller
+refusal before domain SQL and outer-RC rollback. Inject repository insert/find/scan failures through
+real transaction proxies at TRACE and inspect messages/throwable graphs for SQL, driver/contact,
+cause, suppressed and chained payloads. Retain successful controls after removing each fault.
+Measure one scalar event-scan SELECT for three one-item parents, then after adding three 20-item
+parents; inspect its primary-key range plan and absence of grade/answer/content collection reads.
+New reads are JDBC scalars, so JPA
+relationship N+1 does not apply; existing multi-parent participant projections still run.
+
+The initial integration enables immediate release only. Scheduled release remains functional but
+creates no #837 event until its separately owned producer gate is met. There is no email provider,
+participant event endpoint, historical backfill or read-time deletion.
+
+After final implementation inputs are stable, use a fresh output directory:
+
+```bash
+python3 tools/testing/context_benchmark.py verify --workers 4 \
+  --output /private/tmp/quizmaker-837-verify-<unique-run>
+```
+
+Record the launcher's actual evidence and source fingerprint, then match them to the candidate
+inputs/tree before committing. A source fingerprint is not itself proof that a test passed.
+
 ## Scheduled result release (#634)
 
 On JDK 17, run `ScheduledReleaseTest` first. Use the existing offline/disposable-MySQL launcher

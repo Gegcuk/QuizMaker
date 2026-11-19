@@ -1,5 +1,43 @@
 # Policy-Driven Quiz Execution Architecture
 
+## Initial durable result events (#837)
+
+`ImmediateResultReleaseService` now writes one `RESULT_OPENED` notification reference in its
+existing independent RC transaction, after the authoritative release and trace writes. All
+three commit or roll back together. The notification ID reuses the release/trace ID; immutable
+result identity and source version are retained. The existing release replay does not insert an
+event. This is the owner-approved new-release-only boundary, with no historical backfill.
+
+V117 stores insert-only reference envelopes with a semantic source uniqueness constraint and
+foreign keys to retained release/result evidence. Its initial schema/adapter accepts only the
+real immediate producer and excludes scheduled bindings. It contains no raw score, response,
+question/document content, contacts or reason text. The source's verified category allow-list
+is narrowed to TOTAL_SCORE/PASS_FAIL metadata; practice does not acquire a PASS_FAIL grant.
+Source/repository failures are sanitized before nested transaction interceptors can log them.
+The bounded event counter counts acknowledged new commits, not replay or external delivery.
+
+`ResultNotificationEventReader` is a trusted internal, checked RC boundary with bounded keyset
+pages. A page cursor continues one scan; it is not a commit high-water mark. UUID ordering does
+not imply transaction commit order, so later scans restart at the beginning and #800 must retain
+its own per-event processing/dedup state. Reads/scan completion neither acknowledge nor delete
+events. The reader has no participant HTTP route; possession of a reference grants no access.
+The consumer must resolve the current recipient and release/access eligibility before delivery.
+
+Pure typed classification preserves distinct visible score changes, validity/pass-fail changes,
+certificate issuance/replacement/revocation and verified reason clarification. Hidden/internal-only
+changes, unchanged visible totals and ordinary certificate expiry produce no corresponding event.
+These conditional contracts contain references rather than private reason text; source owners
+must supply real verified immutable versions. The initial JDBC writer rejects those additional
+kinds until their real source integrations are implemented. Prepared classifier inputs prove no
+correction, certificate transition, notification display or email delivery.
+
+The real MySQL #556 tests prove source/event rollback, lost commit acknowledgement, stable replay,
+same-revision participant independence, immutable references across later real publication/results,
+and bounded scalar SQL. Later publication/result fixtures are not #550 correction evidence.
+#633/#634, #550, #557/#635 and deferred #639 retain their individual integration gates; #800 owns
+delivery. Legacy v1, public activation, operational retry policy and source retention are unchanged.
+Retain V117 on application rollback and forward-fix; no automatic cleanup or provider call is added.
+
 ## Scheduled result release (#634)
 
 `ScheduledResultReleaseService` is an internal, independently committed RC boundary. It has no
