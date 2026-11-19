@@ -2,6 +2,56 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Immutable Learning forms (#647)
+
+On JDK 17, use the existing offline/fake environment and disposable MySQL launcher for:
+
+```bash
+./mvnw test -Dtest=LearningFormTest,LearningFormSpringTest,LearningFormMySqlIntegrationTest,LearningSessionSpringMySqlIntegrationTest,QuizPublicationMySqlIntegrationTest,ContextTestManifestTest
+```
+
+The form companion migrates a real V118 schema with retained legacy attempt/answer rows to V119.
+It uses the real #597 revision and #575 session writers; exact contract bindings and current
+Learning access/content are named fixtures. Verify saved item/option order, immutable resume,
+component reconstruction, identical replay, conflicting selection, explicit empty completion,
+unknown/mismatched metadata/contracts, duplicates, missing/corrupt evidence and current access
+denials with successful controls. Serialization/presentation must not expose raw answers/content.
+
+Reach failures after header/item/option SQL and before commit, then inspect fresh state and retry.
+Lose acknowledgement after an actual commit and reconstruct the component to prove one retained
+form. Verify outer RC rollback, caught-failure rollback-only and incompatible/default/read-only
+callers rejecting before SQL. Race identical/conflicting creators with reached barriers and an
+actual Performance Schema session-row wait; one creator commits and the peer replays/conflicts.
+An independent learner must commit forms on the same and an unrelated revision before the holder
+is released. Finite watchdogs are test safety bounds, not throughput promises.
+
+The existing Spring/MySQL session companion additionally exercises real form method-security,
+JDBC and SafeJpaTransactionManager proxies, actual RC and pool restoration. Inject ordinary,
+1205 and 1213 failures after real form SQL and require reached proxy TRACE events with clean
+formatted messages and throwable graphs. Successful caller writes roll back with the failure;
+fresh reads and same-selection retry prove recovery. A real AFTER INSERT MySQL SIGNAL separately
+proves driver diagnostics are sanitized before nested transaction logging.
+
+The publication companion calls the real #700 author edit/publish path for A and B, then resumes
+the actual #647 form on A. Its safe Learning source/access and response binding are fixtures:
+this is publication/form compatibility evidence, not public Learning conformance. The primary
+read fixture measures statement and returned-row counts across multiple forms and 1/3/500/501
+selected items in a 1001-item revision with large raw payloads. It checks 9 SELECTs at up to 500
+items, 11 at 501, and exactly 5 + 6 × selected-item rows (two options per fixture item), plus
+bounded 500-row insert batches. New JDBC paths select only bounded
+requested metadata, never question text/answer JSON; future real content adapters retain their
+own volume/N+1 gate. Assessment/schedule state and legacy rows must remain unchanged.
+
+After stable implementation inputs, run the complete existing four-worker gate:
+
+```bash
+python3 tools/testing/context_benchmark.py verify --workers 4 \
+  --output /private/tmp/quizmaker-647-verify-<unique-run>
+```
+
+Match the tested source fingerprint to the candidate tree; review Markdown separately. This
+foundation enables no endpoint, enrollment, review, schedule mutation or public Learning flow.
+
 ## Independent Learning session storage (#575)
 
 On JDK 17, begin with `LearningSessionTest` and `LearningSessionSpringTest`, then use the existing

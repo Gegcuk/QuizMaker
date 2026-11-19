@@ -5646,6 +5646,43 @@ Reads return bounded session/configuration/revision metadata, without loading qu
 JPA relationships. Counters use operation and bounded outcome only. #575 adds no public endpoint,
 form, schedule, custom-plan implementation, mastery, notifications or Learning activation.
 
+### Immutable fixed Learning forms (#647)
+
+`LearningFormService` consumes the authorized #575 session and an explicitly selected ordered
+list; it does not select due items, enroll, start/complete the session or advance a schedule.
+The additive V119 form/item/option tables retain exact source-item/question revisions, response
+contract versions and option order. One session has one form. An empty selection has the durable
+`EMPTY_COMPLETE` form outcome; the #575 session still has its original `CREATED` lifecycle.
+An identical materialization replays the committed form, while a different selection conflicts.
+Reads never manufacture a missing form, replace selection or repair corrupt evidence.
+
+The versioned SHA-256 streams identity/order/contract metadata only, without question/document
+text, source content, answers or aggregate JSON. Reads verify saved metadata, counts, fingerprint
+and retained revision/item/option membership. JDBC selects only requested metadata in batches
+of 500 item IDs, rather than loading the entire quiz. There is no JPA relationship traversal.
+The digest detects accidental metadata changes, not a privileged rewrite of evidence and digest.
+
+`LearningFormContent` is a one-way participant-safe content port: it resolves only the requested
+immutable identities/contracts and exact saved option order, preserving current display authority
+through commit. Its closed question-domain presentation types contain no correct answers or raw
+source JSON. This slice supplies no production adapter; missing/ambiguous providers deny, including
+empty-form materialization. Contract fixtures prove storage/presentation boundaries, not real
+Learning eligibility or content-provider integration. #578/#692/#667 retain those activation gates.
+
+Standalone calls own writable READ_COMMITTED; participating callers require explicit writable RC
+before work. Form creation locks only its authorized session, so identical/conflicting creators
+serialize without a missing-row gap lock; independent sessions can commit on the same revision.
+No hidden independent transaction or automatic retry is introduced. A caller rollback removes
+all participating writes. After uncertain commit, retry the same session/selection to reconcile.
+Nested repository failures are sanitized before transaction logging; only bounded conflict kinds
+survive. Metrics have bounded operation/outcome labels, never learner IDs or source payloads.
+
+The real #700 author edit/publication integration retains a form bound to revision A after
+publication B moves the current pointer. The Learning source/access presentation remains an
+explicit fixture in that test. Assessment facts, legacy repetition storage/routes, FSRS state,
+public APIs and media/offline capabilities remain outside this foundation. Retention has no
+new age cleanup or mutable-account cascade; separate erasure owners must classify these tables.
+
 ### First enrollment, selection and public progress
 
 [23 October scope](decision-register.md#learning-initial-selection-and-mastery) selects bounded page/session sizes without a daily Learning quota. With 100 due items and a batch of 20, finishing the batch permits continuing that day. Command-rate limits are independent. Public mastery is deferred to #847; desired retention, exam scores and finite-plan completion retain distinct names and meanings.

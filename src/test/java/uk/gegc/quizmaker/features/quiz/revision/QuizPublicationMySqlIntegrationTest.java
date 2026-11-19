@@ -48,6 +48,13 @@ import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
 import uk.gegc.quizmaker.features.question.infra.handler.*;
 import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMediaResolver;
 import uk.gegc.quizmaker.features.quiz.application.QuizRevisionPublicationService;
+import uk.gegc.quizmaker.features.learning.application.*;
+import uk.gegc.quizmaker.features.learning.application.impl.*;
+import uk.gegc.quizmaker.features.learning.domain.model.*;
+import uk.gegc.quizmaker.features.learning.infra.repository.*;
+import uk.gegc.quizmaker.features.user.application.impl.AuthenticatedUserLookupImpl;
+import uk.gegc.quizmaker.features.question.domain.model.contract.ContractVersion;
+import uk.gegc.quizmaker.features.question.domain.model.contract.ParticipantContent;
 import uk.gegc.quizmaker.features.quiz.application.command.QuizRelationService;
 import uk.gegc.quizmaker.features.quiz.application.command.impl.QuizRelationServiceImpl;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuestionSourceScopeRepository;
@@ -177,7 +184,8 @@ class QuizPublicationMySqlIntegrationTest {
         SecurityContextHolder.clearContext(); faults.reset(); CountingSource.enabled = false;
         tx.executeWithoutResult(status -> {
             // Owned schema only, in FK order. All durability assertions run before cleanup.
-            for (String table : List.of("attempt_form_item", "attempt_form", "quiz_publication_receipts", "quiz_publication_heads",
+            for (String table : List.of("learning_form_option", "learning_form_item", "learning_form", "learning_session_create_receipt",
+                    "learning_session", "question_revision_contract_bindings", "attempt_form_item", "attempt_form", "quiz_publication_receipts", "quiz_publication_heads",
                     "quiz_revision_images", "quiz_publications", "quiz_revision_items", "question_option_revisions",
                     "question_revisions", "quiz_revisions", "saved_image_bindings", "saved_image_versions", "quiz_questions",
                     "question_tags", "question_source_confirmations", "questions", "quizzes", "categories", "media_assets", "user_roles", "users"))
@@ -229,6 +237,47 @@ class QuizPublicationMySqlIntegrationTest {
         assertReason(() -> service.publish(command(1, question)), STALE_PUBLICATION);
         assertThat(service.current(quizId)).contains(back.publication());
         assertThat(second.publication().revision().id()).isNotEqualTo(back.publication().revision().id());
+    }
+
+    @Test void learningFormKeepsRevisionAAfterRealAuthorEditAndPublicationB() {
+        UUID question = question(QuestionType.TRUE_FALSE, null);
+        var a = service.publish(command(0, question));
+        var published = service.read(quizId, a.publication().revision().id()).content();
+        var sourceItem = published.items().get(0);
+        // Exact response binding is a fixture: #647 does not prove the separate registry writer.
+        sql.update("INSERT INTO question_revision_contract_bindings VALUES(UUID_TO_BIN(?),'question.true-false.response',1,'question.true-false.binary',1,?)",
+                sourceItem.question().id().toString(), new uk.gegc.quizmaker.features.question.domain.model.contract.QuestionContractBinding(
+                    sourceItem.question().id(), new ContractVersion("question.true-false.response", 1), new ContractVersion("question.true-false.binary", 1)).fingerprint());
+        var named = new NamedParameterJdbcTemplate(sql);
+        LearningSessionService sessions = new LearningSessionServiceImpl(new JdbcLearningSessionRepository(named),
+                new AuthenticatedUserLookupImpl(users), List.of((learner, source) -> learner.equals(ownerId)
+                    && source.quizRevisionId().equals(published.id())), clock, metrics, transactions);
+        var learnerPrincipal = org.springframework.security.core.userdetails.User.withUsername(username)
+                .password("unused").authorities("ROLE_USER").build();
+        SecurityContextHolder.getContext().setAuthentication(UsernamePasswordAuthenticationToken.authenticated(
+                learnerPrincipal, null, learnerPrincipal.getAuthorities()));
+        var session = sessions.create(new LearningSessionService.Create(1, UUID.randomUUID(),
+                new LearningSession.Source(1, quizId, published.id(), published.schemaVersion()), FsrsManifest.approved())).session();
+        var selected = new LearningForm.Item(sourceItem.id(), sourceItem.question().id(), 1,
+                new ContractVersion("question.true-false.response", 1), List.of());
+        // Participant-safe source contract fixture, reading only the requested retained revision.
+        LearningFormContent safeContent = (saved, items) -> {
+            var exact = service.read(quizId, saved.source().quizRevisionId()).content().items().get(0);
+            return List.of(new LearningFormContent.PresentedItem(selected, exact.question().questionText(), new ParticipantContent.TrueFalse()));
+        };
+        LearningFormService learning = new LearningFormServiceImpl(sessions, new JdbcLearningFormRepository(named),
+                List.of(safeContent), clock, metrics, transactions);
+        var command = new LearningFormService.Materialize(1, session.id(), List.of(selected));
+        var first = learning.materialize(command);
+        edit(question, "New published question");
+        var b = service.publish(command(1, question));
+        assertThat(b.publication().revision().id()).isNotEqualTo(published.id());
+        assertThat(service.current(quizId)).contains(b.publication());
+        assertThat(learning.read(session.id())).isEqualTo(first.view());
+        assertThat(learning.materialize(command).replayed()).isTrue();
+        assertThat(learning.read(session.id()).items().get(0).questionText()).isEqualTo(sourceItem.question().questionText());
+        assertThat(sessions.read(session.id())).isEqualTo(session);
+        assertThat(count("attempts")).isZero();
     }
 
     @ParameterizedTest @ValueSource(booleans = {false, true})
