@@ -12,6 +12,8 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.ThrowableProxyUtil;
 import ch.qos.logback.core.read.ListAppender;
 import org.springframework.aop.support.AopUtils;
+import org.springframework.aop.framework.Advised;
+import org.aopalliance.intercept.MethodInterceptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -25,6 +27,7 @@ import org.springframework.jdbc.core.namedparam.SqlParameterSource;
 import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -48,6 +51,7 @@ import uk.gegc.quizmaker.features.learning.domain.model.*;
 import uk.gegc.quizmaker.features.learning.infra.repository.JdbcLearningSessionRepository;
 import uk.gegc.quizmaker.features.user.application.AuthenticatedUserLookup;
 import uk.gegc.quizmaker.features.user.application.impl.AuthenticatedUserLookupImpl;
+import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.config.TransactionConfig;
 import uk.gegc.quizmaker.shared.transaction.SafeJpaTransactionManager;
 import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
@@ -116,6 +120,7 @@ class LearningSessionSpringMySqlIntegrationTest {
 
     @Autowired LearningSessionService service;
     @Autowired AuthenticatedUserLookup users;
+    @Autowired UserRepository userRepository;
     @Autowired PlatformTransactionManager manager;
     @Autowired JdbcTemplate sql;
     @Autowired FaultJdbc faultJdbc;
@@ -203,6 +208,112 @@ class LearningSessionSpringMySqlIntegrationTest {
         FailurePath(String sqlPart, String method, boolean existing) {
             this.sqlPart = sqlPart; this.method = method; this.existing = existing;
         }
+    }
+
+    enum IdentityOperation { CREATE, READ, REPLAY }
+
+    static Stream<Arguments> identityFailures() {
+        return Arrays.stream(IdentityOperation.values()).flatMap(operation -> Stream.of(0, 1205, 1213)
+                .map(code -> Arguments.of(operation, code)));
+    }
+
+    @ParameterizedTest @MethodSource("identityFailures")
+    void identityFailuresAreCleanBeforeLookupProxyLogsDuringCreateReadAndReplay(IdentityOperation operation, int code) {
+        var command = command();
+        var original = operation == IdentityOperation.CREATE ? null : service.create(command).session();
+        var outer = new TransactionTemplate(manager);
+        outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        try (var fault = new IdentityQueryFault(userRepository); var logs = new TransactionLogs()) {
+            assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
+                service.create(command()); // Successful writes in the same caller must also roll back.
+                fault.arm("lockActiveAuthenticatedUserId", code);
+                Throwable outward = catchThrowable(() -> {
+                    if (operation == IdentityOperation.READ) service.read(original.id());
+                    else service.create(command);
+                });
+                assertServiceFailure(outward, code);
+                assertThat(fault.reached).isTrue();
+                assertThat(status.isRollbackOnly()).isTrue();
+                assertCounts(original == null ? 1 : 2); // Identity failed before any target session write.
+            })).isInstanceOf(UnexpectedRollbackException.class);
+            logs.assertCleanFailure(AuthenticatedUserLookupImpl.class, "lockActiveUserId");
+            assertCounts(original == null ? 0 : 1); // Fresh reads after the caller actually rolled back.
+            fault.disarm();
+            var retry = service.create(command);
+            assertThat(retry.replayed()).isEqualTo(original != null);
+            if (original != null) assertThat(retry.session()).isEqualTo(original);
+            assertThat(service.read(retry.session().id())).isEqualTo(retry.session());
+            assertCounts(1);
+        }
+    }
+
+    static Stream<Arguments> directIdentityFailures() {
+        return Stream.of(false, true).flatMap(locking -> Stream.of(0, 1205, 1213).map(code -> Arguments.of(locking, code)));
+    }
+
+    @ParameterizedTest @MethodSource("directIdentityFailures")
+    void bothLookupProxyBoundariesDiscardDriverGraphsAfterARealQuery(boolean locking, int code) {
+        try (var fault = new IdentityQueryFault(userRepository); var logs = new TransactionLogs()) {
+            Runnable call = () -> {
+                fault.arm(locking ? "lockActiveAuthenticatedUserId" : "findActiveAuthenticatedUserId", code);
+                Throwable outward = catchThrowable(() -> {
+                    if (locking) users.lockActiveUserId("anna"); else users.findActiveUserId("anna");
+                });
+                assertThat(outward).isExactlyInstanceOf(DataAccessResourceFailureException.class)
+                        .hasMessage("Database operation failed");
+                assertThat(outward.getSuppressed()).isEmpty();
+                if (code == 0) assertThat(outward).hasNoCause();
+                else assertSafeConflict(outward.getCause(), code);
+                assertThat(fault.reached).isTrue();
+            };
+            if (locking) {
+                var outer = new TransactionTemplate(manager);
+                outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+                assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
+                    call.run(); assertThat(status.isRollbackOnly()).isTrue();
+                })).isInstanceOf(UnexpectedRollbackException.class);
+            } else call.run();
+            logs.assertCleanFailure(AuthenticatedUserLookupImpl.class, locking ? "lockActiveUserId" : "findActiveUserId");
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            fault.disarm();
+            if (locking) {
+                var control = new TransactionTemplate(manager);
+                control.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+                control.executeWithoutResult(status -> assertThat(users.lockActiveUserId("anna")).contains(LEARNER));
+            } else assertThat(users.findActiveUserId("anna")).contains(LEARNER);
+            assertEmpty();
+        }
+    }
+
+    /** Add one outer test advice; proceed through the unchanged real Spring Data/JPA query first. */
+    static class IdentityQueryFault implements AutoCloseable {
+        final Advised repository;
+        final MethodInterceptor advice;
+        String query;
+        int code;
+        boolean reached;
+        IdentityQueryFault(UserRepository users) {
+            assertThat(AopUtils.isAopProxy(users)).isTrue();
+            repository = (Advised) users;
+            advice = invocation -> {
+                Object result = invocation.proceed();
+                if (query == null || reached || !invocation.getMethod().getName().equals(query)) return result;
+                assertThat(result).isEqualTo(Optional.of(LEARNER));
+                assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+                reached = true;
+                var raw = new SQLException("LEARNING_PRIVATE_IDENTITY_DRIVER", code == 1213 ? "40001" : "HY000", code,
+                        new IllegalStateException("LEARNING_PRIVATE_IDENTITY_CAUSE"));
+                raw.setNextException(new SQLException("LEARNING_PRIVATE_IDENTITY_NEXT"));
+                raw.addSuppressed(new IllegalStateException("LEARNING_PRIVATE_IDENTITY_SUPPRESSED"));
+                var failure = new DataAccessResourceFailureException("LEARNING_PRIVATE_IDENTITY_OUTER", raw);
+                failure.addSuppressed(new IllegalStateException("LEARNING_PRIVATE_IDENTITY_TOP_SUPPRESSED"));
+                throw failure;
+            };
+            repository.addAdvice(0, advice);
+        }
+        void arm(String query, int code) { this.query = query; this.code = code; reached = false; }
+        void disarm() { query = null; }
+        @Override public void close() { assertThat(repository.removeAdvice(advice)).isTrue(); }
     }
 
     static Stream<Arguments> serviceFailures() {
@@ -373,10 +484,13 @@ class LearningSessionSpringMySqlIntegrationTest {
             loggers.forEach(logger -> { previous.put(logger, logger.getLevel()); logger.addAppender(captured); logger.setLevel(Level.TRACE); });
         }
         void assertCleanFailure(String method) {
+            assertCleanFailure(JdbcLearningSessionRepository.class, method);
+        }
+        void assertCleanFailure(Class<?> boundary, String method) {
             assertThat(captured.list).anySatisfy(event -> {
                 assertThat(event.getLoggerName()).isEqualTo(TransactionInterceptor.class.getName());
                 assertThat(event.getLevel()).isEqualTo(Level.TRACE);
-                assertThat(event.getFormattedMessage()).contains("JdbcLearningSessionRepository." + method, "after exception");
+                assertThat(event.getFormattedMessage()).contains(boundary.getSimpleName() + "." + method, "after exception");
             });
             assertThat(captured.list).allSatisfy(event -> {
                 assertThat(event.getFormattedMessage()).doesNotContain("LEARNING_PRIVATE_");

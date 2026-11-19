@@ -45,6 +45,17 @@ control write and all failed-command writes; fresh reads and same-key retry prov
 MySQL SIGNAL trigger independently reproduces the original diagnostic leak and verifies cleanup
 before repository TransactionInterceptor logging, not just the later service translation.
 
+Apply the same boundary rule to `AuthenticatedUserLookupImpl`: both ordinary and locking lookup
+sanitize DataAccessException before their own transaction proxy. The Learning Spring/MySQL suite
+injects faults after the real Spring Data/JPA identity query for create, read and exact replay, with
+ordinary/1205/1213 failures. Require the reached lookup-proxy TRACE event, clean messages/throwable
+graphs, preserved conflict classification, rollback of successful caller writes and same-command
+retry. Direct facade tests cover both methods, including standalone read-only lookup. Run
+`AuthenticatedUserLookupTest`, `AuthenticatedSubjectResolverTest`,
+`AuthenticatedSubjectResolverMySqlIntegrationTest` and `AuthenticatedSubjectResolverWiringTest`
+for shared-consumer compatibility. The multi-user role/permission fixture measures one scalar
+query per identity and zero entity/collection loading for both ordinary and locking reads.
+
 The metadata read fixture has three sessions for each of 1- and 100-item revisions. Count selected
 statements and assert no question/form/answer/schedule content is queried. These JDBC metadata paths
 have no JPA relationship traversal; the test proves bounded source loading rather than relying on
