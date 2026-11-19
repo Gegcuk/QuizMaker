@@ -154,6 +154,7 @@
     "uk.gegc.quizmaker.features.documentProcess.infra.repository.DocumentNodeRepositoryTest",
     "uk.gegc.quizmaker.features.documentProcess.infra.repository.NormalizedDocumentOwnershipMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.documentProcess.infra.repository.NormalizedDocumentRepositoryTest",
+    "uk.gegc.quizmaker.features.learning.FsrsSpringCompatibilityTest",
     "uk.gegc.quizmaker.features.media.api.MediaControllerTest",
     "uk.gegc.quizmaker.features.media.api.MediaRestoreContractTest",
     "uk.gegc.quizmaker.features.media.application.RetainedImageMySqlIntegrationTest",

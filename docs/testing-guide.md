@@ -2,6 +2,61 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Reproducible FSRS contract (#577)
+
+On JDK 17, run the pure manifest, calculation, format and boundary cases before the small
+Spring/Jackson compatibility context and existing SM-2 compatibility tests:
+
+```bash
+./mvnw test -Dtest=FsrsManifestTest,FsrsSchedulingStrategyTest,FsrsStateFormatTest,FsrsBoundaryTest,FsrsSpringCompatibilityTest,Sm2AlgorithmTest,ContextTestManifestTest
+```
+
+Use the existing offline/fake environment. No scoped FSRS test needs MySQL or an external
+provider. Resolve the approved `io.github.open-spaced-repetition:fsrs:1.0.0` artifact before
+offline execution; do not import its Jackson versions over Spring Boot dependency management.
+The current resolved Jackson components are 2.18.3. The compatibility context exercises the
+actual library's Card/Scheduler JSON as well as Boot's mapper and the project-owned format;
+library JSON remains test evidence, never persistence authority.
+
+`src/test/resources/learning/fsrs-v1-golden.tsv` freezes 28 transitions from the direct pinned
+binary, independent of the project adapter. Every source state is reached from a fresh card
+through the histories in `FsrsSchedulingStrategyTest.source`: all four ratings, both learning
+steps, early/overdue review, and short/long relearning. Compare phases, steps, stability/difficulty
+state (floating tolerance 1e-12), exact nanosecond due/review Instants, manifest and identity.
+Do not regenerate expected values from the adapter being tested. The separate approved first
+rating controls assert 60/330/600 seconds and 16 days; repeated reachable reviews must hit the
+3650-day ceiling without fuzz.
+
+Reconstruct both source and output with fresh codecs/components. Verify defensive array/list
+copies, unknown/malformed versions/configuration, strict JSON shape, scalar/enum coercions,
+missing/null required fields, duplicate/trailing data, identity/cycle mismatch, stale sequence,
+backwards time and controlled calculation failure. An already advanced state is not a replay
+input: #649 owns durable command receipts and must reconcile retries before calculating again.
+Numeric compatibility fixtures also reject Instant overflow and the pinned library's rounded
+day interval overflow before its int conversion can return a wrapped delay. These are explicit
+calculation failures, not a different scheduler or a workload/capacity claim.
+Concurrent pure calculations must retain independent learner/cycle state. Profile-zone clocks
+and London spring/fall fixtures preserve elapsed 24-hour days; do not change the JVM-global
+timezone in parallel tests.
+
+The Spring-only suite has one context-manifest entry; it adds no database companion and
+preserves the four-worker/exclusive inventory. No JPA-backed read is touched, so N+1 is not
+applicable. Existing SM-2, quiz, training, assessment, release and certificate paths remain
+separate compatibility checks. No API/OpenAPI, enrollment, database-write, workload or public
+Learning activation claim follows from this pure contract.
+
+After stable implementation inputs, use the full release gate:
+
+```bash
+python3 tools/testing/context_benchmark.py verify --workers 4 \
+  --output /private/tmp/quizmaker-577-verify-<unique-run>
+```
+
+Compare the launcher's tested source fingerprint with the candidate inputs before commit.
+The fingerprint includes `src/`, `.github/`, `tools/`, `.mvn/`, `pom.xml` and `mvnw`, including
+new nonignored files; architecture/testing Markdown is reviewed separately. #649/#667 own
+real review persistence, transaction rollback, durable duplicate races and activation evidence.
+
 ## Durable first-release events (#837)
 
 On JDK 17, run `ResultNotificationEventTest` first, then

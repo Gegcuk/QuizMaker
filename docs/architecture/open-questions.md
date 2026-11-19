@@ -191,6 +191,17 @@ The [Java build](https://raw.githubusercontent.com/open-spaced-repetition/java-f
 
 The upstream engine computes elapsed whole 24-hour days using Instants and rounds positive day intervals with Java `Math.round`; late reviews use the actual supplied review time. Q51 selects profile-local **activity/workload grouping**, not an instruction to move stored deadlines at midnight or replace those arithmetic rules with local-date subtraction. Preserve exact due Instants. For example, one elapsed day from 24 October 2026 10:00 Europe/London is 25 October 09:00 after the DST change. Test clock boundaries, overnight learning, late reviews, all rating/state transitions, deterministic replay and concurrent duplicate reviews. An artifact selection is not proof that this integration is complete.
 
+**#577 implementation boundary (19 November 2026):** the project-owned calculation adapter,
+immutable manifest and strict state/transition format now have pinned-binary golden fixtures,
+serialization/reconstruction, copied-array, explicit-time/DST and Spring/Jackson compatibility
+tests. The resolved Jackson set remains Spring Boot-managed 2.18.3. See
+[the calculation contract](policy-driven-quiz-execution.md#reproducible-fsrs-calculation-577) and
+[verification instructions](../testing-guide.md#reproducible-fsrs-contract-577). A read-only
+production inventory returned zero for enabled repetition quizzes, schedule rows and review-log
+rows before implementation. This is dated source-scope evidence, not a reset or future cleanup
+approval. #649/#667 still own persisted review identity, rollback/races, workload and activation;
+pure replay and a local Spring fixture do not establish those integrated capabilities.
+
 <a id="proposed-transcription-cost-and-flow"></a>
 ### Transcription limits, cost and quote flow
 

@@ -32,6 +32,13 @@
     </properties>
 
     <dependencies>
+        <!-- Approved reproducible Learning scheduler; Jackson stays Spring Boot-managed. -->
+        <dependency>
+            <groupId>io.github.open-spaced-repetition</groupId>
+            <artifactId>fsrs</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
         <!-- Apache POI for XLSX export -->
         <dependency>
             <groupId>org.apache.poi</groupId>
