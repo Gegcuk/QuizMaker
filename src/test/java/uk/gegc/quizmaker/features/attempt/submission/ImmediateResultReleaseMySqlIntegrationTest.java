@@ -101,6 +101,10 @@ import uk.gegc.quizmaker.features.result.infra.repository.JdbcAutomaticResultRep
 import uk.gegc.quizmaker.features.result.application.ImmediateResultReleaseService;
 import uk.gegc.quizmaker.features.result.application.impl.*;
 import uk.gegc.quizmaker.features.result.infra.repository.JdbcResultReleaseRepository;
+import uk.gegc.quizmaker.features.result.infra.repository.JdbcResultNotificationEventRepository;
+import uk.gegc.quizmaker.features.result.domain.repository.ResultNotificationEventRepository;
+import uk.gegc.quizmaker.features.result.application.ResultNotificationEventReader;
+import uk.gegc.quizmaker.features.result.domain.model.notification.*;
 import uk.gegc.quizmaker.features.result.application.ScheduledResultReleaseService;
 import uk.gegc.quizmaker.features.result.application.ResultDisclosureService;
 import uk.gegc.quizmaker.features.result.application.ReleaseConfigurationService;
@@ -162,7 +166,8 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         ExecutionTraceServiceImpl.class, JdbcExecutionTraceRepository.class,
         CommandReceiptServiceImpl.class, JdbcCommandReceiptRepository.class,
         SubmittedAttemptSourceImpl.class, JdbcSubmittedAttemptRepository.class, AutomaticResultServiceImpl.class,
-        JdbcAutomaticResultRepository.class, JdbcResultReleaseRepository.class,
+        JdbcAutomaticResultRepository.class, JdbcResultReleaseRepository.class, JdbcResultNotificationEventRepository.class,
+        uk.gegc.quizmaker.features.result.application.impl.ResultNotificationEventReaderImpl.class,
         ImmediateResultReleaseServiceImpl.class, ResultDisclosureServiceImpl.class, ParticipantResultServiceImpl.class,
         ParticipantAttemptViewServiceImpl.class, JdbcAttemptViewRouteRepository.class,
         InitialParticipantViewDisclosureReader.class, InitialParticipantViewMediaReader.class,
@@ -246,7 +251,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
     @Autowired SimpleMeterRegistry metrics;
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
-    static final List<String> TARGET_TABLES = List.of("attempt_scheduled_release", "result_release_configuration_receipts", "result_release_configuration_heads", "result_release_configurations", "attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_result_release", "attempt_result_created", "attempt_automatic_grade", "attempt_automatic_result", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
+    static final List<String> TARGET_TABLES = List.of("attempt_result_notification_event", "attempt_scheduled_release", "result_release_configuration_receipts", "result_release_configuration_heads", "result_release_configurations", "attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_result_release", "attempt_result_created", "attempt_automatic_grade", "attempt_automatic_result", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
     SubmissionDataSource observer() { return (SubmissionDataSource) source; }
@@ -357,7 +362,9 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         return new ImmediateResultReleaseServiceImpl(context.getBean(SubmittedAttemptSource.class),
                 new JdbcAutomaticResultRepository(context.getBean(org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate.class)),
                 new JdbcResultReleaseRepository(context.getBean(org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate.class)),
-                context.getBean(ExecutionTraceService.class), context.getBean(Clock.class), metrics, manager);
+                context.getBean(ExecutionTraceService.class),
+                transactional(ResultNotificationEventRepository.class, new JdbcResultNotificationEventRepository(named()), manager),
+                context.getBean(Clock.class), metrics, manager);
     }
     private MockMvc mvc() {
         return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
@@ -1601,7 +1608,8 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         String serverIsolation = tx.execute(s -> sql.queryForObject("SELECT @@global.transaction_isolation", String.class));
         var observed = new ArrayList<String>();
         observer().afterSql = (statement, connection) -> {
-            if (statement.contains("FROM attempt_result_release r"))
+            // Observe the release lookup, not the notification INSERT ... SELECT from that row.
+            if (statement.stripLeading().startsWith("SELECT") && statement.contains("FROM attempt_result_release r"))
                 observed.add(sql.queryForObject("SELECT @@transaction_isolation", String.class));
         };
         var caller = new TransactionTemplate(manager);
@@ -1762,6 +1770,272 @@ class ImmediateResultReleaseMySqlIntegrationTest {
         assertThat(totals.get(1)).isEqualTo(totals.get(0)); assertThat(totals.get(0)).isLessThan(150);
         System.out.println("Released result SQL for 3 parents with 1/20 items: " + totals);
     }
+    ResultNotificationEventReader eventReader() { return context.getBean(ResultNotificationEventReader.class); }
+    ResultNotificationEventReader reconstructedEventReader() {
+        var independent = new DataSourceTransactionManager(source);
+        return new ResultNotificationEventReaderImpl(transactional(ResultNotificationEventRepository.class,
+                new JdbcResultNotificationEventRepository(named()), independent), independent);
+    }
+    @EnableTransactionManagement static class EventReaderTransactions { }
+    Optional<ResultNotificationEvent> eventFromRecreatedContext(UUID id) {
+        try (var application = new AnnotationConfigApplicationContext()) {
+            application.getBeanFactory().registerSingleton("dataSource", source);
+            application.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(source));
+            application.registerBean(org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate.class,
+                    () -> new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(source));
+            application.register(EventReaderTransactions.class, JdbcResultNotificationEventRepository.class, ResultNotificationEventReaderImpl.class);
+            application.refresh();
+            assertThat(AopUtils.isAopProxy(application.getBean(ResultNotificationEventRepository.class))).isTrue();
+            return application.getBean(ResultNotificationEventReader.class).find(id);
+        }
+    }
+    long notificationEvents() { return count("attempt_result_notification_event"); }
+
+    @Test void eventsRealReleaseIsReadableAfterReconstructionWithoutConsumerAcknowledgement() throws Exception {
+        var f = fixture(3, 3, 2); var result = results.finalizeSubmission(f.submission());
+        assertThat(eventReader().scan(null, 10).events()).isEmpty();
+        var eventIsolation = new AtomicReference<String>();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.stripLeading().startsWith("INSERT INTO attempt_result_notification_event"))
+                eventIsolation.set(sql.queryForObject("SELECT @@transaction_isolation", String.class));
+        };
+        ResultRelease release;
+        try { release = releases.release(f.submission()).release(); }
+        finally { observer().reset(); }
+        assertThat(eventIsolation.get()).isEqualTo("READ-COMMITTED");
+        var event = eventReader().find(release.id()).orElseThrow();
+        assertThat(event.id()).isEqualTo(release.id()); assertThat(event.source().id()).isEqualTo(release.id());
+        assertThat(event.source().version()).isEqualTo(1); assertThat(event.targetId()).isEqualTo(result.id());
+        assertThat(event.kind()).isEqualTo(ResultNotificationEvent.Kind.RESULT_OPENED);
+        assertThat(event.categories()).containsExactly(uk.gegc.quizmaker.features.result.domain.model.disclosure.ResultDisclosure.Category.TOTAL_SCORE);
+        assertThat(event.occurredAt()).isEqualTo(release.releasedAt());
+        assertThat(view(f.attempt()).result().totalScore()).isEqualTo(new ParticipantResultView.Score(2, 3, 6667));
+        var reconstructed = reconstructedEventReader();
+        // A local acknowledgement double loses its acknowledgement. Nothing deletes source evidence.
+        var observations = new ArrayList<UUID>();
+        for (int scan = 0; scan < 2; scan++) observations.add(reconstructed.scan(null, 1).events().get(0).id());
+        assertThat(observations).containsExactly(release.id(), release.id());
+        assertThat(restarted().release(f.submission()).release()).isEqualTo(release);
+        assertThat(reconstructed.find(release.id())).contains(event); assertThat(notificationEvents()).isEqualTo(1);
+        assertThat(eventFromRecreatedContext(release.id())).contains(event);
+        var encoded = json.readTree(json.writeValueAsBytes(event));
+        assertThat(encoded.has("total")).isFalse(); assertThat(encoded.has("passed")).isFalse();
+        assertThat(encoded.toString()).doesNotContain(authoredExplanation, username, "answer", "email");
+        assertThat(metrics.get("quizmaker.result.notification.event").tags("version", "1", "kind", "result_opened").counter().count()).isPositive();
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"after-release", "before-event", "after-event", "commit"})
+    void eventsReachedFailuresRollBackSourceTraceAndOutboxThenSamePathRetryCommits(String checkpoint) {
+        var f = fixture(3, 3, 2); var result = results.finalizeSubmission(f.submission());
+        var reached = new AtomicBoolean();
+        SubmissionDataSource.SqlHook hook = (statement, connection) -> {
+            boolean selected = statement.stripLeading().startsWith(checkpoint.equals("after-release")
+                    ? "INSERT INTO attempt_result_release" : "INSERT INTO attempt_result_notification_event");
+            if (selected && reached.compareAndSet(false, true)) {
+                if (checkpoint.equals("commit")) observer().failBeforeCommit.set(true);
+                else throw new SQLException("private-event-write", "08006");
+            }
+        };
+        if (checkpoint.equals("before-event")) observer().beforeSql = hook; else observer().afterSql = hook;
+        reject(f.submission(), ResultReleaseException.Reason.UNAVAILABLE);
+        assertThat(reached).isTrue(); observer().reset();
+        assertThat(notificationEvents()).isZero(); assertThat(count("attempt_result_release")).isZero(); assertThat(releaseEvents()).isZero();
+        assertThat(eventReader().scan(null, 10).events()).isEmpty(); assertThat(view(f.attempt()).result()).isNull();
+        assertThat(results.finalizeSubmission(f.submission())).isEqualTo(result);
+        var success = restarted().release(f.submission());
+        assertThat(success.replayed()).isFalse(); assertThat(restarted().release(f.submission()).release()).isEqualTo(success.release());
+        assertThat(eventReader().find(success.release().id())).isPresent(); assertThat(notificationEvents()).isEqualTo(1);
+    }
+
+    @Test void eventsLostActualCommitAcknowledgementRetainsOneSourceAndSemanticIdentity() {
+        var f = fixture(3, 3, 2); results.finalizeSubmission(f.submission()); var reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.stripLeading().startsWith("INSERT INTO attempt_result_notification_event")) {
+                reached.set(true); observer().failAfterCommit.set(true);
+            }
+        };
+        reject(f.submission(), ResultReleaseException.Reason.UNAVAILABLE); assertThat(reached).isTrue(); observer().reset();
+        var saved = reconstructedEventReader().scan(null, 10).events(); assertThat(saved).hasSize(1);
+        var replay = restarted().release(f.submission()); assertThat(replay.replayed()).isTrue();
+        assertThat(replay.release().id()).isEqualTo(saved.get(0).id());
+        assertThat(reconstructedEventReader().scan(null, 10).events()).isEqualTo(saved);
+        assertThat(eventFromRecreatedContext(saved.get(0).id())).contains(saved.get(0));
+        assertThat(notificationEvents()).isEqualTo(1); assertThat(releaseEvents()).isEqualTo(1);
+    }
+
+    @Test void eventsCompetingReleasesConvergeWhileAnotherParticipantOnSameRevisionCommits() throws Exception {
+        var first = fixture(2, 2, 1); var firstResult = results.finalizeSubmission(first.submission());
+        var peerName = "acceptance-" + UUID.randomUUID().toString().substring(0, 12); var peerUser = user(peerName, false);
+        grant(peerUser, "ATTEMPT_READ", "ATTEMPT_CREATE", "QUESTION_UPDATE", "QUESTION_ADMIN"); authenticate(peerName);
+        var started = starts.start(command(firstResult.quizRevisionId(), AnswerOrder.AUTHORED, "event-peer"));
+        var peerItems = delivery.read(started.attemptId()).form().items();
+        responses.accept(new ResponseAcceptanceService.Command(started.attemptId(), peerItems.get(0).id(), 1,
+                CommandReceipt.Key.from("event-peer-answer"), peerItems.get(0).type(), input(peerItems.get(0), true)));
+        var peerSubmission = submissions.submit(new AttemptSubmissionService.Command(started.attemptId(), 2, true, CommandReceipt.Key.from("event-peer-submit")));
+        var peerResult = results.finalizeSubmission(peerSubmission.submissionId());
+        assertThat(peerResult.quizRevisionId()).isEqualTo(firstResult.quizRevisionId());
+        assertThat(peerUser).isNotEqualTo(ownerId); authenticate(username);
+        var inserted = new CountDownLatch(1); var finish = new CountDownLatch(1); var waiting = new CountDownLatch(1);
+        var firstThread = new AtomicReference<Thread>(); var duplicateThread = new AtomicReference<Thread>();
+        observer().afterSql = (statement, connection) -> {
+            if (Thread.currentThread() == firstThread.get() && statement.stripLeading().startsWith("INSERT INTO attempt_result_notification_event")) {
+                inserted.countDown(); await(finish);
+            }
+        };
+        observer().beforeSql = (statement, connection) -> {
+            if (Thread.currentThread() == duplicateThread.get() && statement.contains("FROM attempt_finalization_intent i JOIN")) waiting.countDown();
+        };
+        var pool = Executors.newFixedThreadPool(3);
+        try {
+            var holder = pool.submit(() -> { firstThread.set(Thread.currentThread()); return releases.release(first.submission()); });
+            assertThat(inserted.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(eventReader().scan(null, 10).events()).isEmpty();
+            var duplicate = pool.submit(() -> { duplicateThread.set(Thread.currentThread()); return restarted().release(first.submission()); });
+            assertThat(waiting.await(10, TimeUnit.SECONDS)).isTrue(); assertThat(duplicate.isDone()).isFalse();
+            var peer = pool.submit(() -> releases.release(peerSubmission.submissionId()));
+            var independent = peer.get(20, TimeUnit.SECONDS); assertThat(independent.replayed()).isFalse();
+            assertThat(eventReader().scan(null, 10).events()).extracting(ResultNotificationEvent::id).containsExactly(independent.release().id());
+            assertThat(holder.isDone()).isFalse(); finish.countDown();
+            var a = holder.get(20, TimeUnit.SECONDS); var b = duplicate.get(20, TimeUnit.SECONDS);
+            assertThat(a.replayed()).isFalse(); assertThat(b.replayed()).isTrue(); assertThat(a.release()).isEqualTo(b.release());
+            assertThat(reconstructedEventReader().find(a.release().id())).isPresent();
+        } finally { finish.countDown(); observer().reset(); pool.shutdownNow(); assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue(); }
+        assertThat(notificationEvents()).isEqualTo(2); assertThat(count("attempt_result_release")).isEqualTo(2);
+        assertThat(reconstructedEventReader().scan(null, 10).events()).hasSize(2);
+    }
+
+    @Test void eventsRealLaterPublicationAndResultDoNotRewriteEarlierReferenceOrCategories() {
+        var first = fixture(2, 2, 1); var firstResult = results.finalizeSubmission(first.submission());
+        var released = releases.release(first.submission()).release(); var original = eventReader().find(released.id()).orElseThrow();
+        var bytes = json.valueToTree(original);
+        draft(QuestionType.TRUE_FALSE);
+        var authoredIds = tx.execute(status -> questions.findAllByQuizId_IdOrderById(quizId).stream().map(Question::getId).toList());
+        var newer = publish(1, authoredIds); binding.bind(quizId, newer);
+        var started = starts.start(new AttemptStartService.Command(1, quizId, content(newer), 2, CommandReceipt.Key.from("event-later"),
+                BuiltInPracticePreset.REFERENCE, LegacyPracticeRequest.LaunchContext.ORDINARY, "ALL_AT_ONCE", AnswerOrder.AUTHORED));
+        var items = delivery.read(started.attemptId()).form().items();
+        for (int i = 0; i < items.size(); i++) {
+            var item = items.get(i);
+            responses.accept(new ResponseAcceptanceService.Command(started.attemptId(), item.id(), i + 1,
+                    CommandReceipt.Key.from("event-later-answer-" + i), item.type(), input(item, true)));
+        }
+        var submitted = submissions.submit(new AttemptSubmissionService.Command(started.attemptId(), items.size() + 1, true, CommandReceipt.Key.from("event-later-submit")));
+        var next = results.finalizeSubmission(submitted.submissionId()); releases.release(submitted.submissionId());
+        assertThat(next.quizRevisionId()).isNotEqualTo(firstResult.quizRevisionId()); assertThat(next.score().basisPoints()).isEqualTo(10000);
+        assertThat(reconstructedEventReader().find(released.id())).contains(original);
+        com.fasterxml.jackson.databind.JsonNode reread = json.valueToTree(eventReader().find(released.id()).orElseThrow());
+        assertThat(reread).isEqualTo(bytes);
+        assertThat(restarted().release(first.submission()).release()).isEqualTo(released);
+        assertThat(view(first.attempt()).result().totalScore().basisPoints()).isEqualTo(5000); assertThat(notificationEvents()).isEqualTo(2);
+        // This proves immutable references across real versions, not #550 correction/selection integration.
+    }
+
+    @Test void eventsBoundedPagesReplayWithoutDuplicatesAndDoNotReadGradeOrQuestionCollections() {
+        var statementCounts = new ArrayList<Integer>();
+        for (int size : List.of(1, 20)) {
+            for (int i = 0; i < 3; i++) { var f = fixture(size, size, size); results.finalizeSubmission(f.submission()); releases.release(f.submission()); }
+            observer().selects.clear();
+            var page = eventReader().scan(null, 2); assertThat(page.events()).hasSize(2); assertThat(page.nextCursor()).isNotNull();
+            var all = new ArrayList<>(page.events());
+            while (page.nextCursor() != null) { page = eventReader().scan(page.nextCursor(), 2); all.addAll(page.events()); }
+            assertThat(all).extracting(ResultNotificationEvent::id).doesNotHaveDuplicates();
+            assertThat(all).hasSize(size == 1 ? 3 : 6);
+            observer().selects.clear();
+            assertThat(eventReader().scan(null, 500).events()).hasSize(size == 1 ? 3 : 6);
+            statementCounts.add(observer().selects.size());
+            assertThat(observer().selects).allSatisfy(statement -> assertThat(statement).doesNotContain(
+                    "attempt_automatic_grade", "question_revisions", "canonical_content", "attempt_accepted_response", "normalized_documents"));
+        }
+        assertThat(statementCounts).containsExactly(1, 1);
+        var plan = rc(() -> sql.queryForMap("EXPLAIN SELECT id FROM attempt_result_notification_event WHERE id>UUID_TO_BIN(?) ORDER BY id LIMIT 2", new UUID(0, 0).toString()));
+        assertThat(plan.get("key")).isEqualTo("PRIMARY"); assertThat(String.valueOf(plan.get("Extra"))).doesNotContainIgnoringCase("filesort");
+        System.out.println("Notification event scans, 3 parents with 1/20 items: " + statementCounts);
+    }
+
+    @ParameterizedTest @ValueSource(ints = {-1, 0, 501})
+    void eventsInvalidReadInputsFailBeforeAnyDomainSql(int limit) {
+        observer().selects.clear();
+        assertThatThrownBy(() -> eventReader().scan(null, limit)).isInstanceOf(ResultEventException.class);
+        assertThatThrownBy(() -> eventReader().find(null)).isInstanceOf(ResultEventException.class);
+        assertThat(observer().selects).isEmpty(); assertThat(eventReader().find(UUID.randomUUID())).isEmpty();
+    }
+
+    @Test void eventsReaderOwnsRcRejectsRrBeforeSqlAndPreservesCallerTransaction() {
+        var f = fixture(1, 1, 1); results.finalizeSubmission(f.submission()); var release = releases.release(f.submission()).release();
+        var observed = new ArrayList<String>();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.contains("FROM attempt_result_notification_event")) observed.add(sql.queryForObject("SELECT @@transaction_isolation", String.class));
+        };
+        assertThat(eventReader().find(release.id())).isPresent(); assertThat(observed).containsExactly("READ-COMMITTED"); observer().reset();
+        tx.executeWithoutResult(status -> {
+            assertThatThrownBy(() -> eventReader().find(release.id())).isInstanceOf(uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException.class);
+            assertThat(observer().selects).isEmpty();
+        });
+        var rc = new TransactionTemplate(manager); rc.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        rc.executeWithoutResult(status -> {
+            sql.update("UPDATE quizzes SET description='event-reader-provisional' WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString());
+            assertThat(eventReader().find(release.id())).isPresent(); status.setRollbackOnly();
+        });
+        String description = tx.execute(status -> sql.queryForObject("SELECT description FROM quizzes WHERE quiz_id=UUID_TO_BIN(?)", String.class, quizId.toString()));
+        assertThat(description).isNotEqualTo("event-reader-provisional");
+        assertThat(notificationEvents()).isEqualTo(1);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"insert", "find", "scan"})
+    void eventsSanitizeReachedRepositoryFailuresBeforeNestedTransactionLogging(String operation) {
+        var f = fixture(1, 1, 1); results.finalizeSubmission(f.submission());
+        UUID id = operation.equals("insert") ? UUID.randomUUID() : releases.release(f.submission()).release().id();
+        var logger = (Logger) LoggerFactory.getLogger(TransactionInterceptor.class);
+        var level = logger.getLevel(); var logs = new ListAppender<ILoggingEvent>(); logs.start(); logger.addAppender(logs); logger.setLevel(Level.TRACE);
+        var reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.contains("attempt_result_notification_event") && reached.compareAndSet(false, true)) {
+                var failure = new SQLException("private-event-driver user@example.invalid", "08006");
+                failure.initCause(new IllegalStateException("private-event-cause")); failure.addSuppressed(new IllegalStateException("private-event-suppressed"));
+                failure.setNextException(new SQLException("private-event-chain")); throw failure;
+            }
+        };
+        try {
+            if (operation.equals("insert")) reject(f.submission(), ResultReleaseException.Reason.UNAVAILABLE);
+            else assertThatThrownBy(() -> { if (operation.equals("find")) reconstructedEventReader().find(id); else reconstructedEventReader().scan(null, 10); })
+                    .isInstanceOf(ResultEventException.class);
+            assertThat(reached).isTrue();
+            assertThat(logs.list).anySatisfy(event -> assertThat(event.getFormattedMessage())
+                    .contains("JdbcResultNotificationEventRepository." + operation, "after exception"));
+            for (var event : logs.list) {
+                assertThat(event.getFormattedMessage()).doesNotContain("private-event-", "user@example.invalid", "SQL [");
+                if (event.getThrowableProxy() != null) assertThat(ThrowableProxyUtil.asString(event.getThrowableProxy()))
+                        .doesNotContain("private-event-", "user@example.invalid", "SQL [");
+            }
+        } finally { observer().reset(); logger.detachAppender(logs); logger.setLevel(level); logs.stop(); }
+        var success = releases.release(f.submission()); assertThat(eventReader().find(success.release().id())).isPresent();
+        assertThat(notificationEvents()).isEqualTo(1);
+    }
+
+    @Test void eventsSourceBindingAndSchemaConstraintsRejectUnsupportedOrInconsistentFacts() {
+        var first = fixture(1, 1, 1); results.finalizeSubmission(first.submission()); var release = releases.release(first.submission()).release();
+        var original = eventReader().find(release.id()).orElseThrow();
+        assertThatThrownBy(() -> rc(() -> { context.getBean(ResultNotificationEventRepository.class).insert(original); return null; }))
+                .isInstanceOf(org.springframework.dao.DuplicateKeyException.class);
+        assertThatThrownBy(() -> rc(() -> sql.update("UPDATE attempt_result_notification_event SET schema_version=2")))
+                .isInstanceOfSatisfying(org.springframework.dao.DataAccessException.class,
+                        e -> assertThat(((SQLException) e.getRootCause()).getErrorCode()).isEqualTo(3819));
+        var second = fixture(1, 1, 1); var other = results.finalizeSubmission(second.submission());
+        rc(() -> sql.update("UPDATE attempt_result_notification_event SET target_id=UUID_TO_BIN(?)", other.id().toString()));
+        assertThatThrownBy(() -> eventReader().find(original.id())).isInstanceOfSatisfying(ResultEventException.class,
+                e -> assertThat(e.reason()).isEqualTo(ResultEventException.Reason.CORRUPT));
+        rc(() -> sql.update("UPDATE attempt_result_notification_event SET target_id=UUID_TO_BIN(?)", original.targetId().toString()));
+        assertThat(eventReader().find(original.id())).contains(original);
+    }
+
+    @Test void eventsScheduledSourceRemainsOutsideEnabledNotificationProducer() {
+        var f = scheduled(1); time.set(due);
+        assertThat(worker().execute(f.attempt().submission()).outcome()).isEqualTo(ScheduledResultReleaseService.Outcome.RELEASED);
+        assertThat(notificationEvents()).isZero();
+        var control = fixture(1, 1, 1); results.finalizeSubmission(control.submission()); releases.release(control.submission());
+        assertThat(notificationEvents()).isEqualTo(1);
+    }
+
     /** These are real result/configuration/worker compositions, not a formal-start activation claim.
      * The existing real practice producer supplies committed binary result fixtures allowed by #634.
      * #668 separately proves that a formal start captures this configuration before participation. */

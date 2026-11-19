@@ -23,14 +23,15 @@ public class ImmediateResultReleaseServiceImpl implements ImmediateResultRelease
     private final AutomaticResultRepository results;
     private final ResultReleaseRepository releases;
     private final ExecutionTraceService trace;
+    private final ResultNotificationEventRepository events;
     private final Clock clock;
     private final MeterRegistry metrics;
     private final TransactionTemplate transaction;
 
     public ImmediateResultReleaseServiceImpl(SubmittedAttemptSource source, AutomaticResultRepository results,
-            ResultReleaseRepository releases, ExecutionTraceService trace, Clock clock, MeterRegistry metrics,
+            ResultReleaseRepository releases, ExecutionTraceService trace, ResultNotificationEventRepository events, Clock clock, MeterRegistry metrics,
             PlatformTransactionManager manager) {
-        this.source = source; this.results = results; this.releases = releases; this.trace = trace;
+        this.source = source; this.results = results; this.releases = releases; this.trace = trace; this.events = events;
         this.clock = clock; this.metrics = metrics;
         transaction = new TransactionTemplate(manager);
         transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -50,6 +51,8 @@ public class ImmediateResultReleaseServiceImpl implements ImmediateResultRelease
             if (!ack.replayed()) {
                 try { metrics.summary("quizmaker.result.release.lag", "version", "1").record(committed.lagMillis()); }
                 catch (RuntimeException ignored) { /* Only committed releases contribute lag. */ }
+                try { metrics.counter("quizmaker.result.notification.event", "version", "1", "kind", "result_opened").increment(); }
+                catch (RuntimeException ignored) { /* Event and source are already committed. */ }
             }
             return ack;
         } catch (RuntimeException failure) {
@@ -89,6 +92,7 @@ public class ImmediateResultReleaseServiceImpl implements ImmediateResultRelease
                 new ExecutionTrace.Event(1, release.id(), ExecutionTrace.Type.RESULT_RELEASED, ExecutionTrace.Actor.SYSTEM,
                         new ExecutionTrace.Data(result.id(), null, null, null, ExecutionTrace.ReasonCode.RELEASED)));
         releases.insert(release);
+        events.insert(uk.gegc.quizmaker.features.result.domain.model.notification.ResultNotificationEvents.firstRelease(result, release, policy));
         return new Completed(new Acknowledgement(release, false), Duration.between(result.createdAt(), release.releasedAt()).toMillis());
     }
 }

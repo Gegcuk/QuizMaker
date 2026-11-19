@@ -6,6 +6,25 @@ Synchronized: **23 October 2026**. This register summarizes approved issue claus
 
 Use [open questions](open-questions.md) for unresolved choices, conflicting clauses, engineering preparation, and ownership gaps. The [target architecture](policy-driven-quiz-execution.md) explains the model.
 
+<a id="result-notification-producer"></a>
+## Initial durable result-notification producer (#837) — DECIDED
+
+**Decision date/source:** 19 November 2026, explicit owner approval of option A in the #837
+implementation chat: produce events for new releases, without historical backfill. The owner
+reports that no old releases exist; this context is not an inventory of every deployed database.
+
+The first producer is the real #556 immediate-release transaction. Its release, trace and one
+immutable notification reference commit together. Replays retain the same source identity and
+do not emit a second event or synthesize historical notices. Existing release acknowledgements
+remain compatible. The event records only immutable source/result references, time and permitted
+notification categories; no answers, contact information, score values or private reason text.
+
+The #800 consumer owns current recipient/access checks, in-app notices, preferences, delivery,
+deduplication and any sending acknowledgement. Reading an event does not acknowledge/delete it.
+First release adds no email category. Other source kinds have classification contracts only;
+their actual producer integration remains gated on the named real writers and #837 source tests.
+Neither the classifier nor this foundation activates scheduled/certificate/correction notices.
+
 <a id="fixed-form-integrity"></a>
 ## Fixed-form integrity and pre-fingerprint forms (#613) — DECIDED
 
