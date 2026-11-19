@@ -5562,6 +5562,55 @@ TOPIC_MASTERY_GAP (future; requires separately approved mastery definition)
 
 The [clean-start clarification](./decision-register.md#learning-clean-start) confirms that no current quiz/question uses repetitions. New Learning starts clean by explicit user action, without SM-2 import, mandatory old-route adapters or dual-writer cutover. Do not infer FSRS state from old fields or ordinary quiz scores. Verify the target-scope assumption before any later obsolete-code/data cleanup; ordinary quiz and training API behavior remains protected. Personal model fitting and any actual future import are separately scoped.
 
+### Reproducible FSRS calculation (#577)
+
+`features/learning` provides the dark `LearningSchedulingStrategy` interface and
+`FsrsSchedulingStrategyImpl`. It pins `io.github.open-spaced-repetition:fsrs:1.0.0`, release
+commit `c561ee6c56239b621a0a45b16a6c2e688441eae5`, behind project-owned types. `FsrsManifest`
+captures the complete Q91 vector, FSRS-6, configuration/time-mapping versions, retention 0.90,
+learning steps 60/600 seconds, relearning 600 seconds, maximum 3650 days and disabled fuzz.
+Unknown or modified manifests are rejected; caller lists/arrays and upstream mutable getters
+cannot reinterpret a captured configuration. Spring Boot continues to manage Jackson versions.
+
+The schedule identity is learner + quiz + quiz revision + question revision + cycle, independent
+of session/form/entry-point identity. A custom strategy may reuse that identity vocabulary but
+owns its own configuration/state and calendar arithmetic. This calculation contract does not
+create enrollment, decide access or establish active-cycle uniqueness. Trusted callers resolve
+current learner/content authority and capture the identity before calculation.
+
+Initial state has sequence zero and an explicit supplied due Instant. A review carries its
+stable review ID, exact identity, expected sequence, rating and supplied review Instant. A
+successful calculation returns a new state and the same review evidence without mutating the
+input. A different identity, stale sequence, backwards time or unsupported calculation fails
+with a bounded reason. A day interval exceeding the pinned engine's signed-int representation
+is rejected as a calculation failure before returning a wrapped interval; it is not clamped by
+a replacement scheduler. Same-input reconstruction is deterministic; this is not durable review
+deduplication. #649 must save the state and review receipt atomically, reconcile response loss
+and enforce one active cycle; #650/#667 own real command/concurrency conformance.
+
+`FsrsStateFormat` stores only project-owned versioned manifest/state/transition JSON, including
+explicit nullable fresh-state fields. It rejects unknown fields/versions, scalar coercions,
+duplicates, trailing JSON and oversized input. Library JSON, integer card IDs, system-clock
+defaults, assessment scores, mastery and question/answer content are not stored. Supplied
+Instant precision is retained; a future writer must capture any storage precision normalization
+before calculation and persist exactly the time it supplied, rather than rounding afterward.
+
+The adapter uses elapsed full 24-hour days, the pinned positive-day rounding and actual review
+time. Profile-local activity grouping does not move deadlines. For a fresh item at
+`2026-10-24T09:00:00Z`, AGAIN/HARD/GOOD yield 60/330/600 seconds; EASY yields
+`2026-11-09T09:00:00Z`. The retained EARLY/overdue/relearning transitions and London spring/fall
+DST fixtures are calculation evidence, not measured recall quality or production capacity.
+
+The 19 November 2026 pre-implementation read-only production check found no enabled repetition
+quizzes, `spaced_repetition_entry` rows or `repetition_review_log` rows (three existence results
+were zero). This dated observation does not authorize later cleanup or replace a new inventory
+for another environment/time. No legacy writer/route/storage is changed here.
+
+#577 adds no endpoint, database migration, enrollment/session writer, Learning activation or
+custom-plan implementation. #575/#649/#578/#667 retain those boundaries; #839/#840/#841 and
+public mastery #847 remain separately owned. Future observability uses bounded strategy,
+manifest/state/time-mapping version and outcome/drift dimensions, never learner IDs or payloads.
+
 ### First enrollment, selection and public progress
 
 [23 October scope](decision-register.md#learning-initial-selection-and-mastery) selects bounded page/session sizes without a daily Learning quota. With 100 due items and a batch of 20, finishing the batch permits continuing that day. Command-rate limits are independent. Public mastery is deferred to #847; desired retention, exam scores and finite-plan completion retain distinct names and meanings.
