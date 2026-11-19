@@ -2,6 +2,58 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Read-only due selection (#576)
+
+Use JDK 17, the existing fake/offline environment and disposable MySQL:
+
+```bash
+./mvnw test -Dtest=LearningDueSelectionSpringTest,LearningScheduleMySqlIntegrationTest,LearningScheduleSpringTest,LearningSessionSpringMySqlIntegrationTest
+```
+
+The internal selector requires an explicit positive server setting,
+`quizmaker.learning.due.max-batch-size`. There is no production default or daily study quota.
+The configured value 20 in tests is a fixture. Missing/invalid configuration denies selection;
+the request cannot raise the bound or supply a learner or clock. The bound must leave room for
+one lookahead row. Results distinguish a full batch, a partial batch and no currently due items.
+
+Use real #649 enrollment/review writers over #597 immutable sources. Verify earliest due first,
+inclusive server-time boundary, unsigned UUID ties, stable repeat, keyset pages and reconstruction.
+An unchanged 100-item fixture pages without writes; five real 20-item review batches remain
+available on the same date. Compare all authoritative Learning rows before/after reads and retain
+the existing legacy fixtures. Selection itself creates no session, cycle, review or assessment.
+
+Current source access is a named contract fixture, as in #649. Fail closed for absent/ambiguous
+authority, foreign sources, inactive users and unknown strategy/state/manifest versions. An
+unsupported future-due state must not be disguised as an empty result. Corrupt selected evidence
+fails without repair. Custom pause/finite-completion and nested-source eligibility require their
+real #839/#840/#841 integrations; this FSRS-only boundary does not manufacture those states.
+
+The MySQL companion measures three SELECTs with the scalar identity/access fixture: identity,
+source identity and one batch query. Returned rows are bounded by the requested size plus three
+(two metadata rows and one lookahead). Compare one versus twenty items across learners/sources
+and a 501-question source with large content; inspect the actual bound EXPLAIN plans. No JPA
+relationships, question/answer content, schedule history scan or per-item round trip is used.
+SQL may inspect/sort all active slot metadata within the authorized source: bounded returned
+rows and query count do not establish constant CPU cost or production capacity.
+
+The Spring/MySQL companion uses the real method-security, user lookup, repository and
+SafeJpaTransactionManager proxies. Prove actual RC on the RR-default pool, read-only standalone
+ownership, compatible read-only/writable outer RC and caller rollback. Unsupported/default
+caller metadata rejects before selection work. Reach real source/batch queries, inject ordinary,
+1205 and 1213 driver failures, inspect nested transaction TRACE messages/throwable graphs and
+verify caller writes before and after a caught read failure roll back. Retry the successful path.
+
+After stable implementation inputs, use the complete existing gate and match its source/bytecode
+fingerprints to the reviewed candidate tree; inspect Markdown separately:
+
+```bash
+python3 tools/testing/context_benchmark.py verify --workers 4 \
+  --output /private/tmp/quizmaker-576-verify-<unique-run>
+```
+
+No public Learning endpoint, form materialization, random presentation or arbitrary response
+order is activated. #578/#650/#692/#667 retain their real integration and activation evidence.
+
 ## Durable Learning schedules and common cycles (#649)
 
 Use JDK 17, the existing offline/fake environment and a disposable MySQL server:

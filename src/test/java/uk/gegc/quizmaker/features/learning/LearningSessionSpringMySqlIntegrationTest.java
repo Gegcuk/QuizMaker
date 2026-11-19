@@ -50,6 +50,9 @@ import uk.gegc.quizmaker.features.learning.application.impl.LearningSessionServi
 import uk.gegc.quizmaker.features.learning.application.impl.LearningFormServiceImpl;
 import uk.gegc.quizmaker.features.learning.application.impl.LearningScheduleServiceImpl;
 import uk.gegc.quizmaker.features.learning.application.impl.FsrsSchedulingStrategyImpl;
+import uk.gegc.quizmaker.features.learning.application.impl.LearningDueSelectionServiceImpl;
+import uk.gegc.quizmaker.features.learning.config.LearningDueSelectionConfig;
+import uk.gegc.quizmaker.features.learning.infra.repository.JdbcLearningDueSelectionRepository;
 import uk.gegc.quizmaker.features.learning.domain.model.*;
 import uk.gegc.quizmaker.features.learning.infra.repository.JdbcLearningSessionRepository;
 import uk.gegc.quizmaker.features.learning.infra.repository.JdbcLearningFormRepository;
@@ -80,6 +83,7 @@ import static uk.gegc.quizmaker.features.learning.domain.model.LearningSessionEx
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test-mysql")
 @TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=none", "spring.flyway.enabled=true",
+        "quizmaker.learning.due.max-batch-size=20",
         "spring.datasource.hikari.transaction-isolation=TRANSACTION_REPEATABLE_READ"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -87,7 +91,8 @@ import static uk.gegc.quizmaker.features.learning.domain.model.LearningSessionEx
         mergeMode = TestExecutionListeners.MergeMode.MERGE_WITH_DEFAULTS)
 @Import({LearningSessionServiceImpl.class, JdbcLearningSessionRepository.class, LearningFormServiceImpl.class,
         JdbcLearningFormRepository.class, LearningScheduleServiceImpl.class, JdbcLearningScheduleRepository.class,
-        FsrsSchedulingStrategyImpl.class, AuthenticatedUserLookupImpl.class,
+        FsrsSchedulingStrategyImpl.class, AuthenticatedUserLookupImpl.class, LearningDueSelectionServiceImpl.class,
+        JdbcLearningDueSelectionRepository.class, LearningDueSelectionConfig.class,
         TransactionConfig.class, LearningSessionSpringMySqlIntegrationTest.Config.class})
 class LearningSessionSpringMySqlIntegrationTest {
     private static final String SCHEMA = "learning_session_spring_" + UUID.randomUUID().toString().replace("-", "");
@@ -133,6 +138,8 @@ class LearningSessionSpringMySqlIntegrationTest {
     @Autowired LearningSessionService service;
     @Autowired LearningFormService forms;
     @Autowired LearningScheduleService schedules;
+    @Autowired LearningDueSelectionService due;
+    @MockitoSpyBean JdbcLearningDueSelectionRepository dueRepository;
     @Autowired JdbcLearningScheduleRepository scheduleRepository;
     @Autowired JdbcLearningFormRepository formRepository;
     @Autowired AuthenticatedUserLookup users;
@@ -223,6 +230,77 @@ class LearningSessionSpringMySqlIntegrationTest {
         var committed = schedules.execute(enrollSchedule()).snapshot();
         assertThat(schedules.read(command().source(), QUESTION)).isEqualTo(committed);
         assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+    }
+
+    private LearningDueSelectionService.Select dueRequest() {
+        return new LearningDueSelectionService.Select(1, command().source(), 20, null);
+    }
+
+    @Test void dueSelectionProductionProxiesOwnReadonlyRcAndJoinBothCompatibleCallerModes() {
+        var saved = schedules.execute(enrollSchedule()).snapshot();
+        assertThat(AopUtils.isAopProxy(due)).isTrue(); assertThat(AopUtils.isAopProxy(dueRepository)).isTrue();
+        JdbcLearningDueSelectionRepository target = AopTestUtils.getUltimateTargetObject(dueRepository);
+        var reached = new java.util.concurrent.atomic.AtomicInteger();
+        var expectedReadOnly = new AtomicBoolean(true);
+        doAnswer(call -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+            assertThat(TransactionSynchronizationManager.isCurrentTransactionReadOnly()).isEqualTo(expectedReadOnly.get());
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+            reached.incrementAndGet(); return call.callRealMethod();
+        }).when(target).find(any(), any(), any(), any(), anyInt());
+        assertThat(due.select(dueRequest()).items()).extracting(LearningDueSelection.Item::expected).containsExactly(saved.expected());
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+        for (boolean readOnly : List.of(false, true)) {
+            expectedReadOnly.set(readOnly);
+            var caller = new TransactionTemplate(manager); caller.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+            caller.setReadOnly(readOnly);
+            caller.executeWithoutResult(status -> {
+                assertThat(due.select(dueRequest()).items()).hasSize(1);
+                assertThat(TransactionSynchronizationManager.isCurrentTransactionReadOnly()).isEqualTo(readOnly);
+            });
+        }
+        assertThat(reached.get()).isEqualTo(3);
+        var caller = new TransactionTemplate(manager); caller.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        expectedReadOnly.set(false);
+        caller.executeWithoutResult(status -> {
+            service.create(command()); assertThat(due.select(dueRequest()).items()).hasSize(1); status.setRollbackOnly();
+        });
+        assertEmpty(); assertThat(schedules.read(command().source(), QUESTION)).isEqualTo(saved);
+        for (int isolation : List.of(TransactionDefinition.ISOLATION_DEFAULT, TransactionDefinition.ISOLATION_REPEATABLE_READ)) {
+            caller.setIsolationLevel(isolation);
+            caller.executeWithoutResult(status -> {
+                assertThatThrownBy(() -> due.select(dueRequest())).isInstanceOfSatisfying(LearningScheduleException.class,
+                        failure -> assertThat(failure.reason()).isEqualTo(LearningScheduleException.Reason.UNSUPPORTED_TRANSACTION));
+            });
+        }
+    }
+
+    static Stream<Arguments> dueFailures() {
+        return Stream.of("SELECT id FROM quiz_revisions", "WITH candidates")
+                .flatMap(checkpoint -> Stream.of(0, 1205, 1213).map(code -> Arguments.of(checkpoint, code)));
+    }
+
+    @ParameterizedTest @MethodSource("dueFailures")
+    void reachedDueReadFailuresAreSanitizedBeforeNestedTraceAndCaughtFailuresRollbackCaller(String checkpoint, int code) {
+        var initial = schedules.execute(enrollSchedule()).snapshot();
+        var caller = new TransactionTemplate(manager); caller.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        try (var logs = new TransactionLogs()) {
+            assertThatThrownBy(() -> caller.executeWithoutResult(status -> {
+                service.create(command());
+                faultJdbc.armForm(checkpoint, code);
+                var failure = catchThrowable(() -> due.select(dueRequest()));
+                if (code == 0) assertThat(failure).isInstanceOfSatisfying(LearningScheduleException.class,
+                        value -> assertThat(value.reason()).isEqualTo(LearningScheduleException.Reason.PERSISTENCE_UNAVAILABLE));
+                else assertSafeConflict(failure, code);
+                assertThat(failure).hasNoCause(); assertThat(failure.getSuppressed()).isEmpty();
+                assertThat(faultJdbc.reached).isTrue(); assertThat(status.isRollbackOnly()).isTrue();
+                service.create(command());
+                assertCounts(2);
+            })).isInstanceOf(UnexpectedRollbackException.class);
+            logs.assertCleanFailure(JdbcLearningDueSelectionRepository.class, checkpoint.startsWith("SELECT") ? "sourceExists" : "find");
+        } finally { faultJdbc.reset(); }
+        assertEmpty(); assertThat(schedules.read(command().source(), QUESTION)).isEqualTo(initial);
+        assertThat(due.select(dueRequest()).items()).hasSize(1);
     }
 
     static Stream<Arguments> scheduleFailures() {
