@@ -4,6 +4,8 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.flywaydb.core.Flyway;
 import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.data.jpa.repository.support.JpaRepositoryFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -16,6 +18,8 @@ import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.attempt.application.AuthenticatedSubjectResolver;
 import uk.gegc.quizmaker.features.attempt.application.impl.AuthenticatedSubjectResolverImpl;
 import uk.gegc.quizmaker.features.auth.infra.security.UserDetailsServiceImpl;
@@ -149,14 +153,22 @@ class AuthenticatedSubjectResolverMySqlIntegrationTest {
         assertThat(resolver.resolve(UUID.randomUUID()).userId()).isEqualTo(control.id());
     }
 
-    @Test
-    void multipleUsersWithRolesAndPermissionsRequireExactlyOneScalarQueryEach() {
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void multipleUsersWithRolesAndPermissionsRequireExactlyOneScalarQueryEach(boolean locking) {
         var fixtures = List.of(user(true, false), user(true, false), user(true, false));
         sessions.getStatistics().clear();
-        for (var fixture : fixtures) {
-            authenticate(token(principal(fixture.name())));
-            assertThat(resolver.resolve(UUID.randomUUID()).userId()).isEqualTo(fixture.id());
-        }
+        Runnable read = () -> {
+            for (var fixture : fixtures) {
+                authenticate(token(principal(fixture.name())));
+                assertThat((locking ? resolver.resolveCurrent(UUID.randomUUID()) : resolver.resolve(UUID.randomUUID()))
+                        .userId()).isEqualTo(fixture.id());
+            }
+        };
+        if (locking) {
+            var transaction = new TransactionTemplate(new JpaTransactionManager(factory.getObject()));
+            transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+            transaction.executeWithoutResult(status -> read.run());
+        } else read.run();
         var statistics = sessions.getStatistics();
         assertThat(statistics.getPrepareStatementCount()).isEqualTo(3);
         assertThat(statistics.getQueryExecutionCount()).isEqualTo(3);

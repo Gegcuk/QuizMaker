@@ -1,10 +1,12 @@
 package uk.gegc.quizmaker.features.user.application.impl;
 
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.user.application.AuthenticatedUserLookup;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
+import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -21,7 +23,8 @@ public class AuthenticatedUserLookupImpl implements AuthenticatedUserLookup {
         if (trustedUsername == null || trustedUsername.isBlank() || trustedUsername.length() > 50) {
             return Optional.empty();
         }
-        return users.findActiveAuthenticatedUserId(trustedUsername);
+        try { return users.findActiveAuthenticatedUserId(trustedUsername); }
+        catch (DataAccessException failure) { throw SafeDataAccess.sanitize(failure); }
     }
 
     @Override
@@ -30,6 +33,8 @@ public class AuthenticatedUserLookupImpl implements AuthenticatedUserLookup {
         if (trustedUsername == null || trustedUsername.isBlank() || trustedUsername.length() > 50) {
             return Optional.empty();
         }
-        return users.lockActiveAuthenticatedUserId(trustedUsername);
+        // Redact here, before this facade's own MANDATORY transaction interceptor logs the error.
+        try { return users.lockActiveAuthenticatedUserId(trustedUsername); }
+        catch (DataAccessException failure) { throw SafeDataAccess.sanitize(failure); }
     }
 }
