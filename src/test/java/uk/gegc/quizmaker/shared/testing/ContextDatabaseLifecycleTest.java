@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.shared.testing;
 
 import jakarta.persistence.EntityManagerFactory;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.autoconfigure.jdbc.JdbcTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.test.annotation.DirtiesContext.HierarchyMode;
 import org.springframework.test.context.TestContext;
@@ -32,10 +33,22 @@ class ContextDatabaseLifecycleTest {
     }
 
     @Test
+    void closesJdbcSliceAfterTopLevelSuiteWithoutLookingUpJpaBeans() {
+        TestContext context = contextFor(LifecycleJdbcSliceFixture.class);
+        when(context.hasApplicationContext()).thenReturn(true);
+
+        new ContextDatabaseLifecycle(() -> true).afterTestClass(context);
+
+        verify(context).markApplicationContextDirty(HierarchyMode.EXHAUSTIVE);
+        verify(context, never()).getApplicationContext();
+    }
+
+    @Test
     void doesNotRecreateAlreadyClosedContextOrCloseEnclosingSuiteEarly() {
-        TestContext closed = contextFor(ContextDatabaseLifecycleTest.class);
+        TestContext closed = contextFor(LifecycleJdbcSliceFixture.class);
         new ContextDatabaseLifecycle(() -> true).afterTestClass(closed);
         verify(closed, never()).getApplicationContext();
+        verify(closed, never()).markApplicationContextDirty(any());
         TestContext nested = contextFor(NestedFixture.class);
         new ContextDatabaseLifecycle(() -> true).afterTestClass(nested);
         verify(nested, never()).hasApplicationContext();
@@ -59,5 +72,9 @@ class ContextDatabaseLifecycleTest {
         return context;
     }
 
+    @JdbcTest
     private static class NestedFixture {}
 }
+
+@JdbcTest
+class LifecycleJdbcSliceFixture {}

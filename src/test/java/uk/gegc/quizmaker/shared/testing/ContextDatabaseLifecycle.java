@@ -1,13 +1,15 @@
 package uk.gegc.quizmaker.shared.testing;
 
 import jakarta.persistence.EntityManagerFactory;
+import org.springframework.boot.test.autoconfigure.jdbc.JdbcTest;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.test.annotation.DirtiesContext.HierarchyMode;
 import org.springframework.test.context.TestContext;
 import org.springframework.test.context.support.AbstractTestExecutionListener;
 
 import java.util.function.BooleanSupplier;
 
-/** Prevents cached JPA contexts from outliving a shared create-drop schema in a worker. */
+/** Closes JPA contexts for schema isolation and JDBC slices to release their pools between worker suites. */
 public final class ContextDatabaseLifecycle extends AbstractTestExecutionListener {
     private final BooleanSupplier enabled;
 
@@ -30,7 +32,9 @@ public final class ContextDatabaseLifecycle extends AbstractTestExecutionListene
         if (!enabled.getAsBoolean() || context.getTestClass().getEnclosingClass() != null
                 || !context.hasApplicationContext()) return;
         // Do not create a context or instantiate lazy beans merely to close it.
-        if (context.getApplicationContext().getBeanNamesForType(EntityManagerFactory.class, false, false).length > 0)
+        if (AnnotatedElementUtils.hasAnnotation(context.getTestClass(), JdbcTest.class)
+                || context.getApplicationContext().getBeanNamesForType(EntityManagerFactory.class, false, false).length > 0) {
             context.markApplicationContextDirty(HierarchyMode.EXHAUSTIVE);
+        }
     }
 }
