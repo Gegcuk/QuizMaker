@@ -13,6 +13,7 @@ import time
 PREFIX = "[ci-resources] "
 PROCESS_LIMIT = 4096
 TOP_PROCESSES = 8
+TRACKED_PROCESSES = 64
 CGROUP_LEVELS = 8
 MEMORY_KEYS = {"MemTotal", "MemAvailable", "SwapTotal", "SwapFree"}
 PROCESS_KINDS = {"java", "mysqld", "dockerd", "containerd", "socat", "node", "python3",
@@ -42,7 +43,8 @@ def pressure(path):
 def processes(proc):
     """Read one small stat file per PID, never cmdline, environ, or arbitrary names."""
     total_rss, total_threads, count = 0, 0, 0
-    largest, kinds = [], {}
+    largest, tracked, kinds = [], [], {}
+    tracked_count = 0
     truncated = False
     page_kib = os.sysconf("SC_PAGE_SIZE") // 1024
     with os.scandir(proc) as entries:
@@ -63,13 +65,20 @@ def processes(proc):
                 kinds[kind] = kinds.get(kind, 0) + 1
                 total_rss += rss
                 total_threads += threads
-                largest.append({"pid": int(entry.name), "kind": kind,
-                                "rss_kib": rss, "threads": threads})
+                item = {"pid": int(entry.name), "kind": kind, "rss_kib": rss, "threads": threads,
+                        "cpu_ticks": int(fields[11]) + int(fields[12]), "start_ticks": int(fields[19])}
+                largest.append(item)
                 largest = sorted(largest, key=lambda item: (-item["rss_kib"], item["pid"]))[:TOP_PROCESSES]
+                if kind in ("java", "mysqld"):
+                    tracked_count += 1
+                    tracked.append(item)
+                    tracked = sorted(tracked, key=lambda item: (-item["rss_kib"], item["pid"]))[:TRACKED_PROCESSES]
             except (OSError, ValueError, IndexError):
                 continue  # Processes can exit between directory listing and stat read.
     return {"scanned": count, "truncated": truncated, "rss_kib_sum": total_rss,
-            "threads_sum": total_threads, "kinds": kinds, "largest": largest}
+            "threads_sum": total_threads, "kinds": kinds, "largest": largest,
+            "tracked": tracked, "tracked_truncated": tracked_count > TRACKED_PROCESSES,
+            "clock_ticks_per_second": os.sysconf("SC_CLK_TCK")}
 
 
 def cgroups(proc, root):

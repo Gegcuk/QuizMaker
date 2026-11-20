@@ -5753,6 +5753,41 @@ age cleanup, new daily quota or public mastery metric is added. #576 consumes du
 and rate enforcement, and #667 the first real public conformance. Custom lifecycle/scheduling
 and nested selection remain #839/#840/#841. Existing legacy/quiz/training contracts stay intact.
 
+### Read-only due selection (#576)
+
+`LearningDueSelectionService` supplies an internal, authenticated, source-scoped read for
+future #578. It uses #649's active-cycle authority and exact state/initial-receipt/last-event
+validation. Server time and the authenticated active learner are authoritative. An explicit
+`quizmaker.learning.due.max-batch-size` is required; no numerical production default is added.
+Requests cannot raise this bound. Standalone calls own read-only RC and compatible outer
+read-only/writable RC participates. Incompatible/default caller metadata rejects before work.
+
+Select only due FSRS question revisions from the exact immutable quiz revision, earliest due
+first, then ascending unsigned question-revision UUID bytes. Equality with server time is due.
+Return immutable question/cycle/version/sequence provenance, server selection time, explicit
+READY/PARTIAL/EMPTY and a keyset continuation when another row exists. A repeated occurrence
+of the same question revision still has one schedule and one selected item; #578 resolves
+fixed-form occurrence/content contracts separately.
+
+The cursor is a position in current committed schedule state, not a durable session snapshot.
+Reviews/restarts between pages may change eligibility. #578 must revalidate/capture actual
+cycles and persist its fixed form; a selection alone cannot prevent a concurrent review.
+Selection order does not require sequential answers. Random presentation and arbitrary
+response order are not established by this port or by frontend reordering.
+
+There are no schedule, receipt, session, form or assessment writes and no schema migration,
+legacy import, read-time repair or fallback. Unknown strategy/state/manifest versions fail
+explicitly, including unsupported future-due headers. Missing/inconsistent selected evidence
+fails without inventing empty success. Current content authority remains a fail-closed port;
+the tests' access fixtures do not establish #692 public authorization. Custom pause/completion
+and nested eligibility retain their real #839/#840/#841 integration gates.
+
+The batch query uses existing learner/source slot indexes and bounded schedule JSON, never
+question/answer payload or a per-item query. LIMIT bounds returned rows, while ordering and
+header checks may examine the authorized source's active slots. This does not prove constant
+work as a quiz grows or production capacity. Real MySQL SQL/row counts, EXPLAIN and Spring
+transaction/error-proxy evidence are described in the [testing guide](../testing-guide.md#read-only-due-selection-576).
+
 ### First enrollment, selection and public progress
 
 [23 October scope](decision-register.md#learning-initial-selection-and-mastery) selects bounded page/session sizes without a daily Learning quota. With 100 due items and a batch of 20, finishing the batch permits continuing that day. Command-rate limits are independent. Public mastery is deferred to #847; desired retention, exam scores and finite-plan completion retain distinct names and meanings.

@@ -80,7 +80,7 @@ class CiEnvironmentTest(unittest.TestCase):
         self.assertEqual(2, result.returncode)
         self.assertNotIn(b"private-command-marker", result.stderr)
 
-    def workflow_command(self, exit_code):
+    def workflow_command(self, exit_code, resource_diagnostics='false'):
         with tempfile.TemporaryDirectory(prefix="quizmaker-ci-environment-") as temporary:
             root = Path(temporary)
             binary = root / "bin"
@@ -112,6 +112,8 @@ class CiEnvironmentTest(unittest.TestCase):
             environment = self.environment(exit_code)
             environment.update({"PATH": str(binary) + os.pathsep + environment['PATH'],
                                 "USER": "fixture", "HOME": str(root), "NETNS": "fixture",
+                                "RUNNER_TEMP": str(root),
+                                "RESOURCE_DIAGNOSTICS": resource_diagnostics,
                                 "VERIFICATION_LOG": str(root / "verification.log")})
             lines = verification_script().splitlines()
             start = next(index for index, line in enumerate(lines) if 'runuser --user "$USER"' in line) - 1
@@ -132,7 +134,15 @@ class CiEnvironmentTest(unittest.TestCase):
         self.assertIsNone(actual['environment']['SUDO_ONLY'])
         self.assertIn('clean', actual['arguments'])
         self.assertIn('verify', actual['arguments'])
+        self.assertIn('-Dquizmaker.tests.resources.enabled=false', actual['arguments'])
+        self.assertIn('-Dquizmaker.tests.resources.directory=' + environment['RUNNER_TEMP']
+                      + '/quizmaker-test-resources', actual['arguments'])
         self.assertIn('-o', actual['arguments'])
+
+    def test_manual_diagnostics_enable_jvm_collection(self):
+        result, _ = self.workflow_command(0, resource_diagnostics='true')
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn('-Dquizmaker.tests.resources.enabled=true', json.loads(result.stdout)['arguments'])
 
     def test_workflow_handoff_preserves_maven_failure_status_through_tee(self):
         result, _ = self.workflow_command(23)

@@ -201,6 +201,14 @@ Legacy V108 and allowance `start_ids` are not changed. See the
 
 **Implementation owners:** #576 selection, #578 explicit enrollment/start boundary, #649 common active-cycle authority and FSRS state, #650 review, #667 first empty-state conformance; #839 custom plans reuse the shared cycle authority, #840 custom progression and #841 nested selection. #681 carries the refined A35 boundary.
 
+**Due-order refinement, 19 November 2026 (#576):** the owner approved option A in the
+implementation chat: earliest due instant first, then immutable question-revision ID in
+ascending unsigned UUID byte order. This is selection order, not a sequential-answer rule.
+Selection does not grant navigation/response actions or prescribe a future session's presentation
+order. Randomized presentation and free response order require their own #578/#650 contract;
+neither is established by a frontend rearranging the selection result. No numerical production
+batch default is selected; a server-configured bound is required before using the internal port.
+
 ## A01–A43: product decisions
 
 Every row below has a sourced approved clause. The interaction column identifies qualifications that prevent treating a row as a complete implementation specification. Follow the R refinements in the next section as well.

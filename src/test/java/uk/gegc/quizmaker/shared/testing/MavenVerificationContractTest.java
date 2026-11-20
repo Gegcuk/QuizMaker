@@ -226,10 +226,16 @@ class MavenVerificationContractTest {
                 .contains("exit $TEST_EXIT_CODE")
                 .contains("continue-on-error: false");
         assertThat(workflow.substring(summary, artifact))
-                .contains("if: ${{ always() && !cancelled() }}")
+                .contains("if: always() && !cancelled() && env.RESOURCE_DIAGNOSTICS == 'true'")
                 .contains("continue-on-error: true")
                 .contains("python3 -B .github/scripts/summarize_tests.py")
                 .contains("$GITHUB_STEP_SUMMARY");
+        assertThat(workflow)
+                .containsPattern("(?s)resource_diagnostics:\\s+description:[^\\n]+\\s+type: boolean\\s+default: false")
+                .contains("RESOURCE_DIAGNOSTICS: ${{ inputs.resource_diagnostics && 'true' || 'false' }}");
+        for (String step : List.of("Summarize test resource evidence", "Upload CI resource diagnostics")) {
+            assertThat(workflow).contains("- name: " + step + "\n        if: always() && env.RESOURCE_DIAGNOSTICS == 'true'");
+        }
     }
 
     @Test

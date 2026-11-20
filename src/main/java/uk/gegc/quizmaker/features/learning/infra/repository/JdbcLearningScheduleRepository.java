@@ -113,26 +113,7 @@ public class JdbcLearningScheduleRepository implements LearningScheduleRepositor
                 LEFT JOIN learning_review_event e ON e.cycle_id=f.cycle_id AND e.sequence=f.sequence
                 LEFT JOIN learning_schedule_receipt r ON r.learner_id=c.learner_id AND r.command_id=c.create_command_id
                 WHERE s.learner_id=:learner AND s.quiz_id=:quiz AND s.quiz_revision_id=:revision AND s.question_revision_id=:question
-                """, parameters(key), (row, index) -> {
-                    require(row.getBytes("active_cycle_id") != null, CORRUPT);
-                    require("fsrs/v1".equals(row.getString("strategy_id")), UNSUPPORTED_VERSION);
-                    var value = snapshot(row.getLong("cycle_version"), row.getString("state"));
-                    var id = value.state().identity();
-                    require(id.cycleId().equals(uuid(row, "active_cycle_id")) && id.learnerId().equals(key.learnerId())
-                            && id.quizId().equals(key.source().quizId()) && id.quizRevisionId().equals(key.source().quizRevisionId())
-                            && id.questionRevisionId().equals(key.questionRevisionId())
-                            && value.state().sequence() == row.getLong("sequence"), CORRUPT);
-                    var initial = snapshot(row.getLong("initial_version"), row.getString("initial_state"));
-                    require(initial.cycleVersion() == value.cycleVersion() && initial.state().sequence() == 0
-                            && initial.state().identity().equals(id) && initial.state().manifest().equals(value.state().manifest())
-                            && initial.state().dueAt().equals(row.getObject("created_at", LocalDateTime.class).toInstant(ZoneOffset.UTC)), CORRUPT);
-                    if (value.state().sequence() == 0) require(initial.equals(value), CORRUPT);
-                    else {
-                        require(row.getString("transition") != null, CORRUPT);
-                        require(format.decodeTransition(row.getString("transition")).state().equals(value.state()), CORRUPT);
-                    }
-                    return value;
-                }).stream().findFirst());
+                """, parameters(key), (row, index) -> LearningScheduleEvidence.read(row, key)).stream().findFirst());
     }
 
     @Override public void createCycle(Key key, Snapshot next, long expectedVersion, UUID commandId) {

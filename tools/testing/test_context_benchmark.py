@@ -119,6 +119,19 @@ class RunnerTest(unittest.TestCase):
         self.assertEqual('-Xms128m -Xmx1g -XshowSettings:vm', environment['MAVEN_OPTS'])
         self.assertEqual('-Xms256m -Xmx2g -Djava.net.preferIPv4Stack=true', environment['JAVA_TOOL_OPTIONS'])
 
+    def test_resource_recording_is_opt_in_and_survives_maven_clean(self):
+        for enabled in (False, True):
+            with self.subTest(enabled=enabled), patch.object(bench, 'databases'), \
+                    patch.object(bench, 'safe_environment'), patch.object(bench, 'fingerprint'), \
+                    patch.object(bench, 'maven', side_effect=RuntimeError('stop at Maven')) as maven:
+                options = {'resource_diagnostics': True} if enabled else {}
+                with self.assertRaisesRegex(RuntimeError, 'stop at Maven'):
+                    bench.run(4, self.root, 'mysql:8.4', 'full', **options)
+                args = maven.call_args.args[0]
+                self.assertEqual(enabled, '-Dquizmaker.tests.resources.enabled=true' in args)
+                self.assertEqual(enabled, f'-Dquizmaker.tests.resources.directory={self.root / "test-resource-evidence"}' in args)
+                self.assertIn('verify', args)
+
     def test_new_and_duplicate_manifest_classes_fail_validation(self):
         self.assertTrue(bench.inventory()['contexts'])
         original = bench.MANIFEST.read_text()

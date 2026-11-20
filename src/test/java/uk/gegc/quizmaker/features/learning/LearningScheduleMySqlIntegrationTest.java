@@ -21,6 +21,8 @@ import uk.gegc.quizmaker.features.learning.domain.repository.LearningScheduleRep
 import uk.gegc.quizmaker.features.learning.domain.repository.LearningScheduleRepository.ActiveCycle;
 import uk.gegc.quizmaker.features.learning.infra.repository.*;
 import uk.gegc.quizmaker.features.learning.infra.scheduling.FsrsStateFormat;
+import uk.gegc.quizmaker.features.learning.config.LearningDueSelectionConfig;
+import uk.gegc.quizmaker.features.learning.domain.model.LearningDueSelection;
 import uk.gegc.quizmaker.features.question.domain.model.*;
 import uk.gegc.quizmaker.features.question.domain.model.contract.*;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.*;
@@ -589,6 +591,219 @@ class LearningScheduleMySqlIntegrationTest {
             }
         }
         assertThat(count("learning_review_event")).isZero();
+    }
+
+    @Test void dueSelectionUsesRealStateAndStableUnsignedTiesWithoutWritingOrImplicitEnrollment() {
+        var selector = due(Clock.fixed(TIME.plusNanos(789), ZoneOffset.UTC), 20);
+        var empty = selector.select(select(ref(revision), 2, null));
+        assertThat(empty.outcome()).isEqualTo(LearningDueSelection.Outcome.EMPTY);
+        assertThat(count("learning_schedule_slot")).isZero();
+        var originals = java.util.stream.IntStream.range(0, 3).mapToObj(i -> schedules.execute(enroll(i)).snapshot()).toList();
+        var before = learningState();
+        source.reset();
+        var first = selector.select(select(ref(revision), 2, null));
+        assertThat(first.items()).extracting(LearningDueSelection.Item::questionRevisionId)
+                .containsExactlyElementsOf(originals.stream().map(s -> s.state().identity().questionRevisionId())
+                        .sorted(Comparator.comparing(UUID::toString)).limit(2).toList());
+        assertThat(first.selectedAt()).isEqualTo(TIME); assertThat(first.next()).isNotNull();
+        assertThat(first.outcome()).isEqualTo(LearningDueSelection.Outcome.READY);
+        assertThat(source.statements.get()).hasSize(3).allSatisfy(query ->
+                assertThat(query.stripLeading()).matches("(?s)(SELECT|WITH).*").doesNotContain("FOR UPDATE", "FOR SHARE", "question_text", "q.content"));
+        assertThat(source.rows.get()).isEqualTo(5); // identity + source + limit/one lookahead
+        assertThat(selector.select(select(ref(revision), 2, null))).isEqualTo(first);
+        var last = due(Clock.fixed(TIME, ZoneId.of("Pacific/Auckland")), 20).select(select(ref(revision), 2, first.next()));
+        assertThat(last.items()).hasSize(1); assertThat(last.next()).isNull();
+        assertThat(last.outcome()).isEqualTo(LearningDueSelection.Outcome.PARTIAL);
+        var all = new ArrayList<>(first.items()); all.addAll(last.items());
+        assertThat(all).extracting(LearningDueSelection.Item::questionRevisionId)
+                .containsExactlyElementsOf(originals.stream().map(s -> s.state().identity().questionRevisionId())
+                        .sorted(Comparator.comparing(UUID::toString)).toList());
+        for (var item : all) assertThat(item.expected()).isEqualTo(originals.stream()
+                .filter(s -> s.state().identity().questionRevisionId().equals(item.questionRevisionId())).findFirst().orElseThrow().expected());
+        assertThat(learningState()).isEqualTo(before);
+    }
+
+    @Test void dueBoundaryUsesServerInstantAndOldestDuePrecedesQuestionIdentity() {
+        var older = schedules(new HookRepository(), Clock.fixed(TIME.minusSeconds(10), ZoneOffset.UTC)).execute(enroll(2)).snapshot();
+        var current = schedules.execute(enroll(0)).snapshot();
+        var future = schedules.execute(enroll(1)).snapshot(); schedules.execute(rate(future, Rating.EASY));
+        var before = learningState();
+        assertThat(due(Clock.fixed(TIME.minusNanos(1000), ZoneOffset.UTC), 20).select(select(ref(revision), 20, null)).items())
+                .extracting(LearningDueSelection.Item::questionRevisionId).containsExactly(older.state().identity().questionRevisionId());
+        var atBoundary = due(Clock.fixed(TIME, ZoneOffset.UTC), 20).select(select(ref(revision), 20, null));
+        assertThat(atBoundary.items()).extracting(LearningDueSelection.Item::questionRevisionId)
+                .containsExactly(older.state().identity().questionRevisionId(), current.state().identity().questionRevisionId());
+        assertThat(learningState()).isEqualTo(before);
+    }
+
+    @Test void hundredDueItemsRemainReachableAcrossPagesAndRealReviewBatchesOnTheSameDate() {
+        var hundred = revision(UUID.randomUUID(), 100); permitted.add(ref(hundred));
+        for (var item : hundred.items()) schedules.execute(new Enroll(1, UUID.randomUUID(), ref(hundred), item.question().id(), FsrsManifest.approved()));
+        var selector = due(Clock.fixed(TIME, ZoneOffset.UTC), 20);
+        var before = learningState();
+        LearningDueSelection.Cursor cursor = null;
+        var paged = new ArrayList<UUID>();
+        do {
+            var page = selector.select(select(ref(hundred), 20, cursor));
+            assertThat(page.items()).hasSize(20);
+            paged.addAll(page.items().stream().map(LearningDueSelection.Item::questionRevisionId).toList());
+            cursor = page.next();
+        } while (cursor != null);
+        assertThat(paged).hasSize(100).doesNotHaveDuplicates().isSortedAccordingTo(Comparator.comparing(UUID::toString));
+        assertThat(learningState()).isEqualTo(before);
+        var reviewed = new HashSet<UUID>();
+        for (int batch = 0; batch < 5; batch++) {
+            var page = selector.select(select(ref(hundred), 20, null));
+            assertThat(page.items()).hasSize(20);
+            for (var item : page.items()) {
+                assertThat(reviewed.add(item.questionRevisionId())).isTrue();
+                schedules.execute(new Rate(1, UUID.randomUUID(), ref(hundred), item.questionRevisionId(), item.expected(), Rating.EASY));
+            }
+        }
+        assertThat(reviewed).hasSize(100);
+        assertThat(selector.select(select(ref(hundred), 20, null)).outcome()).isEqualTo(LearningDueSelection.Outcome.EMPTY);
+        assertThat(count("learning_review_event")).isEqualTo(100);
+        assertThat(count("learning_session")).isZero(); assertThat(count("attempt_automatic_result")).isZero();
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"strategy", "version", "manifest", "missing-state", "initial", "transition"})
+    void dueUnknownVersionsAndMissingEvidenceFailExplicitlyAndNeverRepair(String fault) {
+        var initial = schedules.execute(enroll(0)).snapshot();
+        if (fault.equals("version") || fault.equals("manifest") || fault.equals("transition")) schedules.execute(rate(initial, Rating.EASY));
+        switch (fault) {
+            case "strategy" -> sql.update("UPDATE learning_schedule_cycle SET strategy_id='custom/v1'");
+            case "version" -> sql.update("UPDATE learning_fsrs_state SET state=JSON_SET(state,'$.version',2)");
+            case "manifest" -> sql.update("UPDATE learning_fsrs_state SET state=JSON_SET(state,'$.manifest.version',2)");
+            case "missing-state" -> sql.update("DELETE FROM learning_fsrs_state");
+            case "initial" -> sql.update("UPDATE learning_schedule_receipt SET result_cycle_version=2");
+            case "transition" -> {
+                sql.update("UPDATE learning_review_event SET transition=JSON_SET(transition,'$.state.dueAt','2027-01-01T00:00:00Z')");
+                assertThat(new FsrsStateFormat().decodeTransition(sql.queryForObject("SELECT transition FROM learning_review_event", String.class))
+                        .state().dueAt()).isEqualTo(Instant.parse("2027-01-01T00:00:00Z"));
+            }
+            default -> throw new AssertionError(fault);
+        }
+        var before = learningState();
+        var expected = Set.of("strategy", "version", "manifest").contains(fault) ? UNSUPPORTED_VERSION : CORRUPT;
+        // Unsupported future state is checked even before due. Other corruption is exercised at due.
+        Instant at = fault.equals("transition") ? TIME.plus(Duration.ofDays(20)) : TIME;
+        rejected(() -> due(Clock.fixed(at, ZoneOffset.UTC), 20).select(select(ref(revision), 20, null)), expected);
+        assertThat(learningState()).isEqualTo(before);
+    }
+
+    @Test void dueSelectionReauthorizesAndCannotReadAnotherLearnerOrSource() {
+        schedules.execute(enroll(0));
+        var selector = due(Clock.fixed(TIME, ZoneOffset.UTC), 20);
+        as("bob", () -> {
+            assertThat(selector.select(select(ref(revision), 20, null)).outcome()).isEqualTo(LearningDueSelection.Outcome.EMPTY);
+            schedules.execute(enroll(1));
+            assertThat(selector.select(select(ref(revision), 20, null)).items())
+                    .extracting(LearningDueSelection.Item::questionRevisionId).containsExactly(question(1)); return null;
+        });
+        login("anna");
+        assertThat(selector.select(select(ref(revision), 20, null)).items())
+                .extracting(LearningDueSelection.Item::questionRevisionId).containsExactly(question(0));
+        permitted.clear();
+        rejected(() -> selector.select(select(ref(revision), 20, null)), SOURCE_UNAVAILABLE);
+        permitted.add(ref(revision));
+        sql.update("UPDATE users SET is_active=FALSE WHERE user_id=UUID_TO_BIN(?)", ANNA.toString());
+        rejected(() -> selector.select(select(ref(revision), 20, null)), UNAVAILABLE);
+    }
+
+    @Test void dueSqlFailureReachesRealQueryLeavesNoWritesAndRetrySucceeds() {
+        schedules.execute(enroll(0)); var before = learningState();
+        var selector = due(Clock.fixed(TIME, ZoneOffset.UTC), 20);
+        source.fault.set("WITH candidates");
+        rejected(() -> selector.select(select(ref(revision), 20, null)), PERSISTENCE_UNAVAILABLE);
+        assertThat(source.reached.get()).isOne(); assertThat(learningState()).isEqualTo(before);
+        assertThat(selector.select(select(ref(revision), 20, null)).items()).hasSize(1);
+    }
+
+    @Test void dueBatchQueryCountAndReturnedRowsAreBoundedAcrossParentsAndLargeContent() throws Exception {
+        var large = revision(UUID.randomUUID(), 501); permitted.add(ref(large));
+        schedules.execute(enroll(0)); as("bob", () -> schedules.execute(enroll(1))); login("anna");
+        for (int i = 0; i < 25; i++) schedules.execute(new Enroll(1, UUID.randomUUID(), ref(large), large.items().get(i).question().id(), FsrsManifest.approved()));
+        var selector = due(Clock.fixed(TIME, ZoneOffset.UTC), 20);
+        for (var scope : List.of(ref(revision), ref(large))) for (int size : List.of(1, 20)) {
+            source.reset(); var page = selector.select(select(scope, size, null));
+            assertThat(page.items()).hasSize(scope.equals(ref(revision)) ? 1 : size);
+            assertThat(source.statements.get()).hasSize(3).allSatisfy(statement ->
+                    assertThat(statement).doesNotContain("SELECT *", "question_text", "answers", "explanation", "FOR UPDATE", "FOR SHARE"));
+            assertThat(source.rows.get()).isLessThanOrEqualTo(size + 3);
+            for (var query : List.copyOf(source.reads.get())) {
+                var plan = sql.execute((org.springframework.jdbc.core.ConnectionCallback<String>) connection -> {
+                    try (var statement = connection.prepareStatement("EXPLAIN FORMAT=JSON " + query.sql())) {
+                        for (var parameter : query.parameters().entrySet()) statement.setObject(parameter.getKey(), parameter.getValue());
+                        try (var rows = statement.executeQuery()) { assertThat(rows.next()).isTrue(); return rows.getString(1); }
+                    }
+                });
+                var tree = new com.fasterxml.jackson.databind.ObjectMapper().readTree(plan);
+                assertThat(tree.findValuesAsText("access_type")).doesNotContain("ALL");
+            }
+        }
+        assertThat(count("learning_review_event")).isZero();
+    }
+
+    @Test void concurrentDueReadReturnsCommittedStateBeforeHeldReviewCommitsWithoutBlockingWriter() throws Exception {
+        var initial = schedules.execute(enroll(0)).snapshot();
+        var held = new HookRepository();
+        var reached = new CountDownLatch(1); var release = new CountDownLatch(1);
+        held.afterComplete = value -> { reached.countDown(); await(release); };
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var writer = pool.submit(() -> as("anna", () ->
+                    schedules(held, Clock.fixed(TIME, ZoneOffset.UTC)).execute(rate(initial, Rating.EASY))));
+            await(reached);
+            var reader = pool.submit(() -> as("anna", () ->
+                    due(Clock.fixed(TIME, ZoneOffset.UTC), 20).select(select(ref(revision), 20, null))));
+            var page = reader.get(30, TimeUnit.SECONDS);
+            assertThat(page.items()).extracting(LearningDueSelection.Item::expected).containsExactly(initial.expected());
+            assertThat(writer.isDone()).isFalse(); assertThat(release.getCount()).isOne();
+            release.countDown(); assertThat(writer.get(30, TimeUnit.SECONDS).snapshot().state().sequence()).isOne();
+            login("anna");
+            assertThat(due(Clock.fixed(TIME, ZoneOffset.UTC), 20).select(select(ref(revision), 20, null)).outcome())
+                    .isEqualTo(LearningDueSelection.Outcome.EMPTY);
+        } finally { release.countDown(); pool.shutdownNow(); assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue(); }
+    }
+
+    @Test void repeatedImmutableQuestionOccurrencesStillSelectOneQuizLocalSchedule() {
+        var question = revision.items().get(0).question();
+        var repeated = new QuizRevision(UUID.randomUUID(), UUID.randomUUID(), ANNA, 1, "Repeated source", null, TIME,
+                List.of(new QuizRevision.Item(UUID.randomUUID(), 0, question), new QuizRevision.Item(UUID.randomUUID(), 1, question)));
+        tx(TransactionDefinition.ISOLATION_READ_COMMITTED).executeWithoutResult(status ->
+                new JdbcQuizRevisionRepository(new NamedParameterJdbcTemplate(sql)).insert(repeated));
+        permitted.add(ref(repeated));
+        var original = schedules.execute(new Enroll(1, UUID.randomUUID(), ref(repeated), question.id(), FsrsManifest.approved())).snapshot();
+        var selected = due(Clock.fixed(TIME, ZoneOffset.UTC), 20).select(select(ref(repeated), 20, null));
+        assertThat(selected.items()).extracting(LearningDueSelection.Item::questionRevisionId).containsExactly(question.id());
+        assertThat(selected.items()).extracting(LearningDueSelection.Item::expected).containsExactly(original.expected());
+        assertThat(count("learning_schedule_slot")).isOne();
+    }
+
+    LearningDueSelectionService due(Clock clock, int maximum) {
+        var config = new LearningDueSelectionConfig(); config.setMaxBatchSize(maximum);
+        var identities = new AuthenticatedUserLookup() {
+            @Override public Optional<UUID> findActiveUserId(String name) {
+                return sql.query("SELECT BIN_TO_UUID(user_id) FROM users WHERE username=? AND is_active=TRUE AND is_deleted=FALSE",
+                        (r, n) -> UUID.fromString(r.getString(1)), name).stream().findFirst();
+            }
+            @Override public Optional<UUID> lockActiveUserId(String name) { throw new AssertionError("selection must not lock identity"); }
+        };
+        return new LearningDueSelectionServiceImpl(new JdbcLearningDueSelectionRepository(new NamedParameterJdbcTemplate(sql)),
+                identities, List.of(this::allows), config, clock, metrics, manager);
+    }
+    static LearningDueSelectionService.Select select(LearningSession.Source ref, int size, LearningDueSelection.Cursor after) {
+        return new LearningDueSelectionService.Select(1, ref, size, after);
+    }
+    static Map<String, List<Map<String, Object>>> learningState() {
+        var result = new LinkedHashMap<String, List<Map<String, Object>>>();
+        for (String table : List.of("learning_schedule_slot", "learning_schedule_cycle", "learning_fsrs_state",
+                "learning_schedule_receipt", "learning_review_event", "learning_cycle_session", "learning_session", "learning_form")) {
+            var rows = sql.queryForList("SELECT * FROM " + table + " ORDER BY 1,2");
+            rows.forEach(row -> row.replaceAll((column, value) -> value instanceof byte[] bytes ? HexFormat.of().formatHex(bytes) : value));
+            result.put(table, rows);
+        }
+        return result;
     }
 
     LearningScheduleService schedules(JdbcLearningScheduleRepository store, Clock clock) {

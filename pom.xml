@@ -29,6 +29,7 @@
         <java.version>17</java.version>
         <real-provider-excluded-groups>real-provider</real-provider-excluded-groups>
         <live-provider-tests.enabled>false</live-provider-tests.enabled>
+        <quizmaker.tests.resources.enabled>false</quizmaker.tests.resources.enabled>
     </properties>
 
     <dependencies>
@@ -382,6 +383,9 @@
                 <!-- GLOBAL configuration applies to ALL executions -->
                 <configuration>
                     <argLine>@{argLine} -Djdk.attach.allowAttachSelf=true -javaagent:${project.build.directory}/byte-buddy-agent.jar</argLine>
+                    <systemPropertyVariables>
+                        <quizmaker.tests.resources.enabled>${quizmaker.tests.resources.enabled}</quizmaker.tests.resources.enabled>
+                    </systemPropertyVariables>
 
                     <excludes>
                         <exclude>**/AiChatServiceIntegrationTest.java</exclude>
@@ -411,10 +415,14 @@
                         <goals><goal>test</goal></goals>
                         <configuration>
                             <excludedGroups>db-serial,real-provider</excludedGroups>
+                            <systemPropertyVariables>
+                                <quizmaker.tests.resources.lane>unit</quizmaker.tests.resources.lane>
+                            </systemPropertyVariables>
                             <failIfNoTests>false</failIfNoTests>
                             <properties>
                                 <configurationParameters>
                                     junit.jupiter.execution.parallel.enabled=true
+                                    junit.jupiter.extensions.autodetection.enabled=${quizmaker.tests.resources.enabled}
                                     junit.jupiter.execution.parallel.config.strategy=fixed
                                     junit.jupiter.execution.parallel.config.fixed.parallelism=4
                                     junit.jupiter.execution.parallel.config.fixed.max-pool-size=4
@@ -433,11 +441,13 @@
                             <excludedGroups>${real-provider-excluded-groups}</excludedGroups>
                             <failIfNoTests>false</failIfNoTests>
                             <systemPropertyVariables>
+                                <quizmaker.tests.resources.lane>db-serial</quizmaker.tests.resources.lane>
                                 <quizmaker.tests.live-provider>${live-provider-tests.enabled}</quizmaker.tests.live-provider>
                             </systemPropertyVariables>
                             <properties>
                                 <configurationParameters>
                                     junit.jupiter.execution.parallel.enabled=false
+                                    junit.jupiter.extensions.autodetection.enabled=${quizmaker.tests.resources.enabled}
                                 </configurationParameters>
                             </properties>
                         </configuration>
@@ -630,6 +640,7 @@
                                         <TEST_MYSQL_PORT>3390${surefire.forkNumber}</TEST_MYSQL_PORT>
                                     </environmentVariables>
                                     <systemPropertyVariables>
+                                        <quizmaker.tests.resources.lane>context</quizmaker.tests.resources.lane>
                                         <quizmaker.tests.live-provider>false</quizmaker.tests.live-provider>
                                     </systemPropertyVariables>
                                     <properties><configurationParameters>
@@ -653,6 +664,7 @@
                                     <argLine>@{contextExclusiveArgLine} -Dquizmaker.tests.context-fork=1 -Dquizmaker.tests.exclusive-context=true -Djdk.attach.allowAttachSelf=true -javaagent:${project.build.directory}/byte-buddy-agent.jar</argLine>
                                     <environmentVariables><TEST_MYSQL_PORT>33901</TEST_MYSQL_PORT></environmentVariables>
                                     <systemPropertyVariables>
+                                        <quizmaker.tests.resources.lane>context-exclusive</quizmaker.tests.resources.lane>
                                         <quizmaker.tests.live-provider>false</quizmaker.tests.live-provider>
                                     </systemPropertyVariables>
                                     <properties><configurationParameters>

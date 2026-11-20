@@ -12,6 +12,10 @@ on:
         type: choice
         default: '0'
         options: ['0', '1', '2', '4']
+      resource_diagnostics:
+        description: 'Collect runner and test JVM resource diagnostics'
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
@@ -53,6 +57,7 @@ jobs:
     env:
       # Keep the baseline until repeated measurements on this runner justify opting in.
       CONTEXT_TEST_WORKERS: ${{ inputs.context_workers || vars.CONTEXT_TEST_WORKERS || '0' }}
+      RESOURCE_DIAGNOSTICS: ${{ inputs.resource_diagnostics && 'true' || 'false' }}
       # Each test fork inherits 2 GiB; Maven's explicit command-line budget overrides it.
       # Four context forks + Maven permit 9 GiB heap, leaving RAM for native memory/MySQL.
       JAVA_TOOL_OPTIONS: '-Xms256m -Xmx2g'
@@ -460,10 +465,12 @@ jobs:
 
           # One small sample per minute, outside the test namespace and target/clean.
           # Live output survives runner shutdowns that prevent artifact upload.
-          python3 -u .github/scripts/ci_resource_monitor.py \
-            --output "${RUNNER_TEMP}/quizmaker-resources.jsonl" \
-            --workspace "$GITHUB_WORKSPACE" &
-          RESOURCE_MONITOR_PID=$!
+          if [ "$RESOURCE_DIAGNOSTICS" = true ]; then
+            python3 -u .github/scripts/ci_resource_monitor.py \
+              --output "${RUNNER_TEMP}/quizmaker-resources.jsonl" \
+              --workspace "$GITHUB_WORKSPACE" &
+            RESOURCE_MONITOR_PID=$!
+          fi
 
           sudo ip netns delete "$NETNS" 2>/dev/null || true
           sudo ip link delete "$HOST_VETH" 2>/dev/null || true
@@ -522,6 +529,8 @@ jobs:
             runuser --user "$USER" -- \
             python3 .github/scripts/run_with_ci_environment.py \
             ./mvnw -o -B -T 1C -DskipTests=false clean verify \
+            -Dquizmaker.tests.resources.enabled="$RESOURCE_DIAGNOSTICS" \
+            -Dquizmaker.tests.resources.directory="${RUNNER_TEMP}/quizmaker-test-resources" \
             ${MAVEN_CONTEXT_ARGS[@]+"${MAVEN_CONTEXT_ARGS[@]}"} \
             -Dorg.slf4j.simpleLogger.showDateTime=true \
             < <(env -0) 2>&1 | tee "$VERIFICATION_LOG"
@@ -594,7 +603,7 @@ jobs:
           fi
 
       - name: Publish test timing summary
-        if: ${{ always() && !cancelled() }}
+        if: always() && !cancelled() && env.RESOURCE_DIAGNOSTICS == 'true'
         continue-on-error: true
         run: |
           python3 -B .github/scripts/summarize_tests.py \
@@ -626,13 +635,23 @@ jobs:
             ${{ runner.temp }}/quizmaker-verify.log
           retention-days: 7
 
+      - name: Summarize test resource evidence
+        if: always() && env.RESOURCE_DIAGNOSTICS == 'true'
+        continue-on-error: true
+        run: |
+          python3 -B tools/testing/summarize_test_resources.py \
+            --directory "${RUNNER_TEMP}/quizmaker-test-resources" \
+            --output "${RUNNER_TEMP}/quizmaker-test-resources/summary.json"
+
       - name: Upload CI resource diagnostics
-        if: always()
+        if: always() && env.RESOURCE_DIAGNOSTICS == 'true'
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ci-resource-diagnostics
-          path: ${{ runner.temp }}/quizmaker-resources.jsonl
+          path: |
+            ${{ runner.temp }}/quizmaker-resources.jsonl
+            ${{ runner.temp }}/quizmaker-test-resources/**
           if-no-files-found: ignore
           retention-days: 7
 

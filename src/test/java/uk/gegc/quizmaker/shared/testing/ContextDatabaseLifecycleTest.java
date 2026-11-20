@@ -2,11 +2,13 @@ package uk.gegc.quizmaker.shared.testing;
 
 import jakarta.persistence.EntityManagerFactory;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.autoconfigure.jdbc.JdbcTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.test.annotation.DirtiesContext.HierarchyMode;
 import org.springframework.test.context.TestContext;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 class ContextDatabaseLifecycleTest {
@@ -32,10 +34,22 @@ class ContextDatabaseLifecycleTest {
     }
 
     @Test
+    void closesJdbcSliceAfterTopLevelSuiteWithoutLookingUpJpaBeans() {
+        TestContext context = contextFor(LifecycleJdbcSliceFixture.class);
+        when(context.hasApplicationContext()).thenReturn(true);
+
+        new ContextDatabaseLifecycle(() -> true).afterTestClass(context);
+
+        verify(context).markApplicationContextDirty(HierarchyMode.EXHAUSTIVE);
+        verify(context, never()).getApplicationContext();
+    }
+
+    @Test
     void doesNotRecreateAlreadyClosedContextOrCloseEnclosingSuiteEarly() {
-        TestContext closed = contextFor(ContextDatabaseLifecycleTest.class);
+        TestContext closed = contextFor(LifecycleJdbcSliceFixture.class);
         new ContextDatabaseLifecycle(() -> true).afterTestClass(closed);
         verify(closed, never()).getApplicationContext();
+        verify(closed, never()).markApplicationContextDirty(any());
         TestContext nested = contextFor(NestedFixture.class);
         new ContextDatabaseLifecycle(() -> true).afterTestClass(nested);
         verify(nested, never()).hasApplicationContext();
@@ -53,11 +67,28 @@ class ContextDatabaseLifecycleTest {
         verify(context, never()).markApplicationContextDirty(any());
     }
 
+    @Test
+    void diagnosticsDoNotMaskJpaContextCloseFailure() {
+        TestContext context = contextFor(ContextDatabaseLifecycleTest.class);
+        ApplicationContext application = mock(ApplicationContext.class);
+        when(context.hasApplicationContext()).thenReturn(true);
+        when(context.getApplicationContext()).thenReturn(application);
+        when(application.getBeanNamesForType(EntityManagerFactory.class, false, false))
+                .thenReturn(new String[]{"entityManagerFactory"});
+        IllegalStateException failure = new IllegalStateException("context close failed");
+        doThrow(failure).when(context).markApplicationContextDirty(HierarchyMode.EXHAUSTIVE);
+        assertThatThrownBy(() -> new ContextDatabaseLifecycle(() -> true).afterTestClass(context)).isSameAs(failure);
+    }
+
     private TestContext contextFor(Class<?> type) {
         TestContext context = mock(TestContext.class);
         doReturn(type).when(context).getTestClass();
         return context;
     }
 
+    @JdbcTest
     private static class NestedFixture {}
 }
+
+@JdbcTest
+class LifecycleJdbcSliceFixture {}
