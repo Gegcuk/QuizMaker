@@ -44,6 +44,13 @@ public class JdbcLearningSessionRepository implements LearningSessionRepository 
                 (row, index) -> row.getBytes(1)).isEmpty());
     }
 
+    @Override public boolean creationExists(UUID learnerId, UUID commandId) {
+        return safe(() -> !jdbc.query("""
+                SELECT 1 FROM learning_session WHERE learner_id=:learner AND create_command_id=:command
+                """, new MapSqlParameterSource("learner", bytes(learnerId)).addValue("command", bytes(commandId)),
+                (row, index) -> row.getInt(1)).isEmpty());
+    }
+
     @Override public LearningSession insertOrRead(LearningSession candidate) {
         return safe(() -> {
             var parameters = parameters(candidate);

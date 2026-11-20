@@ -6,6 +6,19 @@ Synchronized: **23 October 2026**. This register summarizes approved issue claus
 
 Use [open questions](open-questions.md) for unresolved choices, conflicting clauses, engineering preparation, and ownership gaps. The [target architecture](policy-driven-quiz-execution.md) explains the model.
 
+<a id="learning-author-source"></a>
+## Initial Learning source authority (#692) — DECIDED
+
+On 20 November 2026 the owner selected personal authored material for the first implementation.
+A signed-in learner may use their own confirmed published quiz revision while they remain the
+quiz owner with current access to that publication. Check both retained and current ownership,
+including on session reads and exact replays. A later publication can move the head without
+invalidating that proof for the captured revision. A catalogue listing, moderation of somebody
+else's quiz, organization membership alone, or an assessment score release cannot grant the
+whole source. Foreign material needs separate authoritative access to the exact revision before
+such learners can be enabled. This scope has no public Learning route. D33 applies to accepted
+logical mutations; Q95 continues to govern strategy choice within already accessible content.
+
 <a id="result-notification-producer"></a>
 ## Initial durable result-notification producer (#837) — DECIDED
 

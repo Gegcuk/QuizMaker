@@ -427,7 +427,7 @@ class LearningSessionMySqlIntegrationTest {
                         """, (row, index) -> UUID.fromString(row.getString(1)), username).stream().findFirst();
             }
         };
-        return new LearningSessionServiceImpl(store, identity,
+        return new LearningSessionServiceImpl(store, (learner, recorded) -> {}, identity,
                 List.of((learner, ref) -> access.get() && permitted.contains(ref)), clock, metrics, transactions);
     }
 

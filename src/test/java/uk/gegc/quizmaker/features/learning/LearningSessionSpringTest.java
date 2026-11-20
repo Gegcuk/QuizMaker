@@ -5,6 +5,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
@@ -18,6 +19,7 @@ import uk.gegc.quizmaker.features.learning.application.*;
 import uk.gegc.quizmaker.features.learning.application.impl.LearningSessionServiceImpl;
 import uk.gegc.quizmaker.features.learning.domain.model.*;
 import uk.gegc.quizmaker.features.learning.domain.repository.LearningSessionRepository;
+import uk.gegc.quizmaker.features.learning.config.LearningCommandRateConfig;
 import uk.gegc.quizmaker.features.user.application.AuthenticatedUserLookup;
 
 import java.time.Clock;
@@ -43,6 +45,25 @@ class LearningSessionSpringTest {
     @AfterEach void clear() { SecurityContextHolder.clearContext(); }
 
     @Configuration(proxyBeanMethods = false)
+    @EnableConfigurationProperties(LearningCommandRateConfig.class)
+    static class RateBinding {}
+
+    @Test void deploymentCanLowerButCannotRaiseTheApprovedRateOrBurst() {
+        var binding = new ApplicationContextRunner().withUserConfiguration(RateBinding.class);
+        binding.withPropertyValues("quizmaker.learning.command-rate.per-minute=30",
+                "quizmaker.learning.command-rate.burst=5").run(c -> {
+            assertThat(c).hasNotFailed();
+            var config = c.getBean(LearningCommandRateConfig.class);
+            assertThat(config.getPerMinute()).isEqualTo(30);
+            assertThat(config.getBurst()).isEqualTo(5);
+        });
+        for (var invalid : java.util.List.of("per-minute=61", "per-minute=0", "burst=21", "burst=0")) {
+            binding.withPropertyValues("quizmaker.learning.command-rate." + invalid)
+                    .run(c -> assertThat(c).hasFailed());
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
     @EnableMethodSecurity
     static class Config {
         @Bean LearningSessionRepository repository() { return mock(LearningSessionRepository.class); }
@@ -56,7 +77,7 @@ class LearningSessionSpringTest {
         @Bean LearningSessionService sessions(LearningSessionRepository repository, AuthenticatedUserLookup users,
                 java.util.List<LearningSessionSourceVerifier> sources, SimpleMeterRegistry metrics,
                 PlatformTransactionManager manager) {
-            return new LearningSessionServiceImpl(repository, users, sources, Clock.fixed(TIME, ZoneOffset.UTC), metrics, manager);
+            return new LearningSessionServiceImpl(repository, (learner, recorded) -> {}, users, sources, Clock.fixed(TIME, ZoneOffset.UTC), metrics, manager);
         }
     }
 

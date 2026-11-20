@@ -22,6 +22,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.*;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.*;
 import org.springframework.transaction.support.*;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -50,6 +51,8 @@ import uk.gegc.quizmaker.features.question.infra.mapping.QuestionMediaResolver;
 import uk.gegc.quizmaker.features.quiz.application.QuizRevisionPublicationService;
 import uk.gegc.quizmaker.features.learning.application.*;
 import uk.gegc.quizmaker.features.learning.application.impl.*;
+import uk.gegc.quizmaker.features.learning.config.LearningCommandRateConfig;
+import uk.gegc.quizmaker.features.learning.config.LearningDueSelectionConfig;
 import uk.gegc.quizmaker.features.learning.domain.model.*;
 import uk.gegc.quizmaker.features.learning.infra.repository.*;
 import uk.gegc.quizmaker.features.user.application.impl.AuthenticatedUserLookupImpl;
@@ -88,6 +91,7 @@ import static uk.gegc.quizmaker.features.quiz.domain.model.revision.PublicationE
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test-mysql")
 @TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=none", "spring.flyway.enabled=true",
+        "quizmaker.learning.due.max-batch-size=20",
         "spring.jpa.properties.hibernate.connection.isolation=4", "spring.datasource.hikari.transaction-isolation=TRANSACTION_REPEATABLE_READ"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -98,6 +102,9 @@ import static uk.gegc.quizmaker.features.quiz.domain.model.revision.PublicationE
         QuestionServiceImpl.class, QuestionSourceConfirmationServiceImpl.class, QuestionMediaResolver.class, QuestionHandlerFactory.class, AppPermissionEvaluator.class,
         McqSingleHandler.class, McqMultiHandler.class, TrueFalseHandler.class, FillGapHandler.class, OrderingHandler.class,
         HotspotHandler.class, OpenQuestionHandler.class, MatchingHandler.class, ComplianceHandler.class,
+        LearningSessionServiceImpl.class, AuthenticatedUserLookupImpl.class, JdbcLearningSessionRepository.class,
+        JdbcPublishedLearningSourceVerifier.class, JdbcLearningCommandBudget.class, LearningCommandRateConfig.class,
+        LearningDueSelectionServiceImpl.class, JdbcLearningDueSelectionRepository.class, LearningDueSelectionConfig.class,
         FixedFormServiceImpl.class, JdbcFixedFormRepository.class, QuizPublicationMySqlIntegrationTest.Config.class})
 class QuizPublicationMySqlIntegrationTest {
     static final String SCHEMA = "publication_" + UUID.randomUUID().toString().replace("-", "");
@@ -122,7 +129,11 @@ class QuizPublicationMySqlIntegrationTest {
     @TestConfiguration(proxyBeanMethods = false)
     @EnableAspectJAutoProxy
     static class Config {
-        @Bean Clock clock() { return Clock.fixed(Instant.parse("2026-11-05T12:00:00Z"), ZoneOffset.UTC); }
+        @Bean @org.springframework.context.annotation.Primary
+        Clock clock() { return Clock.fixed(Instant.parse("2026-11-05T12:00:00Z"), ZoneOffset.UTC); }
+        @Bean Clock authAdmissionClock(JdbcTemplate jdbc) {
+            return new uk.gegc.quizmaker.features.auth.infra.ratelimit.DatabaseAuthClock(jdbc);
+        }
         @Bean SimpleMeterRegistry metrics() { return new SimpleMeterRegistry(); }
         @Bean MediaStorageProperties properties() { return new MediaStorageProperties(); }
         @Bean Storage storage() { return new Storage(); }
@@ -140,6 +151,8 @@ class QuizPublicationMySqlIntegrationTest {
     @MockitoBean uk.gegc.quizmaker.features.quiz.application.QuizFreshnessService freshness;
     @Autowired uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService assembly;
     @Autowired QuizRevisionPublicationService service;
+    @Autowired LearningSessionService sessions;
+    @Autowired LearningDueSelectionService dueSelection;
     @Autowired QuizRelationService relations;
     @Autowired QuestionSourceScopeRepository questionSources;
     @Autowired QuestionService authoring;
@@ -249,13 +262,7 @@ class QuizPublicationMySqlIntegrationTest {
                 sourceItem.question().id().toString(), new uk.gegc.quizmaker.features.question.domain.model.contract.QuestionContractBinding(
                     sourceItem.question().id(), new ContractVersion("question.true-false.response", 1), new ContractVersion("question.true-false.binary", 1)).fingerprint());
         var named = new NamedParameterJdbcTemplate(sql);
-        LearningSessionService sessions = new LearningSessionServiceImpl(new JdbcLearningSessionRepository(named),
-                new AuthenticatedUserLookupImpl(users), List.of((learner, source) -> learner.equals(ownerId)
-                    && source.quizRevisionId().equals(published.id())), clock, metrics, transactions);
-        var learnerPrincipal = org.springframework.security.core.userdetails.User.withUsername(username)
-                .password("unused").authorities("ROLE_USER").build();
-        SecurityContextHolder.getContext().setAuthentication(UsernamePasswordAuthenticationToken.authenticated(
-                learnerPrincipal, null, learnerPrincipal.getAuthorities()));
+        loginLearner(username);
         var session = sessions.create(new LearningSessionService.Create(1, UUID.randomUUID(),
                 new LearningSession.Source(1, quizId, published.id(), published.schemaVersion()), FsrsManifest.approved())).session();
         var selected = new LearningForm.Item(sourceItem.id(), sourceItem.question().id(), 1,
@@ -278,6 +285,157 @@ class QuizPublicationMySqlIntegrationTest {
         assertThat(learning.read(session.id()).items().get(0).questionText()).isEqualTo(sourceItem.question().questionText());
         assertThat(sessions.read(session.id())).isEqualTo(session);
         assertThat(count("attempts")).isZero();
+    }
+
+    @Test void learningAuthorAccessRequiresExactPublicationAndCurrentOwnershipAndPermission() {
+        var publication = service.publish(command(0, question(QuestionType.TRUE_FALSE, null))).publication().revision();
+        var source = new LearningSession.Source(1, quizId, publication.id(), 1);
+        var command = new LearningSessionService.Create(1, UUID.randomUUID(), source, FsrsManifest.approved());
+        loginLearner(username);
+        assertThat(dueSelection.select(new LearningDueSelectionService.Select(1, source, 5, null)).outcome())
+                .isEqualTo(LearningDueSelection.Outcome.EMPTY);
+        var first = sessions.create(command);
+        assertThat(first.replayed()).isFalse();
+        assertThat(sessions.create(command).session()).isEqualTo(first.session());
+        assertThat(sessions.read(first.session().id())).isEqualTo(first.session());
+        var unpublished = UUID.randomUUID();
+        sql.update("""
+                INSERT INTO quiz_revisions(id,quiz_id,owner_id,schema_version,title,created_at)
+                SELECT UUID_TO_BIN(?),quiz_id,owner_id,schema_version,title,created_at FROM quiz_revisions WHERE id=UUID_TO_BIN(?)
+                """, unpublished.toString(), publication.id().toString());
+        for (var unavailable : List.of(new LearningSession.Source(1, quizId, unpublished, 1),
+                new LearningSession.Source(1, quizId, publication.id(), 2),
+                new LearningSession.Source(1, UUID.randomUUID(), publication.id(), 1))) {
+            deniedLearning(() -> sessions.create(new LearningSessionService.Create(1, UUID.randomUUID(), unavailable,
+                    FsrsManifest.approved())), LearningSessionException.Reason.SOURCE_UNAVAILABLE);
+        }
+
+        String other = "learner-" + UUID.randomUUID().toString().substring(0, 12);
+        UUID foreign = user(other, true);
+        grant(foreign, "QUIZ_MODERATE");
+        sql.update("UPDATE quizzes SET visibility='PUBLIC',status='PUBLISHED' WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString());
+        loginLearner(other);
+        deniedLearning(() -> sessions.read(first.session().id()), LearningSessionException.Reason.UNAVAILABLE);
+        deniedLearning(() -> sessions.read(UUID.randomUUID()), LearningSessionException.Reason.UNAVAILABLE);
+        deniedLearning(() -> sessions.create(command), LearningSessionException.Reason.SOURCE_UNAVAILABLE);
+
+        // Transferring current ownership does not transfer the old author's immutable publication to the new owner.
+        sql.update("UPDATE quizzes SET creator_id=UUID_TO_BIN(?) WHERE quiz_id=UUID_TO_BIN(?)", foreign.toString(), quizId.toString());
+        deniedLearning(() -> sessions.create(command), LearningSessionException.Reason.SOURCE_UNAVAILABLE);
+        loginLearner(username);
+        deniedLearning(() -> sessions.create(command), LearningSessionException.Reason.SOURCE_UNAVAILABLE);
+        sql.update("UPDATE quizzes SET creator_id=UUID_TO_BIN(?) WHERE quiz_id=UUID_TO_BIN(?)", ownerId.toString(), quizId.toString());
+        assertThat(sessions.create(command).replayed()).isTrue();
+        sql.update("UPDATE quizzes SET is_deleted=TRUE WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString());
+        deniedLearning(() -> sessions.create(command), LearningSessionException.Reason.SOURCE_UNAVAILABLE);
+        sql.update("UPDATE quizzes SET is_deleted=FALSE WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString());
+        sql.update("UPDATE users SET is_active=FALSE WHERE user_id=UUID_TO_BIN(?)", ownerId.toString());
+        deniedLearning(() -> sessions.read(first.session().id()), LearningSessionException.Reason.UNAVAILABLE);
+        sql.update("UPDATE users SET is_active=TRUE WHERE user_id=UUID_TO_BIN(?)", ownerId.toString());
+        assertThat(sessions.read(first.session().id())).isEqualTo(first.session());
+        SecurityContextHolder.clearContext();
+        deniedLearning(() -> sessions.create(command), LearningSessionException.Reason.UNAUTHENTICATED);
+        var guest = new org.springframework.security.authentication.AnonymousAuthenticationToken("test", "anonymousUser",
+                List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ANONYMOUS")));
+        SecurityContextHolder.getContext().setAuthentication(guest);
+        deniedLearning(() -> sessions.create(command), LearningSessionException.Reason.UNAUTHENTICATED);
+        loginLearner(username);
+        sql.update("DELETE FROM user_roles WHERE user_id=UUID_TO_BIN(?)", ownerId.toString());
+        deniedLearning(() -> sessions.read(first.session().id()), LearningSessionException.Reason.SOURCE_UNAVAILABLE);
+        deniedLearning(() -> sessions.create(command), LearningSessionException.Reason.SOURCE_UNAVAILABLE);
+        assertThat(count("learning_session")).isOne();
+        assertThat(count("learning_session_create_receipt")).isOne();
+        assertThat(count("learning_command_budget")).isOne();
+    }
+
+    private static void deniedLearning(Runnable action, LearningSessionException.Reason expected) {
+        assertThatThrownBy(action::run).isInstanceOfSatisfying(LearningSessionException.class,
+                failure -> assertThat(failure.reason()).isEqualTo(expected));
+    }
+
+    @Test void revocationWaitsForAdmittedSessionAndAnotherAuthorCanCommit() throws Exception {
+        var first = publishForLearning(username, quizId, 1);
+        String peer = "peer-" + UUID.randomUUID().toString().substring(0, 12);
+        var second = publishForLearning(peer, anotherQuiz(user(peer, true)), 1);
+        var gate = new Gate();
+        var pool = Executors.newFixedThreadPool(3);
+        try {
+            var holder = pool.submit(() -> {
+                loginLearner(username);
+                var outer = new TransactionTemplate(transactions);
+                outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+                try { return outer.execute(status -> {
+                    var result = sessions.create(first);
+                    gate.entered.countDown();
+                    await(gate.release);
+                    return result;
+                }); } finally { SecurityContextHolder.clearContext(); }
+            });
+            await(gate.entered);
+            var revoke = pool.submit(() -> sql.update("DELETE FROM user_roles WHERE user_id=UUID_TO_BIN(?)", ownerId.toString()));
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(10)).until(() -> admin.queryForObject("""
+                    SELECT EXISTS(SELECT 1 FROM performance_schema.data_lock_waits w
+                    JOIN performance_schema.data_locks l ON l.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID
+                    WHERE l.OBJECT_SCHEMA=? AND l.OBJECT_NAME='user_roles')
+                    """, Boolean.class, SCHEMA));
+            var peerResult = pool.submit(() -> {
+                loginLearner(peer);
+                try { return sessions.create(second); }
+                finally { SecurityContextHolder.clearContext(); }
+            }).get(10, TimeUnit.SECONDS);
+            assertThat(peerResult.replayed()).isFalse();
+            assertThat(gate.release.getCount()).isOne();
+            gate.release.countDown();
+            var winner = holder.get(10, TimeUnit.SECONDS);
+            assertThat(winner.replayed()).isFalse();
+            assertThat(revoke.get(10, TimeUnit.SECONDS)).isPositive();
+            loginLearner(username);
+            deniedLearning(() -> sessions.create(first), LearningSessionException.Reason.SOURCE_UNAVAILABLE);
+            deniedLearning(() -> sessions.read(winner.session().id()), LearningSessionException.Reason.SOURCE_UNAVAILABLE);
+            assertThat(count("learning_session_create_receipt")).isEqualTo(2);
+        } finally { gate.release.countDown(); pool.shutdownNow(); }
+    }
+
+    @Test void learningSessionSqlIsBoundedAcrossAuthorsRevisionsAndPermissionFanout() {
+        int[] small = measureLearningSource(username, quizId, 1);
+        String second = "study-" + UUID.randomUUID().toString().substring(0, 12);
+        UUID secondOwner = user(second, true);
+        for (int i = 0; i < 5; i++) grant(secondOwner, "QUIZ_UPDATE");
+        int[] large = measureLearningSource(second, anotherQuiz(secondOwner), 12);
+        assertThat(sql.queryForList("SELECT credit_units FROM learning_command_budget", Long.class))
+                .containsExactly(19 * 60_000_000L, 19 * 60_000_000L);
+        assertThat(large).containsExactly(small);
+        assertThat(small[0]).isBetween(1, 18);
+        assertThat(small[1]).isBetween(1, 10);
+        assertThat(small[2]).isBetween(1, 12);
+        System.out.printf("Learning author SQL (create/read/replay): one item %s; twelve items %s%n",
+                Arrays.toString(small), Arrays.toString(large));
+    }
+
+    private int[] measureLearningSource(String actor, UUID quiz, int size) {
+        var command = publishForLearning(actor, quiz, size);
+        loginLearner(actor);
+        var created = new AtomicReference<LearningSession>();
+        int create = measure(() -> created.set(sessions.create(command).session()));
+        int read = measure(() -> assertThat(sessions.read(created.get().id())).isEqualTo(created.get()));
+        int replay = measure(() -> assertThat(sessions.create(command)).isEqualTo(new LearningSessionService.Result(created.get(), true)));
+        return new int[]{create, read, replay};
+    }
+
+    private LearningSessionService.Create publishForLearning(String actor, UUID quiz, int size) {
+        authenticate(actor);
+        List<UUID> questions = new ArrayList<>();
+        for (int i = 0; i < size; i++) questions.add(questionFor(actor, quiz, QuestionType.TRUE_FALSE, null));
+        var published = service.publish(new Command(1, quiz, UUID.randomUUID(), 0, questions)).publication().revision();
+        return new LearningSessionService.Create(1, UUID.randomUUID(),
+                new LearningSession.Source(1, quiz, published.id(), 1), FsrsManifest.approved());
+    }
+
+    private static void loginLearner(String name) {
+        var principal = org.springframework.security.core.userdetails.User.withUsername(name)
+                .password("unused").authorities("ROLE_USER").build();
+        SecurityContextHolder.getContext().setAuthentication(UsernamePasswordAuthenticationToken.authenticated(
+                principal, null, principal.getAuthorities()));
     }
 
     @ParameterizedTest @ValueSource(booleans = {false, true})
