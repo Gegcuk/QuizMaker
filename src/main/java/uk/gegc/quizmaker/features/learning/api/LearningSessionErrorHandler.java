@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.learning.api;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.net.URI;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.*;
@@ -58,9 +59,11 @@ public class LearningSessionErrorHandler {
     @ExceptionHandler({DataAccessException.class, TransactionException.class, DatabaseConflictException.class})
     public ResponseEntity<ProblemDetail> databaseFailure(RuntimeException failure, HttpServletRequest request) {
         var conflict = DatabaseConflictException.from(failure);
-        var status = conflict.isPresent() && conflict.get().kind() == DatabaseConflictException.Kind.LOCK_TIMEOUT
-                ? HttpStatus.CONFLICT : HttpStatus.SERVICE_UNAVAILABLE;
-        return problem(status, request);
+        if (conflict.isPresent() && conflict.get().kind() == DatabaseConflictException.Kind.LOCK_TIMEOUT) {
+            return problem(HttpStatus.CONFLICT, ErrorTypes.DATA_CONFLICT,
+                    "A concurrent operation is in progress. Retry the original request.", request);
+        }
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, request);
     }
 
     private ResponseEntity<ProblemDetail> problem(HttpStatus status, HttpServletRequest request) {
@@ -71,7 +74,11 @@ public class LearningSessionErrorHandler {
             case BAD_REQUEST, UNPROCESSABLE_ENTITY -> ErrorTypes.INVALID_ARGUMENT;
             default -> ErrorTypes.PROCESSING_FAILED;
         };
-        var body = ProblemDetailBuilder.create(status, type, status.getReasonPhrase(), status.getReasonPhrase(), request);
+        return problem(status, type, status.getReasonPhrase(), request);
+    }
+
+    private ResponseEntity<ProblemDetail> problem(HttpStatus status, URI type, String detail, HttpServletRequest request) {
+        var body = ProblemDetailBuilder.create(status, type, status.getReasonPhrase(), detail, request);
         return ResponseEntity.status(status).cacheControl(CacheControl.noStore()).body(body);
     }
 }

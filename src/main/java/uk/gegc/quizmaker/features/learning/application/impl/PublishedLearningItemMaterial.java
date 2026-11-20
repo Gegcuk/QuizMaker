@@ -5,7 +5,9 @@ import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.features.attempt.application.ParticipantFormProjector;
 import uk.gegc.quizmaker.features.learning.application.*;
 import uk.gegc.quizmaker.features.learning.domain.model.*;
+import uk.gegc.quizmaker.features.question.application.QuestionContractException;
 import uk.gegc.quizmaker.features.question.application.QuestionContractRegistry;
+import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ParticipantContent;
 import java.util.List;
 import java.util.UUID;
@@ -25,7 +27,7 @@ public class PublishedLearningItemMaterial implements LearningItemMaterial, Lear
     }
 
     @Override public List<LearningForm.Item> describe(UUID learner, LearningSession.Source source, List<UUID> questions) {
-        var selected = publications.selected(learner, source, questions);
+        var selected = publications.firstOccurrences(learner, source, questions);
         return questions.stream().map(id -> {
             var row = selected.get(id);
             var content = content(row);
@@ -35,13 +37,13 @@ public class PublishedLearningItemMaterial implements LearningItemMaterial, Lear
     }
 
     @Override public List<PresentedItem> read(LearningSession session, List<LearningForm.Item> items) {
-        var selected = publications.selected(session.learnerId(), session.source(),
-                items.stream().map(LearningForm.Item::questionRevisionId).toList());
+        var selected = publications.savedOccurrences(session.learnerId(), session.source(),
+                items.stream().map(LearningForm.Item::sourceItemId).toList());
         return items.stream().map(item -> {
-            var row = selected.get(item.questionRevisionId());
+            var row = selected.get(item.sourceItemId());
             var safe = content(row);
-            require(row.sourceItemId().equals(item.sourceItemId()) && item.response().equals(row.binding().response())
-                    && item.questionSchemaVersion() == row.question().schemaVersion(), SOURCE_UNAVAILABLE);
+            require(row.question().id().equals(item.questionRevisionId()) && item.response().equals(row.binding().response())
+                    && item.questionSchemaVersion() == row.question().schemaVersion(), CORRUPT);
             return new PresentedItem(item, row.question().questionText(),
                     ParticipantFormProjector.orderedContent(row.question().type(), safe, item.optionIds()));
         }).toList();
@@ -52,7 +54,19 @@ public class PublishedLearningItemMaterial implements LearningItemMaterial, Lear
         var question = row.question();
         // These routes have no current-authority image reader. Do not drop required material or expose stored URLs.
         require(question.attachmentUrl() == null && question.attachmentAssetId() == null, SOURCE_UNAVAILABLE);
-        var content = contracts.resolve(row.binding()).response().participantContent(question);
+        ParticipantContent content;
+        try {
+            content = contracts.resolve(row.binding()).response().participantContent(question);
+        } catch (QuestionContractException invalidStoredContent) {
+            throw new LearningFormException(CORRUPT);
+        } catch (ContractResolutionException failure) {
+            throw new LearningFormException(switch (failure.reason()) {
+                case UNSUPPORTED_CONTRACT -> UNSUPPORTED_VERSION;
+                case PERSISTENCE_UNAVAILABLE -> PERSISTENCE_UNAVAILABLE;
+                case REVISION_UNAVAILABLE -> SOURCE_UNAVAILABLE;
+                default -> CORRUPT;
+            });
+        }
         require(content != null && !(content instanceof ParticipantContent.Hotspot), SOURCE_UNAVAILABLE);
         if (content instanceof ParticipantContent.Matching matching) {
             require(java.util.stream.Stream.concat(matching.left().stream(), matching.right().stream())

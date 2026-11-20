@@ -85,7 +85,13 @@ import java.util.function.Supplier;
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import uk.gegc.quizmaker.features.learning.api.LearningSessionApi;
 import uk.gegc.quizmaker.features.learning.api.LearningSessionController;
+import uk.gegc.quizmaker.features.learning.LearningTransactionLogs;
+import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.QuizPublicationRepository;
 import uk.gegc.quizmaker.features.learning.api.LearningSessionErrorHandler;
 import static uk.gegc.quizmaker.features.quiz.domain.model.revision.PublicationException.Reason.*;
 
@@ -374,14 +380,24 @@ class QuizPublicationMySqlIntegrationTest {
         for (String table : List.of("learning_session","learning_form","learning_cycle_session","learning_session_start"))
             assertThat(count(table)).isZero();
         long balance = sql.queryForObject("SELECT credit_units FROM learning_command_budget", Long.class);
-        faults.failLearningStart = true;
-        deniedLearning(() -> study.start(begin), LearningSessionException.Reason.PERSISTENCE_UNAVAILABLE);
-        assertThat(faults.reached.get()).isTrue();
+        sql.execute("""
+                CREATE TRIGGER learning_start_write_failure AFTER INSERT ON learning_session_start FOR EACH ROW
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM learning_form_item WHERE form_id=NEW.form_id)
+                       AND EXISTS (SELECT 1 FROM learning_cycle_session WHERE session_id=NEW.session_id) THEN
+                        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='LEARNING_PRIVATE_START_DIAGNOSTIC';
+                    END IF;
+                END
+                """);
+        try (var logs = new LearningTransactionLogs()) {
+            deniedLearning(() -> study.start(begin), LearningSessionException.Reason.PERSISTENCE_UNAVAILABLE);
+            logs.assertCleanFailure(JdbcLearningStudyRepository.class, "recordStart", "INSERT INTO learning_session_start",
+                    ownerId.toString(), begin.commandId().toString());
+        } finally { sql.execute("DROP TRIGGER learning_start_write_failure"); }
         for (String table : List.of("learning_session", "learning_form", "learning_cycle_session", "learning_session_start")) {
             assertThat(count(table)).isZero();
         }
         assertThat(sql.queryForObject("SELECT credit_units FROM learning_command_budget", Long.class)).isEqualTo(balance);
-        faults.failLearningStart = false;
         assertThat(study.start(begin).items()).hasSize(1);
     }
 
@@ -479,6 +495,97 @@ class QuizPublicationMySqlIntegrationTest {
         // Frozen admission clock. One token per accepted command, and none for capture, reads or replay.
         assertThat(afterEnrollment).isEqualTo(19 * 60_000_000L);
         assertThat(afterReadAndReplay).isEqualTo(18 * 60_000_000L);
+    }
+
+    @Test void resumeAndStartReplaySeparateIntegrityStorageAndAccessFailures() throws Exception {
+        var publication = service.publish(command(0, question(QuestionType.TRUE_FALSE, null))).publication().revision();
+        var revision = service.read(quizId, publication.id()).content();
+        var source = new LearningSession.Source(1, quizId, revision.id(), 1);
+        var question = revision.items().get(0).question().id();
+        loginLearner(username);
+        study.enroll(new LearningStudyService.Enroll(UUID.randomUUID(), source, List.of(question)));
+        var start = new LearningStudyService.Start(UUID.randomUUID(), source, 1);
+        var session = study.start(start).form().sessionId();
+        var request = new LearningSessionApi.StartRequest(start.commandId(),
+                new LearningSessionApi.SourceRef(LearningSessionApi.SourceKind.QUIZ_REVISION, quizId, revision.id(), 1),
+                new LearningSessionApi.Configuration("fsrs/v1", 1), 1);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new LearningSessionController(study))
+                .setControllerAdvice(new LearningSessionErrorHandler()).build();
+        var routes = List.of(get("/api/v1/learning/sessions/" + session),
+                post("/api/v1/learning/sessions").contentType("application/json").content(json.writeValueAsBytes(request)));
+        String healthy = mvc.perform(routes.get(0)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String hash = sql.queryForObject("SELECT binding_hash FROM question_revision_contract_bindings WHERE question_revision_id=UUID_TO_BIN(?)",
+                String.class, question.toString());
+        sql.update("UPDATE question_revision_contract_bindings SET binding_hash=REPEAT('0',64) WHERE question_revision_id=UUID_TO_BIN(?)",
+                question.toString());
+        for (var route : routes) mvc.perform(route).andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.status").value(500));
+        sql.update("UPDATE question_revision_contract_bindings SET binding_hash=? WHERE question_revision_id=UUID_TO_BIN(?)",
+                hash, question.toString());
+        String content = sql.queryForObject("SELECT content FROM question_revisions WHERE id=UUID_TO_BIN(?)",
+                String.class, question.toString());
+        sql.update("UPDATE question_revisions SET content=JSON_OBJECT() WHERE id=UUID_TO_BIN(?)", question.toString());
+        for (var route : routes) mvc.perform(route).andExpect(status().isInternalServerError());
+        sql.update("UPDATE question_revisions SET content=? WHERE id=UUID_TO_BIN(?)", content, question.toString());
+        CountingSource.failedQuestionReads.set(0);
+        CountingSource.failQuestionRead = true;
+        try {
+            for (var route : routes) mvc.perform(route).andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.status").value(503));
+        } finally { CountingSource.failQuestionRead = false; }
+        assertThat(CountingSource.failedQuestionReads.get()).isEqualTo(routes.size());
+        for (var route : routes) assertThat(mvc.perform(route).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString()).isEqualTo(healthy);
+        assertThat(count("learning_session_start")).isOne();
+        assertThat(count("learning_cycle_session")).isOne();
+        sql.update("DELETE FROM user_roles WHERE user_id=UUID_TO_BIN(?)", ownerId.toString());
+        for (var route : routes) mvc.perform(route).andExpect(status().isNotFound());
+    }
+
+    @Test void repeatedQuestionEnrollsOnceAndTheFormReadsItsExactOccurrence() {
+        UUID draftQuestion = question(QuestionType.TRUE_FALSE, null);
+        // The revision store permits repeated occurrences; the ordinary publisher takes distinct draft IDs.
+        var repeated = tx.execute(status -> {
+            var publications = beans.getBean(QuizPublicationRepository.class);
+            var draft = publications.draft(quizId, true).orElseThrow();
+            var question = publications.lockQuestions(quizId).get(0);
+            assertThat(question.id()).isEqualTo(draftQuestion);
+            var material = content.materialize(draft, List.of(question, question), Map.of(), clock.instant());
+            var revision = material.revision();
+            // Opposite UUID order makes accidental primary-key ordering observable.
+            var first = new QuizRevision.Item(new UUID(0, 2), 0, revision.items().get(0).question());
+            var second = new QuizRevision.Item(new UUID(0, 1), 1, first.question());
+            var saved = new QuizRevision(revision.id(), quizId, ownerId, 1, revision.title(), revision.description(),
+                    revision.createdAt(), List.of(first, second));
+            beans.getBean(QuizRevisionRepository.class).insert(saved);
+            publications.insert(new Revision(saved.id(), quizId, ownerId, 1, material.hash(), saved.createdAt()), List.of());
+            return saved;
+        });
+        loginLearner(username);
+        var source = new LearningSession.Source(1, quizId, repeated.id(), 1);
+        var first = repeated.items().get(0);
+        var second = repeated.items().get(1);
+        var enrollment = new LearningStudyService.Enroll(UUID.randomUUID(), source, List.of(first.question().id()));
+        var receipt = study.enroll(enrollment);
+        assertThat(receipt.items()).hasSize(1);
+        assertThat(study.enroll(enrollment)).isEqualTo(receipt);
+        var start = new LearningStudyService.Start(UUID.randomUUID(), source, 2);
+        var view = study.start(start);
+        assertThat(view.form().items()).extracting(LearningForm.Item::sourceItemId).containsExactly(first.id());
+        assertThat(study.start(start)).isEqualTo(view);
+        assertThat(study.resume(view.form().sessionId())).isEqualTo(view);
+        assertThat(count("learning_schedule_cycle")).isOne();
+        assertThat(count("learning_cycle_session")).isOne();
+
+        // A retained form can legitimately reference the other occurrence of the same question.
+        var session = sessions.create(new LearningSessionService.Create(1, UUID.randomUUID(), source, FsrsManifest.approved())).session();
+        var descriptor = view.form().items().get(0);
+        var other = new LearningForm.Item(second.id(), second.question().id(), descriptor.questionSchemaVersion(),
+                descriptor.response(), descriptor.optionIds());
+        var formService = beans.getBean(LearningFormService.class);
+        var saved = formService.materialize(new LearningFormService.Materialize(1, session.id(), List.of(other))).view();
+        assertThat(formService.read(session.id())).isEqualTo(saved);
+        assertThat(saved.items()).extracting(item -> item.item().sourceItemId()).containsExactly(second.id());
     }
 
     @Test void damagedUnselectedContractRejectsFirstEnrollmentWithoutPartialWrites() {
@@ -1282,19 +1389,9 @@ class QuizPublicationMySqlIntegrationTest {
         volatile CyclicBarrier contenders; volatile CyclicBarrier afterOwnedQuiz; volatile Gate holdPublication;
         volatile Gate beforeQuestions;
         volatile boolean failConfirmation;
-        volatile boolean failLearningStart;
         final Set<Long> gated = ConcurrentHashMap.newKeySet();
         Faults(JdbcTemplate sql) { this.sql = sql; }
-        void reset() { fail = null; loseAcknowledgement = false; failConfirmation = false; failLearningStart = false; reached.set(false); contenders = null; afterOwnedQuiz = null; holdPublication = null; beforeQuestions = null; gated.clear(); }
-        @org.aspectj.lang.annotation.Before("execution(* uk.gegc.quizmaker.features.learning.domain.repository.LearningStudyRepository.recordStart(..))")
-        void beforeLearningStartReceipt() {
-            if (failLearningStart) {
-                assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_form_item", Integer.class)).isOne();
-                assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_cycle_session", Integer.class)).isOne();
-                reached.set(true);
-                throw new org.springframework.dao.DataAccessResourceFailureException("Synthetic Learning receipt failure");
-            }
-        }
+        void reset() { fail = null; loseAcknowledgement = false; failConfirmation = false; reached.set(false); contenders = null; afterOwnedQuiz = null; holdPublication = null; beforeQuestions = null; gated.clear(); }
         @org.aspectj.lang.annotation.Around("execution(* uk.gegc.quizmaker.features.quiz.domain.repository.QuestionSourceScopeRepository.confirmLegacy(..))")
         Object confirmation(org.aspectj.lang.ProceedingJoinPoint call) throws Throwable {
             Object result = call.proceed();
@@ -1347,6 +1444,8 @@ class QuizPublicationMySqlIntegrationTest {
     }
     static class CountingSource extends DelegatingDataSource {
         static volatile boolean enabled; static final AtomicInteger calls = new AtomicInteger();
+        static volatile boolean failQuestionRead;
+        static final AtomicInteger failedQuestionReads = new AtomicInteger();
         static final AtomicInteger selectedQuestions = new AtomicInteger();
         CountingSource(DataSource target) { super(target); }
         @Override public Connection getConnection() throws SQLException { return connection(super.getConnection()); }
@@ -1358,6 +1457,11 @@ class QuizPublicationMySqlIntegrationTest {
                     Class<?> type = statement instanceof PreparedStatement ? PreparedStatement.class : Statement.class;
                     return Proxy.newProxyInstance(type.getClassLoader(), new Class[]{type}, (p, m, a) -> {
                         if (enabled && m.getName().startsWith("execute")) calls.incrementAndGet();
+                        if (failQuestionRead && m.getName().equals("executeQuery") && args != null && args.length > 0
+                                && args[0] instanceof String query && query.contains("FROM question_revisions WHERE id IN")) {
+                            failedQuestionReads.incrementAndGet();
+                            throw new SQLTransientConnectionException("LEARNING_PRIVATE_CONTENT_READ", "08001");
+                        }
                         Object executed = invoke(statement, m, a);
                         if (enabled && executed instanceof ResultSet rows && args != null && args.length > 0
                                 && args[0] instanceof String query && query.contains("FROM question_revisions WHERE id IN")) {

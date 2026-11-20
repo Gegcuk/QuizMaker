@@ -5831,6 +5831,11 @@ The shared D33 limit charges one accepted enrollment or start, regardless of bat
 Reads and exact replays spend no credit. A rate denial returns 429 with whole seconds in
 `Retry-After`. The first full binding, budget debit, receipt and schedules commit together.
 Later content reads load the requested immutable question and option rows in bounded SQL batches.
+If the same question revision occurs more than once, its one schedule selects the first authored
+position for a new form. Resume loads the exact occurrence stored in the form. A damaged binding
+returns 500 and a storage outage returns 503 on both resume and start replay. On a lock wait
+timeout, 409 `data-conflict` permits retrying the same request. A changed payload for an accepted
+key returns 409 `idempotency-conflict`.
 This text-content adapter rejects items requiring an unavailable authorized image display.
 
 The ordinary quiz create/update/read DTOs carry the additive `shuffleLearningQuestions`

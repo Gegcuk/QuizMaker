@@ -21,6 +21,11 @@ actual immutable question rows for one and three selected items. First preparati
 reads the whole revision. Enrollment and capture each invoke the existing transactional schedule
 writer per selected item. Exercise rollback after reached form/capture writes, corruption on an
 unselected first-enrollment binding, permission loss and the absence of assessment/review writes.
+A MySQL trigger can fail the start receipt after the form and cycle captures exist. Check that
+transaction TRACE redacts its diagnostic, SQL and keys, then replay the rolled-back command.
+Exercise both GET and start replay with a damaged binding or content row, an unavailable database
+read and revoked access. Repeated occurrences must produce a single enrollment and due item;
+a saved form referencing the second occurrence must still resolve that exact occurrence.
 Use the normal four-worker `context_benchmark.py verify` gate after these scoped suites.
 
 ## Learning command accounting (#692)

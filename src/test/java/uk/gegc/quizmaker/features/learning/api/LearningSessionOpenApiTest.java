@@ -21,6 +21,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import uk.gegc.quizmaker.features.learning.application.LearningStudyService;
 import uk.gegc.quizmaker.features.learning.domain.model.LearningSessionException;
 import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
+import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
+import uk.gegc.quizmaker.shared.api.problem.ErrorTypes;
 import uk.gegc.quizmaker.shared.api.docs.ApiDiscoveryController;
 import uk.gegc.quizmaker.shared.api.docs.ApiDocumentationService;
 import uk.gegc.quizmaker.shared.config.OpenApiConfig;
@@ -90,6 +92,17 @@ class LearningSessionOpenApiTest {
         when(study.resume(any())).thenThrow(new LearningSessionException(LearningSessionException.Reason.SOURCE_UNAVAILABLE));
         mvc.perform(get(ROOT + "/sessions/" + UUID.randomUUID())).andExpect(status().isNotFound())
                 .andExpect(header().string("Cache-Control","no-store")).andExpect(jsonPath("$.status").value(404));
+    }
+
+    @Test @WithMockUser void lockWaitAndChangedCommandHaveDistinctConflictTypes() throws Exception {
+        var lockWait = DatabaseConflictException.from(new java.sql.SQLException("synthetic lock wait", "HY000", 1205)).orElseThrow();
+        when(study.start(any())).thenThrow(lockWait, new LearningSessionException(LearningSessionException.Reason.CONFLICT));
+        var request = post(ROOT + "/sessions").contentType("application/json").content(START);
+        mvc.perform(request).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value(ErrorTypes.DATA_CONFLICT.toString()))
+                .andExpect(jsonPath("$.detail").value("A concurrent operation is in progress. Retry the original request."));
+        mvc.perform(request).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value(ErrorTypes.IDEMPOTENCY_CONFLICT.toString()));
     }
 
     @Test @WithMockUser void learningOperationsHaveOneDiscoverableGroupAndTypedExamples() throws Exception {

@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.learning.application.impl;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataAccessException;
 import org.springframework.transaction.*;
 import org.springframework.transaction.support.*;
 import uk.gegc.quizmaker.features.learning.application.*;
@@ -69,6 +70,8 @@ public class LearningFormServiceImpl implements LearningFormService {
         require(content.size() == 1, SOURCE_UNAVAILABLE);
         List<LearningFormContent.PresentedItem> shown;
         try { shown = content.get(0).read(session, form.items()); }
+        catch (LearningFormException failure) { throw new LearningFormException(failure.reason()); }
+        catch (DataAccessException | TransactionException failure) { throw safe(failure); }
         catch (RuntimeException failure) {
             throw DatabaseConflictException.from(failure).<RuntimeException>map(value -> value)
                     .orElseGet(() -> new LearningFormException(SOURCE_UNAVAILABLE));

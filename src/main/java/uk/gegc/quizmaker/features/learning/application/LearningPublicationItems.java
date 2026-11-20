@@ -10,5 +10,8 @@ import java.util.UUID;
 /** Trusted source projection. The caller verifies current display access to the exact publication through commit. */
 public interface LearningPublicationItems {
     record Item(UUID sourceItemId, QuestionRevision question, QuestionContractBinding binding) { }
-    Map<UUID, Item> selected(UUID learner, Source source, List<UUID> questionRevisionIds);
+    /** Keyed by question revision, using its lowest authored position in this publication. */
+    Map<UUID, Item> firstOccurrences(UUID learner, Source source, List<UUID> questionRevisionIds);
+    /** Keyed by the exact occurrence ID retained by the form. */
+    Map<UUID, Item> savedOccurrences(UUID learner, Source source, List<UUID> sourceItemIds);
 }

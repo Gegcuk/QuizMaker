@@ -4,6 +4,7 @@ import org.springframework.dao.DataAccessException;
 import uk.gegc.quizmaker.features.learning.application.LearningPublicationItems;
 import uk.gegc.quizmaker.features.learning.domain.model.LearningSession;
 import uk.gegc.quizmaker.features.learning.domain.model.LearningFormException;
+import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractVersion;
 import uk.gegc.quizmaker.features.question.domain.model.contract.QuestionContractBinding;
 import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
@@ -33,6 +34,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 
 @Repository
 @Transactional
@@ -194,7 +196,24 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public Map<UUID, LearningPublicationItems.Item> selected(UUID learner, LearningSession.Source source, List<UUID> ids) {
+    public Map<UUID, LearningPublicationItems.Item> firstOccurrences(UUID learner, LearningSession.Source source, List<UUID> ids) {
+        // Position is unique within a revision. Return one occurrence for each scheduled question.
+        return learningItems(learner, source, ids, """
+                i.authored_position IN (
+                    SELECT MIN(authored_position) FROM quiz_revision_items
+                    WHERE quiz_revision_id=:revision AND question_revision_id IN (:ids)
+                    GROUP BY question_revision_id)
+                """, row -> row.binding().questionRevisionId());
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Map<UUID, LearningPublicationItems.Item> savedOccurrences(UUID learner, LearningSession.Source source, List<UUID> ids) {
+        return learningItems(learner, source, ids, "i.id IN (:ids)", BoundItem::id);
+    }
+
+    private Map<UUID, LearningPublicationItems.Item> learningItems(UUID learner, LearningSession.Source source, List<UUID> ids,
+            String membershipPredicate, Function<BoundItem, UUID> key) {
         var result = new HashMap<UUID, LearningPublicationItems.Item>();
         try {
             for (int start = 0; start < ids.size(); start += SQL_BATCH) {
@@ -207,8 +226,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
                         FROM quiz_revision_items i JOIN quiz_revisions r ON r.id=i.quiz_revision_id
                         JOIN question_revision_contract_bindings b ON b.question_revision_id=i.question_revision_id
                         WHERE r.id=:revision AND r.quiz_id=:quiz AND r.owner_id=:owner AND r.schema_version=:version
-                          AND i.question_revision_id IN (:ids)
-                        """, params, (rs, n) -> {
+                        """ + " AND " + membershipPredicate, params, (rs, n) -> {
                     var binding = new QuestionContractBinding(
                         uuid(rs,"question_revision_id"), new ContractVersion(rs.getString("response_contract_id"),
                         rs.getInt("response_contract_version")), new ContractVersion(rs.getString("scoring_contract_id"),
@@ -218,19 +236,21 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
                     }
                     return new BoundItem(uuid(rs, "source_id"), binding);
                 });
-                var members = selected.stream().map(row -> row.binding().questionRevisionId()).toList();
-                if (members.size() != part.size() || !new java.util.HashSet<>(members).equals(new java.util.HashSet<>(part))) {
+                if (selected.size() != part.size()) {
                     throw new LearningFormException(LearningFormException.Reason.SOURCE_UNAVAILABLE);
                 }
-                var questions = readQuestions(members);
+                var questions = readQuestions(selected.stream().map(row -> row.binding().questionRevisionId()).distinct().toList());
                 for (var row : selected) {
-                    UUID id = row.binding().questionRevisionId();
-                    result.put(id, new LearningPublicationItems.Item(row.id(), questions.get(id), row.binding()));
+                    var question = questions.get(row.binding().questionRevisionId());
+                    result.put(key.apply(row), new LearningPublicationItems.Item(row.id(), question, row.binding()));
                 }
             }
             return result;
         } catch (DataAccessException failure) {
             throw SafeDataAccess.sanitize(failure);
+        } catch (ContractResolutionException | IllegalArgumentException failure) {
+            // Invalid stored identifiers, enum values or revision material are not caller-supplied input.
+            throw new LearningFormException(LearningFormException.Reason.CORRUPT);
         }
     }
 

@@ -22,7 +22,7 @@ import static uk.gegc.quizmaker.features.learning.api.LearningSessionApi.*;
 @ApiResponse(responseCode = "400", description = "Invalid request, duplicate question or invalid size.", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
 @ApiResponse(responseCode = "401", description = "Authentication required.", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
 @ApiResponse(responseCode = "404", description = "Unknown or inaccessible session, source or member.", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
-@ApiResponse(responseCode = "409", description = "Conflicting command identity or stale capture.", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+@ApiResponse(responseCode = "409", description = "Conflicting command identity, stale capture, or lock timeout. A lock timeout uses data-conflict and permits retrying the original request.", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
 @ApiResponse(responseCode = "422", description = "Unsupported configuration or content contract.", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
 @ApiResponse(responseCode = "503", description = "Storage or batch configuration unavailable; retryable database conflict.", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
 @ApiResponse(responseCode = "500", description = "Inconsistent retained evidence or incompatible transaction.", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
