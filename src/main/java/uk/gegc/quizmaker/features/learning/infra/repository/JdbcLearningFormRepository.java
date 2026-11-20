@@ -75,8 +75,8 @@ public class JdbcLearningFormRepository implements LearningFormRepository {
     }
 
     /** Select only requested metadata, in 500-ID batches; no whole-quiz/text/answer loading. */
-    @Override public void verifyItems(LearningSession session, List<LearningForm.Item> items) {
-        safe(() -> {
+    @Override public boolean matchesSourceItems(LearningSession session, List<LearningForm.Item> items) {
+        return safe(() -> {
             for (int start = 0; start < items.size(); start += 500) {
                 var batch = items.subList(start, Math.min(start + 500, items.size()));
                 var expected = new HashMap<UUID, LearningForm.Item>();
@@ -90,13 +90,12 @@ public class JdbcLearningFormRepository implements LearningFormRepository {
                     WHERE i.quiz_revision_id=UUID_TO_BIN(:revision) AND i.id IN (:ids)
                     """, p, (r, n) -> {
                     var item = expected.get(uuid(r, "source_id"));
-                    require(item != null && item.questionRevisionId().equals(uuid(r, "question_id"))
+                    return item != null && item.questionRevisionId().equals(uuid(r, "question_id"))
                             && item.questionSchemaVersion() == r.getInt("schema_version")
                             && item.response().id().equals(r.getString("response_contract_id"))
-                            && item.response().version() == r.getInt("response_contract_version"), SOURCE_UNAVAILABLE);
-                    return item.sourceItemId();
+                            && item.response().version() == r.getInt("response_contract_version");
                 });
-                require(found.size() == batch.size(), SOURCE_UNAVAILABLE);
+                if (found.size() != batch.size() || found.contains(false)) return false;
                 var optionSets = new HashMap<UUID, Set<UUID>>();
                 sql.query("""
                     SELECT BIN_TO_UUID(i.id) source_id,BIN_TO_UUID(o.id) option_id
@@ -104,10 +103,11 @@ public class JdbcLearningFormRepository implements LearningFormRepository {
                     WHERE i.quiz_revision_id=UUID_TO_BIN(:revision) AND i.id IN (:ids)
                     """, p, (org.springframework.jdbc.core.RowCallbackHandler) r ->
                     optionSets.computeIfAbsent(uuid(r, "source_id"), ignored -> new HashSet<>()).add(uuid(r, "option_id")));
-                for (var item : batch) require(new HashSet<>(item.optionIds())
-                        .equals(optionSets.getOrDefault(item.sourceItemId(), Set.of())), SOURCE_UNAVAILABLE);
+                for (var item : batch) {
+                    if (!new HashSet<>(item.optionIds()).equals(optionSets.getOrDefault(item.sourceItemId(), Set.of()))) return false;
+                }
             }
-            return null;
+            return true;
         });
     }
 

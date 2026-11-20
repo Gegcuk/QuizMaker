@@ -24,7 +24,12 @@ unselected first-enrollment binding, permission loss and the absence of assessme
 A MySQL trigger can fail the start receipt after the form and cycle captures exist. Check that
 transaction TRACE redacts its diagnostic, SQL and keys, then replay the rolled-back command.
 Exercise both GET and start replay with a damaged binding or content row, an unavailable database
-read and revoked access. Repeated occurrences must produce a single enrollment and due item;
+read and revoked access. Change the saved response contract version and remove its binding in
+separate cases. After restoring the binding both routes must return the original form. An invalid
+candidate still fails before the first form write. Hold a second author permission on a separate
+MySQL connection during first enrollment so the nested publication read times out. Check HTTP
+409 `data-conflict`, rollback of the credit and preparation, and one accepted enrollment on retry.
+Repeated occurrences must produce a single enrollment and due item;
 a saved form referencing the second occurrence must still resolve that exact occurrence.
 Use the normal four-worker `context_benchmark.py verify` gate after these scoped suites.
 

@@ -30,7 +30,11 @@ class LearningFormSpringTest {
     @EnableMethodSecurity
     static class Config {
         @Bean LearningSessionService sessions() { return mock(LearningSessionService.class); }
-        @Bean LearningFormRepository repository() { return mock(LearningFormRepository.class); }
+        @Bean LearningFormRepository repository() {
+            var repository = mock(LearningFormRepository.class);
+            when(repository.matchesSourceItems(any(), eq(List.of()))).thenReturn(true);
+            return repository;
+        }
         @Bean PlatformTransactionManager transactions() {
             var manager = mock(PlatformTransactionManager.class);
             when(manager.getTransaction(any())).thenAnswer(call -> new SimpleTransactionStatus()); return manager;

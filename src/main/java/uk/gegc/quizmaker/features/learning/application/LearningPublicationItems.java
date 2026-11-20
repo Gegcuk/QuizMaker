@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** Trusted source projection. The caller verifies current display access to the exact publication through commit. */
+/** Trusted source projection. The caller verifies current display access through commit. Missing matches are absent from the returned map. */
 public interface LearningPublicationItems {
     record Item(UUID sourceItemId, QuestionRevision question, QuestionContractBinding binding) { }
     /** Keyed by question revision, using its lowest authored position in this publication. */

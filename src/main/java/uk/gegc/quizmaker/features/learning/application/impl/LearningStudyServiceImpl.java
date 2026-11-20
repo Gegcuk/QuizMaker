@@ -167,6 +167,10 @@ public class LearningStudyServiceImpl implements LearningStudyService {
             throw DatabaseConflictException.from(failure).<RuntimeException>map(conflict -> conflict)
                     .orElseGet(() -> new LearningSessionException(PERSISTENCE_UNAVAILABLE));
         } catch (PublicationException failure) {
+            if (failure.getCause() instanceof DatabaseConflictException conflict) {
+                outcome = conflict.outcome();
+                throw conflict;
+            }
             throw new LearningSessionException(switch (failure.reason()) {
                 case UNAVAILABLE -> SOURCE_UNAVAILABLE;
                 case UNAUTHENTICATED -> UNAUTHENTICATED;

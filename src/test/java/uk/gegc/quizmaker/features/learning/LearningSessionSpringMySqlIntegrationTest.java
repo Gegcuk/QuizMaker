@@ -620,7 +620,7 @@ class LearningSessionSpringMySqlIntegrationTest {
         HEADER_READ("FROM learning_form WHERE", "find", true),
         OPTION_READ("FROM learning_form_option", "find", true),
         ITEM_READ("FROM learning_form_item", "find", true),
-        VERIFY("FROM quiz_revision_items", "verifyItems", false),
+        VERIFY("FROM quiz_revision_items", "matchesSourceItems", false),
         HEADER_WRITE("INSERT INTO learning_form(", "insert", false),
         ITEM_WRITE("INSERT INTO learning_form_item(", "insert", false),
         OPTION_WRITE("INSERT INTO learning_form_option(", "insert", false);

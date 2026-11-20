@@ -45,11 +45,11 @@ public class LearningFormServiceImpl implements LearningFormService {
             var existing = repository.find(session);
             if (existing.isPresent()) {
                 require(existing.get().items().equals(items), CONFLICT);
-                return new Result(present(session, existing.get()), true);
+                return new Result(present(session, existing.get(), CORRUPT), true);
             }
             var form = LearningForm.create(UUID.randomUUID(), session, items,
                     clock.instant().truncatedTo(ChronoUnit.MICROS));
-            var view = present(session, form); // No authoritative write until safe material is available.
+            var view = present(session, form, SOURCE_UNAVAILABLE); // No authoritative write until safe material is available.
             repository.insert(form);
             return new Result(view, false);
         });
@@ -60,13 +60,13 @@ public class LearningFormServiceImpl implements LearningFormService {
             require(sessionId != null, INVALID_INPUT);
             var session = sessions.read(sessionId);
             var form = repository.find(session).orElseThrow(() -> new LearningFormException(UNAVAILABLE));
-            return present(session, form);
+            return present(session, form, CORRUPT);
         });
     }
 
-    private View present(LearningSession session, LearningForm form) {
+    private View present(LearningSession session, LearningForm form, LearningFormException.Reason onSourceMismatch) {
         require(form.sessionId().equals(session.id()) && form.source().equals(session.source()), CORRUPT);
-        repository.verifyItems(session, form.items());
+        require(repository.matchesSourceItems(session, form.items()), onSourceMismatch);
         require(content.size() == 1, SOURCE_UNAVAILABLE);
         List<LearningFormContent.PresentedItem> shown;
         try { shown = content.get(0).read(session, form.items()); }

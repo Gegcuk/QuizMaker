@@ -47,6 +47,7 @@ class LearningFormTest {
     private LearningFormService forms(List<LearningFormContent> content) {
         when(manager.getTransaction(any())).thenAnswer(call -> new SimpleTransactionStatus());
         when(sessions.read(session.id())).thenReturn(session);
+        when(repository.matchesSourceItems(eq(session), anyList())).thenReturn(true);
         return new LearningFormServiceImpl(sessions, repository, content, Clock.fixed(TIME.plusNanos(789), ZoneOffset.UTC), metrics, manager);
     }
     private LearningFormService forms() { return forms(List.of((s, items) -> items.stream().map(LearningFormTest::shown).toList())); }

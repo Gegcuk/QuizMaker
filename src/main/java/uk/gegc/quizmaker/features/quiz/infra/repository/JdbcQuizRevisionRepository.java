@@ -236,9 +236,6 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
                     }
                     return new BoundItem(uuid(rs, "source_id"), binding);
                 });
-                if (selected.size() != part.size()) {
-                    throw new LearningFormException(LearningFormException.Reason.SOURCE_UNAVAILABLE);
-                }
                 var questions = readQuestions(selected.stream().map(row -> row.binding().questionRevisionId()).distinct().toList());
                 for (var row : selected) {
                     var question = questions.get(row.binding().questionRevisionId());

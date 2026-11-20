@@ -83,6 +83,8 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 import java.util.function.Supplier;
 import static org.assertj.core.api.Assertions.*;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -448,6 +450,48 @@ class QuizPublicationMySqlIntegrationTest {
         } finally { gate.release.countDown(); pool.shutdownNow(); }
     }
 
+    @Test void firstEnrollmentPublicationReadLockTimeoutCanReplayAfterTheLockIsReleased() throws Exception {
+        var publication = service.publish(command(0, question(QuestionType.TRUE_FALSE, null))).publication().revision();
+        var revision = service.read(quizId, publication.id()).content();
+        grant(ownerId, "QUIZ_READ");
+        loginLearner(username);
+        var input = new LearningSessionApi.EnrollRequest(UUID.randomUUID(),
+                new LearningSessionApi.SourceRef(LearningSessionApi.SourceKind.QUIZ_REVISION, quizId, revision.id(), 1),
+                new LearningSessionApi.Configuration("fsrs/v1", 1), List.of(revision.items().get(0).question().id()));
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new LearningSessionController(study))
+                .setControllerAdvice(new LearningSessionErrorHandler()).build();
+        var request = post("/api/v1/learning/enrollments").contentType("application/json").content(json.writeValueAsBytes(input));
+        try (var blocker = dataSource.getConnection()) {
+            blocker.setAutoCommit(false);
+            try (var lock = blocker.prepareStatement("""
+                    SELECT rp.role_id FROM role_permissions rp JOIN permissions p ON p.permission_id=rp.permission_id
+                    JOIN user_roles ur ON ur.role_id=rp.role_id
+                    WHERE ur.user_id=UUID_TO_BIN(?) AND p.permission_name='QUIZ_READ' FOR UPDATE OF rp
+                    """)) {
+                lock.setString(1, ownerId.toString());
+                try (var rows = lock.executeQuery()) { assertThat(rows.next()).isTrue(); }
+                // The Learning verifier locks QUIZ_UPDATE. The nested publication read also locks QUIZ_READ.
+                faults.shortPublicationLockWait = true;
+                try (var logs = new LearningTransactionLogs()) {
+                    mvc.perform(request).andExpect(status().isConflict())
+                            .andExpect(jsonPath("$.type").value(uk.gegc.quizmaker.shared.api.problem.ErrorTypes.DATA_CONFLICT.toString()));
+                    logs.assertCleanFailure(JdbcQuizPublicationRepository.class, "actor", ownerId.toString(), input.commandId().toString());
+                }
+            } finally {
+                faults.shortPublicationLockWait = false;
+                blocker.rollback();
+            }
+        }
+        for (String table : List.of("learning_command_budget", "learning_prepared_publication", "question_revision_contract_bindings",
+                "learning_schedule_cycle", "learning_schedule_receipt", "learning_enrollment", "learning_enrollment_item"))
+            assertThat(count(table)).as(table).isZero();
+        String enrolled = mvc.perform(request).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(mvc.perform(request).andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).isEqualTo(enrolled);
+        assertThat(count("learning_schedule_cycle")).isOne();
+        assertThat(count("learning_enrollment")).isOne();
+        assertThat(sql.queryForObject("SELECT credit_units FROM learning_command_budget", Long.class)).isEqualTo(19 * 60_000_000L);
+    }
+
     @Test void firstLearningHttpEnrollmentPreparesAllQuestionsAndRestoresTheSavedSession() throws Exception {
         UUID selected = question(QuestionType.MCQ_SINGLE, null);
         UUID other = question(QuestionType.TRUE_FALSE, null);
@@ -497,7 +541,10 @@ class QuizPublicationMySqlIntegrationTest {
         assertThat(afterReadAndReplay).isEqualTo(18 * 60_000_000L);
     }
 
-    @Test void resumeAndStartReplaySeparateIntegrityStorageAndAccessFailures() throws Exception {
+    private record SavedSession(UUID revisionId, UUID questionId, MockMvc mvc,
+                                List<MockHttpServletRequestBuilder> routes, String healthy) { }
+
+    private SavedSession savedLearningSession() throws Exception {
         var publication = service.publish(command(0, question(QuestionType.TRUE_FALSE, null))).publication().revision();
         var revision = service.read(quizId, publication.id()).content();
         var source = new LearningSession.Source(1, quizId, revision.id(), 1);
@@ -514,6 +561,44 @@ class QuizPublicationMySqlIntegrationTest {
         var routes = List.of(get("/api/v1/learning/sessions/" + session),
                 post("/api/v1/learning/sessions").contentType("application/json").content(json.writeValueAsBytes(request)));
         String healthy = mvc.perform(routes.get(0)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return new SavedSession(revision.id(), question, mvc, routes, healthy);
+    }
+
+    @ParameterizedTest(name = "saved binding corruption, row deleted = {0}")
+    @ValueSource(booleans = {false, true})
+    void missingOrChangedBindingInSavedFormIsAnIntegrityFailure(boolean deleteBinding) throws Exception {
+        var saved = savedLearningSession();
+        String question = saved.questionId().toString();
+        if (deleteBinding) {
+            assertThat(sql.update("DELETE FROM question_revision_contract_bindings WHERE question_revision_id=UUID_TO_BIN(?)",
+                    question)).isOne();
+        } else {
+            assertThat(sql.update("UPDATE question_revision_contract_bindings SET response_contract_version=2 WHERE question_revision_id=UUID_TO_BIN(?)",
+                    question)).isOne();
+        }
+        for (var route : saved.routes()) saved.mvc().perform(route).andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.status").value(500));
+
+        var other = "peer-" + UUID.randomUUID().toString().substring(0, 8);
+        user(other, true);
+        loginLearner(other);
+        for (var route : saved.routes()) saved.mvc().perform(route).andExpect(status().isNotFound());
+        loginLearner(username);
+        if (deleteBinding) publishedContracts.bind(quizId, saved.revisionId());
+        else sql.update("UPDATE question_revision_contract_bindings SET response_contract_version=1 WHERE question_revision_id=UUID_TO_BIN(?)",
+                question);
+        for (var route : saved.routes()) assertThat(saved.mvc().perform(route).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString()).isEqualTo(saved.healthy());
+        assertThat(count("learning_form")).isOne();
+        assertThat(count("learning_cycle_session")).isOne();
+    }
+
+    @Test void resumeAndStartReplaySeparateIntegrityStorageAndAccessFailures() throws Exception {
+        var saved = savedLearningSession();
+        var question = saved.questionId();
+        var mvc = saved.mvc();
+        var routes = saved.routes();
+        var healthy = saved.healthy();
         String hash = sql.queryForObject("SELECT binding_hash FROM question_revision_contract_bindings WHERE question_revision_id=UUID_TO_BIN(?)",
                 String.class, question.toString());
         sql.update("UPDATE question_revision_contract_bindings SET binding_hash=REPEAT('0',64) WHERE question_revision_id=UUID_TO_BIN(?)",
@@ -1389,9 +1474,10 @@ class QuizPublicationMySqlIntegrationTest {
         volatile CyclicBarrier contenders; volatile CyclicBarrier afterOwnedQuiz; volatile Gate holdPublication;
         volatile Gate beforeQuestions;
         volatile boolean failConfirmation;
+        volatile boolean shortPublicationLockWait;
         final Set<Long> gated = ConcurrentHashMap.newKeySet();
         Faults(JdbcTemplate sql) { this.sql = sql; }
-        void reset() { fail = null; loseAcknowledgement = false; failConfirmation = false; reached.set(false); contenders = null; afterOwnedQuiz = null; holdPublication = null; beforeQuestions = null; gated.clear(); }
+        void reset() { fail = null; loseAcknowledgement = false; failConfirmation = false; shortPublicationLockWait = false; reached.set(false); contenders = null; afterOwnedQuiz = null; holdPublication = null; beforeQuestions = null; gated.clear(); }
         @org.aspectj.lang.annotation.Around("execution(* uk.gegc.quizmaker.features.quiz.domain.repository.QuestionSourceScopeRepository.confirmLegacy(..))")
         Object confirmation(org.aspectj.lang.ProceedingJoinPoint call) throws Throwable {
             Object result = call.proceed();
@@ -1405,6 +1491,12 @@ class QuizPublicationMySqlIntegrationTest {
         @org.aspectj.lang.annotation.Around("execution(* uk.gegc.quizmaker.features.quiz.domain.repository.QuizPublicationRepository.*(..))")
         Object around(org.aspectj.lang.ProceedingJoinPoint call) throws Throwable {
             String method = call.getSignature().getName();
+            if (shortPublicationLockWait && method.equals("actor")) {
+                int original = sql.queryForObject("SELECT @@SESSION.innodb_lock_wait_timeout", Integer.class);
+                sql.execute("SET SESSION innodb_lock_wait_timeout=1");
+                try { return call.proceed(); }
+                finally { sql.execute("SET SESSION innodb_lock_wait_timeout=" + original); }
+            }
             if (method.equals("draft") && Boolean.TRUE.equals(call.getArgs()[1]) && contenders != null && gated.add(Thread.currentThread().getId()))
                 contenders.await(15, TimeUnit.SECONDS);
             if (method.equals("lockQuestions") && beforeQuestions != null) {

@@ -30,6 +30,7 @@ public class PublishedLearningItemMaterial implements LearningItemMaterial, Lear
         var selected = publications.firstOccurrences(learner, source, questions);
         return questions.stream().map(id -> {
             var row = selected.get(id);
+            require(row != null, SOURCE_UNAVAILABLE);
             var content = content(row);
             return new LearningForm.Item(row.sourceItemId(), id, row.question().schemaVersion(),
                     row.binding().response(), LearningFormContent.optionIds(content));
@@ -41,6 +42,7 @@ public class PublishedLearningItemMaterial implements LearningItemMaterial, Lear
                 items.stream().map(LearningForm.Item::sourceItemId).toList());
         return items.stream().map(item -> {
             var row = selected.get(item.sourceItemId());
+            require(row != null, CORRUPT);
             var safe = content(row);
             require(row.question().id().equals(item.questionRevisionId()) && item.response().equals(row.binding().response())
                     && item.questionSchemaVersion() == row.question().schemaVersion(), CORRUPT);
@@ -50,7 +52,7 @@ public class PublishedLearningItemMaterial implements LearningItemMaterial, Lear
     }
 
     private ParticipantContent content(LearningPublicationItems.Item row) {
-        require(row != null && row.question() != null, SOURCE_UNAVAILABLE);
+        require(row.question() != null, CORRUPT);
         var question = row.question();
         // These routes have no current-authority image reader. Do not drop required material or expose stored URLs.
         require(question.attachmentUrl() == null && question.attachmentAssetId() == null, SOURCE_UNAVAILABLE);
