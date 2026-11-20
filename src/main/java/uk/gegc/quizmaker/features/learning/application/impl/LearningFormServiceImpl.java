@@ -8,7 +8,6 @@ import org.springframework.transaction.support.*;
 import uk.gegc.quizmaker.features.learning.application.*;
 import uk.gegc.quizmaker.features.learning.domain.model.*;
 import uk.gegc.quizmaker.features.learning.domain.repository.LearningFormRepository;
-import uk.gegc.quizmaker.features.question.domain.model.contract.ParticipantContent;
 import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 import java.time.Clock;
 import java.time.temporal.ChronoUnit;
@@ -80,20 +79,9 @@ public class LearningFormServiceImpl implements LearningFormService {
             require(item != null && form.items().get(i).equals(item.item()) && item.questionText() != null
                     && !item.questionText().isBlank() && item.questionText().codePointCount(0, item.questionText().length()) <= 1000
                     && item.content() != null, SOURCE_UNAVAILABLE);
-            require(item.item().optionIds().equals(optionIds(item.content())), SOURCE_UNAVAILABLE);
+            require(item.item().optionIds().equals(LearningFormContent.optionIds(item.content())), SOURCE_UNAVAILABLE);
         }
         return new View(form, shown);
-    }
-
-    private static List<UUID> optionIds(ParticipantContent value) {
-        if (value instanceof ParticipantContent.Choices c) return c.options().stream().map(ParticipantContent.Option::id).toList();
-        if (value instanceof ParticipantContent.Ordering c) return c.items().stream().map(ParticipantContent.Option::id).toList();
-        if (value instanceof ParticipantContent.FillGap c) return c.options().stream().map(ParticipantContent.Option::id).toList();
-        if (value instanceof ParticipantContent.Matching c) return java.util.stream.Stream.concat(c.left().stream(), c.right().stream())
-                .map(ParticipantContent.MatchingOption::id).toList();
-        if (value instanceof ParticipantContent.Compliance c) return c.statements().stream().map(ParticipantContent.ComplianceStatement::id).toList();
-        if (value instanceof ParticipantContent.Hotspot c) return c.regions().stream().map(ParticipantContent.HotspotRegion::id).toList();
-        return List.of();
     }
 
     private <T> T run(String operation, Supplier<T> work) {

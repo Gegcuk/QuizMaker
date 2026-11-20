@@ -35,6 +35,20 @@ class QuizMapperTest {
         assertThat(json.valueToTree(mapper.toDto(quiz, 1, false)).path("isNew").asBoolean()).isFalse();
     }
 
+    @Test
+    void learningShuffleDefaultsOffAndPatchDistinguishesOmissionFromFalse() throws Exception {
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var createType = uk.gegc.quizmaker.features.quiz.api.dto.CreateQuizRequest.class;
+        var updateType = uk.gegc.quizmaker.features.quiz.api.dto.UpdateQuizRequest.class;
+        var old = mapper.toEntity(json.readValue("{}", createType), creator, category, Set.of());
+        assertThat(mapper.toDto(old, 0).shuffleLearningQuestions()).isFalse();
+        var enabled = mapper.toEntity(json.readValue("{\"shuffleLearningQuestions\":true}", createType), creator, category, Set.of());
+        mapper.updateEntity(enabled, json.readValue("{\"title\":\"Renamed quiz\"}", updateType), null, null);
+        assertThat(mapper.toDto(enabled, 0).shuffleLearningQuestions()).isTrue();
+        mapper.updateEntity(enabled, json.readValue("{\"shuffleLearningQuestions\":false}", updateType), null, null);
+        assertThat(mapper.toDto(enabled, 0).shuffleLearningQuestions()).isFalse();
+    }
+
     private QuizMapper mapper;
     private User creator;
     private Category category;

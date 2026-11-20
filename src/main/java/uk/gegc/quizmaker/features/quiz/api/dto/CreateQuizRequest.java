@@ -48,8 +48,18 @@ public record CreateQuizRequest(
         UUID categoryId,
 
         @Schema(description = "List of tag UUIDs", example = "[\"a1b2c3d4-...\", \"e5f6g7h8-...\"]")
-        List<UUID> tagIds
+        List<UUID> tagIds,
+
+        @Schema(description = "Shuffle selected Learning questions once per new session. Defaults to false.")
+        boolean shuffleLearningQuestions
 ) {
+    public CreateQuizRequest(String title, String description, Visibility visibility, Difficulty difficulty,
+                           boolean isRepetitionEnabled, boolean timerEnabled, int estimatedTime, int timerDuration,
+                           UUID categoryId, List<UUID> tagIds) {
+        this(title, description, visibility, difficulty, isRepetitionEnabled, timerEnabled, estimatedTime,
+                timerDuration, categoryId, tagIds, false);
+    }
+
     public CreateQuizRequest {
         visibility = (visibility == null ? Visibility.PRIVATE : visibility);
         difficulty = (difficulty == null ? Difficulty.MEDIUM : difficulty);

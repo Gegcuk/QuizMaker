@@ -1,6 +1,11 @@
 package uk.gegc.quizmaker.features.quiz.infra.repository;
 
 import org.springframework.dao.DataAccessException;
+import uk.gegc.quizmaker.features.learning.application.LearningPublicationItems;
+import uk.gegc.quizmaker.features.learning.domain.model.LearningSession;
+import uk.gegc.quizmaker.features.learning.domain.model.LearningFormException;
+import uk.gegc.quizmaker.features.question.domain.model.contract.ContractVersion;
+import uk.gegc.quizmaker.features.question.domain.model.contract.QuestionContractBinding;
 import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
 
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -31,7 +36,7 @@ import java.util.UUID;
 
 @Repository
 @Transactional
-public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
+public class JdbcQuizRevisionRepository implements QuizRevisionRepository, LearningPublicationItems {
     // SQL parameter batching only; this does not limit the size of a published quiz.
     private static final int SQL_BATCH = 500;
     private final NamedParameterJdbcTemplate jdbc;
@@ -186,6 +191,50 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository {
         }
         return ids.stream().filter(result::containsKey).map(result::get).toList();
     }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Map<UUID, LearningPublicationItems.Item> selected(UUID learner, LearningSession.Source source, List<UUID> ids) {
+        var result = new HashMap<UUID, LearningPublicationItems.Item>();
+        try {
+            for (int start = 0; start < ids.size(); start += SQL_BATCH) {
+                var part = ids.subList(start, Math.min(start + SQL_BATCH, ids.size()));
+                var params = Map.of("ids", binaryIds(part), "revision", bytes(source.quizRevisionId()),
+                        "quiz", bytes(source.quizId()), "owner", bytes(learner), "version", source.revisionSchemaVersion());
+                var selected = jdbc.query("""
+                        SELECT i.id AS source_id, i.question_revision_id, b.response_contract_id,b.response_contract_version,
+                               b.scoring_contract_id,b.scoring_contract_version,b.binding_hash
+                        FROM quiz_revision_items i JOIN quiz_revisions r ON r.id=i.quiz_revision_id
+                        JOIN question_revision_contract_bindings b ON b.question_revision_id=i.question_revision_id
+                        WHERE r.id=:revision AND r.quiz_id=:quiz AND r.owner_id=:owner AND r.schema_version=:version
+                          AND i.question_revision_id IN (:ids)
+                        """, params, (rs, n) -> {
+                    var binding = new QuestionContractBinding(
+                        uuid(rs,"question_revision_id"), new ContractVersion(rs.getString("response_contract_id"),
+                        rs.getInt("response_contract_version")), new ContractVersion(rs.getString("scoring_contract_id"),
+                        rs.getInt("scoring_contract_version")));
+                    if (!binding.fingerprint().equals(rs.getString("binding_hash"))) {
+                        throw new LearningFormException(LearningFormException.Reason.CORRUPT);
+                    }
+                    return new BoundItem(uuid(rs, "source_id"), binding);
+                });
+                var members = selected.stream().map(row -> row.binding().questionRevisionId()).toList();
+                if (members.size() != part.size() || !new java.util.HashSet<>(members).equals(new java.util.HashSet<>(part))) {
+                    throw new LearningFormException(LearningFormException.Reason.SOURCE_UNAVAILABLE);
+                }
+                var questions = readQuestions(members);
+                for (var row : selected) {
+                    UUID id = row.binding().questionRevisionId();
+                    result.put(id, new LearningPublicationItems.Item(row.id(), questions.get(id), row.binding()));
+                }
+            }
+            return result;
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
+    }
+
+    private record BoundItem(UUID id, QuestionContractBinding binding) { }
 
     private Map<UUID, QuestionRevision> readQuestions(List<UUID> ids) {
         Map<UUID, QuestionRevision> result = new HashMap<>();

@@ -173,6 +173,7 @@ uk/gegc/quizmaker/features/learning/LearningScheduleSpringTest.java
 uk/gegc/quizmaker/features/learning/LearningSessionMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/learning/LearningSessionSpringMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/learning/LearningSessionSpringTest.java
+uk/gegc/quizmaker/features/learning/api/LearningSessionOpenApiTest.java
 uk/gegc/quizmaker/features/media/api/MediaControllerTest.java
 uk/gegc/quizmaker/features/media/api/MediaRestoreContractTest.java
 uk/gegc/quizmaker/features/media/application/RetainedImageMySqlIntegrationTest.java

@@ -88,7 +88,7 @@ public final class ParticipantFormProjector {
         return new ParticipantForm(form.id(), form.schemaVersion(), result);
     }
 
-    private static ParticipantContent orderedContent(QuestionType type, ParticipantContent content, List<UUID> order) {
+    public static ParticipantContent orderedContent(QuestionType type, ParticipantContent content, List<UUID> order) {
         return switch (type) {
             case MCQ_SINGLE, MCQ_MULTI -> {
                 require(content instanceof ParticipantContent.Choices, INVALID_MATERIAL);

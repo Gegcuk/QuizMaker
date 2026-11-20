@@ -122,6 +122,11 @@ public record AttemptFormResponse(
         @Override public String toString() { return "AttemptFormOrdering"; }
     }
 
+    /** Participant-safe text DTOs for consumers that have verified that no displayable image is required. */
+    public static Content textContent(ParticipantContent value) {
+        return content(value, Map.of());
+    }
+
     private static Content content(ParticipantContent value, Map<UUID, AuthorizedImage> images) {
         if (value instanceof ParticipantContent.Choices choices) return new Choices(options(choices.options()));
         if (value instanceof ParticipantContent.TrueFalse) return new TrueFalse();

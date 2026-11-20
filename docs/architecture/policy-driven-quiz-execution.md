@@ -5772,7 +5772,7 @@ The session, receipt and debit share the caller's writable RC transaction. Failu
 Read-only polling and exact retries do not consume credit. A conflicting key retains its conflict.
 Clients receiving HTTP 429 use the integer `Retry-After` and retry the same logical command.
 
-The real integration is private session creation. Future command owners (#578/#650/#839) must
+The first real integration was private session creation. All command owners (#578/#650/#839) must
 charge once at their outer logical mutation, including when it performs multiple internal writes;
 read-only resume uses current authorization without a debit. #667 owns public conformance.
 
@@ -5810,6 +5810,38 @@ question/answer payload or a per-item query. LIMIT bounds returned rows, while o
 header checks may examine the authorized source's active slots. This does not prove constant
 work as a quiz grows or production capacity. Real MySQL SQL/row counts, EXPLAIN and Spring
 transaction/error-proxy evidence are described in the [testing guide](../testing-guide.md#read-only-due-selection-576).
+
+### Single-quiz Learning sessions (#578)
+
+The online Learning API uses the authenticated learner and their own accessible published
+quiz revision under #692. Its Spring setting `quizmaker.learning.sessions-enabled` defaults to
+false. When enabled, the three routes belong to the `learning` OpenAPI group and appear in
+`/api/v1/api-summary`. Configure a positive `quizmaker.learning.due.max-batch-size` before use.
+The v1 source is `QUIZ_REVISION` and configuration is `fsrs/v1`, version 1.
+
+| Operation | Committed result |
+|---|---|
+| `POST /api/v1/learning/enrollments` | First enrollment calls the #701 binder for the entire publication. Only explicitly requested question revisions receive #649 enrollments. The receipt preserves their ordered revision, cycle and cycle-version references. |
+| `POST /api/v1/learning/sessions` | Select up to the explicit limit in #576 due order. Apply the quiz's question-order preference and materialize the #647 form. Capture each selected cycle/version with #649 and save the start receipt in the same writable READ COMMITTED transaction. An empty selection commits an `EMPTY_COMPLETE` form. |
+| `GET /api/v1/learning/sessions/{sessionId}` | Check current source access and return the persisted form, ordered participant content, outcome and available actions. Read-only progress in this increment has zero reviewed items and the `READ_SESSION` action. |
+
+An exact retry on the same mutation route and learner uses the original `commandId` and
+payload. A conflicting payload returns 409. A missing or inaccessible resource returns 404.
+The shared D33 limit charges one accepted enrollment or start, regardless of batch size.
+Reads and exact replays spend no credit. A rate denial returns 429 with whole seconds in
+`Retry-After`. The first full binding, budget debit, receipt and schedules commit together.
+Later content reads load the requested immutable question and option rows in bounded SQL batches.
+This text-content adapter rejects items requiring an unavailable authorized image display.
+
+The ordinary quiz create/update/read DTOs carry the additive `shuffleLearningQuestions`
+setting. Omission on create yields false, and omission on update preserves the saved value.
+When enabled, the server shuffles whole selected items once before storing form positions.
+Each option retains its captured identity and position. Later edits, new due items and retries
+cannot reorder the saved form. Existing internal CREATED sessions keep their own lifecycle;
+this API serves sessions with a committed start and matching form. There is no historical
+enrollment backfill. Review/rating belongs to #650 and first full FSRS conformance to #667.
+See the [owner decision](decision-register.md#learning-session-presentation) and
+[verification fixtures](../testing-guide.md#single-quiz-learning-sessions-578).
 
 ### First enrollment, selection and public progress
 

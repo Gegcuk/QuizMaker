@@ -2,6 +2,27 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Single-quiz Learning sessions (#578)
+
+Use `LearningFormTest` for the optional question permutation, saved option order and empty
+form. `QuizMapperTest` and `QuizOpenApiContractTest` cover the additive quiz preference.
+`LearningSessionOpenApiTest` checks the security filter, request validation, errors, named schemas,
+the three paths and their unique discovery group.
+
+`QuizPublicationMySqlIntegrationTest` starts with real published questions and empty Learning
+and legacy repetition storage. Its HTTP fixture enrolls one of two questions, checks both
+publication bindings but only one schedule, then starts and resumes the form. Verify command
+credit after the start, read and exact replay using frozen admission time. A different fixture
+holds the winning enrollment open and observes the competitor in MySQL's lock-wait table.
+
+The same suite changes the quiz setting, publishes revision B, and reads the original form
+through a new application-service instance. It compares resume statement counts and counts
+actual immutable question rows for one and three selected items. First preparation intentionally
+reads the whole revision. Enrollment and capture each invoke the existing transactional schedule
+writer per selected item. Exercise rollback after reached form/capture writes, corruption on an
+unselected first-enrollment binding, permission loss and the absence of assessment/review writes.
+Use the normal four-worker `context_benchmark.py verify` gate after these scoped suites.
+
 ## Learning command accounting (#692)
 
 Use JDK 17, the offline provider environment and disposable MySQL. Run

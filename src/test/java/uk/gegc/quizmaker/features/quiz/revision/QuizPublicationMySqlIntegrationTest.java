@@ -83,6 +83,10 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 import java.util.function.Supplier;
 import static org.assertj.core.api.Assertions.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import uk.gegc.quizmaker.features.learning.api.LearningSessionController;
+import uk.gegc.quizmaker.features.learning.api.LearningSessionErrorHandler;
 import static uk.gegc.quizmaker.features.quiz.domain.model.revision.PublicationException.Reason.*;
 
 /** Real authoring, media retention, authorization, publication and MySQL; only object storage is fake. */
@@ -91,7 +95,7 @@ import static uk.gegc.quizmaker.features.quiz.domain.model.revision.PublicationE
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test-mysql")
 @TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=none", "spring.flyway.enabled=true",
-        "quizmaker.learning.due.max-batch-size=20",
+        "quizmaker.learning.due.max-batch-size=20", "quizmaker.learning.sessions-enabled=true",
         "spring.jpa.properties.hibernate.connection.isolation=4", "spring.datasource.hikari.transaction-isolation=TRANSACTION_REPEATABLE_READ"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -105,6 +109,14 @@ import static uk.gegc.quizmaker.features.quiz.domain.model.revision.PublicationE
         LearningSessionServiceImpl.class, AuthenticatedUserLookupImpl.class, JdbcLearningSessionRepository.class,
         JdbcPublishedLearningSourceVerifier.class, JdbcLearningCommandBudget.class, LearningCommandRateConfig.class,
         LearningDueSelectionServiceImpl.class, JdbcLearningDueSelectionRepository.class, LearningDueSelectionConfig.class,
+        LearningStudyServiceImpl.class, PublishedLearningItemMaterial.class, JdbcLearningStudyRepository.class,
+        LearningFormServiceImpl.class, JdbcLearningFormRepository.class, LearningScheduleServiceImpl.class,
+        JdbcLearningScheduleRepository.class, FsrsSchedulingStrategyImpl.class,
+        uk.gegc.quizmaker.features.question.application.impl.PublishedQuestionContractServiceImpl.class,
+        uk.gegc.quizmaker.features.question.application.impl.QuestionRevisionContractServiceImpl.class,
+        uk.gegc.quizmaker.features.question.application.impl.QuestionContractRegistryImpl.class,
+        uk.gegc.quizmaker.features.question.config.BaselineQuestionContractConfig.class,
+        uk.gegc.quizmaker.features.question.infra.repository.JdbcQuestionContractBindingRepository.class,
         FixedFormServiceImpl.class, JdbcFixedFormRepository.class, QuizPublicationMySqlIntegrationTest.Config.class})
 class QuizPublicationMySqlIntegrationTest {
     static final String SCHEMA = "publication_" + UUID.randomUUID().toString().replace("-", "");
@@ -131,8 +143,8 @@ class QuizPublicationMySqlIntegrationTest {
     static class Config {
         @Bean @org.springframework.context.annotation.Primary
         Clock clock() { return Clock.fixed(Instant.parse("2026-11-05T12:00:00Z"), ZoneOffset.UTC); }
-        @Bean Clock authAdmissionClock(JdbcTemplate jdbc) {
-            return new uk.gegc.quizmaker.features.auth.infra.ratelimit.DatabaseAuthClock(jdbc);
+        @Bean Clock authAdmissionClock() {
+            return Clock.fixed(Instant.parse("2026-11-05T12:00:00Z"), ZoneOffset.UTC);
         }
         @Bean SimpleMeterRegistry metrics() { return new SimpleMeterRegistry(); }
         @Bean MediaStorageProperties properties() { return new MediaStorageProperties(); }
@@ -151,6 +163,9 @@ class QuizPublicationMySqlIntegrationTest {
     @MockitoBean uk.gegc.quizmaker.features.quiz.application.QuizFreshnessService freshness;
     @Autowired uk.gegc.quizmaker.features.quiz.application.generation.QuizAssemblyService assembly;
     @Autowired QuizRevisionPublicationService service;
+    @Autowired PublishedQuestionContractService publishedContracts;
+    @Autowired LearningStudyService study;
+    @Autowired org.springframework.beans.factory.config.AutowireCapableBeanFactory beans;
     @Autowired LearningSessionService sessions;
     @Autowired LearningDueSelectionService dueSelection;
     @Autowired QuizRelationService relations;
@@ -197,7 +212,10 @@ class QuizPublicationMySqlIntegrationTest {
         SecurityContextHolder.clearContext(); faults.reset(); CountingSource.enabled = false;
         tx.executeWithoutResult(status -> {
             // Owned schema only, in FK order. All durability assertions run before cleanup.
-            for (String table : List.of("learning_form_option", "learning_form_item", "learning_form", "learning_session_create_receipt",
+            sql.update("UPDATE learning_schedule_slot SET active_cycle_id=NULL,cycle_version=0");
+            for (String table : List.of("learning_enrollment_item", "learning_enrollment", "learning_prepared_publication",
+                    "learning_session_start", "learning_cycle_session", "learning_review_event", "learning_fsrs_state",
+                    "learning_schedule_receipt", "learning_schedule_cycle", "learning_schedule_slot", "learning_form_option", "learning_form_item", "learning_form", "learning_session_create_receipt",
                     "learning_session", "question_revision_contract_bindings", "attempt_form_item", "attempt_form", "quiz_publication_receipts", "quiz_publication_heads",
                     "quiz_revision_images", "quiz_publications", "quiz_revision_items", "question_option_revisions",
                     "question_revisions", "quiz_revisions", "saved_image_bindings", "saved_image_versions", "quiz_questions",
@@ -250,6 +268,235 @@ class QuizPublicationMySqlIntegrationTest {
         assertReason(() -> service.publish(command(1, question)), STALE_PUBLICATION);
         assertThat(service.current(quizId)).contains(back.publication());
         assertThat(second.publication().revision().id()).isNotEqualTo(back.publication().revision().id());
+    }
+
+    @Test void publicLearningStartsFromEmptyStorageAndKeepsTheOriginalFormAfterEdits() {
+        UUID first = question(QuestionType.TRUE_FALSE, null);
+        UUID second = question(QuestionType.MCQ_SINGLE, null);
+        UUID third = question(QuestionType.TRUE_FALSE, null);
+        var publication = service.publish(command(0, first, second, third)).publication().revision();
+        var content = service.read(quizId, publication.id()).content();
+        var source = new LearningSession.Source(1, quizId, content.id(), content.schemaVersion());
+        var ids = content.items().stream().map(i -> i.question().id()).toList();
+        loginLearner(username);
+        for (String table : List.of("spaced_repetition_entry", "learning_session", "learning_schedule_cycle",
+                "learning_review_event", "question_revision_contract_bindings")) assertThat(count(table)).isZero();
+        var emptyKey = new LearningStudyService.Start(UUID.randomUUID(), source, 3);
+        var empty = study.start(emptyKey);
+        assertThat(empty.form().outcome()).isEqualTo(LearningForm.Outcome.EMPTY_COMPLETE);
+        assertThat(count("learning_schedule_slot")).isZero();
+
+        var enrollment = new LearningStudyService.Enroll(UUID.randomUUID(), source, ids);
+        var receipt = study.enroll(enrollment);
+        assertThat(receipt.items()).extracting(LearningStudyService.EnrolledItem::questionRevisionId)
+                .containsExactlyElementsOf(ids);
+        assertThat(count("question_revision_contract_bindings")).isEqualTo(3);
+        assertThat(count("learning_schedule_cycle")).isEqualTo(3);
+        assertThat(study.enroll(enrollment)).isEqualTo(receipt);
+        assertThat(study.start(emptyKey)).isEqualTo(empty);
+        deniedLearning(() -> study.enroll(new LearningStudyService.Enroll(enrollment.commandId(), source, ids.subList(0,2))),
+                LearningSessionException.Reason.CONFLICT);
+        var begin = new LearningStudyService.Start(UUID.randomUUID(), source, 3);
+        var due = dueSelection.select(new LearningDueSelectionService.Select(1, source, 3, null)).items();
+        var original = study.start(begin);
+        assertThat(original.form().items()).extracting(LearningForm.Item::questionRevisionId)
+                .containsExactlyElementsOf(due.stream().map(LearningDueSelection.Item::questionRevisionId).toList());
+        assertThat(count("learning_cycle_session")).isEqualTo(3);
+        var single = study.start(new LearningStudyService.Start(UUID.randomUUID(), source, 1));
+        int smallReads = measure(() -> study.resume(single.form().sessionId()));
+        assertThat(CountingSource.selectedQuestions.get()).isOne();
+        assertThat(measure(() -> study.resume(original.form().sessionId()))).isEqualTo(smallReads);
+        assertThat(CountingSource.selectedQuestions.get()).isEqualTo(3);
+
+        sql.update("UPDATE quizzes SET shuffle_learning_questions=TRUE WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString());
+        var shuffledKey = new LearningStudyService.Start(UUID.randomUUID(), source, 3);
+        var shuffled = study.start(shuffledKey);
+        assertThat(shuffled.form().items()).containsExactlyInAnyOrderElementsOf(original.form().items());
+        assertThat(sql.queryForObject("SELECT shuffled FROM learning_session_start WHERE session_id=UUID_TO_BIN(?)",
+                Boolean.class, shuffled.form().sessionId().toString())).isTrue();
+        sql.update("UPDATE quizzes SET shuffle_learning_questions=FALSE WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString());
+        edit(first, "Changed in publication B");
+        service.publish(command(1, first, second, third));
+        assertThat(study.start(shuffledKey)).isEqualTo(shuffled);
+        LearningStudyService restarted = beans.createBean(LearningStudyServiceImpl.class);
+        assertThat(restarted).isNotSameAs(study);
+        assertThat(restarted.resume(shuffled.form().sessionId())).isEqualTo(shuffled);
+        assertThat(restarted.start(shuffledKey)).isEqualTo(shuffled);
+        assertThat(study.resume(original.form().sessionId())).isEqualTo(original);
+        assertThat(study.start(begin)).isEqualTo(original);
+        deniedLearning(() -> study.start(new LearningStudyService.Start(begin.commandId(), source, 2)),
+                LearningSessionException.Reason.CONFLICT);
+        String foreignName = "other-" + UUID.randomUUID().toString().substring(0,8);
+        user(foreignName, true);
+        loginLearner(foreignName);
+        deniedLearning(() -> study.resume(original.form().sessionId()), LearningSessionException.Reason.UNAVAILABLE);
+        deniedLearning(() -> study.enroll(enrollment), LearningSessionException.Reason.SOURCE_UNAVAILABLE);
+        loginLearner(username);
+        sql.update("DELETE FROM user_roles WHERE user_id=UUID_TO_BIN(?)", ownerId.toString());
+        deniedLearning(() -> study.start(begin), LearningSessionException.Reason.SOURCE_UNAVAILABLE);
+        deniedLearning(() -> study.enroll(enrollment), LearningSessionException.Reason.SOURCE_UNAVAILABLE);
+        deniedLearning(() -> study.resume(shuffled.form().sessionId()), LearningSessionException.Reason.SOURCE_UNAVAILABLE);
+        for (String table : List.of("attempts","answers","attempt_accepted_response","attempt_automatic_result",
+                "learning_review_event","spaced_repetition_entry")) assertThat(count(table)).isZero();
+    }
+
+    @Test void publicLearningRollsBackPreparationEnrollmentAndReachedFormWrites() {
+        UUID question = question(QuestionType.TRUE_FALSE, null);
+        var pub = service.publish(command(0,question)).publication().revision();
+        var content = service.read(quizId, pub.id()).content();
+        var source = new LearningSession.Source(1,quizId,pub.id(),content.schemaVersion());
+        loginLearner(username);
+        var questions = List.of(content.items().get(0).question().id());
+        var cmd = new LearningStudyService.Enroll(UUID.randomUUID(),source,questions);
+        var outer = new TransactionTemplate(transactions);
+        outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        var incompatible = new TransactionTemplate(transactions);
+        incompatible.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        deniedLearning(() -> incompatible.executeWithoutResult(status -> study.enroll(cmd)),
+                LearningSessionException.Reason.UNSUPPORTED_TRANSACTION);
+        assertThat(count("learning_command_budget")).isZero();
+        outer.executeWithoutResult(status -> {
+            study.enroll(cmd);
+            for (String table : List.of("learning_prepared_publication","question_revision_contract_bindings",
+                    "learning_enrollment_item","learning_schedule_cycle","learning_command_budget")) assertThat(count(table)).isOne();
+            status.setRollbackOnly();
+        });
+        for (String table : List.of("learning_prepared_publication","question_revision_contract_bindings",
+                "learning_enrollment_item","learning_schedule_cycle","learning_command_budget")) assertThat(count(table)).isZero();
+        study.enroll(cmd);
+        var begin = new LearningStudyService.Start(UUID.randomUUID(),source,1);
+        outer.executeWithoutResult(status -> {
+            study.start(begin);
+            for (String table : List.of("learning_cycle_session","learning_form_item","learning_session_start"))
+                assertThat(count(table)).isOne();
+            status.setRollbackOnly();
+        });
+        for (String table : List.of("learning_session","learning_form","learning_cycle_session","learning_session_start"))
+            assertThat(count(table)).isZero();
+        long balance = sql.queryForObject("SELECT credit_units FROM learning_command_budget", Long.class);
+        faults.failLearningStart = true;
+        deniedLearning(() -> study.start(begin), LearningSessionException.Reason.PERSISTENCE_UNAVAILABLE);
+        assertThat(faults.reached.get()).isTrue();
+        for (String table : List.of("learning_session", "learning_form", "learning_cycle_session", "learning_session_start")) {
+            assertThat(count(table)).isZero();
+        }
+        assertThat(sql.queryForObject("SELECT credit_units FROM learning_command_budget", Long.class)).isEqualTo(balance);
+        faults.failLearningStart = false;
+        assertThat(study.start(begin).items()).hasSize(1);
+    }
+
+    @Test void concurrentFirstEnrollmentReplaysOneRealCycleAndReceipt() throws Exception {
+        UUID question = question(QuestionType.TRUE_FALSE,null);
+        var pub = service.publish(command(0,question)).publication().revision();
+        var content = service.read(quizId,pub.id()).content();
+        var source = new LearningSession.Source(1,quizId,pub.id(),content.schemaVersion());
+        var cmd = new LearningStudyService.Enroll(UUID.randomUUID(),source,List.of(content.items().get(0).question().id()));
+        concurrentLearningReplay(() -> study.enroll(cmd));
+        for (String table : List.of("learning_enrollment", "learning_enrollment_item", "learning_schedule_cycle",
+                "learning_prepared_publication", "learning_schedule_receipt")) assertThat(count(table)).isOne();
+
+        var start = new LearningStudyService.Start(UUID.randomUUID(), source, 1);
+        concurrentLearningReplay(() -> study.start(start));
+        for (String table : List.of("learning_session", "learning_form", "learning_cycle_session",
+                "learning_session_start", "learning_session_create_receipt")) assertThat(count(table)).isOne();
+    }
+
+    private <T> void concurrentLearningReplay(Supplier<T> command) throws Exception {
+        var outer = new TransactionTemplate(transactions);
+        outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        var pool = Executors.newFixedThreadPool(2);
+        var gate = new Gate();
+        try {
+            var holder = pool.submit(() -> {
+                loginLearner(username);
+                try {
+                    return outer.execute(status -> {
+                        var result = command.get();
+                        gate.entered.countDown();
+                        await(gate.release);
+                        return result;
+                    });
+                } finally { SecurityContextHolder.clearContext(); }
+            });
+            await(gate.entered);
+            var peer = pool.submit(() -> {
+                loginLearner(username);
+                try { return command.get(); } finally { SecurityContextHolder.clearContext(); }
+            });
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(10)).until(() -> admin.queryForObject("""
+                    SELECT EXISTS(SELECT 1 FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks l
+                    ON l.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID WHERE l.OBJECT_SCHEMA=?)
+                    """, Boolean.class, SCHEMA));
+            gate.release.countDown();
+            assertThat(holder.get(15, TimeUnit.SECONDS)).isEqualTo(peer.get(15, TimeUnit.SECONDS));
+        } finally { gate.release.countDown(); pool.shutdownNow(); }
+    }
+
+    @Test void firstLearningHttpEnrollmentPreparesAllQuestionsAndRestoresTheSavedSession() throws Exception {
+        UUID selected = question(QuestionType.MCQ_SINGLE, null);
+        UUID other = question(QuestionType.TRUE_FALSE, null);
+        var pub = service.publish(command(0, selected, other)).publication().revision();
+        var source = service.read(quizId, pub.id()).content();
+        var question = source.items().get(0).question();
+        loginLearner(username);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                new LearningSessionController(study))
+                .setControllerAdvice(new LearningSessionErrorHandler()).build();
+        var input = json.createObjectNode();
+        input.put("commandId", UUID.randomUUID().toString());
+        input.putObject("source").put("kind", "QUIZ_REVISION").put("quizId", quizId.toString())
+                .put("quizRevisionId", pub.id().toString()).put("revisionSchemaVersion", source.schemaVersion());
+        input.putObject("configuration").put("strategy", "fsrs/v1").put("version", 1);
+        input.putArray("questionRevisionIds").add(question.id().toString());
+        String root = "/api/v1/learning";
+        var enrollment = post(root + "/enrollments")
+                .contentType("application/json").content(input.toString());
+        var enrolled = mvc.perform(enrollment).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(json.readTree(enrolled).at("/items/0/questionRevisionId").asText()).isEqualTo(question.id().toString());
+        assertThat(count("question_revision_contract_bindings")).isEqualTo(2);
+        assertThat(count("learning_schedule_cycle")).isOne();
+        long afterEnrollment = sql.queryForObject("SELECT credit_units FROM learning_command_budget", Long.class);
+        input.remove("questionRevisionIds");
+        input.put("commandId", UUID.randomUUID().toString()).put("limit", 3);
+        var start = post(root + "/sessions")
+                .contentType("application/json").content(input.toString());
+        var shown = mvc.perform(start).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        var body = json.readTree(shown);
+        assertThat(body.at("/items/0/content/kind").asText()).isEqualTo("CHOICES");
+        assertThat(body.at("/items/0/content/options").size()).isEqualTo(question.options().size());
+        assertThat(shown).doesNotContain("\"correct\"", "\"hint\"", "\"explanation\"", "\"learnerId\"");
+        assertThat(body.path("outcome").asText()).isEqualTo("READY");
+        var read = get(root + "/sessions/" + body.path("sessionId").asText());
+        assertThat(mvc.perform(read).andReturn().getResponse().getContentAsString()).isEqualTo(shown);
+        assertThat(mvc.perform(start).andReturn().getResponse().getContentAsString()).isEqualTo(shown);
+        input.put("commandId", UUID.randomUUID().toString()).put("limit", 21);
+        mvc.perform(post(root + "/sessions").contentType("application/json").content(input.toString()))
+                .andExpect(status().isBadRequest());
+        assertThat(count("learning_session")).isOne();
+        long afterReadAndReplay = sql.queryForObject("SELECT credit_units FROM learning_command_budget", Long.class);
+        // Frozen admission clock. One token per accepted command, and none for capture, reads or replay.
+        assertThat(afterEnrollment).isEqualTo(19 * 60_000_000L);
+        assertThat(afterReadAndReplay).isEqualTo(18 * 60_000_000L);
+    }
+
+    @Test void damagedUnselectedContractRejectsFirstEnrollmentWithoutPartialWrites() {
+        UUID selected = question(QuestionType.TRUE_FALSE, null);
+        UUID other = question(QuestionType.TRUE_FALSE, null);
+        var pub = service.publish(command(0, selected, other)).publication().revision();
+        var source = service.read(quizId, pub.id()).content();
+        loginLearner(username);
+        // Establish legitimate bindings through the real author operation; damage the unselected evidence explicitly.
+        publishedContracts.bind(quizId, pub.id());
+        var damaged = source.items().get(1).question().id().toString();
+        sql.update("UPDATE question_revision_contract_bindings SET binding_hash=REPEAT('0',64) WHERE question_revision_id=UUID_TO_BIN(?)", damaged);
+        var cmd = new LearningStudyService.Enroll(UUID.randomUUID(),
+                new LearningSession.Source(1,quizId,pub.id(),source.schemaVersion()), List.of(source.items().get(0).question().id()));
+        deniedLearning(() -> study.enroll(cmd), LearningSessionException.Reason.CORRUPT);
+        for (String table : List.of("learning_prepared_publication","learning_enrollment","learning_schedule_slot",
+                "learning_schedule_cycle","learning_command_budget")) assertThat(count(table)).isZero();
+        assertThat(count("question_revision_contract_bindings")).isEqualTo(2);
     }
 
     @Test void learningFormKeepsRevisionAAfterRealAuthorEditAndPublicationB() {
@@ -954,7 +1201,7 @@ class QuizPublicationMySqlIntegrationTest {
 
     private void serialize(Object value) { try { new ObjectMapper().findAndRegisterModules().writeValueAsBytes(value); } catch (Exception e) { throw new AssertionError(e); } }
     private int measure(Runnable work) {
-        CountingSource.calls.set(0); CountingSource.enabled = true;
+        CountingSource.calls.set(0); CountingSource.selectedQuestions.set(0); CountingSource.enabled = true;
         try { work.run(); return CountingSource.calls.get(); } finally { CountingSource.enabled = false; }
     }
     private Command command(long version, UUID... questions) { return new Command(1, quizId, UUID.randomUUID(), version, List.of(questions)); }
@@ -1035,9 +1282,19 @@ class QuizPublicationMySqlIntegrationTest {
         volatile CyclicBarrier contenders; volatile CyclicBarrier afterOwnedQuiz; volatile Gate holdPublication;
         volatile Gate beforeQuestions;
         volatile boolean failConfirmation;
+        volatile boolean failLearningStart;
         final Set<Long> gated = ConcurrentHashMap.newKeySet();
         Faults(JdbcTemplate sql) { this.sql = sql; }
-        void reset() { fail = null; loseAcknowledgement = false; failConfirmation = false; reached.set(false); contenders = null; afterOwnedQuiz = null; holdPublication = null; beforeQuestions = null; gated.clear(); }
+        void reset() { fail = null; loseAcknowledgement = false; failConfirmation = false; failLearningStart = false; reached.set(false); contenders = null; afterOwnedQuiz = null; holdPublication = null; beforeQuestions = null; gated.clear(); }
+        @org.aspectj.lang.annotation.Before("execution(* uk.gegc.quizmaker.features.learning.domain.repository.LearningStudyRepository.recordStart(..))")
+        void beforeLearningStartReceipt() {
+            if (failLearningStart) {
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_form_item", Integer.class)).isOne();
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_cycle_session", Integer.class)).isOne();
+                reached.set(true);
+                throw new org.springframework.dao.DataAccessResourceFailureException("Synthetic Learning receipt failure");
+            }
+        }
         @org.aspectj.lang.annotation.Around("execution(* uk.gegc.quizmaker.features.quiz.domain.repository.QuestionSourceScopeRepository.confirmLegacy(..))")
         Object confirmation(org.aspectj.lang.ProceedingJoinPoint call) throws Throwable {
             Object result = call.proceed();
@@ -1090,6 +1347,7 @@ class QuizPublicationMySqlIntegrationTest {
     }
     static class CountingSource extends DelegatingDataSource {
         static volatile boolean enabled; static final AtomicInteger calls = new AtomicInteger();
+        static final AtomicInteger selectedQuestions = new AtomicInteger();
         CountingSource(DataSource target) { super(target); }
         @Override public Connection getConnection() throws SQLException { return connection(super.getConnection()); }
         @Override public Connection getConnection(String u, String p) throws SQLException { return connection(super.getConnection(u, p)); }
@@ -1100,7 +1358,17 @@ class QuizPublicationMySqlIntegrationTest {
                     Class<?> type = statement instanceof PreparedStatement ? PreparedStatement.class : Statement.class;
                     return Proxy.newProxyInstance(type.getClassLoader(), new Class[]{type}, (p, m, a) -> {
                         if (enabled && m.getName().startsWith("execute")) calls.incrementAndGet();
-                        return invoke(statement, m, a);
+                        Object executed = invoke(statement, m, a);
+                        if (enabled && executed instanceof ResultSet rows && args != null && args.length > 0
+                                && args[0] instanceof String query && query.contains("FROM question_revisions WHERE id IN")) {
+                            return Proxy.newProxyInstance(ResultSet.class.getClassLoader(), new Class[]{ResultSet.class},
+                                    (ignored, op, values) -> {
+                                        Object read = invoke(rows, op, values);
+                                        if (op.getName().equals("next") && Boolean.TRUE.equals(read)) selectedQuestions.incrementAndGet();
+                                        return read;
+                                    });
+                        }
+                        return executed;
                     });
                 }
                 return result;

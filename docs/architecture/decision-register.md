@@ -6,6 +6,21 @@ Synchronized: **23 October 2026**. This register summarizes approved issue claus
 
 Use [open questions](open-questions.md) for unresolved choices, conflicting clauses, engineering preparation, and ownership gaps. The [target architecture](policy-driven-quiz-execution.md) explains the model.
 
+<a id="learning-session-presentation"></a>
+## First Learning enrollment and question order (#578) — DECIDED
+
+On 20 November 2026 the owner approved preparing the entire immutable quiz revision on the
+first explicit enrollment. Use the existing publication contract binder in the same transaction
+as enrollment. A failure rolls back preparation, command credit and all schedule writes.
+A learner can start with an ordinary published revision and empty Learning storage.
+
+The author can opt into question shuffling with `shuffleLearningQuestions` on the quiz.
+Existing and new quizzes default to false. Start preserves the due selector's order by default.
+When enabled, start shuffles the selected questions once and saves the resulting form.
+Option order and due eligibility are independent of that setting. Resume and exact command
+replay use the saved form even after the author changes the flag or publishes a newer revision.
+The [initial source authority](#learning-author-source) and #650/#667 activation gates still apply.
+
 <a id="learning-author-source"></a>
 ## Initial Learning source authority (#692) — DECIDED
 
@@ -16,7 +31,7 @@ including on session reads and exact replays. A later publication can move the h
 invalidating that proof for the captured revision. A catalogue listing, moderation of somebody
 else's quiz, organization membership alone, or an assessment score release cannot grant the
 whole source. Foreign material needs separate authoritative access to the exact revision before
-such learners can be enabled. This scope has no public Learning route. D33 applies to accepted
+such learners can be enabled. #578 uses this authority on its opt-in routes. D33 applies to accepted
 logical mutations; Q95 continues to govern strategy choice within already accessible content.
 
 <a id="result-notification-producer"></a>
@@ -218,9 +233,9 @@ Legacy V108 and allowance `start_ids` are not changed. See the
 implementation chat: earliest due instant first, then immutable question-revision ID in
 ascending unsigned UUID byte order. This is selection order, not a sequential-answer rule.
 Selection does not grant navigation/response actions or prescribe a future session's presentation
-order. Randomized presentation and free response order require their own #578/#650 contract;
-neither is established by a frontend rearranging the selection result. No numerical production
-batch default is selected; a server-configured bound is required before using the internal port.
+order. [#578 defines optional randomized presentation](#learning-session-presentation).
+Response order belongs to #650. A server-configured bound is required before using the internal
+port. The decision sets no numerical production batch default.
 
 ## A01–A43: product decisions
 
