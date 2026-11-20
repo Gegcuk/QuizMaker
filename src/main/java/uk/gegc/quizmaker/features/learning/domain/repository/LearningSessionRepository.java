@@ -7,6 +7,7 @@ import uk.gegc.quizmaker.features.learning.domain.model.LearningSession;
 /** Persistence-only port; requires the authorized caller's transaction. No update or delete API. */
 public interface LearningSessionRepository {
     boolean sourceExists(LearningSession.Source source);
+    boolean creationExists(UUID trustedLearnerId, UUID commandId);
 
     /** No-op duplicate insert serializes one learner/command; never overwrites the winning input. */
     LearningSession insertOrRead(LearningSession candidate);

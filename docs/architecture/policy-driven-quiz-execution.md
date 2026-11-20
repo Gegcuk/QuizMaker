@@ -5631,9 +5631,9 @@ The service resolves the current authenticated account through `AuthenticatedUse
 requires exactly one `LearningSessionSourceVerifier`. That project-owned port checks current
 content access, visibility, release and applicable tenant/organization authority through commit,
 including exact retries and reads. It does not inherit Assessment-only owner/editor eligibility or
-the unused legacy repetition flag. No verifier is supplied by this foundation; missing/ambiguous
-providers deny. Source contract fixtures prove #575 storage, not the real #578/#692/#667 access
-integration. A bounded database metadata lookup additionally verifies the exact retained revision.
+the unused legacy repetition flag. #575 storage tests use source contract fixtures. The #692
+author-source implementation below supplies the initial real authority. Missing or ambiguous
+providers deny. A bounded database metadata lookup additionally verifies the exact retained revision.
 
 Standalone operations own READ_COMMITTED transactions. Participating calls require explicit writable
 outer RC metadata and return provisionally until caller commit; incompatible/default/read-only
@@ -5678,8 +5678,8 @@ Nested repository failures are sanitized before transaction logging; only bounde
 survive. Metrics have bounded operation/outcome labels, never learner IDs or source payloads.
 
 The real #700 author edit/publication integration retains a form bound to revision A after
-publication B moves the current pointer. The Learning source/access presentation remains an
-explicit fixture in that test. Assessment facts, legacy repetition storage/routes, FSRS state,
+publication B moves the current pointer. #692 now verifies real author access to A on that path.
+The participant-content reader and response binding remain explicit fixtures. Assessment facts, legacy repetition storage/routes, FSRS state,
 public APIs and media/offline capabilities remain outside this foundation. Retention has no
 new age cleanup or mutable-account cascade; separate erasure owners must classify these tables.
 
@@ -5753,6 +5753,29 @@ age cleanup, new daily quota or public mastery metric is added. #576 consumes du
 and rate enforcement, and #667 the first real public conformance. Custom lifecycle/scheduling
 and nested selection remain #839/#840/#841. Existing legacy/quiz/training contracts stay intact.
 
+### Current author access and accepted command rates (#692)
+
+The [first access scope](decision-register.md#learning-author-source) uses the exact publication,
+its retained owner, the active account, the current quiz owner and an effective publication-history
+permission (`QUIZ_UPDATE`, `QUIZ_MODERATE` or `QUIZ_ADMIN`). The personal source check applies
+even to an elevated user. A shared lock protects the current authorization path during the operation.
+The read selects bounded metadata for the saved revision without loading the question bank.
+Session ownership is checked independently. Unsupported subjects and foreign sources are denied.
+
+D33 gives each authenticated learner one shared mutation budget. The initial capacity is 20
+commands, replenished continuously at 60/minute on the database admission clock shared by replicas. Deployments may lower
+`quizmaker.learning.command-rate.burst` and `quizmaker.learning.command-rate.per-minute` within
+these bounds. V121 holds one operational row per learner. Idle balances refill fully; subsequent
+accepted traffic can remove expired rows, and account deletion cascades to this operational row.
+Existing session receipts retain command identity across restart and expiry of the balance.
+The session, receipt and debit share the caller's writable RC transaction. Failure rolls them back.
+Read-only polling and exact retries do not consume credit. A conflicting key retains its conflict.
+Clients receiving HTTP 429 use the integer `Retry-After` and retry the same logical command.
+
+The real integration is private session creation. Future command owners (#578/#650/#839) must
+charge once at their outer logical mutation, including when it performs multiple internal writes;
+read-only resume uses current authorization without a debit. #667 owns public conformance.
+
 ### Read-only due selection (#576)
 
 `LearningDueSelectionService` supplies an internal, authenticated, source-scoped read for
@@ -5778,8 +5801,8 @@ response order are not established by this port or by frontend reordering.
 There are no schedule, receipt, session, form or assessment writes and no schema migration,
 legacy import, read-time repair or fallback. Unknown strategy/state/manifest versions fail
 explicitly, including unsupported future-due headers. Missing/inconsistent selected evidence
-fails without inventing empty success. Current content authority remains a fail-closed port;
-the tests' access fixtures do not establish #692 public authorization. Custom pause/completion
+fails without inventing empty success. The selector's local tests use an access fixture.
+#692 additionally exercises a real authorized author read from a published source. Custom pause/completion
 and nested eligibility retain their real #839/#840/#841 integration gates.
 
 The batch query uses existing learner/source slot indexes and bounded schedule JSON, never

@@ -8,8 +8,9 @@ import uk.gegc.quizmaker.features.learning.domain.model.LearningSession.Source;
  * Verify access, visibility, release and applicable organization/tenant membership for the trusted
  * learner and exact immutable source; retain necessary authority protection through commit. This
  * does not grant assessment permissions or require the unused legacy repetition-enable flag.
- * Missing/ambiguous implementations deny. #575 tests use a source contract fake; #578/#692/#667
- * must supply and prove the real access integration before exposing Learning commands.
+ * The initial real scope is a learner's own published revision with current author authority.
+ * A foreign revision needs a separately established exact-source grant. Missing or ambiguous
+ * authority denies, including at replay. Public command integration belongs to #578/#650/#667.
  */
 public interface LearningSessionSourceVerifier {
     boolean allows(UUID trustedLearnerId, Source source);

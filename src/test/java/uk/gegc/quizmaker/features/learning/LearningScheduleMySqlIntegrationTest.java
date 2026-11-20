@@ -95,7 +95,7 @@ class LearningScheduleMySqlIntegrationTest {
                         (r, n) -> UUID.fromString(r.getString(1)), name).stream().findFirst();
             }
         };
-        sessions = new LearningSessionServiceImpl(new JdbcLearningSessionRepository(new NamedParameterJdbcTemplate(sql)), users,
+        sessions = new LearningSessionServiceImpl(new JdbcLearningSessionRepository(new NamedParameterJdbcTemplate(sql)), (learner, recorded) -> {}, users,
                 List.of(this::allows), Clock.fixed(TIME, ZoneOffset.UTC), metrics, manager);
         schedules = schedules(repository, Clock.fixed(TIME.plusNanos(789), ZoneOffset.UTC));
         login("anna");

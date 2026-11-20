@@ -2,6 +2,38 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Learning command accounting (#692)
+
+Use JDK 17, the offline provider environment and disposable MySQL. Run
+`LearningSessionSpringTest` for configuration bounds and
+`LearningSessionSpringMySqlIntegrationTest` for the real session, receipt and budget writes.
+Freeze server time, accept 20 distinct commands, replay the first at exhaustion, reject a conflicting
+command, and reject the next new mutation with an RFC 7807 response and a one-second
+`Retry-After`. Restore exactly one command at the next second. A lower fractional refill rate
+must round the HTTP wait up without granting an early token. Reads spend no credit.
+
+Race two distinct session creations for the final credit and assert one committed session and one
+rate denial. Inject failure after the receipt and balance are visible inside the transaction,
+then inspect all three tables after rollback. Also exercise a failed budget write, caller rollback,
+and a successful retry. The MVC transport fixture calls the real creation service and the central
+error handler. Public Learning routes and their OpenAPI discovery belong to #578 and #650.
+
+Run `QuizPublicationMySqlIntegrationTest` for the real #700 writer and the #692
+source verifier. Check capture of revision A, an author edit and publication of B, continued
+read/replay on A, and denial after permission revocation, quiz deletion or ownership transfer.
+Cover an inactive account and a foreign moderator with a visible quiz. Compare scoped SQL counts
+across two authors with different role counts and published revisions with 1 and 12 questions.
+Question text, answers and option lists are outside the authority query. Missing and foreign
+session IDs share the same HTTP 404. A guest has no supported Learning identity. During an open
+author transaction, observe the competing revocation waiting on the actual membership row while a
+second author commits against their own revision. After revocation, deny the first author's replay.
+
+After the scoped tests, run the complete four-worker clean verify on the reviewed inputs:
+
+```bash
+python3 tools/testing/context_benchmark.py verify --workers 4 --output "/private/tmp/quizmaker-692-verify-$(date -u +%Y%m%dT%H%M%SZ)"
+```
+
 ## Read-only due selection (#576)
 
 Use JDK 17, the existing fake/offline environment and disposable MySQL:

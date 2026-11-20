@@ -14,8 +14,10 @@ import uk.gegc.quizmaker.features.learning.application.*;
 import uk.gegc.quizmaker.features.learning.domain.model.LearningSession;
 import uk.gegc.quizmaker.features.learning.domain.model.LearningSessionException;
 import uk.gegc.quizmaker.features.learning.domain.repository.LearningSessionRepository;
+import uk.gegc.quizmaker.features.learning.domain.repository.LearningCommandBudget;
 import uk.gegc.quizmaker.features.user.application.AuthenticatedUserLookup;
 import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
+import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
 
 import java.time.Clock;
 import java.time.temporal.ChronoUnit;
@@ -32,16 +34,18 @@ import static uk.gegc.quizmaker.features.learning.domain.model.LearningSessionEx
 @PreAuthorize("isAuthenticated()")
 public class LearningSessionServiceImpl implements LearningSessionService {
     private final LearningSessionRepository repository;
+    private final LearningCommandBudget budget;
     private final AuthenticatedUserLookup users;
     private final List<LearningSessionSourceVerifier> sources;
     private final Clock clock;
     private final MeterRegistry metrics;
     private final TransactionTemplate transaction;
 
-    public LearningSessionServiceImpl(LearningSessionRepository repository, AuthenticatedUserLookup users,
+    public LearningSessionServiceImpl(LearningSessionRepository repository, LearningCommandBudget budget, AuthenticatedUserLookup users,
             List<LearningSessionSourceVerifier> sources, Clock clock, MeterRegistry metrics,
             PlatformTransactionManager manager) {
         this.repository = repository;
+        this.budget = budget;
         this.users = users;
         this.sources = List.copyOf(sources);
         this.clock = clock;
@@ -58,6 +62,7 @@ public class LearningSessionServiceImpl implements LearningSessionService {
                     INVALID_INPUT);
             UUID learner = actor();
             verify(learner, command.source());
+            budget.chargeIfNew(learner, () -> repository.creationExists(learner, command.commandId()));
             var now = clock.instant().truncatedTo(ChronoUnit.MICROS);
             var candidate = new LearningSession(UUID.randomUUID(), 1, learner, command.commandId(),
                     command.source(), command.configuration(), LearningSession.Status.CREATED, 1, now, now);
@@ -65,8 +70,11 @@ public class LearningSessionServiceImpl implements LearningSessionService {
             require(saved.learnerId().equals(learner) && saved.createCommandId().equals(command.commandId()), CORRUPT);
             require(saved.source().equals(command.source()) && saved.configuration().equals(command.configuration()), CONFLICT);
             boolean replay = !saved.id().equals(candidate.id());
-            if (replay) require(repository.hasCreationReceipt(saved), CORRUPT);
-            else repository.recordCreation(saved);
+            if (replay) {
+                require(repository.hasCreationReceipt(saved), CORRUPT);
+            } else {
+                repository.recordCreation(saved);
+            }
             return new Result(saved, replay);
         });
     }
@@ -110,6 +118,7 @@ public class LearningSessionServiceImpl implements LearningSessionService {
         try {
             T result = transaction.execute(status -> {
                 try { return work.get(); }
+                catch (RateLimitExceededException failure) { throw failure; }
                 catch (LearningSessionException failure) { throw new LearningSessionException(failure.reason()); }
                 catch (RuntimeException failure) {
                     throw DatabaseConflictException.from(failure).<RuntimeException>map(value -> value)
@@ -118,6 +127,9 @@ public class LearningSessionServiceImpl implements LearningSessionService {
             });
             outcome = result instanceof Result r ? (r.replayed() ? "replayed" : "created") : "read";
             return result;
+        } catch (RateLimitExceededException failure) {
+            outcome = "rate_limited";
+            throw failure;
         } catch (LearningSessionException failure) {
             outcome = failure.reason().name().toLowerCase(Locale.ROOT);
             throw failure;

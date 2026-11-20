@@ -64,9 +64,26 @@ import uk.gegc.quizmaker.shared.config.TransactionConfig;
 import uk.gegc.quizmaker.shared.transaction.SafeJpaTransactionManager;
 import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.boot.test.context.TestComponent;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RestController;
+import uk.gegc.quizmaker.features.learning.api.LearningSessionErrorHandler;
+import uk.gegc.quizmaker.features.learning.config.LearningCommandRateConfig;
+import uk.gegc.quizmaker.features.learning.infra.repository.JdbcLearningCommandBudget;
+import uk.gegc.quizmaker.shared.api.advice.GlobalExceptionHandler;
+import uk.gegc.quizmaker.shared.api.problem.ErrorTypes;
+import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
+
 import java.sql.SQLException;
 import java.time.*;
 import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
@@ -93,6 +110,7 @@ import static uk.gegc.quizmaker.features.learning.domain.model.LearningSessionEx
         JdbcLearningFormRepository.class, LearningScheduleServiceImpl.class, JdbcLearningScheduleRepository.class,
         FsrsSchedulingStrategyImpl.class, AuthenticatedUserLookupImpl.class, LearningDueSelectionServiceImpl.class,
         JdbcLearningDueSelectionRepository.class, LearningDueSelectionConfig.class,
+        JdbcLearningCommandBudget.class, LearningCommandRateConfig.class,
         TransactionConfig.class, LearningSessionSpringMySqlIntegrationTest.Config.class})
 class LearningSessionSpringMySqlIntegrationTest {
     private static final String SCHEMA = "learning_session_spring_" + UUID.randomUUID().toString().replace("-", "");
@@ -122,7 +140,7 @@ class LearningSessionSpringMySqlIntegrationTest {
     @TestConfiguration(proxyBeanMethods = false)
     @EnableMethodSecurity
     static class Config {
-        @Bean Clock clock() { return Clock.fixed(TIME, ZoneOffset.UTC); }
+        @Bean({"clock", "authAdmissionClock"}) TestClock clock() { return new TestClock(); }
         @Bean SimpleMeterRegistry metrics() { return new SimpleMeterRegistry(); }
         @Bean LearningSessionSourceVerifier sourceVerifier() {
             return (learner, source) -> learner.equals(LEARNER) && source.quizId().equals(QUIZ);
@@ -136,6 +154,8 @@ class LearningSessionSpringMySqlIntegrationTest {
     }
 
     @Autowired LearningSessionService service;
+    @Autowired TestClock clock;
+    @Autowired LearningCommandRateConfig commandRate;
     @Autowired LearningFormService forms;
     @Autowired LearningScheduleService schedules;
     @Autowired LearningDueSelectionService due;
@@ -152,6 +172,9 @@ class LearningSessionSpringMySqlIntegrationTest {
     private JdbcLearningSessionRepository target() { return AopTestUtils.getUltimateTargetObject(repository); }
 
     @BeforeEach void fixture() {
+        clock.now.set(TIME);
+        commandRate.setPerMinute(60);
+        commandRate.setBurst(20);
         faultJdbc.reset();
         sql.update("""
                 INSERT IGNORE INTO users(user_id,username,email,password,is_active,is_deleted,email_verified,created_at,password_changed_at,version)
@@ -174,6 +197,7 @@ class LearningSessionSpringMySqlIntegrationTest {
     @AfterEach void clean() {
         faultJdbc.reset();
         sql.execute("DROP TRIGGER IF EXISTS learning_receipt_test_failure");
+        sql.execute("DROP TRIGGER IF EXISTS learning_budget_test_failure");
         sql.execute("DROP TRIGGER IF EXISTS learning_form_test_failure");
         sql.execute("DROP TRIGGER IF EXISTS learning_schedule_test_failure");
         SecurityContextHolder.clearContext();
@@ -185,6 +209,7 @@ class LearningSessionSpringMySqlIntegrationTest {
         sql.update("DELETE FROM learning_form");
         sql.update("DELETE FROM learning_session_create_receipt");
         sql.update("DELETE FROM learning_session");
+        sql.update("DELETE FROM learning_command_budget");
     }
 
     @Test void productionProxiesShareActualRcAndRestorePoolIsolation() {
@@ -203,6 +228,212 @@ class LearningSessionSpringMySqlIntegrationTest {
         assertThat(service.read(saved.id())).isEqualTo(saved);
         assertThat(service.create(command).replayed()).isTrue();
         assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+    }
+
+    static class TestClock extends Clock {
+        final AtomicReference<Instant> now = new AtomicReference<>(TIME);
+        @Override public ZoneId getZone() { return ZoneOffset.UTC; }
+        @Override public Clock withZone(ZoneId zone) { return Clock.fixed(instant(), zone); }
+        @Override public Instant instant() { return now.get(); }
+    }
+
+    // Transport fixture for the real application error and central advice; no public Learning route.
+    @TestComponent
+    @RestController
+    static class BudgetProbe {
+        private final LearningSessionService sessions;
+        BudgetProbe(LearningSessionService sessions) { this.sessions = sessions; }
+        @PostMapping("/test/learning-budget")
+        public void create() { sessions.create(command()); }
+        @GetMapping("/test/learning-budget/{id}")
+        public UUID read(@PathVariable("id") UUID id) { return sessions.read(id).id(); }
+    }
+
+    @Test void fullBurstReplayRetryAfterAndExactRefillUseTheCommittedSession() throws Exception {
+        var firstCommand = command();
+        var first = service.create(firstCommand);
+        for (int i = 1; i < 20; i++) assertThat(service.create(command()).replayed()).isFalse();
+        assertCounts(20);
+        assertThat(service.read(first.session().id())).isEqualTo(first.session());
+        var restarted = new LearningSessionServiceImpl(new JdbcLearningSessionRepository(new NamedParameterJdbcTemplate(sql)),
+                new JdbcLearningCommandBudget(sql, clock, new LearningCommandRateConfig()), users,
+                List.of(new Config().sourceVerifier()), clock, new SimpleMeterRegistry(), manager);
+        assertThat(restarted.create(firstCommand)).isEqualTo(new LearningSessionService.Result(first.session(), true));
+        assertThatThrownBy(() -> restarted.create(command())).isInstanceOf(RateLimitExceededException.class);
+        UUID otherRevision = UUID.randomUUID();
+        sql.update("""
+                INSERT INTO quiz_revisions(id,quiz_id,owner_id,schema_version,title,created_at)
+                SELECT UUID_TO_BIN(?),quiz_id,owner_id,schema_version,title,created_at
+                FROM quiz_revisions WHERE id=UUID_TO_BIN(?)
+                """, otherRevision.toString(), REVISION.toString());
+        var changed = new LearningSessionService.Create(1, firstCommand.commandId(),
+                new LearningSession.Source(1, QUIZ, otherRevision, 1), firstCommand.configuration());
+        rejected(() -> service.create(changed), CONFLICT);
+
+        var mvc = MockMvcBuilders.standaloneSetup(new BudgetProbe(service))
+                .setControllerAdvice(new LearningSessionErrorHandler(), new GlobalExceptionHandler()).build();
+        clearInvocations(target());
+        var denied = mvc.perform(MockMvcRequestBuilders.post("/test/learning-budget"))
+                .andReturn().getResponse();
+        verify(target(), never()).insertOrRead(any());
+        assertThat(denied.getStatus()).isEqualTo(429);
+        assertThat(denied.getHeader("Retry-After")).isEqualTo("1");
+        assertThat(denied.getContentType()).startsWith("application/problem+json");
+        var problem = new ObjectMapper().readTree(denied.getContentAsByteArray());
+        assertThat(problem.path("status").asInt()).isEqualTo(429);
+        assertThat(problem.path("retryAfterSeconds").asInt()).isOne();
+        clock.now.set(TIME.plusNanos(999_999_000));
+        assertThatThrownBy(() -> service.create(command())).isInstanceOf(RateLimitExceededException.class);
+        assertCounts(20);
+        clock.now.set(TIME.plusSeconds(1));
+        assertThat(service.create(command()).replayed()).isFalse();
+        assertThatThrownBy(() -> service.create(command())).isInstanceOf(RateLimitExceededException.class);
+        assertCounts(21);
+    }
+
+    @Test void missingAndForeignSessionHaveTheSameHttpDenial() throws Exception {
+        var mvc = MockMvcBuilders.standaloneSetup(new BudgetProbe(service))
+                .setControllerAdvice(new LearningSessionErrorHandler(), new GlobalExceptionHandler()).build();
+        var id = service.create(command()).session().id();
+        var route = "/test/learning-budget/{id}";
+        var found = mvc.perform(MockMvcRequestBuilders.get(route, id))
+                .andReturn().getResponse();
+        assertThat(found.getStatus()).isEqualTo(200);
+        sql.update("""
+                INSERT INTO users(user_id,username,email,password,is_active,is_deleted,email_verified,created_at,password_changed_at,version)
+                VALUES(UUID_TO_BIN(?),'reader-bob','reader-bob@example.invalid','unused',1,0,0,'2026-01-01','2026-01-01',0)
+                """, UUID.randomUUID().toString());
+        var bob = User.withUsername("reader-bob").password("unused").authorities("ROLE_USER").build();
+        SecurityContextHolder.getContext().setAuthentication(UsernamePasswordAuthenticationToken.authenticated(bob, null, bob.getAuthorities()));
+        for (UUID inaccessible : List.of(id, UUID.randomUUID())) {
+            var response = mvc.perform(MockMvcRequestBuilders.get(route, inaccessible))
+                    .andReturn().getResponse();
+            assertThat(response.getStatus()).isEqualTo(404);
+            var problem = new ObjectMapper().readTree(response.getContentAsByteArray());
+            assertThat(problem.path("type").asText()).isEqualTo(ErrorTypes.RESOURCE_NOT_FOUND.toString());
+            assertThat(problem.path("detail").asText()).isEqualTo("Not Found");
+            assertThat(problem.has("code")).isFalse();
+        }
+        assertCounts(1);
+        assertThat(budgetRows()).isOne();
+    }
+
+    @Test void lowerDeploymentRatePreservesFractionalCreditAndRoundsRetryUp() {
+        commandRate.setPerMinute(7);
+        commandRate.setBurst(2);
+        service.create(command());
+        service.create(command());
+        assertThatThrownBy(() -> service.create(command())).isInstanceOfSatisfying(RateLimitExceededException.class,
+                failure -> assertThat(failure.getRetryAfterSeconds()).isEqualTo(9));
+        clock.now.set(TIME.plusNanos(8_571_428_000L));
+        assertThatThrownBy(() -> service.create(command())).isInstanceOfSatisfying(RateLimitExceededException.class,
+                failure -> assertThat(failure.getRetryAfterSeconds()).isOne());
+        clock.now.set(TIME.plusNanos(8_571_429_000L));
+        assertThat(service.create(command()).replayed()).isFalse();
+        assertCounts(3);
+    }
+
+    @Test void unavailableBudgetRollsBackNewSessionThenTheSameCommandSucceeds() {
+        sql.execute("""
+                CREATE TRIGGER learning_budget_test_failure BEFORE INSERT ON learning_command_budget
+                FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='LEARNING_PRIVATE_BUDGET_DIAGNOSTIC'
+                """);
+        var first = command();
+        try (var logs = new TransactionLogs()) {
+            rejected(() -> service.create(first), PERSISTENCE_UNAVAILABLE);
+            logs.assertCleanFailure(JdbcLearningCommandBudget.class, "chargeIfNew");
+        }
+        assertCounts(0);
+        assertThat(budgetRows()).isZero();
+        sql.execute("DROP TRIGGER learning_budget_test_failure");
+        assertThat(service.create(first).replayed()).isFalse();
+        assertThat(service.create(first).replayed()).isTrue();
+        assertCounts(1);
+    }
+
+    @Test void idleBalanceExpiresWhileSessionReceiptsRemainAuthoritative() {
+        var command = command();
+        var first = service.create(command);
+        // A second account's valid but idle operational row. Current active balance stays separate.
+        UUID peer = UUID.randomUUID();
+        sql.update("""
+                INSERT INTO users(user_id,username,email,password,is_active,is_deleted,email_verified,created_at,password_changed_at,version)
+                VALUES(UUID_TO_BIN(?),'budget-peer','budget-peer@example.invalid','unused',1,0,0,'2026-01-01','2026-01-01',0)
+                """, peer.toString());
+        sql.update("""
+                INSERT INTO learning_command_budget(learner_id,credit_units,accounted_us)
+                SELECT UUID_TO_BIN(?),credit_units,accounted_us FROM learning_command_budget WHERE learner_id=UUID_TO_BIN(?)
+                """, peer.toString(), LEARNER.toString());
+        clock.now.set(TIME.plusSeconds(20 * 60));
+        assertThat(service.create(command()).replayed()).isFalse();
+        assertThat(budgetRows()).isOne();
+        assertThat(service.create(command).session()).isEqualTo(first.session());
+        assertThat(sql.queryForObject("SELECT BIN_TO_UUID(learner_id) FROM learning_command_budget", String.class))
+                .isEqualTo(LEARNER.toString());
+    }
+
+    @Test void simultaneousDistinctCommandsShareTheLastToken() throws Exception {
+        for (int i = 0; i < 19; i++) service.create(command());
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        var ready = new CyclicBarrier(2);
+        var executor = Executors.newFixedThreadPool(2);
+        Callable<String> create = () -> {
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+            try {
+                ready.await(10, TimeUnit.SECONDS);
+                assertThat(service.create(command()).replayed()).isFalse();
+                return "accepted";
+            } catch (RateLimitExceededException denied) {
+                assertThat(denied.getRetryAfterSeconds()).isOne();
+                return "limited";
+            } finally {
+                SecurityContextHolder.clearContext();
+            }
+        };
+        try {
+            var left = executor.submit(create);
+            var right = executor.submit(create);
+            assertThat(List.of(left.get(20, TimeUnit.SECONDS), right.get(20, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder("accepted", "limited");
+        } finally {
+            executor.shutdownNow();
+        }
+        assertCounts(20);
+    }
+
+    @Test void uncommittedIdenticalCommandReplaysAfterWinnerSpendsLastCredit() throws Exception {
+        commandRate.setBurst(1);
+        var command = command();
+        var holder = new TransactionTemplate(manager);
+        holder.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        var initiallyMissing = new CountDownLatch(1);
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        var worker = Executors.newSingleThreadExecutor();
+        var retry = new AtomicReference<Future<LearningSessionService.Result>>();
+        try {
+            var winner = holder.execute(status -> {
+                var created = service.create(command);
+                doAnswer(call -> {
+                    boolean recorded = (boolean) call.callRealMethod();
+                    if (!recorded) initiallyMissing.countDown();
+                    return recorded;
+                }).when(target()).creationExists(LEARNER, command.commandId());
+                retry.set(worker.submit(() -> {
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                    try { return service.create(command); }
+                    finally { SecurityContextHolder.clearContext(); }
+                }));
+                try { assertThat(initiallyMissing.await(15, TimeUnit.SECONDS)).isTrue(); }
+                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new AssertionError(interrupted); }
+                return created;
+            });
+            assertThat(winner.replayed()).isFalse();
+            assertThat(retry.get().get(15, TimeUnit.SECONDS)).isEqualTo(new LearningSessionService.Result(winner.session(), true));
+            assertThatThrownBy(() -> service.create(command())).isInstanceOf(RateLimitExceededException.class);
+            assertCounts(1);
+        } finally {
+            worker.shutdownNow();
+        }
     }
 
     private LearningScheduleService.Enroll enrollSchedule() {
@@ -457,9 +688,11 @@ class LearningSessionSpringMySqlIntegrationTest {
         outer.executeWithoutResult(status -> {
             var saved = service.create(command()).session();
             assertThat(service.read(saved.id())).isEqualTo(saved);
+            assertThat(budgetRows()).isOne();
             status.setRollbackOnly();
         });
         assertEmpty();
+        assertThat(budgetRows()).isZero();
         assertThat(service.create(command()).replayed()).isFalse();
     }
 
@@ -467,6 +700,7 @@ class LearningSessionSpringMySqlIntegrationTest {
         var reached = new AtomicBoolean();
         doAnswer(call -> {
             call.callRealMethod();
+            assertThat(budgetRows()).isOne();
             reached.set(true);
             throw new IllegalStateException("private-diagnostic");
         }).when(target()).recordCreation(any());
@@ -474,12 +708,14 @@ class LearningSessionSpringMySqlIntegrationTest {
         rejected(() -> service.create(command), PERSISTENCE_UNAVAILABLE);
         assertThat(reached).isTrue();
         assertEmpty();
+        assertThat(budgetRows()).isZero();
         doCallRealMethod().when(target()).recordCreation(any());
         assertThat(service.create(command).replayed()).isFalse();
     }
 
     enum FailurePath {
         SOURCE("SELECT id FROM quiz_revisions", "sourceExists", false),
+        COMMAND_LOOKUP("SELECT 1 FROM learning_session WHERE learner_id=", "creationExists", false),
         SESSION_INSERT("INSERT INTO learning_session\n", "insertOrRead", false),
         RECEIPT_INSERT("INSERT INTO learning_session_create_receipt", "recordCreation", false),
         SESSION_READ("WHERE s.id=", "find", true),
@@ -651,6 +887,7 @@ class LearningSessionSpringMySqlIntegrationTest {
                 Throwable outward = catchThrowable(() -> {
                     switch (path) {
                         case SOURCE -> repository.sourceExists(saved.source());
+                        case COMMAND_LOOKUP -> repository.creationExists(LEARNER, saved.createCommandId());
                         case SESSION_INSERT -> repository.insertOrRead(saved);
                         case RECEIPT_INSERT -> {
                             sql.update("DELETE FROM learning_session_create_receipt");
@@ -801,6 +1038,9 @@ class LearningSessionSpringMySqlIntegrationTest {
     }
     private void assertEmpty() {
         assertCounts(0);
+    }
+    private int budgetRows() {
+        return sql.queryForObject("SELECT COUNT(*) FROM learning_command_budget", Integer.class);
     }
     private void assertCounts(int count) {
         assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_session", Integer.class)).isEqualTo(count);
