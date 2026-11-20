@@ -313,12 +313,15 @@ def check_coverage_log(log):
         raise ValueError('JaCoCo class/bytecode mismatch')
 
 
-def run(workers, output, image, scope, serial=False):
+def run(workers, output, image, scope, serial=False, resource_diagnostics=False):
     env = safe_environment()
     before = fingerprint()
     started = time.monotonic()
     with databases(workers, output, image) as state:
         args = ['-DskipTests=false', '-Dorg.slf4j.simpleLogger.showDateTime=true']
+        if resource_diagnostics:
+            args += ['-Dquizmaker.tests.resources.enabled=true',
+                     f'-Dquizmaker.tests.resources.directory={output / "test-resource-evidence"}']
         if not serial:
             args += ['-Pcontext-forks', f'-Dcontext.workers={workers}']
         if scope == 'full':
@@ -373,6 +376,8 @@ def main():
     parser.add_argument('--output', type=Path, default=Path('target/context-benchmark'))
     parser.add_argument('--image', default='mysql:8.4')
     parser.add_argument('--serial', action='store_true')
+    parser.add_argument('--resource-diagnostics', action='store_true',
+                        help='collect test JVM resource data during verify or compare')
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--repeat-selected', type=int, default=2)
     parser.add_argument('--verification-log', type=Path)
@@ -418,12 +423,14 @@ def main():
             staging = Path(directory)
             try:
                 if args.action == 'verify':
-                    run(workers[0], staging / 'verify', args.image, 'full', args.serial)
+                    run(workers[0], staging / 'verify', args.image, 'full', args.serial,
+                        resource_diagnostics=args.resource_diagnostics)
                 else:
                     maven(['-DskipTests', 'process-test-classes'], staging / 'compile.log', safe_environment())
                     baseline = None
                     for index, count in enumerate(workers + [workers[-1]] * args.repeat_selected):
-                        result = run(count, staging / f'run-{index+1}-{count}', args.image, args.scope)
+                        result = run(count, staging / f'run-{index+1}-{count}', args.image, args.scope,
+                                     resource_diagnostics=args.resource_diagnostics)
                         if baseline is None:
                             baseline = result
                         else:

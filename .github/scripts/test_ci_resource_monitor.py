@@ -33,9 +33,10 @@ class ResourceMonitorTest(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(value)
 
-    def process(self, pid, name, pages=10, threads=2):
+    def process(self, pid, name, pages=10, threads=2, cpu=(0, 0), start=0):
         fields = ["0"] * 22
         fields[0], fields[17], fields[21] = "S", str(threads), str(pages)
+        fields[11], fields[12], fields[19] = str(cpu[0]), str(cpu[1]), str(start)
         self.write(self.proc / str(pid) / "stat", f"{pid} ({name}) " + " ".join(fields))
 
     def sample(self):
@@ -107,6 +108,23 @@ class ResourceMonitorTest(unittest.TestCase):
         with patch.object(monitor, "CGROUP_LEVELS", 2):
             self.assertEqual(2, len(monitor.cgroups(self.proc, self.cgroup)["groups"]))
 
+    def test_all_java_mysql_processes_have_cpu_and_pid_reuse_identity_outside_top_eight(self):
+        for pid in range(1, 10):
+            self.process(pid, 'node', pages=1000)
+        self.process(21, 'java', pages=20, cpu=(100, 3), start=456)
+        self.process(22, 'mysqld', pages=10, cpu=(40, 2), start=789)
+        result = monitor.processes(self.proc)
+        self.assertNotIn(21, [item['pid'] for item in result['largest']])
+        self.assertEqual([21, 22], [item['pid'] for item in result['tracked']])
+        self.assertEqual(103, result['tracked'][0]['cpu_ticks'])
+        self.assertEqual(456, result['tracked'][0]['start_ticks'])
+        self.assertEqual(os.sysconf('SC_CLK_TCK'), result['clock_ticks_per_second'])
+        self.assertFalse(result['tracked_truncated'])
+        with patch.object(monitor, 'TRACKED_PROCESSES', 1):
+            bounded = monitor.processes(self.proc)
+        self.assertTrue(bounded['tracked_truncated'])
+        self.assertEqual(1, len(bounded['tracked']))
+
     def test_cgroup_v1_namespaced_and_escaping_memberships_are_safe(self):
         self.write(self.cgroup / "memory.current", "200\n")
         for membership in ("0::/not-visible-here", "0::/../../outside"):
@@ -176,7 +194,8 @@ class ResourceMonitorTest(unittest.TestCase):
         end = script.index('sudo ip netns delete "$NETNS" 2>/dev/null || true',
                            script.index("RESOURCE_MONITOR_PID=$!"))
         lifecycle = script[start:end]
-        for mode, exit_code in (("real", 0), ("real", 23), ("failed", 0), ("failed", 23), ("hung", 23)):
+        for mode, exit_code in (("off", 0), ("off", 23), ("real", 0), ("real", 23),
+                                ("failed", 0), ("failed", 23), ("hung", 23)):
             with self.subTest(mode=mode, exit_code=exit_code):
                 fixture = self.root / f"{mode}-{exit_code}"
                 helper = fixture / ".github/scripts/ci_resource_monitor.py"
@@ -193,11 +212,13 @@ class ResourceMonitorTest(unittest.TestCase):
                 self.write(sudo, "#!/bin/sh\nexit 0\n")
                 sudo.chmod(0o700)
                 environment = dict(os.environ, RUNNER_TEMP=str(fixture), GITHUB_WORKSPACE=str(fixture),
+                                   RESOURCE_DIAGNOSTICS="false" if mode == "off" else "true",
                                    PATH=str(sudo.parent) + os.pathsep + os.environ["PATH"])
                 command = 'set -Eeuo pipefail\n' + lifecycle + '\n'
                 command += 'printf "fixture-monitor-pid=%s\\n" "$RESOURCE_MONITOR_PID"\n'
-                command += 'for ATTEMPT in {1..100}; do\n'
-                command += '  [ -s "$RUNNER_TEMP/quizmaker-resources.jsonl" ] && break\n  sleep 0.02\ndone\n'
+                if mode != "off":
+                    command += 'for ATTEMPT in {1..100}; do\n'
+                    command += '  [ -s "$RUNNER_TEMP/quizmaker-resources.jsonl" ] && break\n  sleep 0.02\ndone\n'
                 command += f'exit {exit_code}\n'
                 process = subprocess.Popen(["bash", "-c", command], cwd=fixture, env=environment,
                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -211,8 +232,13 @@ class ResourceMonitorTest(unittest.TestCase):
                         pass
                     process.wait(timeout=5)
                 self.assertEqual(exit_code, process.returncode, error)
-                pid = int(next(line.split("=", 1)[1] for line in live.splitlines()
-                               if line.startswith("fixture-monitor-pid=")))
+                recorded_pid = next(line.split("=", 1)[1] for line in live.splitlines()
+                                    if line.startswith("fixture-monitor-pid="))
+                if mode == "off":
+                    self.assertEqual("", recorded_pid)
+                    self.assertFalse((fixture / "quizmaker-resources.jsonl").exists())
+                    continue
+                pid = int(recorded_pid)
                 with self.assertRaises(ProcessLookupError):
                     os.kill(pid, 0)
                 if mode == "real":

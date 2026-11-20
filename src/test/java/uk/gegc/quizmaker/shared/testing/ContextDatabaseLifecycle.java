@@ -34,7 +34,15 @@ public final class ContextDatabaseLifecycle extends AbstractTestExecutionListene
         // Do not create a context or instantiate lazy beans merely to close it.
         if (AnnotatedElementUtils.hasAnnotation(context.getTestClass(), JdbcTest.class)
                 || context.getApplicationContext().getBeanNamesForType(EntityManagerFactory.class, false, false).length > 0) {
-            context.markApplicationContextDirty(HierarchyMode.EXHAUSTIVE);
+            TestResourceEvidence.contextClose(context.getTestClass(), "context_close_start");
+            boolean completed = false;
+            try {
+                context.markApplicationContextDirty(HierarchyMode.EXHAUSTIVE);
+                completed = true;
+            } finally {
+                TestResourceEvidence.contextClose(context.getTestClass(),
+                        completed ? "context_close_end" : "context_close_failed");
+            }
         }
     }
 }

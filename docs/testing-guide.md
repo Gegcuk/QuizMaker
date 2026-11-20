@@ -923,7 +923,13 @@ The release-quality command is `./mvnw verify`. It runs the bounded parallel lan
 
 ### CI runner interruption diagnostics
 
-During the offline verification step, a separate stdlib-only Python process emits a compact
+Resource diagnostics are off for ordinary push, pull request and manual runs. To collect
+them for one run, open **Actions → CI → Run workflow**, select the branch and worker count,
+and enable **Collect runner and test JVM resource diagnostics** (`resource_diagnostics`).
+This enables the runner monitor, JVM recorder, timing and resource summaries, and
+`ci-resource-diagnostics` upload.
+
+During diagnostic verification, a separate stdlib-only Python process emits a compact
 `[ci-resources]` JSON record at startup, once every 60 seconds, and when stopped. It runs
 outside the test network namespace, reads Linux counters without elevated privileges, and
 does not inspect command arguments, environments, test payloads, or arbitrary process names.
@@ -941,7 +947,8 @@ prove a shutdown cause by itself. For example, rising memory use plus a new OOM 
 memory-pressure investigation; `shutdown signal` without those observations remains unexplained.
 
 The collector uses no subprocesses or Docker queries, scans at most 4096 PIDs per sample,
-reports only the eight largest RSS entries with allowlisted process kinds, and records its
+reports the eight largest RSS entries plus up to 64 Java/MySQL processes with PID, start ticks,
+CPU ticks and RSS (including Maven), and records its
 own sample wall/CPU time. It waits between samples. Diagnostic failures do not change the
 verification result; cleanup allows at most five 100 ms polling intervals before stopping an
 unresponsive collector. Test selection, worker settings, offline isolation, coverage thresholds,
@@ -951,6 +958,50 @@ Maven exit propagation, and post-merge verification remain the same. Focused che
 python3 -B -m unittest discover -s .github/scripts -p 'test_*.py' -v
 python3 -B -m unittest discover -s tools/testing -p 'test_*.py' -v
 ```
+
+With diagnostics enabled, each Surefire lane also emits `[test-resources]` JSONL from an automatically registered
+JUnit extension. Records join by `jvm_id`, PID, lane, fork and `class_id`; class names are
+the only test identifiers recorded. `class_start` precedes class setup, and `class_end`
+follows class cleanup, including Spring's callbacks. Nested containers get separate windows;
+`max_active_classes` includes enclosing/nested and parallel containers. Explicit
+`context_close_start/end/failed` markers bracket JPA and JDBC slice context closure.
+No contexts are created, beans initialized or GC forced for diagnostics.
+
+JVM snapshots contain heap/non-heap used, committed and maximum bytes, metaspace, direct/mapped
+buffers, loaded/unloaded classes, live/daemon/peak threads, cumulative GC count/time, process
+CPU time, uptime and Linux RSS/high-water RSS. `-1` means unsupported, including RSS on macOS.
+Class-end records include process-wide CPU/GC/memory deltas and sampled peaks. These are
+observations of a JVM during a class window: they include other active classes and background
+threads. Do not sum overlapping rows, treat heap growth as retained/live memory, or infer an
+object leak from one window. RSS includes native memory; the heap limit alone cannot bound it.
+
+A daemon samples once per second and emits every five samples; begin/end/cleanup records
+also take snapshots. Delays under load and shorter spikes can be missed. Every emitted record
+carries cumulative JVM peaks and up to 16 active class windows with their peaks, so the last
+live line is useful when a killed class produces no Surefire XML or `class_end`. It remains a
+lower bound, not an exact peak or proof that the active class caused the kill.
+A 256-record queue separates test threads from console/file I/O; dropped records and sink
+errors are counted, sampling cost is recorded, and shutdown waits at most 500 ms for the daemon
+writer. Diagnostic errors do not change test outcomes. SIGKILL cannot run shutdown hooks;
+absence of `jvm_end` is evidence of an incomplete stream, not by itself evidence of OOM.
+
+CI stores raw streams and a best-effort `summary.json` in
+`$RUNNER_TEMP/quizmaker-test-resources`, alongside host samples in `ci-resource-diagnostics`.
+Maven `clean` cannot erase them. For local `context_benchmark.py verify` or `compare`,
+pass `--resource-diagnostics`. The `verify` command then writes streams directly to
+`<output>/verify/test-resource-evidence`, including evidence from a failed Maven run.
+For plain Maven, pass `-Dquizmaker.tests.resources.enabled=true` to write streams to
+`target/test-resource-evidence`. To summarize a directory, run
+
+```bash
+python3 -B tools/testing/summarize_test_resources.py \
+  --directory /path/to/test-resource-evidence --output /tmp/test-resource-summary.json
+```
+
+The summary ranks elapsed/CPU time, sampled RSS/heap and heap change at class boundaries, retains
+incomplete windows and marks overlap. Correlate a suspect JVM's PID and timestamps with host
+`MemAvailable`, pressure, OOM counters and the Java/MySQL process list. Compare several class
+boundaries in one worker and multiple runs before choosing a memory or scheduling fix.
 
 ### CI JVM memory budget
 
@@ -1630,7 +1681,8 @@ This scheduling exception does not serialize the test's own participants.
 
 Within the opt-in profile, `ContextDatabaseLifecycle` closes cached JPA contexts after
 each top-level suite, after transaction cleanup. A cached context must not survive while
-a different create-drop context deletes its schema. Nested tests finish before this cleanup;
+a different create-drop context deletes its schema. Top-level `@JdbcTest` suites also close
+their contexts to release their Hikari pools. Nested tests finish before this cleanup;
 MVC contexts without JPA and the ordinary Maven execution retain their existing lifecycle.
 
 `tools/testing/context-test-manifest.json` records context suites, database companions,

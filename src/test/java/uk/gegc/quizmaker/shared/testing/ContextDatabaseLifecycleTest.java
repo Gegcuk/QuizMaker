@@ -8,6 +8,7 @@ import org.springframework.test.annotation.DirtiesContext.HierarchyMode;
 import org.springframework.test.context.TestContext;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 class ContextDatabaseLifecycleTest {
@@ -64,6 +65,19 @@ class ContextDatabaseLifecycleTest {
         when(application.getBeanNamesForType(EntityManagerFactory.class, false, false)).thenReturn(new String[0]);
         new ContextDatabaseLifecycle(() -> true).afterTestClass(context);
         verify(context, never()).markApplicationContextDirty(any());
+    }
+
+    @Test
+    void diagnosticsDoNotMaskJpaContextCloseFailure() {
+        TestContext context = contextFor(ContextDatabaseLifecycleTest.class);
+        ApplicationContext application = mock(ApplicationContext.class);
+        when(context.hasApplicationContext()).thenReturn(true);
+        when(context.getApplicationContext()).thenReturn(application);
+        when(application.getBeanNamesForType(EntityManagerFactory.class, false, false))
+                .thenReturn(new String[]{"entityManagerFactory"});
+        IllegalStateException failure = new IllegalStateException("context close failed");
+        doThrow(failure).when(context).markApplicationContextDirty(HierarchyMode.EXHAUSTIVE);
+        assertThatThrownBy(() -> new ContextDatabaseLifecycle(() -> true).afterTestClass(context)).isSameAs(failure);
     }
 
     private TestContext contextFor(Class<?> type) {
