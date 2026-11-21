@@ -14,7 +14,9 @@ import uk.gegc.quizmaker.features.question.application.contract.ResolvedQuestion
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ParticipantContent;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import static uk.gegc.quizmaker.features.learning.domain.model.LearningFormException.Reason.*;
 import static uk.gegc.quizmaker.features.learning.domain.model.LearningFormException.require;
 
@@ -62,6 +64,8 @@ public class PublishedLearningItemMaterial implements LearningItemMaterial, Lear
                 && row.question().schemaVersion() == item.questionSchemaVersion()
                 && row.binding().response().equals(item.response()), CORRUPT);
         var question = row.question();
+        var retainedOptionIds = question.options().stream().map(option -> option.id()).collect(Collectors.toSet());
+        require(retainedOptionIds.equals(Set.copyOf(item.optionIds())), CORRUPT);
         var resolved = resolve(row);
         // The same retained-content validation as GET, before any request-specific checks.
         content(row, resolved);

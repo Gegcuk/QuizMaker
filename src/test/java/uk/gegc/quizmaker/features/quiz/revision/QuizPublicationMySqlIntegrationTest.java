@@ -497,6 +497,52 @@ class QuizPublicationMySqlIntegrationTest {
         assertThat(count("learning_review_event")).isOne();
     }
 
+    @Test void learningRejectsAnUnchangedChoiceWhenAnotherSavedOptionIsMissing() throws Exception {
+        var fixture = enrollLearning(question(QuestionType.MCQ_SINGLE, null));
+        var source = fixture.start().source();
+        var first = study.start(fixture.start());
+        var second = study.start(new LearningStudyService.Start(UUID.randomUUID(), source, 1));
+        var item = first.form().items().get(0);
+        assertThat(second.form().items()).containsExactly(item);
+        UUID replaced = item.optionIds().get(0);
+        UUID unchanged = item.optionIds().get(1);
+        UUID replacement = UUID.randomUUID();
+        var command = answerWith(answer(first, 0), json.createObjectNode().put("type", "MCQ_SINGLE")
+                .put("selectedOptionId", unchanged.toString()));
+        var mvc = learningHttp(study);
+        var getFirst = get("/api/v1/learning/sessions/" + command.sessionId());
+        var getSecond = get("/api/v1/learning/sessions/" + second.form().sessionId());
+        mvc.perform(getFirst).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ACTIVE"));
+        long credit = learningCredit();
+        var snapshot = learningSchedules.read(source, item.questionRevisionId());
+
+        String changeOptionId = """
+                UPDATE question_option_revisions SET id=UUID_TO_BIN(?)
+                WHERE question_revision_id=UUID_TO_BIN(?) AND id=UUID_TO_BIN(?)
+                """;
+        assertThat(sql.update(changeOptionId, replacement.toString(), item.questionRevisionId().toString(),
+                replaced.toString())).isOne();
+        try {
+            mvc.perform(getFirst).andExpect(status().isInternalServerError());
+            mvc.perform(learningAnswer(command)).andExpect(status().isInternalServerError());
+            assertThat(count("learning_session_response")).isZero();
+            assertThat(count("learning_review_event")).isZero();
+            assertThat(learningSchedules.read(source, item.questionRevisionId())).isEqualTo(snapshot);
+            assertThat(learningCredit()).isEqualTo(credit);
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_cycle_session WHERE released=0", Integer.class))
+                    .isEqualTo(2);
+        } finally {
+            assertThat(sql.update(changeOptionId, replaced.toString(), item.questionRevisionId().toString(),
+                    replacement.toString())).isOne();
+        }
+        mvc.perform(getFirst).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ACTIVE"));
+        mvc.perform(getSecond).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ACTIVE"));
+        mvc.perform(learningAnswer(command)).andExpect(status().isOk()).andExpect(jsonPath("$.completed").value(true));
+        mvc.perform(getSecond).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("SUPERSEDED"));
+        assertThat(count("learning_session_response")).isOne();
+        assertThat(count("learning_review_event")).isOne();
+    }
+
     @Test void explicitPracticeKeepsTheScheduleAndEarlyReviewAdvancesTheSameCycleOnce() throws Exception {
         var fixture = enrolledLearning(1);
         var question = fixture.questions().get(0);
@@ -780,13 +826,17 @@ class QuizPublicationMySqlIntegrationTest {
 
     private EnrolledLearning enrolledLearning(int count) {
         var drafts = java.util.stream.IntStream.range(0, count).mapToObj(i -> question(QuestionType.TRUE_FALSE, null)).toArray(UUID[]::new);
+        return enrollLearning(drafts);
+    }
+
+    private EnrolledLearning enrollLearning(UUID... drafts) {
         var publication = service.publish(command(0, drafts)).publication().revision();
         var revision = service.read(quizId, publication.id()).content();
         var source = new LearningSession.Source(1, quizId, revision.id(), revision.schemaVersion());
         var questions = revision.items().stream().map(i -> i.question().id()).toList();
         loginLearner(username);
         study.enroll(new LearningStudyService.Enroll(UUID.randomUUID(), source, questions));
-        return new EnrolledLearning(new LearningStudyService.Start(UUID.randomUUID(), source, count), questions);
+        return new EnrolledLearning(new LearningStudyService.Start(UUID.randomUUID(), source, drafts.length), questions);
     }
 
     private MockMvc learningHttp(LearningStudyService application) {
