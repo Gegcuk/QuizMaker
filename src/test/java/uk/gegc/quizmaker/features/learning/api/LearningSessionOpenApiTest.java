@@ -88,8 +88,21 @@ class LearningSessionOpenApiTest {
         for (String malformed : List.of(RESPOND.replace("true", "\"true\""),
                 RESPOND.replace("true", "true,\"answer\":false"),
                 RESPOND.replace("\"rating\":\"GOOD\"", "\"rating\":\"CONFIDENT\""),
+                RESPOND.replace("\"rating\":\"GOOD\"", "\"rating\":2"),
+                RESPOND.replace("\"rating\":\"GOOD\"", "\"rating\":\"2\""),
                 RESPOND.replace("\"expectedSessionVersion\":1", "\"expectedSessionVersion\":\"1\""))) {
             mvc.perform(post(path).contentType("application/json").content(malformed))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
+        }
+        verifyNoInteractions(study);
+    }
+
+    @Test @WithMockUser void startRejectsNumericModeBeforeService() throws Exception {
+        for (String ordinal : List.of("0", "\"0\"")) {
+            String start = START.replace("\"limit\":3", """
+                    "limit":1,"selection":{"mode":%s,"questionRevisionId":"00000000-0000-4000-8000-000000000004"}
+                    """.formatted(ordinal));
+            mvc.perform(post(ROOT + "/sessions").contentType("application/json").content(start))
                     .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
         }
         verifyNoInteractions(study);
@@ -140,6 +153,11 @@ class LearningSessionOpenApiTest {
         assertThat(summary.path("groups").findValuesAsText("specUrl")).containsOnlyOnce("/v3/api-docs/learning");
         var paths = spec.path("paths");
         assertThat(paths.size()).isEqualTo(4);
+        var schemas = spec.at("/components/schemas");
+        assertThat(json.convertValue(schemas.at("/LearningSessionView/properties/status/enum"), String[].class))
+                .containsExactly("ACTIVE", "COMPLETED", "SUPERSEDED");
+        assertThat(json.convertValue(schemas.at("/LearningExplicitSelection/properties/mode/enum"), String[].class))
+                .containsExactly("EARLY", "PRACTICE");
         var full = json.readTree(mvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString());
         var matcher = new org.springframework.util.AntPathMatcher();

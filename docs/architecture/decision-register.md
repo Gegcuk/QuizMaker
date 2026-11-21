@@ -34,6 +34,13 @@ Explicit extra practice records session progress without an FSRS transition. The
 selection remains the default. These choices keep the initial author-source and D33 rules and
 leave first public conformance with #667.
 
+In the #650 review, the owner approved automatic supersession when a committed scheduled
+response advances a step that is still unanswered in another active session. End that session
+and release all of its cycle captures in the winning response transaction. Retain accepted
+progress and original acknowledgements. Extra-practice sessions can continue because their
+responses do not depend on advancing that step. Ordinary active-session restart protection
+continues for sessions that can still proceed.
+
 <a id="learning-author-source"></a>
 ## Initial Learning source authority (#692) — DECIDED
 

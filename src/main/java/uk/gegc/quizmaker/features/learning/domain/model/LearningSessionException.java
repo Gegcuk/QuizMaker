@@ -4,7 +4,7 @@ package uk.gegc.quizmaker.features.learning.domain.model;
 public final class LearningSessionException extends RuntimeException {
     public enum Reason {
         INVALID_INPUT, UNSUPPORTED_VERSION, UNAUTHENTICATED, UNAVAILABLE,
-        SOURCE_UNAVAILABLE, CONFLICT, STALE_REVIEW, REVIEW_COMPLETE, CORRUPT,
+        SOURCE_UNAVAILABLE, CONFLICT, STALE_REVIEW, REVIEW_COMPLETE, REVIEW_SUPERSEDED, CORRUPT,
         UNSUPPORTED_TRANSACTION, PERSISTENCE_UNAVAILABLE
     }
 

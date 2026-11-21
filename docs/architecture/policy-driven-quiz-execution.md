@@ -5856,8 +5856,10 @@ use the saved item position and one-based session version. Read the live progres
 An exact accepted retry returns the original acknowledgement, including its original version,
 next item and due time; an exact start retry likewise returns the original start snapshot.
 Changed key reuse returns 409 `idempotency-conflict`; a mismatched position, session version or
-superseded schedule step returns 409 `optimistic-lock-conflict`. A fresh command after
-completion returns 409 `data-conflict`. Source and session ownership are checked before replay.
+stale schedule step returns 409 `optimistic-lock-conflict`. A fresh command for a completed
+or superseded session returns 409 `data-conflict`. Source and session ownership are checked
+before replay. Rating and explicit start mode are JSON strings. Invalid input returns 400;
+corrupt retained question content returns 500 with bounded diagnostics.
 
 V123 defaults historical starts to `DUE` at version one and adds personal Learning response
 evidence without rewriting historical sessions. A response validates the saved revision with
@@ -5867,6 +5869,13 @@ cycle captures commit in one writable RC transaction. Failure leaves all of them
 The version retains a session's own progress; the scheduled review also checks the exact captured
 cycle and sequence so concurrent sessions cannot advance the same step twice.
 The command does not change an assessment answer, result, rank, allowance or certificate.
+
+If another due or early session still has that captured step outstanding, the winner marks it
+`SUPERSEDED` and releases all its captures in the same transaction. GET returns its preserved
+review count, advanced session version and read-only action. Previously accepted commands still
+replay their original acknowledgements. Extra-practice sessions continue under the existing
+restart barrier. V124 also reconciles retained V123 overlaps when a committed public receipt and
+its schedule event prove that the shared step advanced.
 
 Response handling loads the saved form's bounded metadata to verify its fingerprint and just one
 immutable question's content for validation. Exact replays read receipt metadata after current

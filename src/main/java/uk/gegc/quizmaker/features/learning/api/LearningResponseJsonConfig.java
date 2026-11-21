@@ -29,6 +29,7 @@ public class LearningResponseJsonConfig implements WebMvcConfigurer {
             if (!(converter instanceof MappingJackson2HttpMessageConverter json)) continue;
             var strict = json.getObjectMapper().copy().enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
                     .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                    .enable(DeserializationFeature.FAIL_ON_NUMBERS_FOR_ENUMS)
                     .disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT)
                     .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS);
             for (var shape : List.of(CoercionInputShape.Integer, CoercionInputShape.Float, CoercionInputShape.Boolean)) {

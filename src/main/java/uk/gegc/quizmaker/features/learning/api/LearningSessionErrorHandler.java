@@ -26,12 +26,16 @@ public class LearningSessionErrorHandler {
         if (failure.reason() == LearningSessionException.Reason.REVIEW_COMPLETE) {
             return problem(HttpStatus.CONFLICT, ErrorTypes.DATA_CONFLICT, "The Learning session is complete.", request);
         }
+        if (failure.reason() == LearningSessionException.Reason.REVIEW_SUPERSEDED) {
+            return problem(HttpStatus.CONFLICT, ErrorTypes.DATA_CONFLICT,
+                    "This Learning session ended because another session reviewed an unanswered item.", request);
+        }
         var status = switch (failure.reason()) {
             case UNAUTHENTICATED -> HttpStatus.UNAUTHORIZED;
             case UNAVAILABLE, SOURCE_UNAVAILABLE -> HttpStatus.NOT_FOUND;
             case INVALID_INPUT -> HttpStatus.BAD_REQUEST;
             case UNSUPPORTED_VERSION -> HttpStatus.UNPROCESSABLE_ENTITY;
-            case CONFLICT, STALE_REVIEW, REVIEW_COMPLETE -> HttpStatus.CONFLICT;
+            case CONFLICT, STALE_REVIEW, REVIEW_COMPLETE, REVIEW_SUPERSEDED -> HttpStatus.CONFLICT;
             case PERSISTENCE_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
             case CORRUPT, UNSUPPORTED_TRANSACTION -> HttpStatus.INTERNAL_SERVER_ERROR;
         };

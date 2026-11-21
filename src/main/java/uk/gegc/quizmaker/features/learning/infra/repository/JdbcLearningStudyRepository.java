@@ -57,11 +57,12 @@ public class JdbcLearningStudyRepository implements LearningStudyRepository, Lea
 
     private Optional<Start> start(UUID sessionId, boolean lock) {
         return safe(() -> jdbc.query("""
-                SELECT requested_size, BIN_TO_UUID(form_id), review_mode, BIN_TO_UUID(selected_question_id), reviewed_items
+                SELECT requested_size, BIN_TO_UUID(form_id), review_mode, BIN_TO_UUID(selected_question_id),
+                       reviewed_items, superseded
                 FROM learning_session_start
                 WHERE session_id=UUID_TO_BIN(?)
                 """ + (lock ? " FOR UPDATE" : ""), (r,n) -> new Start(r.getInt(1), uuid(r.getString(2)),
-                        Mode.valueOf(r.getString(3)), uuid(r.getString(4)), r.getInt(5)), sessionId.toString())
+                        Mode.valueOf(r.getString(3)), uuid(r.getString(4)), r.getInt(5), r.getBoolean(6)), sessionId.toString())
                 .stream().findFirst());
     }
 
@@ -155,13 +156,34 @@ public class JdbcLearningStudyRepository implements LearningStudyRepository, Lea
                 r.getString(7)), parameters));
     }
 
+    @Override public void supersedeOverlaps(UUID winningSession, Expected advancedStep) {
+        // Only the accepted review calls this under the learner's command lock and the exact cycle lock.
+        // Include every capture of a superseded session, even if it belongs to a different question.
+        safe(() -> jdbc.update("""
+                UPDATE learning_cycle_session step_capture
+                JOIN learning_schedule_cycle cycle_row ON cycle_row.id=step_capture.cycle_id
+                JOIN learning_session session_row ON session_row.id=step_capture.session_id
+                    AND session_row.learner_id=cycle_row.learner_id AND session_row.quiz_id=cycle_row.quiz_id
+                    AND session_row.quiz_revision_id=cycle_row.quiz_revision_id
+                JOIN learning_session_start session_start ON session_start.session_id=session_row.id
+                JOIN learning_form_item item ON item.form_id=session_start.form_id
+                    AND item.question_revision_id=cycle_row.question_revision_id AND item.position>=session_start.reviewed_items
+                JOIN learning_cycle_session member_capture ON member_capture.session_id=session_start.session_id
+                    AND member_capture.released=0
+                SET session_start.superseded=TRUE, member_capture.released=TRUE
+                WHERE step_capture.cycle_id=UUID_TO_BIN(?) AND step_capture.captured_sequence=?
+                  AND step_capture.released=0 AND session_start.superseded=FALSE
+                  AND session_start.review_mode IN ('DUE','EARLY') AND session_start.session_id<>UUID_TO_BIN(?)
+                """, advancedStep.cycleId().toString(), advancedStep.sequence(), winningSession.toString()));
+    }
+
     @Override public void recordResponse(UUID learner, UUID form, Rating rating, String fingerprint, String response,
                                          Acknowledgement ack) {
         int position = ack.progress().reviewedItems() - 1;
         safe(() -> {
             require(jdbc.update("""
                     UPDATE learning_session_start SET reviewed_items=reviewed_items+1
-                    WHERE session_id=UUID_TO_BIN(?) AND form_id=UUID_TO_BIN(?) AND reviewed_items=?
+                    WHERE session_id=UUID_TO_BIN(?) AND form_id=UUID_TO_BIN(?) AND reviewed_items=? AND superseded=FALSE
                     """, ack.sessionId().toString(), form.toString(), position) == 1, STALE_REVIEW);
             var next = ack.progress().nextItemId();
             jdbc.update("""

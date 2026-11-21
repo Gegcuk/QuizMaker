@@ -64,14 +64,15 @@ public class LearningSessionController {
 
     @GetMapping("/sessions/{sessionId}")
     @Operation(summary = "Resume a fixed Learning session", description = "Session owner with current access to the captured publication. Reads consume no Learning command credit. The saved content and order survive later quiz publication.")
-    @ApiResponse(responseCode = "200", description = "Persisted order, progress and currently available actions.")
+    @ApiResponse(responseCode = "200", description = "Persisted order, progress and currently available actions. A SUPERSEDED session has no next item or response action and retains its accepted progress.")
     public ResponseEntity<View> resume(@PathVariable UUID sessionId) {
         return ok(View.from(study.resume(sessionId)));
     }
 
     @PostMapping("/sessions/{sessionId}/responses")
-    @Operation(summary = "Answer and rate the next Learning item", description = "Online, session owner with current publication access. Submit the next unanswered item in saved order and its expected session version. A due or early review advances FSRS once. Extra practice records progress without changing FSRS. The last answer completes the session. After a lost response retry the exact command; after stale state read the session again. Learning responses do not create assessment results.")
+    @Operation(summary = "Answer and rate the next Learning item", description = "Online, session owner with current publication access. Submit the next unanswered item in saved order and its expected session version. A due or early review advances FSRS once and ends other scheduled sessions that still need that step. Extra practice records progress without changing FSRS or ending other sessions. The last answer completes the session. Retry the exact command after a lost response. Learning responses do not create assessment results.")
     @ApiResponse(responseCode = "200", description = "Original acknowledgement with the next session item and, if advanced, the next scheduled review.")
+    @ApiResponse(responseCode = "409", description = "Changed command, stale item or state, or a completed or superseded session. An exact accepted replay still returns its original acknowledgement.", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "429", description = "Shared Learning command limit reached.", headers = @Header(name = "Retry-After", description = "Whole seconds"), content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     public ResponseEntity<Acknowledgement> respond(@PathVariable UUID sessionId, @Valid @RequestBody
             @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(schema = @Schema(implementation = RespondRequest.class),

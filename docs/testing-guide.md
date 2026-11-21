@@ -8,15 +8,20 @@ The publication MySQL fixture starts from a real owned revision and uses the act
 enrollment, start, response and resume boundaries. Verify the saved presentation order,
 original acknowledgement after service reconstruction, rejection after loss of access, due/early
 advancement, and a practice response that preserves the full schedule. A blocked peer races a
-committed winner on the same captured step and must leave no second review or progress. A trigger
-after the real response insert checks that the schedule event and cursor write were reached before
-failing; fresh reads verify rollback, restored command credit and a successful exact retry.
+committed winner on the same captured step; GET shows `SUPERSEDED`, all affected cycle restarts
+succeed once valid captures have completed, and exact replays retain their historical progress.
+V124 runs against a reconstructed V123 overlap with a committed event and public acknowledgement.
+A trigger after the real response insert checks that the schedule event, cursor, supersession
+and capture release were reached before failing. Fresh reads verify rollback of all four, restored
+command credit and a successful exact retry.
 The nonterminal response SQL comparison across two- and five-item forms measures one immutable
 question row per command and equal statement counts. Form metadata still scales with the form.
 
 `LearningSessionOpenApiTest` checks typed requests and acknowledgements, exact error contracts,
-strict response parsing, the unique group and API discovery. Use the existing offline starter and
-the four-worker verification gate after the focused MVC and MySQL suites.
+strict enum parsing, the unique group and API discovery. The MySQL suite compares GET and POST
+against the same corrupt retained revision, then restores it and retries the response successfully.
+Use the existing offline starter and the four-worker verification gate after the focused MVC
+and MySQL suites.
 
 ## Single-quiz Learning sessions (#578)
 

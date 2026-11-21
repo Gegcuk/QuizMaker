@@ -11,7 +11,7 @@ import java.util.UUID;
 
 /** Public-command evidence; all operations require the owning transaction. */
 public interface LearningStudyRepository {
-    record Start(int limit, UUID formId, Mode mode, UUID selectedQuestion, int reviewedItems) { }
+    record Start(int limit, UUID formId, Mode mode, UUID selectedQuestion, int reviewedItems, boolean superseded) { }
     record Enrollment(UUID revisionId, int count) { }
     record Capture(int position, UUID questionRevisionId, Expected captured, Long activeSequence, String strategy) { }
     record ResponseReceipt(String fingerprint, Acknowledgement acknowledgement) {
@@ -31,6 +31,8 @@ public interface LearningStudyRepository {
     Optional<ResponseReceipt> response(UUID learner, UUID command);
     Optional<Capture> capture(UUID session, UUID form, int position);
     List<Capture> captures(UUID session, UUID form);
+    /** Close other sessions with an unanswered capture of the step just advanced by the winning session. */
+    void supersedeOverlaps(UUID winningSession, Expected advancedStep);
     void recordResponse(UUID learner, UUID form, Rating rating, String fingerprint, String response,
                         Acknowledgement acknowledgement);
 }

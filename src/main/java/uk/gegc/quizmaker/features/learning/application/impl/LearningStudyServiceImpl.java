@@ -107,7 +107,7 @@ public class LearningStudyServiceImpl implements LearningStudyService {
                 var saved = repository.start(session.id()).orElseThrow(() -> new LearningSessionException(CONFLICT));
                 require(saved.limit() == command.limit() && saved.mode() == command.mode()
                         && Objects.equals(saved.selectedQuestion(), command.questionRevisionId()), CONFLICT);
-                return new Observed<>(withProgress(readForm(session.id(), saved), saved.mode(), 0), "replayed");
+                return new Observed<>(withProgress(readForm(session.id(), saved), saved.mode(), 0, false), "replayed");
             }
             var reviewItems = select(session.source(), command);
             var questions = reviewItems.stream().map(LearningDueSelection.Item::questionRevisionId).toList();
@@ -122,7 +122,7 @@ public class LearningStudyServiceImpl implements LearningStudyService {
             }
             repository.recordStart(session.id(), view.form().id(), command.limit(), shuffled,
                     command.mode(), command.questionRevisionId());
-            return new Observed<>(withProgress(view, command.mode(), 0), items.isEmpty() ? "empty" : "started");
+            return new Observed<>(withProgress(view, command.mode(), 0, false), items.isEmpty() ? "empty" : "started");
         });
     }
 
@@ -141,7 +141,8 @@ public class LearningStudyServiceImpl implements LearningStudyService {
         return execute("resume", () -> {
             var session = sessions.read(sessionId);
             var start = repository.start(session.id()).orElseThrow(() -> new LearningSessionException(UNAVAILABLE));
-            return new Observed<>(withProgress(readForm(session.id(), start), start.mode(), start.reviewedItems()), "resumed");
+            return new Observed<>(withProgress(readForm(session.id(), start), start.mode(),
+                    start.reviewedItems(), start.superseded()), "resumed");
         });
     }
 
@@ -161,10 +162,11 @@ public class LearningStudyServiceImpl implements LearningStudyService {
             }
 
             var start = repository.lockStart(session.id()).orElseThrow(() -> new LearningSessionException(UNAVAILABLE));
+            require(!start.superseded(), REVIEW_SUPERSEDED);
             var form = formRepository.find(session).orElseThrow(() -> new LearningSessionException(CORRUPT));
             require(start.formId().equals(form.id()), CORRUPT);
             int position = start.reviewedItems();
-            var current = progress(form, position);
+            var current = progress(form, position, false);
             require(!current.completed(), REVIEW_COMPLETE);
             require(command.expectedVersion() == current.version() && command.sourceItemId().equals(current.nextItemId()),
                     STALE_REVIEW);
@@ -174,8 +176,12 @@ public class LearningStudyServiceImpl implements LearningStudyService {
                     .orElseThrow(() -> new LearningSessionException(STALE_REVIEW));
             require(capture.questionRevisionId().equals(item.questionRevisionId()), CORRUPT);
             verifyActive(capture);
-            Instant nextDue = start.mode() == Mode.PRACTICE ? null : rate(session, capture, command, start.mode());
-            var next = progress(form, position + 1);
+            Instant nextDue = null;
+            if (start.mode() != Mode.PRACTICE) {
+                nextDue = rate(session, capture, command, start.mode());
+                repository.supersedeOverlaps(session.id(), capture.captured());
+            }
+            var next = progress(form, position + 1, false);
             var result = new LearningReview.Acknowledgement(session.id(), command.commandId(), item.sourceItemId(), next, nextDue);
             repository.recordResponse(learner, form.id(), command.rating(), fingerprint, response, result);
             if (next.completed()) release(session, form);
@@ -228,14 +234,19 @@ public class LearningStudyServiceImpl implements LearningStudyService {
         catch (ReceiptException failure) { throw new LearningSessionException(INVALID_INPUT); }
     }
 
-    private static LearningReview.Progress progress(LearningForm form, int reviewed) {
+    private static LearningReview.Progress progress(LearningForm form, int reviewed, boolean superseded) {
         require(reviewed >= 0 && reviewed <= form.items().size(), CORRUPT);
+        if (superseded) {
+            require(reviewed < form.items().size(), CORRUPT);
+            return new LearningReview.Progress(reviewed, null, LearningReview.Status.SUPERSEDED);
+        }
         UUID next = reviewed == form.items().size() ? null : form.items().get(reviewed).sourceItemId();
         return new LearningReview.Progress(reviewed, next);
     }
 
-    private static LearningFormService.View withProgress(LearningFormService.View view, Mode mode, int reviewed) {
-        return new LearningFormService.View(view.form(), view.items(), progress(view.form(), reviewed), mode);
+    private static LearningFormService.View withProgress(LearningFormService.View view, Mode mode,
+                                                         int reviewed, boolean superseded) {
+        return new LearningFormService.View(view.form(), view.items(), progress(view.form(), reviewed, superseded), mode);
     }
 
     private LearningFormService.View readForm(UUID sessionId, LearningStudyRepository.Start start) {

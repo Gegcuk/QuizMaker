@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.learning.api;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
@@ -59,6 +61,16 @@ public final class LearningSessionApi {
 
     public enum SelectionMode {
         EARLY, PRACTICE;
+
+        @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
+        public static SelectionMode fromJson(JsonNode mode) {
+            return switch (mode != null && mode.isTextual() ? mode.textValue() : "") {
+                case "EARLY" -> EARLY;
+                case "PRACTICE" -> PRACTICE;
+                default -> throw new LearningSessionException(LearningSessionException.Reason.INVALID_INPUT);
+            };
+        }
+
         LearningReview.Mode domain() { return LearningReview.Mode.valueOf(name()); }
     }
 
@@ -97,20 +109,21 @@ public final class LearningSessionApi {
     public record Item(UUID sourceItemId, UUID questionRevisionId, String responseContract, int responseVersion,
                        String questionText, AttemptFormResponse.Content content) { }
 
-    @Schema(name = "LearningSessionView", description = "Ordered items from the saved online session. EMPTY_COMPLETE is terminal.")
+    @Schema(name = "LearningSessionView", description = "Ordered items from the saved online session. COMPLETED and SUPERSEDED are terminal; only COMPLETED means all items were answered or none were due.")
     public record View(UUID sessionId, UUID formId, SourceRef source, LearningForm.Outcome outcome,
                        int reviewedItems, List<Action> allowedActions, List<Item> items, LearningReview.Mode mode,
-                       long sessionVersion, boolean completed, @Schema(nullable = true) UUID nextItemId) {
+                       long sessionVersion, boolean completed, @Schema(nullable = true) UUID nextItemId,
+                       LearningReview.Status status) {
         static View from(LearningFormService.View view) {
             var form = view.form();
             var progress = view.progress();
             return new View(form.sessionId(), form.id(), SourceRef.from(form.source()), form.outcome(),
-                    progress.reviewedItems(), progress.completed() ? List.of(Action.READ_SESSION)
+                    progress.reviewedItems(), progress.status() != LearningReview.Status.ACTIVE ? List.of(Action.READ_SESSION)
                             : List.of(Action.READ_SESSION, Action.RESPOND), view.items().stream().map(row -> {
                         var item = row.item();
                         return new Item(item.sourceItemId(), item.questionRevisionId(), item.response().id(),
                                 item.response().version(), row.questionText(), AttemptFormResponse.textContent(row.content()));
-                    }).toList(), view.mode(), progress.version(), progress.completed(), progress.nextItemId());
+                    }).toList(), view.mode(), progress.version(), progress.completed(), progress.nextItemId(), progress.status());
         }
     }
 }

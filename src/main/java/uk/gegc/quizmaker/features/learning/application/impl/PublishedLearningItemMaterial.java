@@ -10,6 +10,7 @@ import uk.gegc.quizmaker.features.learning.application.*;
 import uk.gegc.quizmaker.features.learning.domain.model.*;
 import uk.gegc.quizmaker.features.question.application.QuestionContractException;
 import uk.gegc.quizmaker.features.question.application.QuestionContractRegistry;
+import uk.gegc.quizmaker.features.question.application.contract.ResolvedQuestionContracts;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ParticipantContent;
 import java.util.List;
@@ -61,8 +62,10 @@ public class PublishedLearningItemMaterial implements LearningItemMaterial, Lear
                 && row.question().schemaVersion() == item.questionSchemaVersion()
                 && row.binding().response().equals(item.response()), CORRUPT);
         var question = row.question();
+        var resolved = resolve(row);
+        // The same retained-content validation as GET, before any request-specific checks.
+        content(row, resolved);
         require(question.type().name().equals(response.path("type").asText()), INVALID_INPUT);
-        var resolved = contracts.resolve(row.binding());
         try {
             var stable = StableResponseNormalizer.canonical(question.type(), response);
             StableResponseNormalizer.bind(question, resolved, stable);
@@ -79,22 +82,29 @@ public class PublishedLearningItemMaterial implements LearningItemMaterial, Lear
     }
 
     private ParticipantContent content(LearningPublicationItems.Item row) {
+        return content(row, resolve(row));
+    }
+
+    private ResolvedQuestionContracts resolve(LearningPublicationItems.Item row) {
         require(row.question() != null, CORRUPT);
         var question = row.question();
         // These routes have no current-authority image reader. Do not drop required material or expose stored URLs.
         require(question.attachmentUrl() == null && question.attachmentAssetId() == null, SOURCE_UNAVAILABLE);
+        try {
+            return contracts.resolve(row.binding());
+        } catch (ContractResolutionException failure) {
+            throw contentFailure(failure);
+        }
+    }
+
+    private ParticipantContent content(LearningPublicationItems.Item row, ResolvedQuestionContracts resolved) {
         ParticipantContent content;
         try {
-            content = contracts.resolve(row.binding()).response().participantContent(question);
+            content = resolved.response().participantContent(row.question());
         } catch (QuestionContractException invalidStoredContent) {
             throw new LearningFormException(CORRUPT);
         } catch (ContractResolutionException failure) {
-            throw new LearningFormException(switch (failure.reason()) {
-                case UNSUPPORTED_CONTRACT -> UNSUPPORTED_VERSION;
-                case PERSISTENCE_UNAVAILABLE -> PERSISTENCE_UNAVAILABLE;
-                case REVISION_UNAVAILABLE -> SOURCE_UNAVAILABLE;
-                default -> CORRUPT;
-            });
+            throw contentFailure(failure);
         }
         require(content != null && !(content instanceof ParticipantContent.Hotspot), SOURCE_UNAVAILABLE);
         if (content instanceof ParticipantContent.Matching matching) {
@@ -105,5 +115,14 @@ public class PublishedLearningItemMaterial implements LearningItemMaterial, Lear
             require(compliance.statements().stream().noneMatch(statement -> statement.image() != null), SOURCE_UNAVAILABLE);
         }
         return content;
+    }
+
+    private static LearningFormException contentFailure(ContractResolutionException failure) {
+        return new LearningFormException(switch (failure.reason()) {
+            case UNSUPPORTED_CONTRACT -> UNSUPPORTED_VERSION;
+            case PERSISTENCE_UNAVAILABLE -> PERSISTENCE_UNAVAILABLE;
+            case REVISION_UNAVAILABLE -> SOURCE_UNAVAILABLE;
+            default -> CORRUPT;
+        });
     }
 }

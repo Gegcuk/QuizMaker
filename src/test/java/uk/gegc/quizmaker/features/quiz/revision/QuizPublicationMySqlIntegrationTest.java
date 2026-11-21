@@ -467,6 +467,36 @@ class QuizPublicationMySqlIntegrationTest {
         assertThat(count("learning_review_event")).isEqualTo(2);
     }
 
+    @Test void learningGetAndRespondClassifyCorruptRetainedContentAsAStorageError() throws Exception {
+        var fixture = enrolledLearning(1);
+        var form = study.start(fixture.start());
+        var command = answer(form, 0);
+        var mvc = learningHttp(study);
+        var question = fixture.questions().get(0);
+        var snapshot = learningSchedules.read(fixture.start().source(), question);
+        long credit = learningCredit();
+        String original = sql.queryForObject("SELECT content FROM question_revisions WHERE id=UUID_TO_BIN(?)",
+                String.class, question.toString());
+        sql.update("UPDATE question_revisions SET content=JSON_OBJECT('privateProbe','LEARNING_PRIVATE_CONTENT') WHERE id=UUID_TO_BIN(?)",
+                question.toString());
+        try {
+            for (var request : List.of(get("/api/v1/learning/sessions/" + command.sessionId()), learningAnswer(command))) {
+                String error = mvc.perform(request).andExpect(status().isInternalServerError())
+                        .andExpect(jsonPath("$.status").value(500)).andReturn().getResponse().getContentAsString();
+                assertThat(error).doesNotContain("privateProbe", "LEARNING_PRIVATE_CONTENT");
+            }
+            assertThat(count("learning_session_response")).isZero();
+            assertThat(count("learning_review_event")).isZero();
+            assertThat(learningCredit()).isEqualTo(credit);
+            assertThat(learningSchedules.read(fixture.start().source(), question)).isEqualTo(snapshot);
+        } finally {
+            sql.update("UPDATE question_revisions SET content=? WHERE id=UUID_TO_BIN(?)", original, question.toString());
+        }
+        assertThat(study.resume(form.form().sessionId())).isEqualTo(form);
+        mvc.perform(learningAnswer(command)).andExpect(status().isOk()).andExpect(jsonPath("$.completed").value(true));
+        assertThat(count("learning_review_event")).isOne();
+    }
+
     @Test void explicitPracticeKeepsTheScheduleAndEarlyReviewAdvancesTheSameCycleOnce() throws Exception {
         var fixture = enrolledLearning(1);
         var question = fixture.questions().get(0);
@@ -490,12 +520,14 @@ class QuizPublicationMySqlIntegrationTest {
         UUID key = UUID.randomUUID();
         var early = sessionOf(mvc, explicitStart(fixture, key, LearningSessionApi.SelectionMode.EARLY, question));
         assertThat(early.mode()).isEqualTo(LearningReview.Mode.EARLY);
+        var earlyPeer = sessionOf(mvc, explicitStart(fixture, UUID.randomUUID(), LearningSessionApi.SelectionMode.EARLY, question));
         mvc.perform(explicitStart(fixture, key, LearningSessionApi.SelectionMode.PRACTICE, question)).andExpect(status().isConflict());
         mvc.perform(explicitStart(fixture, UUID.randomUUID(), LearningSessionApi.SelectionMode.PRACTICE, UUID.randomUUID()))
                 .andExpect(status().isNotFound());
         var earlyCommand = answer(early, 0);
         var confirmed = study.respond(earlyCommand);
         assertThat(study.respond(earlyCommand)).isEqualTo(confirmed);
+        assertThat(study.resume(earlyPeer.form().sessionId()).progress().status()).isEqualTo(LearningReview.Status.SUPERSEDED);
         var advanced = learningSchedules.read(source, question);
         assertThat(advanced.expected().cycleId()).isEqualTo(initial.expected().cycleId());
         assertThat(advanced.state().sequence()).isEqualTo(2);
@@ -515,9 +547,14 @@ class QuizPublicationMySqlIntegrationTest {
     }
 
     @Test void concurrentLearningResponsesGiveOneReviewAndKeepTheExactReplay() throws Exception {
-        var fixture = enrolledLearning(1);
-        var form = study.start(fixture.start());
-        var overlapping = study.start(new LearningStudyService.Start(UUID.randomUUID(), fixture.start().source(), 1));
+        var fixture = enrolledLearning(2);
+        var source = fixture.start().source();
+        var overlapping = study.start(fixture.start());
+        var form = study.start(new LearningStudyService.Start(UUID.randomUUID(), source, 1));
+        var sharedQuestion = form.form().items().get(0).questionRevisionId();
+        assertThat(overlapping.form().items().get(0).questionRevisionId()).isEqualTo(sharedQuestion);
+        var practice = study.start(new LearningStudyService.Start(UUID.randomUUID(), source, 1,
+                LearningReview.Mode.PRACTICE, sharedQuestion));
         var winner = answer(form, 0);
         var peer = answer(overlapping, 0);
         var outer = new TransactionTemplate(transactions);
@@ -538,9 +575,10 @@ class QuizPublicationMySqlIntegrationTest {
             });
             assertThat(reached.await(10, TimeUnit.SECONDS)).isTrue();
             assertThat(count("learning_review_event")).isZero();
+            assertThat(study.resume(overlapping.form().sessionId()).progress().status()).isEqualTo(LearningReview.Status.ACTIVE);
             var second = workers.submit(() -> {
                 loginLearner(username);
-                deniedLearning(() -> study.respond(peer), LearningSessionException.Reason.STALE_REVIEW);
+                deniedLearning(() -> study.respond(peer), LearningSessionException.Reason.REVIEW_SUPERSEDED);
             });
             var sameCommand = workers.submit(() -> {
                 loginLearner(username);
@@ -555,19 +593,97 @@ class QuizPublicationMySqlIntegrationTest {
             second.get(15, TimeUnit.SECONDS);
             assertThat(accepted.progress().completed()).isTrue();
             assertThat(sameCommand.get(15, TimeUnit.SECONDS)).isEqualTo(accepted);
-            assertThat(study.respond(winner)).isEqualTo(accepted);
-            assertThat(study.resume(overlapping.form().sessionId()).progress().reviewedItems()).isZero();
+            assertThat(study.start(fixture.start())).isEqualTo(overlapping);
+            var restarted = beans.createBean(LearningStudyServiceImpl.class);
+            var mvc = learningHttp(restarted);
+            mvc.perform(get("/api/v1/learning/sessions/" + peer.sessionId())).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("SUPERSEDED"))
+                    .andExpect(jsonPath("$.sessionVersion").value(2))
+                    .andExpect(jsonPath("$.completed").value(false))
+                    .andExpect(jsonPath("$.reviewedItems").value(0))
+                    .andExpect(jsonPath("$.nextItemId").doesNotExist())
+                    .andExpect(jsonPath("$.allowedActions.length()").value(1))
+                    .andExpect(jsonPath("$.allowedActions[0]").value("READ_SESSION"));
+            var latestVersion = new LearningReview.Command(peer.sessionId(), peer.commandId(), 2, peer.sourceItemId(),
+                    peer.rating(), peer.response());
+            long credit = learningCredit();
+            mvc.perform(learningAnswer(latestVersion)).andExpect(status().isConflict()).andExpect(jsonPath("$.type")
+                    .value(uk.gegc.quizmaker.shared.api.problem.ErrorTypes.DATA_CONFLICT.toString()));
+            assertThat(learningCredit()).isEqualTo(credit);
             assertThat(count("learning_review_event")).isOne();
             assertThat(count("learning_session_response")).isOne();
+
+            // The practice capture survives supersession and still gives the ordinary restart barrier.
+            assertThat(restarted.resume(practice.form().sessionId())).isEqualTo(practice);
+            assertThatThrownBy(() -> restartLearningCycle(source, sharedQuestion))
+                    .isInstanceOfSatisfying(LearningScheduleException.class, failure ->
+                            assertThat(failure.reason()).isEqualTo(LearningScheduleException.Reason.ACTIVE_SESSION));
+            assertThat(restarted.respond(answer(practice, 0)).nextDueAt()).isNull();
+            for (var item : overlapping.form().items()) {
+                var restart = restartLearningCycle(source, item.questionRevisionId());
+                assertThat(restart.cycleVersion()).isEqualTo(2);
+            }
+            assertThat(restarted.respond(winner)).isEqualTo(accepted);
+            assertThat(count("learning_review_event")).isOne();
+            assertThat(count("learning_session_response")).isEqualTo(2);
         } finally {
             release.countDown();
             workers.shutdownNow();
         }
     }
 
+    @Test void supersessionPreservesAnEarlierAcceptedResponseAndItsReplay() throws Exception {
+        var fixture = enrolledLearning(2);
+        var remaining = study.start(fixture.start());
+        var first = answer(remaining, 0);
+        var firstAck = study.respond(first);
+        var winner = study.start(new LearningStudyService.Start(UUID.randomUUID(), fixture.start().source(), 1));
+        assertThat(winner.form().items().get(0).sourceItemId()).isEqualTo(firstAck.progress().nextItemId());
+        study.respond(answer(winner, 0));
+
+        var superseded = study.resume(remaining.form().sessionId()).progress();
+        assertThat(superseded.status()).isEqualTo(LearningReview.Status.SUPERSEDED);
+        assertThat(superseded.reviewedItems()).isOne();
+        assertThat(superseded.version()).isEqualTo(3);
+        assertThat(study.respond(first)).isEqualTo(firstAck);
+        assertThat(count("learning_session_response")).isEqualTo(2);
+        assertThat(count("learning_review_event")).isEqualTo(2);
+    }
+
+    @Test void supersessionMigrationReconcilesAnOverlappingV123Session() throws Exception {
+        var fixture = enrolledLearning(2);
+        var source = fixture.start().source();
+        var overlapping = study.start(fixture.start());
+        var winning = study.start(new LearningStudyService.Start(UUID.randomUUID(), source, 1));
+        var winner = answer(winning, 0);
+        var acknowledgement = study.respond(winner);
+        // Recreate the exact V123 state after the winning acknowledgement and event committed.
+        // The old writer had left the peer's captures unreleased and stored no terminal marker.
+        sql.update("UPDATE learning_cycle_session SET released=0 WHERE session_id=UUID_TO_BIN(?)",
+                overlapping.form().sessionId().toString());
+        sql.execute("ALTER TABLE learning_session_start DROP CHECK chk_learning_start_superseded, DROP COLUMN superseded");
+        var migration = new org.springframework.core.io.ClassPathResource("db/migration/V124__release_superseded_learning_sessions.sql");
+        new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(migration).execute(dataSource);
+        assertThat(study.resume(overlapping.form().sessionId()).progress().status()).isEqualTo(LearningReview.Status.SUPERSEDED);
+        for (var item : overlapping.form().items()) {
+            assertThat(restartLearningCycle(source, item.questionRevisionId()).cycleVersion()).isEqualTo(2);
+        }
+        assertThat(study.respond(winner)).isEqualTo(acknowledgement);
+        assertThat(count("learning_review_event")).isOne();
+        assertThat(count("learning_session_response")).isOne();
+    }
+
+    private LearningSchedule.Snapshot restartLearningCycle(LearningSession.Source source, UUID question) {
+        var before = learningSchedules.read(source, question);
+        return learningSchedules.execute(new LearningScheduleService.Restart(1, UUID.randomUUID(), source, question,
+                before.expected(), FsrsManifest.approved())).snapshot();
+    }
+
     @Test void learningResponseRollsBackScheduleProgressAndCreditAfterReachingTheReceiptWrite() throws Exception {
         var fixture = enrolledLearning(1);
         var form = study.start(fixture.start());
+        var overlapping = study.start(new LearningStudyService.Start(UUID.randomUUID(), fixture.start().source(), 1));
+        UUID peerSession = overlapping.form().sessionId();
         var response = answer(form, 0);
         long credit = learningCredit();
         var mvc = learningHttp(study);
@@ -576,9 +692,11 @@ class QuizPublicationMySqlIntegrationTest {
                 BEGIN
                   IF EXISTS(SELECT 1 FROM learning_review_event WHERE command_id=NEW.command_id)
                      AND EXISTS(SELECT 1 FROM learning_session_start WHERE session_id=NEW.session_id AND reviewed_items=1)
+                     AND EXISTS(SELECT 1 FROM learning_session_start WHERE session_id=UUID_TO_BIN('%s') AND superseded=1)
+                     AND EXISTS(SELECT 1 FROM learning_cycle_session WHERE session_id=UUID_TO_BIN('%s') AND released=1)
                   THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='PRIVATE_RESPONSE_WRITE_REACHED'; END IF;
                 END
-                """);
+                """.formatted(peerSession, peerSession));
         try (var logs = new LearningTransactionLogs()) {
             mvc.perform(learningAnswer(response)).andExpect(status().isServiceUnavailable());
             logs.assertCleanFailure(JdbcLearningStudyRepository.class, "recordResponse",
@@ -590,6 +708,7 @@ class QuizPublicationMySqlIntegrationTest {
         assertThat(count("learning_session_response")).isZero();
         assertThat(learningCredit()).isEqualTo(credit);
         assertThat(study.resume(form.form().sessionId())).isEqualTo(form);
+        assertThat(study.resume(peerSession)).isEqualTo(overlapping);
 
         var incompatible = new TransactionTemplate(transactions);
         incompatible.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
@@ -603,13 +722,17 @@ class QuizPublicationMySqlIntegrationTest {
             assertThat(study.respond(response).progress().completed()).isTrue();
             assertThat(count("learning_review_event")).isOne();
             assertThat(count("learning_session_response")).isOne();
+            assertThat(study.resume(peerSession).progress().status()).isEqualTo(LearningReview.Status.SUPERSEDED);
             transaction.setRollbackOnly();
         });
         assertThat(learningCredit()).isEqualTo(credit);
         assertThat(count("learning_review_event")).isZero();
         assertThat(count("learning_session_response")).isZero();
         assertThat(study.resume(form.form().sessionId())).isEqualTo(form);
+        assertThat(study.resume(peerSession)).isEqualTo(overlapping);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_cycle_session WHERE released=1", Integer.class)).isZero();
         mvc.perform(learningAnswer(response)).andExpect(status().isOk());
+        assertThat(study.resume(peerSession).progress().status()).isEqualTo(LearningReview.Status.SUPERSEDED);
         assertThat(count("learning_review_event")).isOne();
     }
 
