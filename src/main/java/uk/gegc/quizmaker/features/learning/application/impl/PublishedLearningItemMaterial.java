@@ -1,8 +1,11 @@
 package uk.gegc.quizmaker.features.learning.application.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import uk.gegc.quizmaker.features.attempt.application.ParticipantFormProjector;
+import uk.gegc.quizmaker.features.attempt.application.StableResponseNormalizer;
+import uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException;
 import uk.gegc.quizmaker.features.learning.application.*;
 import uk.gegc.quizmaker.features.learning.domain.model.*;
 import uk.gegc.quizmaker.features.question.application.QuestionContractException;
@@ -49,6 +52,30 @@ public class PublishedLearningItemMaterial implements LearningItemMaterial, Lear
             return new PresentedItem(item, row.question().questionText(),
                     ParticipantFormProjector.orderedContent(row.question().type(), safe, item.optionIds()));
         }).toList();
+    }
+
+    @Override public String validateResponse(LearningSession session, LearningForm.Item item, JsonNode response) {
+        var row = publications.savedOccurrences(session.learnerId(), session.source(), List.of(item.sourceItemId()))
+                .get(item.sourceItemId());
+        require(row != null && row.question() != null && row.question().id().equals(item.questionRevisionId())
+                && row.question().schemaVersion() == item.questionSchemaVersion()
+                && row.binding().response().equals(item.response()), CORRUPT);
+        var question = row.question();
+        require(question.type().name().equals(response.path("type").asText()), INVALID_INPUT);
+        var resolved = contracts.resolve(row.binding());
+        try {
+            var stable = StableResponseNormalizer.canonical(question.type(), response);
+            StableResponseNormalizer.bind(question, resolved, stable);
+            return stable.toString();
+        } catch (ResponseAcceptanceException failure) {
+            throw new LearningFormException(switch (failure.reason()) {
+                case INVALID_INPUT -> INVALID_INPUT;
+                case UNSUPPORTED -> UNSUPPORTED_VERSION;
+                default -> CORRUPT;
+            });
+        } catch (QuestionContractException failure) {
+            throw new LearningFormException(INVALID_INPUT);
+        }
     }
 
     private ParticipantContent content(LearningPublicationItems.Item row) {

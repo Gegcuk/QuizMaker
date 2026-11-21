@@ -19,12 +19,19 @@ import uk.gegc.quizmaker.shared.api.problem.ProblemDetailBuilder;
 public class LearningSessionErrorHandler {
     @ExceptionHandler(LearningSessionException.class)
     public ResponseEntity<ProblemDetail> sessionFailure(LearningSessionException failure, HttpServletRequest request) {
+        if (failure.reason() == LearningSessionException.Reason.STALE_REVIEW) {
+            return problem(HttpStatus.CONFLICT, ErrorTypes.OPTIMISTIC_LOCK_CONFLICT,
+                    "The Learning item or schedule is no longer current. Read the session again.", request);
+        }
+        if (failure.reason() == LearningSessionException.Reason.REVIEW_COMPLETE) {
+            return problem(HttpStatus.CONFLICT, ErrorTypes.DATA_CONFLICT, "The Learning session is complete.", request);
+        }
         var status = switch (failure.reason()) {
             case UNAUTHENTICATED -> HttpStatus.UNAUTHORIZED;
             case UNAVAILABLE, SOURCE_UNAVAILABLE -> HttpStatus.NOT_FOUND;
             case INVALID_INPUT -> HttpStatus.BAD_REQUEST;
             case UNSUPPORTED_VERSION -> HttpStatus.UNPROCESSABLE_ENTITY;
-            case CONFLICT -> HttpStatus.CONFLICT;
+            case CONFLICT, STALE_REVIEW, REVIEW_COMPLETE -> HttpStatus.CONFLICT;
             case PERSISTENCE_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
             case CORRUPT, UNSUPPORTED_TRANSACTION -> HttpStatus.INTERNAL_SERVER_ERROR;
         };

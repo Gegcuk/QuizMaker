@@ -2,6 +2,22 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Learning responses and completion (#650)
+
+The publication MySQL fixture starts from a real owned revision and uses the actual Learning
+enrollment, start, response and resume boundaries. Verify the saved presentation order,
+original acknowledgement after service reconstruction, rejection after loss of access, due/early
+advancement, and a practice response that preserves the full schedule. A blocked peer races a
+committed winner on the same captured step and must leave no second review or progress. A trigger
+after the real response insert checks that the schedule event and cursor write were reached before
+failing; fresh reads verify rollback, restored command credit and a successful exact retry.
+The nonterminal response SQL comparison across two- and five-item forms measures one immutable
+question row per command and equal statement counts. Form metadata still scales with the form.
+
+`LearningSessionOpenApiTest` checks typed requests and acknowledgements, exact error contracts,
+strict response parsing, the unique group and API discovery. Use the existing offline starter and
+the four-worker verification gate after the focused MVC and MySQL suites.
+
 ## Single-quiz Learning sessions (#578)
 
 Use `LearningFormTest` for the optional question permutation, saved option order and empty

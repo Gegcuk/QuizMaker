@@ -40,7 +40,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(controllers = {LearningSessionController.class, ApiDiscoveryController.class})
 @TestPropertySource(properties = {"quizmaker.learning.sessions-enabled=true"})
-@Import({SecurityConfig.class, LearningSessionErrorHandler.class, OpenApiConfig.class, OpenApiGroupConfig.class, ApiDocumentationService.class,
+@Import({SecurityConfig.class, LearningSessionErrorHandler.class, LearningResponseJsonConfig.class, OpenApiConfig.class, OpenApiGroupConfig.class, ApiDocumentationService.class,
         SpringDocConfiguration.class, SpringDocWebMvcConfiguration.class, MultipleOpenApiSupportConfiguration.class,
         LearningSessionOpenApiTest.DocConfig.class})
 class LearningSessionOpenApiTest {
@@ -67,13 +67,40 @@ class LearningSessionOpenApiTest {
              "quizId":"00000000-0000-4000-8000-000000000002","quizRevisionId":"00000000-0000-4000-8000-000000000003",
              "revisionSchemaVersion":1},"configuration":{"strategy":"fsrs/v1","version":1},"limit":3}
             """;
+    private static final String RESPOND = """
+            {"commandId":"00000000-0000-4000-8000-000000000001","expectedSessionVersion":1,
+             "sourceItemId":"00000000-0000-4000-8000-000000000002","rating":"GOOD",
+             "response":{"type":"TRUE_FALSE","answer":true}}
+            """;
 
-    @Test void allThreeOperationsRequireAuthentication() throws Exception {
+    @Test void allLearningOperationsRequireAuthentication() throws Exception {
         mvc.perform(get(ROOT + "/sessions/" + UUID.randomUUID())).andExpect(status().isUnauthorized());
         for (var path : List.of("/sessions", "/enrollments")) {
             mvc.perform(post(ROOT + path).contentType("application/json").content(START)).andExpect(status().isUnauthorized());
         }
+        mvc.perform(post(ROOT + "/sessions/" + UUID.randomUUID() + "/responses")
+                .contentType("application/json").content(RESPOND)).andExpect(status().isUnauthorized());
         verifyNoInteractions(study);
+    }
+
+    @Test @WithMockUser void responseParsingRejectsAmbiguousOrCoercedInputBeforeService() throws Exception {
+        String path = ROOT + "/sessions/" + UUID.randomUUID() + "/responses";
+        for (String malformed : List.of(RESPOND.replace("true", "\"true\""),
+                RESPOND.replace("true", "true,\"answer\":false"),
+                RESPOND.replace("\"rating\":\"GOOD\"", "\"rating\":\"CONFIDENT\""),
+                RESPOND.replace("\"expectedSessionVersion\":1", "\"expectedSessionVersion\":\"1\""))) {
+            mvc.perform(post(path).contentType("application/json").content(malformed))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400));
+        }
+        verifyNoInteractions(study);
+    }
+
+    @Test @WithMockUser void responseRateDenialReturnsRetryAfter() throws Exception {
+        when(study.respond(any())).thenThrow(new RateLimitExceededException("Learning command rate exceeded", 2));
+        mvc.perform(post(ROOT + "/sessions/" + UUID.randomUUID() + "/responses")
+                .contentType("application/json").content(RESPOND))
+                .andExpect(status().isTooManyRequests()).andExpect(header().string("Retry-After", "2"))
+                .andExpect(jsonPath("$.status").value(429));
     }
 
     @Test @WithMockUser void unknownStrategyAndInvalidSourceNeverReachTheService() throws Exception {
@@ -112,17 +139,21 @@ class LearningSessionOpenApiTest {
                 .andReturn().getResponse().getContentAsString());
         assertThat(summary.path("groups").findValuesAsText("specUrl")).containsOnlyOnce("/v3/api-docs/learning");
         var paths = spec.path("paths");
-        assertThat(paths.size()).isEqualTo(3);
+        assertThat(paths.size()).isEqualTo(4);
+        var full = json.readTree(mvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
         var matcher = new org.springframework.util.AntPathMatcher();
-        for (String path : List.of(ROOT+"/enrollments",ROOT+"/sessions",ROOT+"/sessions/{sessionId}")) {
+        for (String path : List.of(ROOT+"/enrollments",ROOT+"/sessions",ROOT+"/sessions/{sessionId}",ROOT+"/sessions/{sessionId}/responses")) {
             var operation = paths.path(path).path(path.endsWith("}") ? "get" : "post");
+            assertThat(full.path("paths").path(path).isObject()).isTrue();
             assertThat(operation.path("security").findValue("bearerAuth")).isNotNull();
             assertThat(groups.stream().filter(g -> g.getPathsToMatch().stream().anyMatch(p -> matcher.match(p,path)))
                     .map(org.springdoc.core.models.GroupedOpenApi::getGroup)).containsExactly("learning");
             for (String status : List.of("400","401","404","409","422","503")) {
                 assertThat(operation.path("responses").path(status).findValuesAsText("$ref")).anyMatch(s -> s.endsWith("/ProblemDetail"));
             }
-            String expected = path.endsWith("enrollments") ? "EnrollLearningItemsResponse" : "LearningSessionView";
+            String expected = path.endsWith("enrollments") ? "EnrollLearningItemsResponse"
+                    : path.endsWith("responses") ? "LearningResponseAcknowledgement" : "LearningSessionView";
             assertThat(operation.path("responses").path("200").findValuesAsText("$ref")).anyMatch(s -> s.endsWith("/"+expected));
             if (!path.endsWith("}")) {
                 var body = operation.at("/requestBody/content/application~1json");
@@ -130,7 +161,15 @@ class LearningSessionOpenApiTest {
                 JsonNode example = body.path("example");
                 if (example.isMissingNode()) example = body.path("examples").findValue("value");
                 assertThat(example).isNotNull();
-                assertThat(example.path("source").path("kind").asText()).isEqualTo("QUIZ_REVISION");
+                if (path.endsWith("responses")) {
+                    var sample = json.treeToValue(example, LearningSessionApi.RespondRequest.class);
+                    assertThat(sample.expectedSessionVersion()).isEqualTo(1L);
+                    assertThat(sample.response()).isEqualTo(new uk.gegc.quizmaker.features.attempt.api.dto.AcceptResponseRequest.Truth(true));
+                    assertThat(operation.at("/responses/429/headers/Retry-After").isObject()).isTrue();
+                    assertThat(body.path("schema").path("$ref").asText()).endsWith("/RespondToLearningItemRequest");
+                } else {
+                    assertThat(example.path("source").path("kind").asText()).isEqualTo("QUIZ_REVISION");
+                }
             }
         }
 

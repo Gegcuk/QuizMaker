@@ -176,6 +176,7 @@ class QuizPublicationMySqlIntegrationTest {
     @Autowired org.springframework.beans.factory.config.AutowireCapableBeanFactory beans;
     @Autowired LearningSessionService sessions;
     @Autowired LearningDueSelectionService dueSelection;
+    @Autowired LearningScheduleService learningSchedules;
     @Autowired QuizRelationService relations;
     @Autowired QuestionSourceScopeRepository questionSources;
     @Autowired QuestionService authoring;
@@ -222,7 +223,7 @@ class QuizPublicationMySqlIntegrationTest {
             // Owned schema only, in FK order. All durability assertions run before cleanup.
             sql.update("UPDATE learning_schedule_slot SET active_cycle_id=NULL,cycle_version=0");
             for (String table : List.of("learning_enrollment_item", "learning_enrollment", "learning_prepared_publication",
-                    "learning_session_start", "learning_cycle_session", "learning_review_event", "learning_fsrs_state",
+                    "learning_session_response", "learning_session_start", "learning_cycle_session", "learning_review_event", "learning_fsrs_state",
                     "learning_schedule_receipt", "learning_schedule_cycle", "learning_schedule_slot", "learning_form_option", "learning_form_item", "learning_form", "learning_session_create_receipt",
                     "learning_session", "question_revision_contract_bindings", "attempt_form_item", "attempt_form", "quiz_publication_receipts", "quiz_publication_heads",
                     "quiz_revision_images", "quiz_publications", "quiz_revision_items", "question_option_revisions",
@@ -403,6 +404,312 @@ class QuizPublicationMySqlIntegrationTest {
         assertThat(study.start(begin).items()).hasSize(1);
     }
 
+    @Test void learningAnswersFollowSavedOrderAndReplayTheOriginalAcknowledgementAfterCompletion() throws Exception {
+        var fixture = enrolledLearning(2);
+        sql.update("UPDATE quizzes SET shuffle_learning_questions=TRUE WHERE quiz_id=UUID_TO_BIN(?)", quizId.toString());
+        var form = study.start(fixture.start());
+        UUID session = form.form().sessionId();
+        var first = answer(form, 0);
+        var second = answer(form, 1);
+        var mvc = learningHttp(study);
+        var outOfOrder = new LearningReview.Command(session, second.commandId(), 1, second.sourceItemId(),
+                second.rating(), second.response());
+        var staleVersion = new LearningReview.Command(session, first.commandId(), 2, first.sourceItemId(),
+                first.rating(), first.response());
+        for (var rejected : List.of(outOfOrder, staleVersion)) {
+            mvc.perform(learningAnswer(rejected)).andExpect(status().isConflict()).andExpect(jsonPath("$.type").value(
+                    uk.gegc.quizmaker.shared.api.problem.ErrorTypes.OPTIMISTIC_LOCK_CONFLICT.toString()));
+        }
+        var foreign = "peer-" + UUID.randomUUID().toString().substring(0, 8);
+        user(foreign, true);
+        loginLearner(foreign);
+        mvc.perform(learningAnswer(first)).andExpect(status().isNotFound());
+        loginLearner(username);
+        var wrongType = answerWith(first, json.createObjectNode().put("type", "OPEN").put("answer", "unmatched"));
+        mvc.perform(learningAnswer(wrongType)).andExpect(status().isBadRequest());
+        var firstQuestion = form.form().items().get(0).questionRevisionId().toString();
+        // Deliberately damage retained strategy metadata for this scenario, then restore the valid control.
+        sql.update("UPDATE learning_schedule_cycle SET strategy_id='fsrs/v99' WHERE question_revision_id=UUID_TO_BIN(?)", firstQuestion);
+        mvc.perform(learningAnswer(first)).andExpect(status().isUnprocessableEntity());
+        sql.update("UPDATE learning_schedule_cycle SET strategy_id='fsrs/v1' WHERE question_revision_id=UUID_TO_BIN(?)", firstQuestion);
+        assertThat(count("learning_session_response")).isZero();
+        assertThat(count("learning_review_event")).isZero();
+
+        var firstAck = mvc.perform(learningAnswer(first)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionVersion").value(2))
+                .andExpect(jsonPath("$.completed").value(false))
+                .andExpect(jsonPath("$.nextItemId").value(second.sourceItemId().toString()))
+                .andReturn().getResponse().getContentAsString();
+        mvc.perform(learningAnswer(answerWith(first, json.createObjectNode().put("type", "TRUE_FALSE").put("answer", false))))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.type").value(
+                        uk.gegc.quizmaker.shared.api.problem.ErrorTypes.IDEMPOTENCY_CONFLICT.toString()));
+        mvc.perform(get("/api/v1/learning/sessions/" + session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.reviewedItems").value(1))
+                .andExpect(jsonPath("$.nextItemId").value(second.sourceItemId().toString()));
+        mvc.perform(learningAnswer(second)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionVersion").value(3)).andExpect(jsonPath("$.completed").value(true));
+        var restarted = beans.createBean(LearningStudyServiceImpl.class);
+        var restartedHttp = learningHttp(restarted);
+        assertThat(restartedHttp.perform(learningAnswer(first)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString()).isEqualTo(firstAck);
+        assertThat(restarted.start(fixture.start())).isEqualTo(form);
+        assertThat(restarted.resume(session).progress().completed()).isTrue();
+        mvc.perform(learningAnswer(new LearningReview.Command(session, UUID.randomUUID(), 3, first.sourceItemId(),
+                first.rating(), first.response()))).andExpect(status().isConflict());
+        assertThat(count("learning_session_response")).isEqualTo(2);
+        assertThat(count("learning_review_event")).isEqualTo(2);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_cycle_session WHERE released=1", Integer.class)).isEqualTo(2);
+        assertThat(learningCredit()).isEqualTo(16 * 60_000_000L);
+        for (var table : List.of("attempts", "answers", "attempt_accepted_response", "attempt_automatic_result",
+                "spaced_repetition_entry", "repetition_review_log")) assertThat(count(table)).as(table).isZero();
+        sql.update("DELETE FROM user_roles WHERE user_id=UUID_TO_BIN(?)", ownerId.toString());
+        restartedHttp.perform(learningAnswer(first)).andExpect(status().isNotFound());
+        assertThat(count("learning_review_event")).isEqualTo(2);
+    }
+
+    @Test void explicitPracticeKeepsTheScheduleAndEarlyReviewAdvancesTheSameCycleOnce() throws Exception {
+        var fixture = enrolledLearning(1);
+        var question = fixture.questions().get(0);
+        var source = fixture.start().source();
+        var mvc = learningHttp(study);
+        var due = study.start(fixture.start());
+        var badEarly = explicitStart(fixture, UUID.randomUUID(), LearningSessionApi.SelectionMode.EARLY, question);
+        mvc.perform(badEarly).andExpect(status().isConflict());
+        assertThat(count("learning_session")).isOne();
+        mvc.perform(learningAnswer(answer(due, 0))).andExpect(status().isOk());
+        var initial = learningSchedules.read(source, question);
+        assertThat(initial.state().dueAt()).isAfter(clock.instant());
+        assertThat(initial.state().sequence()).isOne();
+
+        var practice = sessionOf(mvc, explicitStart(fixture, UUID.randomUUID(), LearningSessionApi.SelectionMode.PRACTICE, question));
+        mvc.perform(learningAnswer(answer(practice, 0))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.completed").value(true)).andExpect(jsonPath("$.nextDueAt").doesNotExist());
+        assertThat(learningSchedules.read(source, question)).isEqualTo(initial);
+        assertThat(count("learning_review_event")).isOne();
+
+        UUID key = UUID.randomUUID();
+        var early = sessionOf(mvc, explicitStart(fixture, key, LearningSessionApi.SelectionMode.EARLY, question));
+        assertThat(early.mode()).isEqualTo(LearningReview.Mode.EARLY);
+        mvc.perform(explicitStart(fixture, key, LearningSessionApi.SelectionMode.PRACTICE, question)).andExpect(status().isConflict());
+        mvc.perform(explicitStart(fixture, UUID.randomUUID(), LearningSessionApi.SelectionMode.PRACTICE, UUID.randomUUID()))
+                .andExpect(status().isNotFound());
+        var earlyCommand = answer(early, 0);
+        var confirmed = study.respond(earlyCommand);
+        assertThat(study.respond(earlyCommand)).isEqualTo(confirmed);
+        var advanced = learningSchedules.read(source, question);
+        assertThat(advanced.expected().cycleId()).isEqualTo(initial.expected().cycleId());
+        assertThat(advanced.state().sequence()).isEqualTo(2);
+        assertThat(advanced.state().dueAt()).isEqualTo(confirmed.nextDueAt());
+        assertThat(count("learning_session_response")).isEqualTo(3);
+        assertThat(count("learning_review_event")).isEqualTo(2);
+        assertThat(count("learning_schedule_cycle")).isOne();
+
+        var replacement = learningSchedules.execute(new LearningScheduleService.Restart(1, UUID.randomUUID(), source,
+                question, advanced.expected(), FsrsManifest.approved())).snapshot();
+        assertThat(replacement.expected().cycleId()).isNotEqualTo(advanced.expected().cycleId());
+        assertThat(study.respond(earlyCommand)).isEqualTo(confirmed);
+        var oldSessionNewCommand = answer(early, 0);
+        deniedLearning(() -> study.respond(oldSessionNewCommand), LearningSessionException.Reason.REVIEW_COMPLETE);
+        assertThat(learningSchedules.read(source, question)).isEqualTo(replacement);
+        assertThat(count("learning_review_event")).isEqualTo(2);
+    }
+
+    @Test void concurrentLearningResponsesGiveOneReviewAndKeepTheExactReplay() throws Exception {
+        var fixture = enrolledLearning(1);
+        var form = study.start(fixture.start());
+        var overlapping = study.start(new LearningStudyService.Start(UUID.randomUUID(), fixture.start().source(), 1));
+        var winner = answer(form, 0);
+        var peer = answer(overlapping, 0);
+        var outer = new TransactionTemplate(transactions);
+        outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        var reached = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var workers = Executors.newFixedThreadPool(3);
+        try {
+            var first = workers.submit(() -> {
+                loginLearner(username);
+                return outer.execute(value -> {
+                    var result = study.respond(winner);
+                    assertThat(count("learning_review_event")).isOne();
+                    reached.countDown();
+                    await(release);
+                    return result;
+                });
+            });
+            assertThat(reached.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(count("learning_review_event")).isZero();
+            var second = workers.submit(() -> {
+                loginLearner(username);
+                deniedLearning(() -> study.respond(peer), LearningSessionException.Reason.STALE_REVIEW);
+            });
+            var sameCommand = workers.submit(() -> {
+                loginLearner(username);
+                return study.respond(winner);
+            });
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(10)).until(() -> admin.queryForObject("""
+                    SELECT EXISTS(SELECT 1 FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks l
+                    ON l.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID WHERE l.OBJECT_SCHEMA=?)
+                    """, Boolean.class, SCHEMA));
+            release.countDown();
+            var accepted = first.get(15, TimeUnit.SECONDS);
+            second.get(15, TimeUnit.SECONDS);
+            assertThat(accepted.progress().completed()).isTrue();
+            assertThat(sameCommand.get(15, TimeUnit.SECONDS)).isEqualTo(accepted);
+            assertThat(study.respond(winner)).isEqualTo(accepted);
+            assertThat(study.resume(overlapping.form().sessionId()).progress().reviewedItems()).isZero();
+            assertThat(count("learning_review_event")).isOne();
+            assertThat(count("learning_session_response")).isOne();
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+        }
+    }
+
+    @Test void learningResponseRollsBackScheduleProgressAndCreditAfterReachingTheReceiptWrite() throws Exception {
+        var fixture = enrolledLearning(1);
+        var form = study.start(fixture.start());
+        var response = answer(form, 0);
+        long credit = learningCredit();
+        var mvc = learningHttp(study);
+        sql.execute("""
+                CREATE TRIGGER fail_learning_response AFTER INSERT ON learning_session_response FOR EACH ROW
+                BEGIN
+                  IF EXISTS(SELECT 1 FROM learning_review_event WHERE command_id=NEW.command_id)
+                     AND EXISTS(SELECT 1 FROM learning_session_start WHERE session_id=NEW.session_id AND reviewed_items=1)
+                  THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='PRIVATE_RESPONSE_WRITE_REACHED'; END IF;
+                END
+                """);
+        try (var logs = new LearningTransactionLogs()) {
+            mvc.perform(learningAnswer(response)).andExpect(status().isServiceUnavailable());
+            logs.assertCleanFailure(JdbcLearningStudyRepository.class, "recordResponse",
+                    "PRIVATE_RESPONSE_WRITE_REACHED", response.commandId().toString());
+        } finally {
+            sql.execute("DROP TRIGGER fail_learning_response");
+        }
+        assertThat(count("learning_review_event")).isZero();
+        assertThat(count("learning_session_response")).isZero();
+        assertThat(learningCredit()).isEqualTo(credit);
+        assertThat(study.resume(form.form().sessionId())).isEqualTo(form);
+
+        var incompatible = new TransactionTemplate(transactions);
+        incompatible.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        deniedLearning(() -> incompatible.executeWithoutResult(value -> study.respond(response)),
+                LearningSessionException.Reason.UNSUPPORTED_TRANSACTION);
+        assertThat(learningCredit()).isEqualTo(credit);
+        var outer = new TransactionTemplate(transactions);
+        outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        outer.executeWithoutResult(transaction -> {
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+            assertThat(study.respond(response).progress().completed()).isTrue();
+            assertThat(count("learning_review_event")).isOne();
+            assertThat(count("learning_session_response")).isOne();
+            transaction.setRollbackOnly();
+        });
+        assertThat(learningCredit()).isEqualTo(credit);
+        assertThat(count("learning_review_event")).isZero();
+        assertThat(count("learning_session_response")).isZero();
+        assertThat(study.resume(form.form().sessionId())).isEqualTo(form);
+        mvc.perform(learningAnswer(response)).andExpect(status().isOk());
+        assertThat(count("learning_review_event")).isOne();
+    }
+
+    @Test void learningRateDenialAndStoreFailureCannotChangeTheScheduleOrProgress() throws Exception {
+        var fixture = enrolledLearning(1);
+        var form = study.start(fixture.start());
+        var request = learningAnswer(answer(form, 0));
+        var mvc = learningHttp(study);
+        sql.update("UPDATE learning_command_budget SET credit_units=0");
+        mvc.perform(request).andExpect(status().isTooManyRequests())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Retry-After", "1"));
+        sql.update("UPDATE learning_command_budget SET credit_units=60000000");
+        sql.execute("""
+                CREATE TRIGGER fail_learning_credit BEFORE UPDATE ON learning_command_budget FOR EACH ROW
+                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='synthetic outage'
+                """);
+        try {
+            mvc.perform(request).andExpect(status().isServiceUnavailable());
+        } finally {
+            sql.execute("DROP TRIGGER fail_learning_credit");
+        }
+        assertThat(count("learning_review_event")).isZero();
+        assertThat(count("learning_session_response")).isZero();
+        assertThat(study.resume(form.form().sessionId())).isEqualTo(form);
+        assertThat(learningCredit()).isEqualTo(60_000_000L);
+        mvc.perform(request).andExpect(status().isOk());
+        assertThat(learningCredit()).isZero();
+        mvc.perform(request).andExpect(status().isOk());
+        assertThat(count("learning_review_event")).isOne();
+    }
+
+    @Test void learningResponseReadsOneImmutableQuestionAcrossDifferentFormSizes() {
+        var fixture = enrolledLearning(6);
+        var small = study.start(new LearningStudyService.Start(UUID.randomUUID(), fixture.start().source(), 2));
+        int smallStatements = measure(() -> assertThat(study.respond(answer(small, 0)).progress().reviewedItems()).isOne());
+        assertThat(CountingSource.selectedQuestions.get()).isOne();
+        var large = study.start(new LearningStudyService.Start(UUID.randomUUID(), fixture.start().source(), 5));
+        assertThat(large.form().items()).hasSize(5);
+        int largeStatements = measure(() -> assertThat(study.respond(answer(large, 0)).progress().reviewedItems()).isOne());
+        assertThat(largeStatements).isEqualTo(smallStatements);
+        assertThat(CountingSource.selectedQuestions.get()).isOne();
+    }
+
+    private record EnrolledLearning(LearningStudyService.Start start, List<UUID> questions) { }
+
+    private EnrolledLearning enrolledLearning(int count) {
+        var drafts = java.util.stream.IntStream.range(0, count).mapToObj(i -> question(QuestionType.TRUE_FALSE, null)).toArray(UUID[]::new);
+        var publication = service.publish(command(0, drafts)).publication().revision();
+        var revision = service.read(quizId, publication.id()).content();
+        var source = new LearningSession.Source(1, quizId, revision.id(), revision.schemaVersion());
+        var questions = revision.items().stream().map(i -> i.question().id()).toList();
+        loginLearner(username);
+        study.enroll(new LearningStudyService.Enroll(UUID.randomUUID(), source, questions));
+        return new EnrolledLearning(new LearningStudyService.Start(UUID.randomUUID(), source, count), questions);
+    }
+
+    private MockMvc learningHttp(LearningStudyService application) {
+        return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                new LearningSessionController(application, json)).setControllerAdvice(new LearningSessionErrorHandler(),
+                new uk.gegc.quizmaker.shared.api.advice.GlobalExceptionHandler()).build();
+    }
+
+    private MockHttpServletRequestBuilder explicitStart(EnrolledLearning fixture, UUID command,
+            LearningSessionApi.SelectionMode mode, UUID question) throws Exception {
+        var source = fixture.start().source();
+        var selection = new LearningSessionApi.Selection(mode, question);
+        var request = new LearningSessionApi.StartRequest(command,
+                new LearningSessionApi.SourceRef(LearningSessionApi.SourceKind.QUIZ_REVISION, source.quizId(), source.quizRevisionId(),
+                        source.revisionSchemaVersion()), new LearningSessionApi.Configuration("fsrs/v1", 1), 1, selection);
+        return post("/api/v1/learning/sessions").contentType("application/json").content(json.writeValueAsBytes(request));
+    }
+
+    private LearningFormService.View sessionOf(MockMvc mvc, MockHttpServletRequestBuilder request) throws Exception {
+        var body = mvc.perform(request).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return study.resume(UUID.fromString(json.readTree(body).path("sessionId").asText()));
+    }
+
+    private LearningReview.Command answer(LearningFormService.View form, int position) {
+        return new LearningReview.Command(form.form().sessionId(), UUID.randomUUID(), position + 1,
+                form.form().items().get(position).sourceItemId(), LearningSchedule.Rating.GOOD,
+                json.createObjectNode().put("type", "TRUE_FALSE").put("answer", true));
+    }
+
+    private static LearningReview.Command answerWith(LearningReview.Command command, com.fasterxml.jackson.databind.JsonNode response) {
+        return new LearningReview.Command(command.sessionId(), command.commandId(), command.expectedVersion(),
+                command.sourceItemId(), command.rating(), response);
+    }
+
+    private MockHttpServletRequestBuilder learningAnswer(LearningReview.Command command) {
+        var request = json.createObjectNode().put("commandId", command.commandId().toString())
+                .put("expectedSessionVersion", command.expectedVersion()).put("sourceItemId", command.sourceItemId().toString())
+                .put("rating", command.rating().name()).set("response", command.response());
+        return post("/api/v1/learning/sessions/" + command.sessionId() + "/responses").contentType("application/json").content(request.toString());
+    }
+
+    private long learningCredit() {
+        return sql.queryForObject("SELECT credit_units FROM learning_command_budget WHERE learner_id=UUID_TO_BIN(?)",
+                Long.class, ownerId.toString());
+    }
+
     @Test void concurrentFirstEnrollmentReplaysOneRealCycleAndReceipt() throws Exception {
         UUID question = question(QuestionType.TRUE_FALSE,null);
         var pub = service.publish(command(0,question)).publication().revision();
@@ -458,7 +765,7 @@ class QuizPublicationMySqlIntegrationTest {
         var input = new LearningSessionApi.EnrollRequest(UUID.randomUUID(),
                 new LearningSessionApi.SourceRef(LearningSessionApi.SourceKind.QUIZ_REVISION, quizId, revision.id(), 1),
                 new LearningSessionApi.Configuration("fsrs/v1", 1), List.of(revision.items().get(0).question().id()));
-        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new LearningSessionController(study))
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new LearningSessionController(study, json))
                 .setControllerAdvice(new LearningSessionErrorHandler()).build();
         var request = post("/api/v1/learning/enrollments").contentType("application/json").content(json.writeValueAsBytes(input));
         try (var blocker = dataSource.getConnection()) {
@@ -500,7 +807,7 @@ class QuizPublicationMySqlIntegrationTest {
         var question = source.items().get(0).question();
         loginLearner(username);
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new LearningSessionController(study))
+                new LearningSessionController(study, json))
                 .setControllerAdvice(new LearningSessionErrorHandler()).build();
         var input = json.createObjectNode();
         input.put("commandId", UUID.randomUUID().toString());
@@ -555,8 +862,8 @@ class QuizPublicationMySqlIntegrationTest {
         var session = study.start(start).form().sessionId();
         var request = new LearningSessionApi.StartRequest(start.commandId(),
                 new LearningSessionApi.SourceRef(LearningSessionApi.SourceKind.QUIZ_REVISION, quizId, revision.id(), 1),
-                new LearningSessionApi.Configuration("fsrs/v1", 1), 1);
-        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new LearningSessionController(study))
+                new LearningSessionApi.Configuration("fsrs/v1", 1), 1, null);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new LearningSessionController(study, json))
                 .setControllerAdvice(new LearningSessionErrorHandler()).build();
         var routes = List.of(get("/api/v1/learning/sessions/" + session),
                 post("/api/v1/learning/sessions").contentType("application/json").content(json.writeValueAsBytes(request)));

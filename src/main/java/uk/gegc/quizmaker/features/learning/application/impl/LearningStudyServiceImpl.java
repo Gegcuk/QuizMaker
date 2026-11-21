@@ -1,10 +1,13 @@
 package uk.gegc.quizmaker.features.learning.application.impl;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.DataAccessException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import uk.gegc.quizmaker.features.attempt.domain.model.receipt.ReceiptException;
+import uk.gegc.quizmaker.features.attempt.infra.receipt.CanonicalCommandInput;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.PublicationException;
 import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 import uk.gegc.quizmaker.shared.exception.RateLimitExceededException;
@@ -18,10 +21,14 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import uk.gegc.quizmaker.features.learning.application.*;
 import uk.gegc.quizmaker.features.learning.config.LearningDueSelectionConfig;
 import uk.gegc.quizmaker.features.learning.domain.model.*;
+import uk.gegc.quizmaker.features.learning.domain.model.LearningReview.Mode;
 import uk.gegc.quizmaker.features.learning.domain.repository.*;
 import uk.gegc.quizmaker.features.question.application.PublishedQuestionContractService;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
 import uk.gegc.quizmaker.features.user.application.AuthenticatedUserLookup;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.function.Supplier;
 import static uk.gegc.quizmaker.features.learning.domain.model.LearningSessionException.Reason.*;
@@ -44,6 +51,8 @@ public class LearningStudyServiceImpl implements LearningStudyService {
     private final LearningItemMaterial material;
     private final LearningSessionService sessions;
     private final LearningFormService forms;
+    private final LearningFormRepository formRepository;
+    private final Clock clock;
     private final MeterRegistry metrics;
 
     @Override public Enrollment enroll(Enroll command) {
@@ -86,39 +95,147 @@ public class LearningStudyServiceImpl implements LearningStudyService {
 
     @Override public LearningFormService.View start(Start command) {
         return execute("start", () -> {
-            require(command != null && command.source() != null && command.commandId() != null && command.limit() > 0,
-                    INVALID_INPUT);
+            require(command != null && command.source() != null && command.commandId() != null
+                    && command.limit() > 0 && command.mode() != null, INVALID_INPUT);
+            require(command.mode() == Mode.DUE ? command.questionRevisionId() == null
+                    : command.limit() == 1 && command.questionRevisionId() != null, INVALID_INPUT);
             // Session creation already owns D33 admission. Capture and materialization belong to that same command.
             var creation = sessions.create(new LearningSessionService.Create(1, command.commandId(), command.source(),
                     FsrsManifest.approved()));
             var session = creation.session();
             if (creation.replayed()) {
                 var saved = repository.start(session.id()).orElseThrow(() -> new LearningSessionException(CONFLICT));
-                require(saved.limit() == command.limit(), CONFLICT);
-                return new Observed<>(readForm(session.id(), saved), "replayed");
+                require(saved.limit() == command.limit() && saved.mode() == command.mode()
+                        && Objects.equals(saved.selectedQuestion(), command.questionRevisionId()), CONFLICT);
+                return new Observed<>(withProgress(readForm(session.id(), saved), saved.mode(), 0), "replayed");
             }
-            var due = selection.select(new LearningDueSelectionService.Select(1, session.source(), command.limit(), null));
-            var questions = due.items().stream().map(LearningDueSelection.Item::questionRevisionId).toList();
+            var reviewItems = select(session.source(), command);
+            var questions = reviewItems.stream().map(LearningDueSelection.Item::questionRevisionId).toList();
             var selected = material.describe(session.learnerId(), session.source(), questions);
-            boolean shuffled = repository.shuffleQuestions(session.source().quizId());
+            boolean shuffled = command.mode() == Mode.DUE && repository.shuffleQuestions(session.source().quizId());
             var items = LearningForm.presentationOrder(selected, shuffled, java.util.concurrent.ThreadLocalRandom.current());
             var view = forms.materialize(new LearningFormService.Materialize(1, session.id(), items)).view();
             // The real schedule writer revalidates the selected identity/version and requires the committed-in-scope form.
-            for (var item : due.items()) {
+            for (var item : reviewItems) {
                 schedules.execute(new LearningScheduleService.Capture(1, UUID.randomUUID(), session.source(),
                         item.questionRevisionId(), item.expected(), session.id()));
             }
-            repository.recordStart(session.id(), view.form().id(), command.limit(), shuffled);
-            return new Observed<>(view, items.isEmpty() ? "empty" : "started");
+            repository.recordStart(session.id(), view.form().id(), command.limit(), shuffled,
+                    command.mode(), command.questionRevisionId());
+            return new Observed<>(withProgress(view, command.mode(), 0), items.isEmpty() ? "empty" : "started");
         });
+    }
+
+    private List<LearningDueSelection.Item> select(LearningSession.Source source, Start command) {
+        if (command.mode() == Mode.DUE) {
+            return selection.select(new LearningDueSelectionService.Select(1, source, command.limit(), null)).items();
+        }
+        var question = command.questionRevisionId();
+        var schedule = schedules.read(source, question);
+        require(command.mode() != Mode.EARLY
+                || schedule.state().dueAt().isAfter(clock.instant().truncatedTo(ChronoUnit.MICROS)), STALE_REVIEW);
+        return List.of(new LearningDueSelection.Item(question, schedule.expected(), schedule.state().dueAt()));
     }
 
     @Override public LearningFormService.View resume(UUID sessionId) {
         return execute("resume", () -> {
             var session = sessions.read(sessionId);
             var start = repository.start(session.id()).orElseThrow(() -> new LearningSessionException(UNAVAILABLE));
-            return new Observed<>(readForm(session.id(), start), "resumed");
+            return new Observed<>(withProgress(readForm(session.id(), start), start.mode(), start.reviewedItems()), "resumed");
         });
+    }
+
+    @Override public LearningReview.Acknowledgement respond(LearningReview.Command command) {
+        return execute("respond", () -> {
+            require(command != null && command.sessionId() != null && command.commandId() != null
+                    && command.expectedVersion() > 0 && command.sourceItemId() != null && command.rating() != null
+                    && command.response() != null && command.response().isObject(), INVALID_INPUT);
+            var session = sessions.read(command.sessionId());
+            UUID learner = session.learnerId();
+            String fingerprint = fingerprint(command);
+            budget.chargeIfNew(learner, () -> repository.response(learner, command.commandId()).isPresent());
+            var receipt = repository.response(learner, command.commandId());
+            if (receipt.isPresent()) {
+                require(receipt.get().fingerprint().equals(fingerprint), CONFLICT);
+                return new Observed<>(receipt.get().acknowledgement(), "replayed");
+            }
+
+            var start = repository.lockStart(session.id()).orElseThrow(() -> new LearningSessionException(UNAVAILABLE));
+            var form = formRepository.find(session).orElseThrow(() -> new LearningSessionException(CORRUPT));
+            require(start.formId().equals(form.id()), CORRUPT);
+            int position = start.reviewedItems();
+            var current = progress(form, position);
+            require(!current.completed(), REVIEW_COMPLETE);
+            require(command.expectedVersion() == current.version() && command.sourceItemId().equals(current.nextItemId()),
+                    STALE_REVIEW);
+            var item = form.items().get(position);
+            String response = material.validateResponse(session, item, command.response());
+            var capture = repository.capture(session.id(), form.id(), position)
+                    .orElseThrow(() -> new LearningSessionException(STALE_REVIEW));
+            require(capture.questionRevisionId().equals(item.questionRevisionId()), CORRUPT);
+            verifyActive(capture);
+            Instant nextDue = start.mode() == Mode.PRACTICE ? null : rate(session, capture, command, start.mode());
+            var next = progress(form, position + 1);
+            var result = new LearningReview.Acknowledgement(session.id(), command.commandId(), item.sourceItemId(), next, nextDue);
+            repository.recordResponse(learner, form.id(), command.rating(), fingerprint, response, result);
+            if (next.completed()) release(session, form);
+            return new Observed<>(result, next.completed() ? "completed" : "accepted");
+        });
+    }
+
+    private Instant rate(LearningSession session, LearningStudyRepository.Capture capture,
+                         LearningReview.Command command, Mode mode) {
+        require(capture.activeSequence() == capture.captured().sequence(), STALE_REVIEW);
+        try {
+            if (mode == Mode.DUE) {
+                var snapshot = schedules.read(session.source(), capture.questionRevisionId());
+                require(capture.captured().equals(snapshot.expected())
+                        && !snapshot.state().dueAt().isAfter(clock.instant().truncatedTo(ChronoUnit.MICROS)), STALE_REVIEW);
+            }
+            return schedules.execute(new LearningScheduleService.Rate(1, command.commandId(), session.source(),
+                    capture.questionRevisionId(), capture.captured(), command.rating())).snapshot().state().dueAt();
+        } catch (LearningScheduleException failure) {
+            if (failure.reason() == LearningScheduleException.Reason.STALE_STATE) throw new LearningSessionException(STALE_REVIEW);
+            throw failure;
+        }
+    }
+
+    private void release(LearningSession session, LearningForm form) {
+        var captures = repository.captures(session.id(), form.id());
+        require(captures.size() == form.items().size(), CORRUPT);
+        for (int position = 0; position < captures.size(); position++) {
+            var capture = captures.get(position);
+            require(capture.position() == position
+                    && capture.questionRevisionId().equals(form.items().get(position).questionRevisionId()), CORRUPT);
+            verifyActive(capture);
+            var expected = new LearningSchedule.Expected(capture.captured().cycleId(), capture.captured().cycleVersion(),
+                    capture.activeSequence());
+            schedules.execute(new LearningScheduleService.Release(1, UUID.randomUUID(), session.source(),
+                    capture.questionRevisionId(), expected, session.id()));
+        }
+    }
+
+    private static void verifyActive(LearningStudyRepository.Capture capture) {
+        require("fsrs/v1".equals(capture.strategy()), UNSUPPORTED_VERSION);
+        require(capture.activeSequence() != null, STALE_REVIEW);
+    }
+
+    private static String fingerprint(LearningReview.Command command) {
+        var input = JsonNodeFactory.instance.objectNode().put("sessionId", command.sessionId().toString())
+                .put("expectedVersion", command.expectedVersion()).put("sourceItemId", command.sourceItemId().toString())
+                .put("rating", command.rating().name()).set("response", command.response());
+        try { return CanonicalCommandInput.fingerprint(1, input).digest(); }
+        catch (ReceiptException failure) { throw new LearningSessionException(INVALID_INPUT); }
+    }
+
+    private static LearningReview.Progress progress(LearningForm form, int reviewed) {
+        require(reviewed >= 0 && reviewed <= form.items().size(), CORRUPT);
+        UUID next = reviewed == form.items().size() ? null : form.items().get(reviewed).sourceItemId();
+        return new LearningReview.Progress(reviewed, next);
+    }
+
+    private static LearningFormService.View withProgress(LearningFormService.View view, Mode mode, int reviewed) {
+        return new LearningFormService.View(view.form(), view.items(), progress(view.form(), reviewed), mode);
     }
 
     private LearningFormService.View readForm(UUID sessionId, LearningStudyRepository.Start start) {

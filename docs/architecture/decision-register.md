@@ -21,6 +21,19 @@ Option order and due eligibility are independent of that setting. Resume and exa
 replay use the saved form even after the author changes the flag or publishes a newer revision.
 The [initial source authority](#learning-author-source) and #650/#667 activation gates still apply.
 
+<a id="learning-response-order-and-mode"></a>
+## First Learning response order and explicit review modes (#650) — DECIDED
+
+On 21 November 2026 the owner approved sequential responses in the saved presentation order,
+including a form shuffled at start. Only the next unanswered item accepts a fresh command.
+Exact accepted commands retain their original acknowledgements after later progress.
+
+The owner also approved an additive single-question start for an already enrolled item in the
+learner's own authorized publication. Explicit early review can advance a not-yet-due step.
+Explicit extra practice records session progress without an FSRS transition. The existing due
+selection remains the default. These choices keep the initial author-source and D33 rules and
+leave first public conformance with #667.
+
 <a id="learning-author-source"></a>
 ## Initial Learning source authority (#692) — DECIDED
 

@@ -5815,19 +5815,20 @@ transaction/error-proxy evidence are described in the [testing guide](../testing
 
 The online Learning API uses the authenticated learner and their own accessible published
 quiz revision under #692. Its Spring setting `quizmaker.learning.sessions-enabled` defaults to
-false. When enabled, the three routes belong to the `learning` OpenAPI group and appear in
+false. When enabled, the routes belong to the `learning` OpenAPI group and appear in
 `/api/v1/api-summary`. Configure a positive `quizmaker.learning.due.max-batch-size` before use.
 The v1 source is `QUIZ_REVISION` and configuration is `fsrs/v1`, version 1.
 
 | Operation | Committed result |
 |---|---|
 | `POST /api/v1/learning/enrollments` | First enrollment calls the #701 binder for the entire publication. Only explicitly requested question revisions receive #649 enrollments. The receipt preserves their ordered revision, cycle and cycle-version references. |
-| `POST /api/v1/learning/sessions` | Select up to the explicit limit in #576 due order. Apply the quiz's question-order preference and materialize the #647 form. Capture each selected cycle/version with #649 and save the start receipt in the same writable READ COMMITTED transaction. An empty selection commits an `EMPTY_COMPLETE` form. |
-| `GET /api/v1/learning/sessions/{sessionId}` | Check current source access and return the persisted form, ordered participant content, outcome and available actions. Read-only progress in this increment has zero reviewed items and the `READ_SESSION` action. |
+| `POST /api/v1/learning/sessions` | By default select up to the explicit limit in #576 due order and apply the saved quiz preference. With `limit: 1` and a `selection`, use one explicitly chosen enrolled question for `EARLY` or `PRACTICE`. Materialize the #647 form, capture each selected cycle and save the start receipt together in writable READ COMMITTED. An empty due selection commits an `EMPTY_COMPLETE` form. |
+| `GET /api/v1/learning/sessions/{sessionId}` | Check current source access and return the persisted form, ordered participant content, version, progress and next allowed response. |
+| `POST /api/v1/learning/sessions/{sessionId}/responses` | Accept a typed answer and self-rating for the next saved item. Advance FSRS once for due/early review; keep the schedule unchanged for extra practice. Save the original acknowledgement and complete when the last item is accepted. |
 
 An exact retry on the same mutation route and learner uses the original `commandId` and
 payload. A conflicting payload returns 409. A missing or inaccessible resource returns 404.
-The shared D33 limit charges one accepted enrollment or start, regardless of batch size.
+The shared D33 limit charges one accepted enrollment, start or response, regardless of internal writes.
 Reads and exact replays spend no credit. A rate denial returns 429 with whole seconds in
 `Retry-After`. The first full binding, budget debit, receipt and schedules commit together.
 Later content reads load the requested immutable question and option rows in bounded SQL batches.
@@ -5844,9 +5845,33 @@ When enabled, the server shuffles whole selected items once before storing form 
 Each option retains its captured identity and position. Later edits, new due items and retries
 cannot reorder the saved form. Existing internal CREATED sessions keep their own lifecycle;
 this API serves sessions with a committed start and matching form. There is no historical
-enrollment backfill. Review/rating belongs to #650 and first full FSRS conformance to #667.
+enrollment or response backfill. First full FSRS conformance and public activation belong to #667.
 See the [owner decision](decision-register.md#learning-session-presentation) and
 [verification fixtures](../testing-guide.md#single-quiz-learning-sessions-578).
+
+### Sequential Learning responses (#650)
+
+The [approved response order and modes](decision-register.md#learning-response-order-and-mode)
+use the saved item position and one-based session version. Read the live progress through GET.
+An exact accepted retry returns the original acknowledgement, including its original version,
+next item and due time; an exact start retry likewise returns the original start snapshot.
+Changed key reuse returns 409 `idempotency-conflict`; a mismatched position, session version or
+superseded schedule step returns 409 `optimistic-lock-conflict`. A fresh command after
+completion returns 409 `data-conflict`. Source and session ownership are checked before replay.
+
+V123 defaults historical starts to `DUE` at version one and adds personal Learning response
+evidence without rewriting historical sessions. A response validates the saved revision with
+its captured question-response contract, without calling assessment scoring. The debit,
+optional FSRS event, cursor update, acknowledgement and final release of the session's
+cycle captures commit in one writable RC transaction. Failure leaves all of them unchanged.
+The version retains a session's own progress; the scheduled review also checks the exact captured
+cycle and sequence so concurrent sessions cannot advance the same step twice.
+The command does not change an assessment answer, result, rank, allowance or certificate.
+
+Response handling loads the saved form's bounded metadata to verify its fingerprint and just one
+immutable question's content for validation. Exact replays read receipt metadata after current
+authorization. Final release visits the completed form's captures once per item. Existing
+personal data and future retention ownership apply to the new Learning evidence.
 
 ### First enrollment, selection and public progress
 
