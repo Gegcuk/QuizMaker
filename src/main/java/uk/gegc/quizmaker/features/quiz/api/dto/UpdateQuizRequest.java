@@ -77,7 +77,16 @@ public record UpdateQuizRequest(
                 description = "List of new tag UUIDs",
                 example = "[\"a1b2c3d4-0000-0000-0000-000000000000\", \"e5f6g7h8-1111-1111-1111-111111111111\"]"
         )
-        List<UUID> tagIds
+        List<UUID> tagIds,
 
+        @Schema(description = "Shuffle selected Learning questions once per new session. Omit to keep the current setting.")
+        Boolean shuffleLearningQuestions
 ) {
+    public UpdateQuizRequest(String title, String description, Visibility visibility, Difficulty difficulty,
+                           Boolean isRepetitionEnabled, Boolean timerEnabled, Integer estimatedTime, Integer timerDuration,
+                           UUID categoryId, List<UUID> tagIds) {
+        this(title, description, visibility, difficulty, isRepetitionEnabled, timerEnabled, estimatedTime,
+                timerDuration, categoryId, tagIds, null);
+    }
+
 }

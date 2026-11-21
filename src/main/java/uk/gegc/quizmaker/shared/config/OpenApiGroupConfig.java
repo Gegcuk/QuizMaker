@@ -15,6 +15,12 @@ import org.springframework.context.annotation.Configuration;
 public class OpenApiGroupConfig {
 
     @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name = "quizmaker.learning.sessions-enabled", havingValue = "true")
+    public GroupedOpenApi learningGroup() {
+        return GroupedOpenApi.builder().group("learning").pathsToMatch("/api/v1/learning/**").build();
+    }
+
+    @Bean
     public org.springdoc.core.customizers.GlobalOpenApiCustomizer questionContractsOpenApiCustomizer() {
         return new uk.gegc.quizmaker.features.question.api.QuestionContractsOpenApiCustomizer();
     }

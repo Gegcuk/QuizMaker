@@ -100,6 +100,9 @@ public class Quiz {
     @Column(name = "is_repetition_enabled", nullable = false)
     private Boolean isRepetitionEnabled;
 
+    @Column(name = "shuffle_learning_questions", nullable = false, columnDefinition = "boolean default false")
+    private boolean shuffleLearningQuestions;
+
     @NotNull
     @Column(name = "is_timer_enabled", nullable = false)
     private Boolean isTimerEnabled;

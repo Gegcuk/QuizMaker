@@ -67,14 +67,25 @@ public record QuizDto(
         @JsonInclude(JsonInclude.Include.NON_NULL)
         @Schema(description = "Private owner freshness, present only in scope=me. True only for newly completed AI quizzes until explicit acknowledgement; historical/manual/imported quizzes are false. GET never acknowledges.",
                 requiredMode = Schema.RequiredMode.NOT_REQUIRED, accessMode = Schema.AccessMode.READ_ONLY, example = "true")
-        Boolean isNew
+        Boolean isNew,
+
+        @Schema(description = "Shuffle selected Learning questions once per new session", example = "false")
+        boolean shuffleLearningQuestions
 
 ) {
     public QuizDto(UUID id, UUID creatorId, UUID categoryId, String title, String description,
                    Visibility visibility, Difficulty difficulty, QuizStatus status, Integer estimatedTime,
                    Boolean isRepetitionEnabled, Boolean timerEnabled, Integer timerDuration,
+                   List<UUID> tagIds, Integer questionCount, Instant createdAt, Instant updatedAt, Boolean isNew) {
+        this(id, creatorId, categoryId, title, description, visibility, difficulty, status, estimatedTime,
+                isRepetitionEnabled, timerEnabled, timerDuration, tagIds, questionCount, createdAt, updatedAt, isNew, false);
+    }
+
+    public QuizDto(UUID id, UUID creatorId, UUID categoryId, String title, String description,
+                   Visibility visibility, Difficulty difficulty, QuizStatus status, Integer estimatedTime,
+                   Boolean isRepetitionEnabled, Boolean timerEnabled, Integer timerDuration,
                    List<UUID> tagIds, Integer questionCount, Instant createdAt, Instant updatedAt) {
         this(id, creatorId, categoryId, title, description, visibility, difficulty, status, estimatedTime,
-                isRepetitionEnabled, timerEnabled, timerDuration, tagIds, questionCount, createdAt, updatedAt, null);
+                isRepetitionEnabled, timerEnabled, timerDuration, tagIds, questionCount, createdAt, updatedAt, null, false);
     }
 }

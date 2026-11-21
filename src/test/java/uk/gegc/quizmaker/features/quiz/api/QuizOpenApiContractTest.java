@@ -85,6 +85,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("Quiz OpenAPI contract tests")
 class QuizOpenApiContractTest {
 
+    @Test @WithMockUser void authoringRoundTripsOptionalLearningShuffle() throws Exception {
+        var quiz = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs/quizzes")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+        for (String name : List.of("CreateQuizRequest","UpdateQuizRequest","QuizDto")) {
+            assertThat(quiz.at("/components/schemas/"+name+"/properties/shuffleLearningQuestions/type").asText())
+                    .isEqualTo("boolean");
+        }
+    }
+
     @Autowired
     private List<GroupedOpenApi> groups;
 

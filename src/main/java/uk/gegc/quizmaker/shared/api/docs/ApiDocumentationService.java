@@ -112,17 +112,32 @@ public class ApiDocumentationService {
             )
     );
 
+    private final List<ApiGroupSummary> visibleGroups;
+
+    public ApiDocumentationService() { this(false); }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ApiDocumentationService(@org.springframework.beans.factory.annotation.Value("${quizmaker.learning.sessions-enabled:false}") boolean learningEnabled) {
+        if (learningEnabled) {
+            var groups = new java.util.ArrayList<>(GROUPS);
+            groups.add(ApiGroupSummary.of("learning", "Learning", "Enroll and resume fixed personal study sessions", "📚", 3));
+            visibleGroups = List.copyOf(groups);
+        } else {
+            visibleGroups = GROUPS;
+        }
+    }
+
     public ApiSummary buildSummary() {
         return ApiSummary.builder()
                 .version(API_VERSION)
                 .baseUrl(BASE_URL)
-                .groups(GROUPS)
+                .groups(visibleGroups)
                 .fullSpecUrl(FULL_SPEC_URL)
                 .fullDocsUrl(FULL_DOCS_URL)
                 .build();
     }
 
     public List<ApiGroupSummary> listGroups() {
-        return GROUPS;
+        return visibleGroups;
     }
 }

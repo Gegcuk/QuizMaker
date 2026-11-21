@@ -47,11 +47,24 @@ class LearningFormTest {
     private LearningFormService forms(List<LearningFormContent> content) {
         when(manager.getTransaction(any())).thenAnswer(call -> new SimpleTransactionStatus());
         when(sessions.read(session.id())).thenReturn(session);
+        when(repository.matchesSourceItems(eq(session), anyList())).thenReturn(true);
         return new LearningFormServiceImpl(sessions, repository, content, Clock.fixed(TIME.plusNanos(789), ZoneOffset.UTC), metrics, manager);
     }
     private LearningFormService forms() { return forms(List.of((s, items) -> items.stream().map(LearningFormTest::shown).toList())); }
     private LearningFormService.Materialize command() { return new LearningFormService.Materialize(1, session.id(), selected); }
     @AfterEach void clear() { TransactionSynchronizationManager.clear(); metrics.close(); }
+
+    @Test void optionalQuestionShufflePermutesWholeItemsAndPreservesDueOrderAndOptions() {
+        var first = item();
+        var second = item();
+        var third = new LearningForm.Item(UUID.randomUUID(), UUID.randomUUID(), 1,
+                new ContractVersion("question.mcq-single.response", 1), List.of(UUID.randomUUID(), UUID.randomUUID()));
+        var due = List.of(first, second, third);
+        assertThat(LearningForm.presentationOrder(due, false, new Random(0))).containsExactly(first, second, third);
+        assertThat(LearningForm.presentationOrder(due, true, new Random(0))).containsExactly(third, second, first);
+        assertThat(due).containsExactly(first, second, third);
+        assertThat(LearningForm.presentationOrder(List.of(), true, new Random(0))).isEmpty();
+    }
 
     @Test void exactSavedOrderIsImmutableAndMetadataMutationFailsFingerprintValidation() {
         var supplied = new ArrayList<>(selected);

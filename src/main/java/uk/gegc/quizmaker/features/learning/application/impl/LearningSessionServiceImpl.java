@@ -2,9 +2,6 @@ package uk.gegc.quizmaker.features.learning.application.impl;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -60,7 +57,7 @@ public class LearningSessionServiceImpl implements LearningSessionService {
             require(command.version() == 1, UNSUPPORTED_VERSION);
             require(command.commandId() != null && command.source() != null && command.configuration() != null,
                     INVALID_INPUT);
-            UUID learner = actor();
+            UUID learner = LearningActor.lock(users);
             verify(learner, command.source());
             budget.chargeIfNew(learner, () -> repository.creationExists(learner, command.commandId()));
             var now = clock.instant().truncatedTo(ChronoUnit.MICROS);
@@ -82,7 +79,7 @@ public class LearningSessionServiceImpl implements LearningSessionService {
     @Override public LearningSession read(UUID sessionId) {
         return run("read", () -> {
             require(sessionId != null, INVALID_INPUT);
-            UUID learner = actor();
+            UUID learner = LearningActor.lock(users);
             var session = repository.find(learner, sessionId)
                     .orElseThrow(() -> new LearningSessionException(UNAVAILABLE));
             require(session.learnerId().equals(learner) && session.id().equals(sessionId), CORRUPT);
@@ -90,18 +87,6 @@ public class LearningSessionServiceImpl implements LearningSessionService {
             require(repository.hasCreationReceipt(session), CORRUPT);
             return session;
         });
-    }
-
-    private UUID actor() {
-        var authentication = SecurityContextHolder.getContext().getAuthentication();
-        require(authentication instanceof UsernamePasswordAuthenticationToken && authentication.isAuthenticated()
-                && authentication.getPrincipal() instanceof UserDetails, UNAUTHENTICATED);
-        var principal = (UserDetails) authentication.getPrincipal();
-        String name = principal.getUsername();
-        require(name != null && !name.isBlank() && name.length() <= 50 && name.equals(authentication.getName())
-                && principal.isEnabled() && principal.isAccountNonLocked() && principal.isAccountNonExpired()
-                && principal.isCredentialsNonExpired(), UNAUTHENTICATED);
-        return users.lockActiveUserId(name).orElseThrow(() -> new LearningSessionException(UNAVAILABLE));
     }
 
     private void verify(UUID learner, LearningSession.Source source) {

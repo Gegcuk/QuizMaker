@@ -14,6 +14,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.media.application.RetainedImageService;
 import uk.gegc.quizmaker.features.quiz.application.QuizRevisionPublicationService;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.PublicationException;
+import uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizPublication.*;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizPublicationRepository;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
@@ -150,23 +151,29 @@ public class QuizRevisionPublicationServiceImpl implements QuizRevisionPublicati
             T result = (operation.equals("publish") ? publicationTransaction : transaction).execute(status -> {
                 try { return action.get(); }
                 catch (RuntimeException exception) {
-                    failure.known = exception instanceof PublicationException p ? p
-                            : new PublicationException(exception instanceof uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException
-                                    ? INVALID_CONTENT : PERSISTENCE_UNAVAILABLE);
+                    failure.known = bodyFailure(exception);
                     throw failure.known;
                 }
             });
             outcome = result instanceof Result r ? (r.replayed() ? "replayed" : "committed") : "read";
             return result;
         } catch (RuntimeException exception) {
-            var reason = exception == failure.known ? failure.known.reason() : UNKNOWN_OUTCOME;
+            // Only a body failure returned intact by the transaction has a known outcome.
+            var reported = exception == failure.known ? failure.known : new PublicationException(UNKNOWN_OUTCOME);
+            var reason = reported.reason();
             outcome = reason.name().toLowerCase(Locale.ROOT);
             if (reason == PERSISTENCE_UNAVAILABLE || reason == UNKNOWN_OUTCOME)
                 log.warn("Quiz publication operation failed: operation={}, version=1, outcome={}", operation, outcome);
-            throw new PublicationException(reason);
+            throw reported;
         } finally {
             try { timer.stop(Timer.builder("quiz.publication").tags("operation", operation, "version", "1", "outcome", outcome).register(metrics)); }
             catch (RuntimeException ignored) { /* Telemetry cannot change a committed publication. */ }
         }
+    }
+
+    private static PublicationException bodyFailure(RuntimeException failure) {
+        if (failure instanceof PublicationException publication) return publication;
+        if (failure instanceof RevisionIntegrityException) return new PublicationException(INVALID_CONTENT);
+        return PublicationException.persistenceUnavailable(failure);
     }
 }

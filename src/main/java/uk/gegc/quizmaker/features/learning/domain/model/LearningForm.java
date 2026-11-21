@@ -47,6 +47,13 @@ public record LearningForm(UUID id, int version, UUID sessionId, LearningSession
                 digest(id, session.id(), session.source(), selected), at);
     }
 
+    public static List<Item> presentationOrder(List<Item> dueOrder, boolean shuffle, Random random) {
+        if (!shuffle) return List.copyOf(dueOrder);
+        var ordered = new ArrayList<>(dueOrder);
+        Collections.shuffle(ordered, random);
+        return List.copyOf(ordered);
+    }
+
     public static List<Item> selection(List<Item> items) {
         require(items != null, INVALID_INPUT);
         var identities = new HashSet<UUID>();

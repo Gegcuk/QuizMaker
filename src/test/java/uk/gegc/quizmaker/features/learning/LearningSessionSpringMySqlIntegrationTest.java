@@ -5,12 +5,6 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.slf4j.LoggerFactory;
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.classic.spi.ThrowableProxyUtil;
-import ch.qos.logback.core.read.ListAppender;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.aop.framework.Advised;
 import org.aopalliance.intercept.MethodInterceptor;
@@ -44,7 +38,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.UnexpectedRollbackException;
-import org.springframework.transaction.interceptor.TransactionInterceptor;
 import uk.gegc.quizmaker.features.learning.application.*;
 import uk.gegc.quizmaker.features.learning.application.impl.LearningSessionServiceImpl;
 import uk.gegc.quizmaker.features.learning.application.impl.LearningFormServiceImpl;
@@ -339,7 +332,7 @@ class LearningSessionSpringMySqlIntegrationTest {
                 FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='LEARNING_PRIVATE_BUDGET_DIAGNOSTIC'
                 """);
         var first = command();
-        try (var logs = new TransactionLogs()) {
+        try (var logs = new LearningTransactionLogs()) {
             rejected(() -> service.create(first), PERSISTENCE_UNAVAILABLE);
             logs.assertCleanFailure(JdbcLearningCommandBudget.class, "chargeIfNew");
         }
@@ -515,7 +508,7 @@ class LearningSessionSpringMySqlIntegrationTest {
     void reachedDueReadFailuresAreSanitizedBeforeNestedTraceAndCaughtFailuresRollbackCaller(String checkpoint, int code) {
         var initial = schedules.execute(enrollSchedule()).snapshot();
         var caller = new TransactionTemplate(manager); caller.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
-        try (var logs = new TransactionLogs()) {
+        try (var logs = new LearningTransactionLogs()) {
             assertThatThrownBy(() -> caller.executeWithoutResult(status -> {
                 service.create(command());
                 faultJdbc.armForm(checkpoint, code);
@@ -543,7 +536,7 @@ class LearningSessionSpringMySqlIntegrationTest {
         var initial = schedules.execute(enrollSchedule()).snapshot(); var rate = rateSchedule(initial);
         var outer = new TransactionTemplate(manager); outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         String method = checkpoint.contains("receipt") ? "complete" : "advance";
-        try (var logs = new TransactionLogs()) {
+        try (var logs = new LearningTransactionLogs()) {
             assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
                 service.create(command()); // Reached caller write must roll back along with the review.
                 faultJdbc.armForm(checkpoint, code);
@@ -569,7 +562,7 @@ class LearningSessionSpringMySqlIntegrationTest {
             CREATE TRIGGER learning_schedule_test_failure AFTER INSERT ON learning_review_event
             FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='LEARNING_PRIVATE_SCHEDULE_MYSQL'
             """);
-        try (var logs = new TransactionLogs()) {
+        try (var logs = new LearningTransactionLogs()) {
             LearningScheduleMySqlIntegrationTest.rejected(() -> schedules.execute(rate), LearningScheduleException.Reason.PERSISTENCE_UNAVAILABLE);
             assertThat(faultJdbc.nativeFailure).isNotNull();
             assertThat(faultJdbc.nativeFailure.getMostSpecificCause()).hasMessageContaining("LEARNING_PRIVATE_SCHEDULE_MYSQL");
@@ -607,7 +600,7 @@ class LearningSessionSpringMySqlIntegrationTest {
             """);
         var outer = new TransactionTemplate(manager);
         outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
-        try (var logs = new TransactionLogs()) {
+        try (var logs = new LearningTransactionLogs()) {
             assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
                 service.create(command()); // Successful control write in the same caller transaction.
                 LearningFormTest.rejected(() -> forms.materialize(command), LearningFormException.Reason.PERSISTENCE_UNAVAILABLE);
@@ -627,7 +620,7 @@ class LearningSessionSpringMySqlIntegrationTest {
         HEADER_READ("FROM learning_form WHERE", "find", true),
         OPTION_READ("FROM learning_form_option", "find", true),
         ITEM_READ("FROM learning_form_item", "find", true),
-        VERIFY("FROM quiz_revision_items", "verifyItems", false),
+        VERIFY("FROM quiz_revision_items", "matchesSourceItems", false),
         HEADER_WRITE("INSERT INTO learning_form(", "insert", false),
         ITEM_WRITE("INSERT INTO learning_form_item(", "insert", false),
         OPTION_WRITE("INSERT INTO learning_form_option(", "insert", false);
@@ -659,7 +652,7 @@ class LearningSessionSpringMySqlIntegrationTest {
         org.springframework.test.util.ReflectionTestUtils.setField(formTarget, "sql", faultJdbc);
         var original = path.existing ? forms.materialize(command).view() : null;
         var outer = new TransactionTemplate(manager); outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
-        try (var logs = new TransactionLogs()) {
+        try (var logs = new LearningTransactionLogs()) {
             assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
                 service.create(command()); // Successful same-caller control must roll back too.
                 faultJdbc.armForm(path.sql, code);
@@ -742,7 +735,7 @@ class LearningSessionSpringMySqlIntegrationTest {
         var original = operation == IdentityOperation.CREATE ? null : service.create(command).session();
         var outer = new TransactionTemplate(manager);
         outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
-        try (var fault = new IdentityQueryFault(userRepository); var logs = new TransactionLogs()) {
+        try (var fault = new IdentityQueryFault(userRepository); var logs = new LearningTransactionLogs()) {
             assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
                 service.create(command()); // Successful writes in the same caller must also roll back.
                 fault.arm("lockActiveAuthenticatedUserId", code);
@@ -772,7 +765,7 @@ class LearningSessionSpringMySqlIntegrationTest {
 
     @ParameterizedTest @MethodSource("directIdentityFailures")
     void bothLookupProxyBoundariesDiscardDriverGraphsAfterARealQuery(boolean locking, int code) {
-        try (var fault = new IdentityQueryFault(userRepository); var logs = new TransactionLogs()) {
+        try (var fault = new IdentityQueryFault(userRepository); var logs = new LearningTransactionLogs()) {
             Runnable call = () -> {
                 fault.arm(locking ? "lockActiveAuthenticatedUserId" : "findActiveAuthenticatedUserId", code);
                 Throwable outward = catchThrowable(() -> {
@@ -845,7 +838,7 @@ class LearningSessionSpringMySqlIntegrationTest {
         var original = path.existing ? service.create(command).session() : null;
         var outer = new TransactionTemplate(manager);
         outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
-        try (var logs = new TransactionLogs()) {
+        try (var logs = new LearningTransactionLogs()) {
             assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
                 service.create(command()); // A reached successful control write must also roll back.
                 faultJdbc.arm(path, code);
@@ -881,7 +874,7 @@ class LearningSessionSpringMySqlIntegrationTest {
         var saved = service.create(command()).session();
         var outer = new TransactionTemplate(manager);
         outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
-        try (var logs = new TransactionLogs()) {
+        try (var logs = new LearningTransactionLogs()) {
             assertThatThrownBy(() -> outer.executeWithoutResult(status -> {
                 faultJdbc.arm(path, code);
                 Throwable outward = catchThrowable(() -> {
@@ -917,7 +910,7 @@ class LearningSessionSpringMySqlIntegrationTest {
                 FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='LEARNING_PRIVATE_MYSQL_DIAGNOSTIC'
                 """);
         var command = command();
-        try (var logs = new TransactionLogs()) {
+        try (var logs = new LearningTransactionLogs()) {
             assertServiceFailure(catchThrowable(() -> service.create(command)), 0);
             var raw = faultJdbc.nativeFailure;
             assertThat(raw).isNotNull();
@@ -992,44 +985,6 @@ class LearningSessionSpringMySqlIntegrationTest {
             var failure = new UncategorizedSQLException("execute", statement + " /* LEARNING_PRIVATE_SQL */", raw);
             failure.addSuppressed(new IllegalStateException("LEARNING_PRIVATE_TOP_SUPPRESSED"));
             throw failure;
-        }
-    }
-
-    /** Capture only this request thread, including eagerly rendered causes and suppressed errors. */
-    static class TransactionLogs implements AutoCloseable {
-        final List<Logger> loggers = List.of((Logger) LoggerFactory.getLogger(TransactionInterceptor.class),
-                (Logger) LoggerFactory.getLogger(TransactionTemplate.class),
-                (Logger) LoggerFactory.getLogger(SafeJpaTransactionManager.class));
-        final Map<Logger, Level> previous = new HashMap<>();
-        final ListAppender<ILoggingEvent> captured;
-        TransactionLogs() {
-            Thread request = Thread.currentThread();
-            captured = new ListAppender<>() {
-                @Override protected void append(ILoggingEvent event) {
-                    if (Thread.currentThread() == request) { event.prepareForDeferredProcessing(); super.append(event); }
-                }
-            };
-            captured.setContext(loggers.get(0).getLoggerContext()); captured.start();
-            loggers.forEach(logger -> { previous.put(logger, logger.getLevel()); logger.addAppender(captured); logger.setLevel(Level.TRACE); });
-        }
-        void assertCleanFailure(String method) {
-            assertCleanFailure(JdbcLearningSessionRepository.class, method);
-        }
-        void assertCleanFailure(Class<?> boundary, String method) {
-            assertThat(captured.list).anySatisfy(event -> {
-                assertThat(event.getLoggerName()).isEqualTo(TransactionInterceptor.class.getName());
-                assertThat(event.getLevel()).isEqualTo(Level.TRACE);
-                assertThat(event.getFormattedMessage()).contains(boundary.getSimpleName() + "." + method, "after exception");
-            });
-            assertThat(captured.list).allSatisfy(event -> {
-                assertThat(event.getFormattedMessage()).doesNotContain("LEARNING_PRIVATE_");
-                if (event.getThrowableProxy() != null)
-                    assertThat(ThrowableProxyUtil.asString(event.getThrowableProxy())).doesNotContain("LEARNING_PRIVATE_");
-            });
-        }
-        @Override public void close() {
-            loggers.forEach(logger -> { logger.detachAppender(captured); logger.setLevel(previous.get(logger)); });
-            captured.stop();
         }
     }
 

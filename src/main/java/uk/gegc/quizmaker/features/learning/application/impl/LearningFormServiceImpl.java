@@ -3,12 +3,12 @@ package uk.gegc.quizmaker.features.learning.application.impl;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataAccessException;
 import org.springframework.transaction.*;
 import org.springframework.transaction.support.*;
 import uk.gegc.quizmaker.features.learning.application.*;
 import uk.gegc.quizmaker.features.learning.domain.model.*;
 import uk.gegc.quizmaker.features.learning.domain.repository.LearningFormRepository;
-import uk.gegc.quizmaker.features.question.domain.model.contract.ParticipantContent;
 import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 import java.time.Clock;
 import java.time.temporal.ChronoUnit;
@@ -45,11 +45,11 @@ public class LearningFormServiceImpl implements LearningFormService {
             var existing = repository.find(session);
             if (existing.isPresent()) {
                 require(existing.get().items().equals(items), CONFLICT);
-                return new Result(present(session, existing.get()), true);
+                return new Result(present(session, existing.get(), CORRUPT), true);
             }
             var form = LearningForm.create(UUID.randomUUID(), session, items,
                     clock.instant().truncatedTo(ChronoUnit.MICROS));
-            var view = present(session, form); // No authoritative write until safe material is available.
+            var view = present(session, form, SOURCE_UNAVAILABLE); // No authoritative write until safe material is available.
             repository.insert(form);
             return new Result(view, false);
         });
@@ -60,16 +60,18 @@ public class LearningFormServiceImpl implements LearningFormService {
             require(sessionId != null, INVALID_INPUT);
             var session = sessions.read(sessionId);
             var form = repository.find(session).orElseThrow(() -> new LearningFormException(UNAVAILABLE));
-            return present(session, form);
+            return present(session, form, CORRUPT);
         });
     }
 
-    private View present(LearningSession session, LearningForm form) {
+    private View present(LearningSession session, LearningForm form, LearningFormException.Reason onSourceMismatch) {
         require(form.sessionId().equals(session.id()) && form.source().equals(session.source()), CORRUPT);
-        repository.verifyItems(session, form.items());
+        require(repository.matchesSourceItems(session, form.items()), onSourceMismatch);
         require(content.size() == 1, SOURCE_UNAVAILABLE);
         List<LearningFormContent.PresentedItem> shown;
         try { shown = content.get(0).read(session, form.items()); }
+        catch (LearningFormException failure) { throw new LearningFormException(failure.reason()); }
+        catch (DataAccessException | TransactionException failure) { throw safe(failure); }
         catch (RuntimeException failure) {
             throw DatabaseConflictException.from(failure).<RuntimeException>map(value -> value)
                     .orElseGet(() -> new LearningFormException(SOURCE_UNAVAILABLE));
@@ -80,20 +82,9 @@ public class LearningFormServiceImpl implements LearningFormService {
             require(item != null && form.items().get(i).equals(item.item()) && item.questionText() != null
                     && !item.questionText().isBlank() && item.questionText().codePointCount(0, item.questionText().length()) <= 1000
                     && item.content() != null, SOURCE_UNAVAILABLE);
-            require(item.item().optionIds().equals(optionIds(item.content())), SOURCE_UNAVAILABLE);
+            require(item.item().optionIds().equals(LearningFormContent.optionIds(item.content())), SOURCE_UNAVAILABLE);
         }
         return new View(form, shown);
-    }
-
-    private static List<UUID> optionIds(ParticipantContent value) {
-        if (value instanceof ParticipantContent.Choices c) return c.options().stream().map(ParticipantContent.Option::id).toList();
-        if (value instanceof ParticipantContent.Ordering c) return c.items().stream().map(ParticipantContent.Option::id).toList();
-        if (value instanceof ParticipantContent.FillGap c) return c.options().stream().map(ParticipantContent.Option::id).toList();
-        if (value instanceof ParticipantContent.Matching c) return java.util.stream.Stream.concat(c.left().stream(), c.right().stream())
-                .map(ParticipantContent.MatchingOption::id).toList();
-        if (value instanceof ParticipantContent.Compliance c) return c.statements().stream().map(ParticipantContent.ComplianceStatement::id).toList();
-        if (value instanceof ParticipantContent.Hotspot c) return c.regions().stream().map(ParticipantContent.HotspotRegion::id).toList();
-        return List.of();
     }
 
     private <T> T run(String operation, Supplier<T> work) {

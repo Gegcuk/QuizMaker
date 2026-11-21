@@ -160,6 +160,7 @@
     "uk.gegc.quizmaker.features.learning.LearningScheduleSpringTest",
     "uk.gegc.quizmaker.features.learning.LearningSessionSpringMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.learning.LearningSessionSpringTest",
+    "uk.gegc.quizmaker.features.learning.api.LearningSessionOpenApiTest",
     "uk.gegc.quizmaker.features.media.api.MediaControllerTest",
     "uk.gegc.quizmaker.features.media.api.MediaRestoreContractTest",
     "uk.gegc.quizmaker.features.media.application.RetainedImageMySqlIntegrationTest",

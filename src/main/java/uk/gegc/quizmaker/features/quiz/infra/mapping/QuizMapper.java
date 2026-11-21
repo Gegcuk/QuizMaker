@@ -27,6 +27,7 @@ public class QuizMapper {
         quiz.setStatus(QuizStatus.DRAFT);
         quiz.setEstimatedTime(req.estimatedTime());
         quiz.setIsRepetitionEnabled(req.isRepetitionEnabled());
+        quiz.setShuffleLearningQuestions(req.shuffleLearningQuestions());
         quiz.setIsTimerEnabled(req.timerEnabled());
         quiz.setTimerDuration(req.timerDuration());
         quiz.setTags(tags);
@@ -54,6 +55,9 @@ public class QuizMapper {
         }
         if (req.isRepetitionEnabled() != null) {
             quiz.setIsRepetitionEnabled(req.isRepetitionEnabled());
+        }
+        if (req.shuffleLearningQuestions() != null) {
+            quiz.setShuffleLearningQuestions(req.shuffleLearningQuestions());
         }
         if (req.timerEnabled() != null) {
             quiz.setIsTimerEnabled(req.timerEnabled());
@@ -94,7 +98,8 @@ public class QuizMapper {
                 questionCount,
                 quiz.getCreatedAt(),
                 quiz.getUpdatedAt(),
-                isNew
+                isNew,
+                quiz.isShuffleLearningQuestions()
         );
     }
 

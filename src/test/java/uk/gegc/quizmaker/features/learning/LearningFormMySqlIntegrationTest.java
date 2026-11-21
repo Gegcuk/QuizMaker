@@ -178,6 +178,12 @@ class LearningFormMySqlIntegrationTest {
         rejected(() -> forms.materialize(command(s, selected)), SOURCE_UNAVAILABLE); assertCounts(0, 0, 0);
         contentAvailable.set(true);
         var first = forms.materialize(command(s, selected));
+        sql.update("UPDATE question_revision_contract_bindings SET response_contract_version=2 WHERE question_revision_id=UUID_TO_BIN(?)",
+                item.questionRevisionId().toString());
+        rejected(() -> forms.materialize(command(s, selected)), CORRUPT);
+        sql.update("UPDATE question_revision_contract_bindings SET response_contract_version=1 WHERE question_revision_id=UUID_TO_BIN(?)",
+                item.questionRevisionId().toString());
+        assertThat(forms.materialize(command(s, selected)).view()).isEqualTo(first.view());
         access.set(false);
         assertThatThrownBy(() -> forms.read(s.id())).isInstanceOfSatisfying(LearningSessionException.class,
                 e -> assertThat(e.reason()).isEqualTo(LearningSessionException.Reason.SOURCE_UNAVAILABLE));
