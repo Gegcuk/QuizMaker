@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.learning.api;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.*;
@@ -11,6 +12,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import uk.gegc.quizmaker.features.learning.application.LearningStudyService;
+import uk.gegc.quizmaker.features.learning.domain.model.LearningReview;
 import java.util.UUID;
 import static uk.gegc.quizmaker.features.learning.api.LearningSessionApi.*;
 
@@ -28,8 +30,14 @@ import static uk.gegc.quizmaker.features.learning.api.LearningSessionApi.*;
 @ApiResponse(responseCode = "500", description = "Inconsistent retained evidence or incompatible transaction.", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
 public class LearningSessionController {
     private final LearningStudyService study;
+    private final ObjectMapper json;
     private static final String SOURCE = "\"source\":{\"kind\":\"QUIZ_REVISION\",\"quizId\":\"11111111-1111-4111-8111-111111111111\",\"quizRevisionId\":\"22222222-2222-4222-8222-222222222222\",\"revisionSchemaVersion\":1}";
     private static final String COMMAND = "{\"commandId\":\"33333333-3333-4333-8333-333333333333\",\"configuration\":{\"strategy\":\"fsrs/v1\",\"version\":1}," + SOURCE;
+    private static final String RESPONSE = """
+            {"commandId":"33333333-3333-4333-8333-333333333333","expectedSessionVersion":1,
+             "sourceItemId":"44444444-4444-4444-8444-444444444444","rating":"GOOD",
+             "response":{"type":"TRUE_FALSE","answer":true}}
+            """;
 
     @PostMapping("/enrollments")
     @Operation(summary = "Enroll questions for Learning", description = "Online, active author only, with current publication-history access. Prepare the whole publication once. The ordered batch commits together. Use the same commandId and input after losing a response.")
@@ -43,21 +51,34 @@ public class LearningSessionController {
     }
 
     @PostMapping("/sessions")
-    @Operation(summary = "Start a fixed Learning session", description = "Active quiz author with current publication access. Select currently due questions, optionally shuffle once and save the entire form. An exact retry reuses the original session even when due items or the quiz setting change.")
+    @Operation(summary = "Start a fixed Learning session", description = "Active quiz author with current publication access. By default select currently due items and optionally shuffle once. With limit 1 and explicit selection, use one already enrolled question for EARLY review or PRACTICE. Exact retry returns the original start snapshot even if due items, progress or the quiz setting change.")
     @ApiResponse(responseCode = "200", description = "Saved form or explicit EMPTY_COMPLETE.")
     @ApiResponse(responseCode = "429", description = "Shared Learning command limit reached.", headers = @Header(name = "Retry-After", description = "Whole seconds"), content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     public ResponseEntity<View> start(@Valid @RequestBody
             @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(schema = @Schema(implementation = StartRequest.class),
-                    examples = @ExampleObject(value = COMMAND + ",\"limit\":3}"))) StartRequest request) {
+                    examples = {@ExampleObject(name = "Due", value = COMMAND + ",\"limit\":3}"),
+                            @ExampleObject(name = "Early", value = COMMAND + ",\"limit\":1,\"selection\":{\"mode\":\"EARLY\",\"questionRevisionId\":\"44444444-4444-4444-8444-444444444444\"}}")})) StartRequest request) {
         request.configuration().verify();
-        return ok(View.from(study.start(new LearningStudyService.Start(request.commandId(), request.source().domain(), request.limit()))));
+        return ok(View.from(study.start(request.domain())));
     }
 
     @GetMapping("/sessions/{sessionId}")
     @Operation(summary = "Resume a fixed Learning session", description = "Session owner with current access to the captured publication. Reads consume no Learning command credit. The saved content and order survive later quiz publication.")
-    @ApiResponse(responseCode = "200", description = "Persisted order, progress and currently available actions.")
+    @ApiResponse(responseCode = "200", description = "Persisted order, progress and currently available actions. A SUPERSEDED session has no next item or response action and retains its accepted progress.")
     public ResponseEntity<View> resume(@PathVariable UUID sessionId) {
         return ok(View.from(study.resume(sessionId)));
+    }
+
+    @PostMapping("/sessions/{sessionId}/responses")
+    @Operation(summary = "Answer and rate the next Learning item", description = "Online, session owner with current publication access. Submit the next unanswered item in saved order and its expected session version. A due or early review advances FSRS once and ends other scheduled sessions that still need that step. Extra practice records progress without changing FSRS or ending other sessions. The last answer completes the session. Retry the exact command after a lost response. Learning responses do not create assessment results.")
+    @ApiResponse(responseCode = "200", description = "Original acknowledgement with the next session item and, if advanced, the next scheduled review.")
+    @ApiResponse(responseCode = "409", description = "Changed command, stale item or state, or a completed or superseded session. An exact accepted replay still returns its original acknowledgement.", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "429", description = "Shared Learning command limit reached.", headers = @Header(name = "Retry-After", description = "Whole seconds"), content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    public ResponseEntity<Acknowledgement> respond(@PathVariable UUID sessionId, @Valid @RequestBody
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(schema = @Schema(implementation = RespondRequest.class),
+                    examples = @ExampleObject(value = RESPONSE))) RespondRequest request) {
+        return ok(Acknowledgement.from(study.respond(new LearningReview.Command(sessionId, request.commandId(),
+                request.expectedSessionVersion(), request.sourceItemId(), request.rating(), json.valueToTree(request.response())))));
     }
 
     private static <T> ResponseEntity<T> ok(T value) {
