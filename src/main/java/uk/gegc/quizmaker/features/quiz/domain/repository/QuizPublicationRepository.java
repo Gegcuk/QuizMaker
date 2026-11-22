@@ -14,6 +14,8 @@ public interface QuizPublicationRepository {
     Optional<Receipt> receipt(UUID quizId, UUID actorId, UUID commandId);
     Optional<Revision> findContent(UUID quizId, String hash);
     Optional<Revision> revision(UUID quizId, UUID revisionId);
+    /** Metadata for the exact acknowledged revision, after publication authority has been checked. */
+    Optional<RevisionItems> revisionItems(UUID quizId, UUID revisionId);
     void insert(Revision revision, List<Image> images);
     void pointTo(UUID quizId, Current publication);
     void record(Command command, UUID actorId, String requestHash, Current publication, Instant recordedAt);

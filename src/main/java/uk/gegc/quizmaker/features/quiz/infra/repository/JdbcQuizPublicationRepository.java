@@ -111,6 +111,26 @@ public class JdbcQuizPublicationRepository implements QuizPublicationRepository 
                 ids(quizId).addValue("revision", revisionId.toString()), (rs, row) -> revision(rs)).stream().findFirst());
     }
 
+    @Override
+    public Optional<RevisionItems> revisionItems(UUID quizId, UUID revisionId) {
+        return safe(() -> sql.query("""
+                SELECT r.schema_version, BIN_TO_UUID(i.question_revision_id) AS question_revision_id
+                FROM quiz_revisions r JOIN quiz_revision_items i ON i.quiz_revision_id = r.id
+                WHERE r.quiz_id = UUID_TO_BIN(:quiz) AND r.id = UUID_TO_BIN(:revision)
+                ORDER BY i.authored_position
+                """, ids(quizId).addValue("revision", revisionId.toString()), rows -> {
+            if (!rows.next()) {
+                return Optional.empty();
+            }
+            int schemaVersion = rows.getInt("schema_version");
+            List<UUID> questions = new ArrayList<>();
+            do {
+                questions.add(uuid(rows, "question_revision_id"));
+            } while (rows.next());
+            return Optional.of(new RevisionItems(schemaVersion, questions));
+        }));
+    }
+
     @Override public void insert(Revision revision, List<Image> images) {
         sql.update("""
                 INSERT INTO quiz_publications (revision_id, quiz_id, published_by, canonical_version, content_hash, published_at)

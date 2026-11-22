@@ -98,8 +98,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  *
  * <p>The production application context runs with the Learning routes enabled, real JWT security and
  * error handling, the Flyway schema and MySQL. Every Learning row is created by real HTTP commands from
- * empty storage. The only precondition outside HTTP is the source publication: it uses the internal #700
- * writer because no public revision-publication route exists yet. That gap blocks public activation.</p>
+ * empty storage. The source publication is prepared by the #700 writer. The public activation
+ * scenario must exercise the #935 author route and the Learning routes together.</p>
  */
 @Tag("db-serial")
 @SpringBootTest
@@ -792,7 +792,7 @@ class LearningConformanceMySqlIntegrationTest {
         return publish(author, quizId, 0, authored);
     }
 
-    /** Internal #700 writer: the only revision publisher today. It is a precondition, not a Learning write. */
+    /** Prepares the published source for the Learning commands through the #700 writer. */
     private Source publish(Persona author, UUID quizId, long expectedVersion, List<UUID> authored) {
         var result = as(author, () -> publications.publish(
                 new QuizPublication.Command(1, quizId, UUID.randomUUID(), expectedVersion, authored)));

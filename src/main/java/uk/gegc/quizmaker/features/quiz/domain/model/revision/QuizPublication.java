@@ -30,7 +30,12 @@ public final class QuizPublication {
     public record Current(long version, Revision revision) {
         public Current { require(version > 0 && revision != null, INVALID_CONTENT); }
     }
-    public record Result(Current publication, boolean replayed) { }
+    public record RevisionItems(int schemaVersion, List<UUID> questionRevisionIds) {
+        public RevisionItems {
+            questionRevisionIds = List.copyOf(questionRevisionIds);
+        }
+    }
+    public record Result(Current publication, boolean replayed, RevisionItems revisionItems) { }
     public record Receipt(String requestHash, Current publication) { }
     public record Image(UUID questionRevisionId, UUID assetId, UUID bindingId, UUID versionId,
                         String objectKey, String mimeType, long sizeBytes, int width, int height) {

@@ -1924,15 +1924,39 @@ Metrics `quizmaker.media.retained` distinguish pending preparation, committed an
 operations; `quizmaker.media.retained.duration` records bounded operation/outcome latency.
 Resource identifiers, URLs, source content and provider diagnostics are not metric labels.
 
-### Internal immutable publication boundary (#700)
+<a id="internal-immutable-publication-boundary-700"></a>
+### Immutable publication boundary (#700 and #935)
 
-`QuizRevisionPublicationService` is an internal authoring boundary. It is not wired to HTTP,
-legacy save/status routes or participant start. Ordinary edits continue to change drafts;
-an explicit `publish` command snapshots the current locked draft, ordered questions, options
-and exact retained image bindings. The command supplies its version (`1`), quiz ID, stable
-command ID, expected publication counter (`0` for unpublished) and the complete unique
-question order. The legacy question `Set` is not an order authority. No existing quiz is
-backfilled or activated, and existing attempts/forms retain their previous identities.
+`QuizRevisionPublicationService` owns explicit author publication. The #935 HTTP command
+`POST /api/v1/quizzes/{quizId}/publications` invokes the same #700 writer. Ordinary saves edit
+the draft, moderation manages the legacy status, and participant start uses existing attempt
+contracts. An explicit publication snapshots the locked draft, ordered questions, options and
+exact retained image bindings. The command uses internal format `1`, the quiz ID, a stable
+command ID, the expected publication counter (`0` for unpublished), and the complete unique
+question order. The supplied order becomes the saved order. Existing attempts and forms keep
+their original identities.
+
+The online request is one JSON document with `commandId`, `expectedPublicationVersion` and
+`questionOrder`. The publication reader checks the entire body and validates its fields before
+dispatch. MVC diagnostics show redacted request and acknowledgement representations and sanitized
+input failures.
+First publication, revision reuse and exact replay all return `200` with `quizId`, `quizRevisionId`,
+`revisionSchemaVersion`, `publicationVersion` and the ordered `questionRevisionIds`. The
+publication counter tracks changes to the current pointer. The schema version describes the
+saved revision format and goes into Learning enrollment's `source` alongside `quizId` and
+`quizRevisionId`. Enrollment receives the chosen `questionRevisionIds` separately.
+The acknowledgement reads only the schema version and ordered UUIDs of the acknowledged
+revision inside the publication transaction. A later publication therefore leaves the original
+response intact. OpenAPI documents both DTOs in the `quizzes` group linked from `/api/v1/api-summary`.
+
+The command returns `ProblemDetail` with `400` for malformed inputs, `401` for authentication,
+and identical `404` problems for missing or inaccessible quizzes and unavailable source authority.
+`409` distinguishes stale publication counters and changed use of a command ID. `422` means the
+order or draft content cannot be published. `503` indicates unavailable retained media,
+unavailable persistence or an unknown commit outcome. After losing the response or receiving
+`QUIZ_PUBLICATION_UNKNOWN_OUTCOME`, resend the same command ID and all the original fields.
+An internal integrity failure returns a generic `500`. Responses contain publication metadata
+and sanitized diagnostics.
 
 Publication resolves the authenticated, active account and current database permissions,
 then checks ownership or existing quiz moderation/administration authority. Ordinary owners
@@ -5917,12 +5941,10 @@ custom variants #839/#840 and optional mistake/unseen selection #648. They need 
 scenarios before activation; their absence is not reported as passing.
 
 **Activation boundary (owner decision, 21 November 2026).** The setting stays `false` by default.
-This conformance does not activate Learning or establish production capacity. Public activation is
-blocked because no public route publishes an immutable quiz revision: `QuizRevisionPublicationService`
-remains internal. Without it, an author cannot create a Learning source, so enabling the setting would
-expose routes whose enrollments always answer 404. [#935](https://github.com/Gegcuk/QuizMaker/issues/935)
-owns that author publication command. After it lands, #667 still adds the integrated public
-publish-to-enrollment scenario before public activation.
+The [#935](https://github.com/Gegcuk/QuizMaker/issues/935) author command provides the revision
+and question identifiers for enrollment. Before public activation, #667 must prove the full
+HTTP flow from an ordinary author draft through publication, enrollment, session start and the
+first durable review. Production capacity and operational activation evidence are separate.
 
 When an environment is later approved for activation, the operator:
 

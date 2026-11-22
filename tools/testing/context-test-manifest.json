@@ -207,6 +207,7 @@
     "uk.gegc.quizmaker.features.quiz.infra.QuizGenerationOutputCheckpointSchemaMigrationTest",
     "uk.gegc.quizmaker.features.quiz.infra.QuizOwnerFreshnessMigrationTest",
     "uk.gegc.quizmaker.features.quiz.repository.QuizGenerationJobRepositoryTaskProgressTest",
+    "uk.gegc.quizmaker.features.quiz.revision.QuizPublicationHttpMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.quiz.revision.QuizPublicationMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.quiz.revision.QuizRevisionAuthoringMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.quizgroup.QuizGroupIntegrationTest",

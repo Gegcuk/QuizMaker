@@ -224,6 +224,7 @@ uk/gegc/quizmaker/features/quiz/infra/QuizGenerationOperationSchemaValidationTes
 uk/gegc/quizmaker/features/quiz/infra/QuizGenerationOutputCheckpointSchemaMigrationTest.java
 uk/gegc/quizmaker/features/quiz/infra/QuizOwnerFreshnessMigrationTest.java
 uk/gegc/quizmaker/features/quiz/repository/QuizGenerationJobRepositoryTaskProgressTest.java
+uk/gegc/quizmaker/features/quiz/revision/QuizPublicationHttpMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/quiz/revision/QuizPublicationMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/quiz/revision/QuizRevisionAuthoringMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/quiz/revision/QuizRevisionCasesMySqlIntegrationTest.java

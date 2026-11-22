@@ -5,7 +5,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizPublication.*;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Internal author boundary, resolved from the authenticated principal; not connected to legacy routes. */
+/** Explicit author publication boundary, resolved from the authenticated principal. */
 public interface QuizRevisionPublicationService {
     Result publish(Command command);
     Optional<Current> current(UUID quizId);

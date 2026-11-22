@@ -2,15 +2,36 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Author publication HTTP command (#935)
+
+`QuizOpenApiContractTest` exercises the request example through MVC and checks the acknowledgement
+shape, error schemas and discovery in the Quizzes group. Invalid numeric versions, including fractions
+and out-of-range values, fail before dispatch and leave request data out of the error body.
+
+`QuizPublicationHttpMySqlIntegrationTest` uses real JWTs, ordinary quiz and question creation, and
+the #700 writer on a Flyway-built MySQL catalog. Fresh transactions compare the authored order with
+the immutable question IDs, current pointer and persisted receipts. The same route proves
+non-enumerating denials, invalid order, one committed winner for concurrent edits, an exact replay
+after replacement, rollback after the receipt write and reconciliation after a committed response is
+lost. It exercises legacy draft edit, moderation and training on the same quiz. The acknowledgement
+projection is measured using actual statements, rows and bytes at two quiz sizes.
+Trailing JSON is rejected without writing a revision, pointer or receipt. The same command with
+trailing whitespace publishes successfully. MVC diagnostics at DEBUG and TRACE record redacted
+request and acknowledgement representations and content-free validation errors. The log assertions
+use the draft UUIDs and the distinct published question revision UUIDs returned in JSON.
+`QuizPublicationMySqlIntegrationTest` continues to cover the #700 storage contract and retained images.
+
+Run the scoped suites on JDK 17 with the disposable MySQL and offline provider setup described below,
+then run the complete four-worker verification launcher.
+
 ## First Learning conformance (#667)
 
 `LearningConformanceMySqlIntegrationTest` is the single-quiz FSRS phase gate. It starts the full
 `@SpringBootTest` application with the Learning setting enabled, real JWT access tokens, the real
 security filter chain and error handlers, and a class-owned catalog built by Flyway and checked by
-Hibernate `validate`. Every Learning row comes from HTTP. The source revision is published through the
-internal #700 writer, because no public publication route exists yet (#935 owns it); this is
-precondition data, not Learning evidence. The integrated public publish-to-enrollment scenario is
-added after #935. The suite does not change the default setting or prove production capacity.
+Hibernate `validate`. Every Learning row comes from HTTP. The suite prepares its source revision
+through the #700 writer. The #935 publication HTTP suite separately starts with an ordinary author
+draft. Public activation requires the integrated publish-to-enrollment and first-review scenario.
 
 Use JDK 17, the offline fake environment and a disposable MySQL server:
 
