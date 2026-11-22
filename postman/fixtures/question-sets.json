@@ -1,0 +1,434 @@
+{
+  "formatVersion": 1,
+  "sets": [
+    {
+      "key": "java-basics",
+      "ownerPersona": "author_a",
+      "quiz": {
+        "title": "Local fixtures v1 - Java basics",
+        "description": "Offline local fixture v1; private draft owned by author_a.",
+        "visibility": "PRIVATE",
+        "difficulty": "EASY",
+        "isRepetitionEnabled": false,
+        "timerEnabled": false,
+        "estimatedTime": 10,
+        "timerDuration": 10,
+        "tagIds": []
+      },
+      "questions": [
+        {
+          "key": "java-jvm",
+          "request": {
+            "contractVersion": 1,
+            "type": "MCQ_SINGLE",
+            "difficulty": "EASY",
+            "questionText": "Which component executes Java bytecode?",
+            "content": {
+              "options": [
+                {
+                  "id": "a",
+                  "text": "JVM",
+                  "correct": true
+                },
+                {
+                  "id": "b",
+                  "text": "javac",
+                  "correct": false
+                },
+                {
+                  "id": "c",
+                  "text": "Maven",
+                  "correct": false
+                },
+                {
+                  "id": "d",
+                  "text": "Git",
+                  "correct": false
+                }
+              ]
+            },
+            "explanation": "Correct choice: a",
+            "quizIds": [],
+            "tagIds": []
+          },
+          "correctResponse": {
+            "selectedOptionId": "a"
+          },
+          "incorrectResponse": {
+            "selectedOptionId": "d"
+          }
+        },
+        {
+          "key": "java-primitives",
+          "request": {
+            "contractVersion": 1,
+            "type": "MCQ_MULTI",
+            "difficulty": "EASY",
+            "questionText": "Which Java types are primitive?",
+            "content": {
+              "options": [
+                {
+                  "id": "a",
+                  "text": "int",
+                  "correct": true
+                },
+                {
+                  "id": "b",
+                  "text": "boolean",
+                  "correct": true
+                },
+                {
+                  "id": "c",
+                  "text": "String",
+                  "correct": false
+                },
+                {
+                  "id": "d",
+                  "text": "Integer",
+                  "correct": false
+                }
+              ]
+            },
+            "explanation": "Correct choice: a, b",
+            "quizIds": [],
+            "tagIds": []
+          },
+          "correctResponse": {
+            "selectedOptionIds": [
+              "a",
+              "b"
+            ]
+          },
+          "incorrectResponse": {
+            "selectedOptionIds": [
+              "d"
+            ]
+          }
+        },
+        {
+          "key": "java-string",
+          "request": {
+            "contractVersion": 1,
+            "type": "TRUE_FALSE",
+            "difficulty": "EASY",
+            "questionText": "Java String objects are immutable.",
+            "content": {
+              "answer": true
+            },
+            "explanation": "String instances cannot be modified after creation.",
+            "quizIds": [],
+            "tagIds": []
+          },
+          "correctResponse": {
+            "answer": true
+          },
+          "incorrectResponse": {
+            "answer": false
+          }
+        },
+        {
+          "key": "java-class",
+          "request": {
+            "contractVersion": 1,
+            "type": "FILL_GAP",
+            "difficulty": "EASY",
+            "questionText": "Complete the Java type declaration keyword.",
+            "content": {
+              "text": "public {1} Example {}",
+              "gaps": [
+                {
+                  "id": 1,
+                  "answer": "class"
+                }
+              ]
+            },
+            "explanation": "The class keyword declares a class.",
+            "quizIds": [],
+            "tagIds": []
+          },
+          "correctResponse": {
+            "answers": [
+              {
+                "gapId": 1,
+                "answer": "class"
+              }
+            ]
+          },
+          "incorrectResponse": {
+            "answers": [
+              {
+                "gapId": 1,
+                "answer": "interface"
+              }
+            ]
+          }
+        },
+        {
+          "key": "java-lifecycle",
+          "request": {
+            "contractVersion": 1,
+            "type": "ORDERING",
+            "difficulty": "EASY",
+            "questionText": "Order the steps used to run a Java program.",
+            "content": {
+              "items": [
+                {
+                  "id": 1,
+                  "text": "Write Java source"
+                },
+                {
+                  "id": 2,
+                  "text": "Compile source to bytecode"
+                },
+                {
+                  "id": 3,
+                  "text": "Execute bytecode in the JVM"
+                }
+              ],
+              "correctOrder": [
+                1,
+                2,
+                3
+              ]
+            },
+            "explanation": "Source is compiled before the bytecode is executed.",
+            "quizIds": [],
+            "tagIds": []
+          },
+          "correctResponse": {
+            "orderedItemIds": [
+              1,
+              2,
+              3
+            ]
+          },
+          "incorrectResponse": {
+            "orderedItemIds": [
+              3,
+              2,
+              1
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "key": "http-basics",
+      "ownerPersona": "author_b",
+      "quiz": {
+        "title": "Local fixtures v1 - HTTP basics",
+        "description": "Offline local fixture v1; private draft owned by author_b.",
+        "visibility": "PRIVATE",
+        "difficulty": "EASY",
+        "isRepetitionEnabled": false,
+        "timerEnabled": false,
+        "estimatedTime": 10,
+        "timerDuration": 10,
+        "tagIds": []
+      },
+      "questions": [
+        {
+          "key": "http-ok",
+          "request": {
+            "contractVersion": 1,
+            "type": "MCQ_SINGLE",
+            "difficulty": "EASY",
+            "questionText": "Which HTTP status means OK?",
+            "content": {
+              "options": [
+                {
+                  "id": "a",
+                  "text": "200",
+                  "correct": true
+                },
+                {
+                  "id": "b",
+                  "text": "201",
+                  "correct": false
+                },
+                {
+                  "id": "c",
+                  "text": "400",
+                  "correct": false
+                },
+                {
+                  "id": "d",
+                  "text": "500",
+                  "correct": false
+                }
+              ]
+            },
+            "explanation": "Correct choice: a",
+            "quizIds": [],
+            "tagIds": []
+          },
+          "correctResponse": {
+            "selectedOptionId": "a"
+          },
+          "incorrectResponse": {
+            "selectedOptionId": "d"
+          }
+        },
+        {
+          "key": "http-safe",
+          "request": {
+            "contractVersion": 1,
+            "type": "MCQ_MULTI",
+            "difficulty": "EASY",
+            "questionText": "Which HTTP methods are defined as safe?",
+            "content": {
+              "options": [
+                {
+                  "id": "a",
+                  "text": "GET",
+                  "correct": true
+                },
+                {
+                  "id": "b",
+                  "text": "HEAD",
+                  "correct": true
+                },
+                {
+                  "id": "c",
+                  "text": "POST",
+                  "correct": false
+                },
+                {
+                  "id": "d",
+                  "text": "DELETE",
+                  "correct": false
+                }
+              ]
+            },
+            "explanation": "Correct choice: a, b",
+            "quizIds": [],
+            "tagIds": []
+          },
+          "correctResponse": {
+            "selectedOptionIds": [
+              "a",
+              "b"
+            ]
+          },
+          "incorrectResponse": {
+            "selectedOptionIds": [
+              "d"
+            ]
+          }
+        },
+        {
+          "key": "http-auth",
+          "request": {
+            "contractVersion": 1,
+            "type": "TRUE_FALSE",
+            "difficulty": "EASY",
+            "questionText": "HTTP 401 indicates missing or invalid authentication.",
+            "content": {
+              "answer": true
+            },
+            "explanation": "A protected API can return 401 when credentials are missing or invalid.",
+            "quizIds": [],
+            "tagIds": []
+          },
+          "correctResponse": {
+            "answer": true
+          },
+          "incorrectResponse": {
+            "answer": false
+          }
+        },
+        {
+          "key": "http-json",
+          "request": {
+            "contractVersion": 1,
+            "type": "FILL_GAP",
+            "difficulty": "EASY",
+            "questionText": "Complete the media type for a JSON response.",
+            "content": {
+              "text": "Content-Type: application/{1}",
+              "gaps": [
+                {
+                  "id": 1,
+                  "answer": "json"
+                }
+              ]
+            },
+            "explanation": "The standard JSON media type is application/json.",
+            "quizIds": [],
+            "tagIds": []
+          },
+          "correctResponse": {
+            "answers": [
+              {
+                "gapId": 1,
+                "answer": "json"
+              }
+            ]
+          },
+          "incorrectResponse": {
+            "answers": [
+              {
+                "gapId": 1,
+                "answer": "xml"
+              }
+            ]
+          }
+        },
+        {
+          "key": "http-auth-flow",
+          "request": {
+            "contractVersion": 1,
+            "type": "ORDERING",
+            "difficulty": "EASY",
+            "questionText": "Order a token-based API session.",
+            "content": {
+              "items": [
+                {
+                  "id": 1,
+                  "text": "Register an account"
+                },
+                {
+                  "id": 2,
+                  "text": "Log in and receive an access token"
+                },
+                {
+                  "id": 3,
+                  "text": "Call a protected endpoint with the token"
+                },
+                {
+                  "id": 4,
+                  "text": "Log out and revoke the session"
+                }
+              ],
+              "correctOrder": [
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            "explanation": "Protected requests follow login; logout revokes the session.",
+            "quizIds": [],
+            "tagIds": []
+          },
+          "correctResponse": {
+            "orderedItemIds": [
+              1,
+              2,
+              3,
+              4
+            ]
+          },
+          "incorrectResponse": {
+            "orderedItemIds": [
+              4,
+              3,
+              2,
+              1
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

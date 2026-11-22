@@ -1,0 +1,56 @@
+{
+  "formatVersion": 1,
+  "personas": [
+    {
+      "key": "reader",
+      "username": "qmfx_reader",
+      "roles": [
+        "ROLE_USER"
+      ],
+      "active": true
+    },
+    {
+      "key": "author_a",
+      "username": "qmfx_author_a",
+      "roles": [
+        "ROLE_USER",
+        "ROLE_QUIZ_CREATOR"
+      ],
+      "active": true
+    },
+    {
+      "key": "author_b",
+      "username": "qmfx_author_b",
+      "roles": [
+        "ROLE_USER",
+        "ROLE_QUIZ_CREATOR"
+      ],
+      "active": true
+    },
+    {
+      "key": "moderator",
+      "username": "qmfx_moderator",
+      "roles": [
+        "ROLE_MODERATOR"
+      ],
+      "active": true
+    },
+    {
+      "key": "admin",
+      "username": "qmfx_admin",
+      "roles": [
+        "ROLE_ADMIN"
+      ],
+      "active": true
+    },
+    {
+      "key": "disabled",
+      "username": "qmfx_disabled",
+      "roles": [
+        "ROLE_USER",
+        "ROLE_QUIZ_CREATOR"
+      ],
+      "active": false
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+**
+!target/
+!target/QuizMaker-*.jar
+!server/
+!server/local/
+!server/local/application-local.properties
