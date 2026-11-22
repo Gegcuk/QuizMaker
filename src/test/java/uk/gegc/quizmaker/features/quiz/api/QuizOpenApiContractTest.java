@@ -84,6 +84,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         ApiDocumentationService.class,
         OpenApiConfig.class,
         OpenApiGroupConfig.class,
+        QuizRevisionPublicationJsonConfig.class,
         SpringDocConfiguration.class,
         SpringDocWebMvcConfiguration.class,
         MultipleOpenApiSupportConfiguration.class,

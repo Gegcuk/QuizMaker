@@ -27,6 +27,11 @@ public record PublishQuizRevisionRequest(
                 schema = @Schema(type = "string", format = "uuid"))
         List<@NotNull UUID> questionOrder) {
 
+    @Override
+    public String toString() {
+        return "PublishQuizRevisionRequest[redacted]";
+    }
+
     static final class PublicationVersionDeserializer extends JsonDeserializer<Long> {
         @Override
         public Long deserialize(JsonParser parser, DeserializationContext context) throws IOException {

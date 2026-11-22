@@ -1,5 +1,10 @@
 package uk.gegc.quizmaker.features.quiz.revision;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -10,6 +15,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrint;
@@ -116,6 +124,87 @@ class QuizPublicationHttpMySqlIntegrationTest {
         faults.contenders = null;
         faults.reached = false;
         faults.gatedThreads.clear();
+    }
+
+    @Test
+    void publicationRequiresOneCompleteJsonDocumentBeforeWriting() throws Exception {
+        var author = author("QUIZ_UPDATE");
+        var draft = draft(author, 1);
+        var command = publicationCommand(UUID.randomUUID(), 0, draft.questions()).toString();
+
+        for (String suffix : List.of(" {}", " {")) {
+            problem(publishJson(author, draft.id(), command + suffix), 400, "INVALID_INPUT");
+            assertThat(state(draft.id())).isEqualTo(new State(0, null, 0, 0));
+            assertThat(fresh(() -> count("quiz_revisions", draft.id()))).isZero();
+        }
+        expect(request(author, post(PUBLICATIONS, draft.id()).contentType("text/plain").content(command), null), 415);
+        assertThat(state(draft.id())).isEqualTo(new State(0, null, 0, 0));
+
+        var ack = body(publishJson(author, draft.id(), command + " \n\t"), 200);
+        assertAcknowledgement(ack, draft.id(), 1, draft.questions());
+        assertThat(state(draft.id())).isEqualTo(new State(1, uuid(ack, "quizRevisionId"), 1, 1));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"DEBUG", "TRACE"})
+    void springMvcDiagnosticsDoNotLogPublicationBodyValues(String level) throws Exception {
+        var author = author("QUIZ_UPDATE");
+        var draft = draft(author, 1);
+        var key = UUID.randomUUID();
+        var command = publicationCommand(key, 0, draft.questions());
+        String invalidUuid = "PRIVATE_PUBLICATION_UUID";
+        long invalidVersion = -543219876;
+        var loggers = List.of((Logger) LoggerFactory.getLogger("org.springframework.web.servlet.mvc.method.annotation"),
+                (Logger) LoggerFactory.getLogger("org.springframework.web.method"));
+        var previousLevels = loggers.stream().map(Logger::getLevel).toList();
+        var previousAdditivity = loggers.stream().map(Logger::isAdditive).toList();
+        Thread requestThread = Thread.currentThread();
+        var captured = new ListAppender<ILoggingEvent>() {
+            @Override
+            protected void append(ILoggingEvent event) {
+                if (Thread.currentThread() == requestThread) {
+                    event.prepareForDeferredProcessing();
+                    super.append(event);
+                }
+            }
+        };
+        captured.setContext(loggers.get(0).getLoggerContext());
+        captured.start();
+        loggers.forEach(logger -> {
+            logger.addAppender(captured);
+            logger.setAdditive(false);
+            logger.setLevel(Level.toLevel(level));
+        });
+        try {
+            var ack = body(publishJson(author, draft.id(), command.toString()), 200);
+            assertAcknowledgement(ack, draft.id(), 1, draft.questions());
+            var malformed = command.deepCopy().put("commandId", invalidUuid);
+            var invalid = command.deepCopy().put("expectedPublicationVersion", invalidVersion);
+            problem(publishJson(author, draft.id(), malformed.toString()), 400, "INVALID_INPUT");
+            problem(publishJson(author, draft.id(), invalid.toString()), 400, "INVALID_INPUT");
+            assertThat(state(draft.id())).isEqualTo(new State(1, uuid(ack, "quizRevisionId"), 1, 1));
+
+            var messages = captured.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+            assertThat(messages.stream().anyMatch(message -> message.contains("PublishQuizRevisionRequest[redacted]")))
+                    .as("MVC recorded a diagnostic for the valid command").isTrue();
+            assertThat(messages.stream().filter(message -> message.contains("Could not resolve parameter")).count())
+                    .as("MVC recorded both argument failures").isEqualTo(2);
+            var diagnostics = captured.list.stream().map(event -> event.getFormattedMessage() +
+                    (event.getThrowableProxy() == null ? "" : ThrowableProxyUtil.asString(event.getThrowableProxy()))).toList();
+            for (String forbidden : List.of(key.toString(), draft.questions().get(0).toString(), invalidUuid,
+                    Long.toString(invalidVersion), "commandId=", "questionOrder=", "expectedPublicationVersion=")) {
+                assertThat(diagnostics.stream().noneMatch(message -> message.contains(forbidden)))
+                        .as("MVC diagnostics do not expose publication request fields").isTrue();
+            }
+        } finally {
+            for (int i = 0; i < loggers.size(); i++) {
+                var logger = loggers.get(i);
+                logger.detachAppender(captured);
+                logger.setLevel(previousLevels.get(i));
+                logger.setAdditive(previousAdditivity.get(i));
+            }
+            captured.stop();
+        }
     }
 
     @Test
@@ -357,10 +446,18 @@ class QuizPublicationHttpMySqlIntegrationTest {
     }
 
     private MvcResult publish(Persona persona, UUID quiz, UUID command, long expected, List<UUID> order) throws Exception {
+        return publishJson(persona, quiz, publicationCommand(command, expected, order).toString());
+    }
+
+    private ObjectNode publicationCommand(UUID command, long expected, List<UUID> order) {
         var body = json.createObjectNode().put("commandId", command.toString()).put("expectedPublicationVersion", expected);
         var questions = body.putArray("questionOrder");
         order.forEach(id -> questions.add(id.toString()));
-        return request(persona, post(PUBLICATIONS, quiz), body);
+        return body;
+    }
+
+    private MvcResult publishJson(Persona persona, UUID quiz, String body) throws Exception {
+        return request(persona, post(PUBLICATIONS, quiz).contentType("application/json").content(body), null);
     }
 
     private JsonNode publishBody(Persona persona, UUID quiz, UUID key, long version, List<UUID> order) throws Exception {

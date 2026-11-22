@@ -7,7 +7,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
@@ -47,7 +46,8 @@ public class QuizRevisionPublicationController {
     @Operation(operationId = "publishQuizRevision", summary = "Publish an immutable quiz revision", description = """
             Online author action. An active owner needs QUIZ_UPDATE. QUIZ_MODERATE or QUIZ_ADMIN can publish across ownership
             and is required for a public quiz. Each question needs recorded source ownership. Reuse of another author's
-            recorded source requires QUIZ_MODERATE, QUIZ_ADMIN or QUESTION_ADMIN. Publish the entire draft in the supplied order.
+            recorded source requires QUIZ_MODERATE, QUIZ_ADMIN or QUESTION_ADMIN. Send one JSON document with the entire
+            draft in the supplied order.
             Resend the same commandId and inputs after a lost response or QUIZ_PUBLICATION_UNKNOWN_OUTCOME. An exact replay
             rechecks current quiz authority and returns the original acknowledgement, even after a later publication.
             A stale counter conflicts for changed content. Identical current content may reuse its existing publication.
@@ -77,7 +77,7 @@ public class QuizRevisionPublicationController {
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
                     schema = @Schema(implementation = PublishQuizRevisionRequest.class),
                     examples = @ExampleObject(name = "Publish an unpublished draft", value = FIRST_COMMAND)))
-            @Valid @RequestBody PublishQuizRevisionRequest request) {
+            @RequestBody PublishQuizRevisionRequest request) {
         var result = publications.publish(new QuizPublication.Command(1, quizId, request.commandId(),
                 request.expectedPublicationVersion(), request.questionOrder()));
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(QuizRevisionPublicationResponse.from(result));
