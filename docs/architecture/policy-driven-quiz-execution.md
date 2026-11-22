@@ -1938,7 +1938,8 @@ their original identities.
 
 The online request is one JSON document with `commandId`, `expectedPublicationVersion` and
 `questionOrder`. The publication reader checks the entire body and validates its fields before
-dispatch. MVC diagnostics show a redacted request and sanitized input failures.
+dispatch. MVC diagnostics show redacted request and acknowledgement representations and sanitized
+input failures.
 First publication, revision reuse and exact replay all return `200` with `quizId`, `quizRevisionId`,
 `revisionSchemaVersion`, `publicationVersion` and the ordered `questionRevisionIds`. The
 publication counter tracks changes to the current pointer. The schema version describes the

@@ -147,9 +147,9 @@ class QuizPublicationHttpMySqlIntegrationTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"DEBUG", "TRACE"})
-    void springMvcDiagnosticsDoNotLogPublicationBodyValues(String level) throws Exception {
+    void springMvcDiagnosticsDoNotLogPublicationRequestOrAcknowledgementValues(String level) throws Exception {
         var author = author("QUIZ_UPDATE");
-        var draft = draft(author, 1);
+        var draft = draft(author, 2);
         var key = UUID.randomUUID();
         var command = publicationCommand(key, 0, draft.questions());
         String invalidUuid = "PRIVATE_PUBLICATION_UUID";
@@ -191,11 +191,19 @@ class QuizPublicationHttpMySqlIntegrationTest {
                     .as("MVC recorded both argument failures").isEqualTo(2);
             var diagnostics = captured.list.stream().map(event -> event.getFormattedMessage() +
                     (event.getThrowableProxy() == null ? "" : ThrowableProxyUtil.asString(event.getThrowableProxy()))).toList();
-            for (String forbidden : List.of(key.toString(), draft.questions().get(0).toString(), invalidUuid,
-                    Long.toString(invalidVersion), "commandId=", "questionOrder=", "expectedPublicationVersion=")) {
-                assertThat(diagnostics.stream().noneMatch(message -> message.contains(forbidden)))
-                        .as("MVC diagnostics do not expose publication request fields").isTrue();
-            }
+            var forbidden = new ArrayList<>(List.of(key.toString(), invalidUuid, Long.toString(invalidVersion),
+                    "commandId=", "questionOrder=", "expectedPublicationVersion="));
+            draft.questions().forEach(id -> forbidden.add(id.toString()));
+            assertThat(diagnostics.stream().noneMatch(message -> forbidden.stream().anyMatch(message::contains)))
+                    .as("MVC diagnostics do not expose publication request fields").isTrue();
+
+            var publishedIds = new ArrayList<String>();
+            ack.required("questionRevisionIds").forEach(id -> publishedIds.add(id.asText()));
+            assertThat(diagnostics.stream().noneMatch(message -> publishedIds.stream().anyMatch(message::contains)))
+                    .as("MVC diagnostics do not expose the published question revision IDs returned in JSON").isTrue();
+            assertThat(captured.list.stream().anyMatch(event -> event.getLoggerName().endsWith(".HttpEntityMethodProcessor")
+                            && event.getFormattedMessage().contains("Writing [QuizRevisionPublicationResponse")))
+                    .as("MVC logged a diagnostic while writing the acknowledgement").isTrue();
         } finally {
             for (int i = 0; i < loggers.size(); i++) {
                 var logger = loggers.get(i);

@@ -20,6 +20,11 @@ public record QuizRevisionPublicationResponse(
                 schema = @Schema(type = "string", format = "uuid"))
         List<UUID> questionRevisionIds) {
 
+    @Override
+    public String toString() {
+        return "QuizRevisionPublicationResponse[redacted]";
+    }
+
     public static QuizRevisionPublicationResponse from(QuizPublication.Result result) {
         var publication = result.publication();
         var revision = publication.revision();

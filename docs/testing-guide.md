@@ -16,8 +16,9 @@ after replacement, rollback after the receipt write and reconciliation after a c
 lost. It exercises legacy draft edit, moderation and training on the same quiz. The acknowledgement
 projection is measured using actual statements, rows and bytes at two quiz sizes.
 Trailing JSON is rejected without writing a revision, pointer or receipt. The same command with
-trailing whitespace publishes successfully. MVC diagnostics at DEBUG and TRACE record a redacted
-request and content-free validation errors for malformed UUIDs and invalid versions.
+trailing whitespace publishes successfully. MVC diagnostics at DEBUG and TRACE record redacted
+request and acknowledgement representations and content-free validation errors. The log assertions
+use the draft UUIDs and the distinct published question revision UUIDs returned in JSON.
 `QuizPublicationMySqlIntegrationTest` continues to cover the #700 storage contract and retained images.
 
 Run the scoped suites on JDK 17 with the disposable MySQL and offline provider setup described below,
