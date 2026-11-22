@@ -77,6 +77,24 @@ public class JdbcLearningScheduleRepository implements LearningScheduleRepositor
                 new uk.gegc.quizmaker.features.learning.domain.model.LearningScheduleException(CORRUPT)));
     }
 
+    @Override public Optional<ActiveCycle> readCycle(Key key) {
+        return safe(() -> jdbc.query("""
+                SELECT s.active_cycle_id,s.cycle_version,c.id,c.strategy_id
+                FROM learning_schedule_slot s
+                LEFT JOIN learning_schedule_cycle c ON c.id=s.active_cycle_id
+                    AND c.learner_id=s.learner_id AND c.quiz_id=s.quiz_id
+                    AND c.quiz_revision_id=s.quiz_revision_id AND c.question_revision_id=s.question_revision_id
+                    AND c.cycle_version=s.cycle_version
+                WHERE s.learner_id=:learner AND s.quiz_id=:quiz AND s.quiz_revision_id=:revision
+                    AND s.question_revision_id=:question
+                FOR SHARE OF s
+                """, parameters(key), (row, index) -> {
+            require(row.getBytes("active_cycle_id") != null && row.getBytes("id") != null
+                    && row.getLong("cycle_version") > 0, CORRUPT);
+            return new ActiveCycle(uuid(row,"id"),row.getLong("cycle_version"),row.getString("strategy_id"));
+        }).stream().findFirst());
+    }
+
     @Override public Optional<ActiveCycle> lockCycle(Key key) {
         return safe(() -> {
             UUID seed = UUID.randomUUID();
