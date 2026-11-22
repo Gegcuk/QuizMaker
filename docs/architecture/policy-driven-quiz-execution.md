@@ -5972,6 +5972,51 @@ exporter, dashboards and thresholds remains an activation-time operational decis
 
 A switch uses an expected current cycle/version; old committed review receipts stay attached to their historical cycle and cannot advance the replacement. Finish captured active sessions before switching as already approved. Timezone preview confirmation in #840 compares the preview's cycle/schedule version; a review committed since preview requires a fresh preview. Nested membership in #841 rejects self/ancestor cycles even under concurrent edits; bounded paging alone does not bound graph traversal.
 
+### Private plan and cycle management (#839)
+
+The opt-in management boundary under `/api/v1/learning/plans`, `/plan-bindings` and
+`/plan-cycles` implements Q96/Q101–Q106 without a custom review writer. Both
+`quizmaker.learning.sessions-enabled=true` and `quizmaker.learning.custom-plans-enabled=true`
+are required; the new flag has no enabled default. It does not activate custom progression.
+The existing FSRS-only session/due readers continue to reject an active `custom/v1` cycle.
+#840 must provide the real mixed-strategy review integration before that capability is exposed.
+
+Plans belong to the server-resolved active account. Source bindings and cycle operations also
+require current author authority over the exact retained publication under #692, including replay.
+No caller-supplied owner or tenant is accepted. Plans are private reusable settings, not grants to
+content. There are no shared templates, new daily quotas, reminders or assessment writes.
+
+V125 separates the mutable head counter (including pause changes) from immutable configuration
+versions. A quiz default follows the chosen plan head when a question is newly enrolled; a question
+override pins its explicit version. Existing cycles keep their captured version/due. Clearing a
+binding retains its optimistic counter. Applying changed settings uses a confirmed new cycle;
+merely editing or binding settings never enrolls or reschedules an item. Minute/hour duration
+values need whole-minute precision; integer day values preserve calendar semantics. Calendar
+settings require an explicit timezone/local time. No example local time becomes a default.
+
+Cycle changes reuse #649's locked strategy-neutral slot and expected cycle/version/sequence.
+Custom switch/restart confirmation also names the exact target plan/version. If the current
+default or override no longer resolves to that target, reject without changing the cycle.
+An active session capture blocks replacement. Switching back creates real FSRS state and its
+original creation receipt, so the existing reader can verify it. History remains retained and an
+old accepted command replays its original acknowledgement without advancing the replacement.
+Custom initialization captures immediate availability, stage/sequence zero and the exact plan
+version; #840 owns later progression/completion. Restart of a completed custom snapshot is a
+management consumer contract, not evidence of a completed real custom review.
+
+Pause affects active custom items across the private plan's versions, preserving stage/due.
+Enrollment while paused captures settings but remains excluded from due/upcoming selection.
+Resume shows each overdue item once. ALL metadata reads include paused/completed active cycles;
+DUE/UPCOMING exclude them and order by UTC due instant plus unsigned question UUID. Required page
+sizes use the existing configured Learning batch bound; missing configuration fails closed.
+
+Every new mutation shares D33 admission and saves one exact-input acknowledgement atomically with
+its state. Rejections and reached failures roll back credit and writes; response loss is reconciled
+with the original command ID. Compatible outer writable RC owns commit/rollback; incompatible,
+unknown and read-only callers reject before identity/domain SQL. Strict bounded JSON rejects
+trailing documents, duplicates, unknown fields and scalar coercions before dispatch. DTO logging
+is redacted, responses are `no-store`, and metrics contain only operation/outcome/version.
+
 <a id="custom-learning-intervals"></a>
 ### User-defined repetition intervals — Q94–Q114 APPROVED
 

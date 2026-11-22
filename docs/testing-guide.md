@@ -2,6 +2,45 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Private Learning plans and cycles (#839)
+
+Run `LearningPlanTest`, `LearningPlanOpenApiTest` and `LearningPlanMySqlIntegrationTest` with
+JDK 17 and the existing isolated MySQL/offline launcher. The MVC suite verifies the named
+schemas, schema-valid creation example, authentication, sanitized errors, strict whole-body
+parsing, no-store responses, unique Learning group and API-summary discovery. Both capability
+flags are required. The new suites retain the existing four-worker inventory and scheduling.
+
+The MySQL suite uses real plan, binding, shared-cycle, FSRS receipt and command-budget writers.
+Committed immutable/publication fixtures supply the source facts; the real #692 author checker
+verifies current ownership and permission. Those fixtures do not prove #700 publication.
+
+- CUSTOM_CONFIG-01/02: new default enrollment captures v2 while old cycles and pinned overrides
+  keep v1/due; 1/100 interval bounds, equal stages, invalid/decreasing/fractional values and units.
+- CUSTOM_CONFIG-03/CYCLE-CAS: a reached shared-slot/receipt transaction blocks a competing switch
+  in MySQL; one commits and the stale request conflicts. Real form materialization and capture
+  block replacement. The separately named completion-contract fixture permits canonical release;
+  it does not replace #650's end-to-end completion proof.
+  A plan edit between target choice and confirmation conflicts instead of silently capturing
+  the newer version; a fresh explicit confirmation can then succeed.
+- CUSTOM_CONFIG-04: pause for a month, stable due pages, paused enrollment and resume preserve
+  one item per question and original stage/due without review writes.
+- Reached custom-state, version and receipt failures roll back through fresh transactions, including
+  command credit and a caught failure in outer RC. A lost commit acknowledgement survives service
+  reconstruction and exact replay. Incompatible/read-only callers reject before domain SQL.
+- Wrong plan owner is denied through an otherwise authorized source; foreign source, permission
+  revocation, account deactivation and missing identity deny without forbidden writes. Exact
+  replay rechecks source authority. Exhaustion spends no additional credit on replay.
+- List tests compare real SELECT/row counts across multiple plan parents and custom question
+  cycles: two SELECTs (including account lookup) for one/three plans return two/four total rows.
+  Three question cycles bound to three different plans use one CTE with three SQL candidates
+  for a two-item output page. No JPA relationship path is introduced. Reads select bounded configuration/metadata,
+  not question or document bodies; a limited page does not claim constant source-scan cost.
+
+A completed custom-state fixture tests only #839's restart consumer. Actual custom review,
+calendar/DST transitions and durable completion remain #840 activation gates. The unchanged
+FSRS conformance and publication suites must still pass before the full four-worker clean verify.
+Do not enable a custom session or interpret this fixture as that integration evidence.
+
 ## Author publication HTTP command (#935)
 
 `QuizOpenApiContractTest` exercises the request example through MVC and checks the acknowledgement
