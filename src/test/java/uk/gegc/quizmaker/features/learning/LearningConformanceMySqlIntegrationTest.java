@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrint;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -31,7 +32,18 @@ import org.springframework.security.test.context.TestSecurityContextHolder;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import uk.gegc.quizmaker.features.attempt.application.AttemptDeliveryService;
+import uk.gegc.quizmaker.features.attempt.application.AttemptStartService;
+import uk.gegc.quizmaker.features.attempt.application.AttemptSubmissionService;
+import uk.gegc.quizmaker.features.attempt.application.ResponseAcceptanceService;
+import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy;
+import uk.gegc.quizmaker.features.attempt.domain.model.preset.BuiltInPracticePreset;
+import uk.gegc.quizmaker.features.attempt.domain.model.preset.LegacyPracticeRequest;
+import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt;
+import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelection;
 import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
+import uk.gegc.quizmaker.features.result.application.AutomaticResultService;
+import uk.gegc.quizmaker.features.result.application.ImmediateResultReleaseService;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
@@ -76,6 +88,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
+import org.assertj.core.api.AbstractStringAssert;
+import org.assertj.core.api.ListAssert;
+import org.assertj.core.presentation.Representation;
+import org.assertj.core.presentation.StandardRepresentation;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -90,7 +107,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  */
 @Tag("db-serial")
 @SpringBootTest
-@AutoConfigureMockMvc
+@AutoConfigureMockMvc(print = MockMvcPrint.NONE)
 @ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @TestExecutionListeners(listeners = LearningConformanceMySqlIntegrationTest.SchemaCleanup.class,
@@ -99,7 +116,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
         "spring.flyway.enabled=true",
         "spring.jpa.hibernate.ddl-auto=validate",
         "quizmaker.learning.sessions-enabled=true",
-        "quizmaker.learning.due.max-batch-size=20"
+        "quizmaker.learning.due.max-batch-size=20",
+        // These existing loggers print request URIs and quiz IDs; this suite's diagnostics stay ID-free.
+        "logging.level.uk.gegc.quizmaker.features.auth.infra.security.JwtAuthenticationFilter=ERROR",
+        "logging.level.uk.gegc.quizmaker.features.result.application.impl.QuizAnalyticsServiceImpl=WARN"
 })
 class LearningConformanceMySqlIntegrationTest {
     private static final String CATALOG = "learning_conformance_" + UUID.randomUUID().toString().replace("-", "");
@@ -159,6 +179,12 @@ class LearningConformanceMySqlIntegrationTest {
     @Autowired QuizRevisionPublicationService publications;
     @Autowired AuthSessionService authSessions;
     @Autowired MeterRegistry metrics;
+    @Autowired AttemptStartService attemptStarts;
+    @Autowired AttemptDeliveryService attemptDelivery;
+    @Autowired ResponseAcceptanceService attemptResponses;
+    @Autowired AttemptSubmissionService attemptSubmissions;
+    @Autowired AutomaticResultService automaticResults;
+    @Autowired ImmediateResultReleaseService resultReleases;
     TransactionTemplate tx;
     Instant now;
 
@@ -195,10 +221,10 @@ class LearningConformanceMySqlIntegrationTest {
                 () -> enroll(anna, biology, enrollment, biology.questions()));
         assertThat(raced).allSatisfy(result -> assertThat(result.getResponse().getStatus()).isEqualTo(200));
         String enrolled = raced.get(0).getResponse().getContentAsString();
-        assertThat(raced.get(1).getResponse().getContentAsString()).isEqualTo(enrolled);
+        assertRedacted(raced.get(1).getResponse().getContentAsString()).isEqualTo(enrolled);
         JsonNode cycles = json.readTree(enrolled).path("items");
-        assertThat(cycles).hasSize(3);
-        assertThat(textValues(cycles, "questionRevisionId")).containsExactlyElementsOf(strings(biology.questions()));
+        assertThat(cycles).withRepresentation(REDACTED).hasSize(3);
+        assertRedacted(textValues(cycles, "questionRevisionId")).containsExactlyElementsOf(strings(biology.questions()));
         assertThat(count("learning_enrollment")).isOne();
         assertThat(count("learning_schedule_cycle")).isEqualTo(3);
         assertThat(count("learning_schedule_slot")).isEqualTo(3);
@@ -207,7 +233,7 @@ class LearningConformanceMySqlIntegrationTest {
 
         // A second device enrolling the same questions reuses the same active cycles.
         String again = body(perform(enroll(anna, biology, UUID.randomUUID(), biology.questions())).andReturn(), 200);
-        assertThat(textValues(json.readTree(again).path("items"), "cycleId")).containsExactlyElementsOf(textValues(cycles, "cycleId"));
+        assertRedacted(textValues(json.readTree(again).path("items"), "cycleId")).containsExactlyElementsOf(textValues(cycles, "cycleId"));
         assertThat(count("learning_schedule_cycle")).isEqualTo(3);
         assertThat(count("learning_enrollment")).isEqualTo(2);
 
@@ -215,12 +241,12 @@ class LearningConformanceMySqlIntegrationTest {
         String started = body(perform(start(anna, biology, startCommand, 20, null, null)).andReturn(), 200);
         JsonNode form = json.readTree(started);
         assertThat(form.path("outcome").asText()).isEqualTo("READY");
-        assertThat(form.path("items")).hasSize(3);
-        assertThat(textValues(form.path("items"), "questionRevisionId")).containsExactlyInAnyOrderElementsOf(strings(biology.questions()));
-        assertThat(started).doesNotContain("\"correct\"", "\"explanation\"", "\"hint\"", anna.id().toString(), anna.name());
+        assertThat(form.path("items")).withRepresentation(REDACTED).hasSize(3);
+        assertRedacted(textValues(form.path("items"), "questionRevisionId")).containsExactlyInAnyOrderElementsOf(strings(biology.questions()));
+        assertRedacted(started).doesNotContain("\"correct\"", "\"explanation\"", "\"hint\"", anna.id().toString(), anna.name());
         UUID session = UUID.fromString(form.path("sessionId").asText());
-        assertThat(body(perform(resume(anna, session)).andReturn(), 200)).isEqualTo(started);
-        assertThat(body(perform(start(anna, biology, startCommand, 20, null, null)).andReturn(), 200)).isEqualTo(started);
+        assertRedacted(body(perform(resume(anna, session)).andReturn(), 200)).isEqualTo(started);
+        assertRedacted(body(perform(start(anna, biology, startCommand, 20, null, null)).andReturn(), 200)).isEqualTo(started);
 
         List<String> ratings = List.of("GOOD", "AGAIN", "EASY");
         List<Instant> expectedDue = List.of(now.plusSeconds(600), now.plusSeconds(60), now.plus(16, ChronoUnit.DAYS));
@@ -239,18 +265,18 @@ class LearningConformanceMySqlIntegrationTest {
             if (position == 0) {
                 firstAcknowledgement = acknowledgement;
                 // The response was lost: the same command returns the original acknowledgement without a second review.
-                assertThat(body(perform(respond(anna, session, command, 1, item.path("sourceItemId").asText(),
+                assertRedacted(body(perform(respond(anna, session, command, 1, item.path("sourceItemId").asText(),
                         "GOOD", true)).andReturn(), 200)).isEqualTo(acknowledgement);
                 assertThat(count("learning_review_event")).isOne();
             }
         }
-        assertThat(body(perform(respond(anna, session, firstCommand, 1,
+        assertRedacted(body(perform(respond(anna, session, firstCommand, 1,
                 form.path("items").get(0).path("sourceItemId").asText(), "GOOD", true)).andReturn(), 200))
                 .isEqualTo(firstAcknowledgement);
         JsonNode completed = json.readTree(body(perform(resume(anna, session)).andReturn(), 200));
         assertThat(completed.path("completed").asBoolean()).isTrue();
         assertThat(completed.path("reviewedItems").asInt()).isEqualTo(3);
-        assertThat(completed.path("allowedActions")).hasSize(1);
+        assertThat(completed.path("allowedActions")).withRepresentation(REDACTED).hasSize(1);
         assertThat(count("learning_review_event")).isEqualTo(3);
         assertThat(count("learning_session_response")).isEqualTo(3);
         assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_cycle_session WHERE released=1", Integer.class)).isEqualTo(3);
@@ -261,7 +287,7 @@ class LearningConformanceMySqlIntegrationTest {
         // Nothing is due at the same instant; this is an explicit empty session, not an error.
         JsonNode empty = json.readTree(body(perform(start(anna, biology, UUID.randomUUID(), 20, null, null)).andReturn(), 200));
         assertThat(empty.path("outcome").asText()).isEqualTo("EMPTY_COMPLETE");
-        assertThat(empty.path("items")).isEmpty();
+        assertThat(empty.path("items")).withRepresentation(REDACTED).isEmpty();
         assertThat(credit(anna)).isEqualTo(13 * TOKEN);
 
         // Sixty seconds later only the question rated AGAIN is due.
@@ -269,7 +295,7 @@ class LearningConformanceMySqlIntegrationTest {
         String goodQuestion = form.path("items").get(0).path("questionRevisionId").asText();
         CLOCK.set(now.plusSeconds(60));
         JsonNode second = json.readTree(body(perform(start(anna, biology, UUID.randomUUID(), 20, null, null)).andReturn(), 200));
-        assertThat(textValues(second.path("items"), "questionRevisionId")).containsExactly(againQuestion);
+        assertRedacted(textValues(second.path("items"), "questionRevisionId")).containsExactly(againQuestion);
         JsonNode secondAck = json.readTree(body(perform(respond(anna, UUID.fromString(second.path("sessionId").asText()),
                 UUID.randomUUID(), 1, second.path("items").get(0).path("sourceItemId").asText(), "GOOD", true)).andReturn(), 200));
         assertThat(Instant.parse(secondAck.path("nextDueAt").asText())).isAfter(now.plusSeconds(60));
@@ -314,7 +340,8 @@ class LearningConformanceMySqlIntegrationTest {
                 chemistry.quizId().toString()));
         // Positive control through the same routes.
         body(perform(enroll(anna, biology, UUID.randomUUID(), biology.questions())).andReturn(), 200);
-        String started = body(perform(start(anna, biology, UUID.randomUUID(), 20, null, null)).andReturn(), 200);
+        UUID startCommand = UUID.randomUUID();
+        String started = body(perform(start(anna, biology, startCommand, 20, null, null)).andReturn(), 200);
         JsonNode form = json.readTree(started);
         UUID session = UUID.fromString(form.path("sessionId").asText());
         String item = form.path("items").get(0).path("sourceItemId").asText();
@@ -376,25 +403,34 @@ class LearningConformanceMySqlIntegrationTest {
         assertThat(learningChecksums()).isEqualTo(learning);
         assertThat(credit(anna)).isEqualTo(annaCredit);
 
-        // FSRS-04: an unknown retained strategy is an explicit error, not a fallback.
+        // FSRS-04: damaged retained schedule evidence is an explicit error on read and on review, with no fallback.
         String cycle = sql.queryForObject("SELECT BIN_TO_UUID(id) FROM learning_schedule_cycle WHERE learner_id=UUID_TO_BIN(?)",
                 String.class, anna.id().toString());
-        tx.executeWithoutResult(status -> sql.update("UPDATE learning_schedule_cycle SET strategy_id='fsrs/v99' WHERE id=UUID_TO_BIN(?)", cycle));
-        assertThat(body(perform(resume(anna, session)).andReturn(), 200)).isEqualTo(started);
-        assertProblem(perform(respond(anna, session, UUID.randomUUID(), 1, item, "GOOD", true)).andReturn(),
-                422, ErrorTypes.INVALID_ARGUMENT);
-        tx.executeWithoutResult(status -> sql.update("UPDATE learning_schedule_cycle SET strategy_id='fsrs/v1' WHERE id=UUID_TO_BIN(?)", cycle));
-        assertThat(learningChecksums()).isEqualTo(learning);
-
-        // A changed saved FSRS parameter is not silently replaced by the current library defaults.
         String original = sql.queryForObject("SELECT state FROM learning_fsrs_state WHERE cycle_id=UUID_TO_BIN(?)", String.class, cycle);
-        assertThat(original).contains("0.2172");
-        tx.executeWithoutResult(status -> assertThat(sql.update("UPDATE learning_fsrs_state SET state=? WHERE cycle_id=UUID_TO_BIN(?)",
-                original.replaceFirst("0\\.2172", "0.3172"), cycle)).isOne());
-        MvcResult corrupt = perform(respond(anna, session, UUID.randomUUID(), 1, item, "GOOD", true)).andReturn();
-        assertProblem(corrupt, 422, ErrorTypes.INVALID_ARGUMENT);
-        tx.executeWithoutResult(status -> sql.update("UPDATE learning_fsrs_state SET state=? WHERE cycle_id=UUID_TO_BIN(?)", original, cycle));
-        assertThat(learningChecksums()).isEqualTo(learning);
+        assertRedacted(original).contains("0.2172");
+        Map<String, String[]> damages = new LinkedHashMap<>();
+        damages.put("unknown strategy", new String[] {"UPDATE learning_schedule_cycle SET strategy_id='fsrs/v99' WHERE id=UUID_TO_BIN(?)",
+                "UPDATE learning_schedule_cycle SET strategy_id='fsrs/v1' WHERE id=UUID_TO_BIN(?)"});
+        damages.put("changed FSRS weight", new String[] {"UPDATE learning_fsrs_state SET state=REPLACE(state,'0.2172','0.3172') WHERE cycle_id=UUID_TO_BIN(?)",
+                "UPDATE learning_fsrs_state SET state=REPLACE(state,'0.3172','0.2172') WHERE cycle_id=UUID_TO_BIN(?)"});
+        for (var damage : damages.entrySet()) {
+            tx.executeWithoutResult(status -> assertThat(sql.update(damage.getValue()[0], cycle)).as(damage.getKey()).isOne());
+            Map<String, Long> damaged = learningChecksums();
+            assertThat(damaged).as(damage.getKey()).isNotEqualTo(learning);
+            // The active view no longer offers RESPOND for an item that cannot be reviewed.
+            assertProblem(perform(resume(anna, session)).andReturn(), 422, ErrorTypes.INVALID_ARGUMENT);
+            assertProblem(perform(respond(anna, session, UUID.randomUUID(), 1, item, "GOOD", true)).andReturn(),
+                    422, ErrorTypes.INVALID_ARGUMENT);
+            // An exact start retry remains the original acknowledgement of the accepted command.
+            assertRedacted(body(perform(start(anna, biology, startCommand, 20, null, null)).andReturn(), 200)).isEqualTo(started);
+            // Compared before the fixture is restored: no event, progress, credit or self-repair.
+            assertThat(learningChecksums()).as(damage.getKey()).isEqualTo(damaged);
+            tx.executeWithoutResult(status -> assertThat(sql.update(damage.getValue()[1], cycle)).as(damage.getKey()).isOne());
+            assertThat(learningChecksums()).as(damage.getKey()).isEqualTo(learning);
+            assertRedacted(body(perform(resume(anna, session)).andReturn(), 200)).isEqualTo(started);
+        }
+        assertThat(sql.queryForObject("SELECT state FROM learning_fsrs_state WHERE cycle_id=UUID_TO_BIN(?)", String.class, cycle))
+                .isEqualTo(original);
         assertThat(credit(anna)).isEqualTo(annaCredit);
 
         JsonNode accepted = json.readTree(body(perform(respond(anna, session, UUID.randomUUID(), 1, item, "GOOD", true)).andReturn(), 200));
@@ -403,6 +439,16 @@ class LearningConformanceMySqlIntegrationTest {
         assertThat(credit(anna)).isEqualTo(annaCredit - TOKEN);
         assertThat(budgetRows(boris)).isZero();
         assertThat(budgetRows(clara)).isZero();
+
+        // A completed session stays readable as history even if its retained schedule is later damaged.
+        String history = body(perform(resume(anna, session)).andReturn(), 200);
+        assertThat(json.readTree(history).path("completed").asBoolean()).isTrue();
+        tx.executeWithoutResult(status -> sql.update(damages.get("unknown strategy")[0], cycle));
+        try {
+            assertRedacted(body(perform(resume(anna, session)).andReturn(), 200)).isEqualTo(history);
+        } finally {
+            tx.executeWithoutResult(status -> sql.update(damages.get("unknown strategy")[1], cycle));
+        }
     }
 
     @Test
@@ -428,7 +474,7 @@ class LearningConformanceMySqlIntegrationTest {
         assertThat(learningChecksums()).isEqualTo(learning);
         assertThat(count("learning_session")).isEqualTo(20);
         // An exact retry of an accepted command is not a new command.
-        assertThat(body(perform(start(dana, botany, first, 1, null, null)).andReturn(), 200)).isEqualTo(firstStart);
+        assertRedacted(body(perform(start(dana, botany, first, 1, null, null)).andReturn(), 200)).isEqualTo(firstStart);
         assertThat(credit(dana)).isZero();
 
         CLOCK.set(now.plusSeconds(1));
@@ -438,8 +484,8 @@ class LearningConformanceMySqlIntegrationTest {
     }
 
     @Test
-    void ordinaryTrainingAndLegacyRepetitionStayIndependentOfLearningState() throws Exception {
-        Persona anna = persona("anna", "QUIZ_UPDATE");
+    void ordinaryTrainingFormalResultsAllowanceAndReportsStayUnchangedByLearning() throws Exception {
+        Persona anna = persona("anna", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
         Source biology = publishedQuiz(anna, "Cells have a membrane", "Mitochondria store DNA");
         body(perform(enroll(anna, biology, UUID.randomUUID(), biology.questions())).andReturn(), 200);
         JsonNode form = json.readTree(body(perform(start(anna, biology, UUID.randomUUID(), 20, null, null)).andReturn(), 200));
@@ -455,7 +501,8 @@ class LearningConformanceMySqlIntegrationTest {
         JsonNode attempt = json.readTree(started);
         assertThat(attempt.size()).isEqualTo(6);
         assertThat(attempt.path("totalQuestions").asInt()).isEqualTo(2);
-        String path = "/api/v1/attempts/" + attempt.path("attemptId").asText();
+        String legacyAttempt = attempt.path("attemptId").asText();
+        String path = "/api/v1/attempts/" + legacyAttempt;
         ObjectNode answer = json.createObjectNode().put("questionId", biology.authored().get(0).toString());
         answer.set("response", QuestionContracts.example(QuestionType.TRUE_FALSE, QuestionContracts.View.RESPONSE));
         JsonNode feedback = json.readTree(body(perform(authorized(post(path + "/answers"), anna)
@@ -465,18 +512,98 @@ class LearningConformanceMySqlIntegrationTest {
         assertThat(feedback.path("correctAnswerAvailability").asText()).isEqualTo("NOT_INCLUDED");
         JsonNode result = json.readTree(body(perform(authorized(post(path + "/complete"), anna)).andReturn(), 200));
         assertThat(result.path("correctCount").asInt()).isEqualTo(1);
+        assertThat(result.path("totalScore").asDouble()).isEqualTo(1.0);
+        awaitAnalyticsSnapshot(biology);
         JsonNode due = json.readTree(body(perform(authorized(get("/api/v1/repetition/due"), anna)).andReturn(), 200));
-        assertThat(due.path("content")).isEmpty();
+        assertThat(due.path("content")).withRepresentation(REDACTED).isEmpty();
 
-        // Ordinary practice and its formal result did not touch Learning, and Learning created no repetition entries.
+        // A formal policy result through the real v2 start, response and submission writers, with a finite allowance.
+        UUID formal = formalAttempt(anna, biology, 3);
+        Map<String, Object> earned = sql.queryForMap("""
+                SELECT earned_points, possible_points FROM attempt_automatic_result WHERE attempt_id=UUID_TO_BIN(?)
+                """, formal.toString());
+        assertThat(((Number) earned.get("earned_points")).longValue()).isPositive();
+        Map<String, Object> allowance = sql.queryForMap("""
+                SELECT maximum_attempts, JSON_LENGTH(start_ids) AS used FROM attempt_allowance_scope
+                WHERE user_id=UUID_TO_BIN(?) AND revision_id=UUID_TO_BIN(?)
+                """, anna.id().toString(), biology.revisionId().toString());
+        assertThat(((Number) allowance.get("maximum_attempts")).longValue()).isEqualTo(3);
+        assertThat(((Number) allowance.get("used")).intValue()).isOne();
+        assertThat(sql.queryForObject("""
+                SELECT COUNT(*) FROM attempt_result_release r JOIN attempt_automatic_result a ON a.id=r.result_id
+                WHERE a.attempt_id=UUID_TO_BIN(?)
+                """, Integer.class, formal.toString())).isOne();
+
+        // Ordinary practice and formal results did not touch Learning, and Learning created no repetition entries.
         assertThat(learningChecksums()).isEqualTo(learning);
-        assertThat(body(perform(resume(anna, session)).andReturn(), 200)).isEqualTo(openSession);
+        assertRedacted(body(perform(resume(anna, session)).andReturn(), 200)).isEqualTo(openSession);
         for (String table : List.of("spaced_repetition_entry", "repetition_review_log")) assertThat(count(table)).as(table).isZero();
-        JsonNode finished = json.readTree(body(perform(respond(anna, session, UUID.randomUUID(), 2,
-                form.path("items").get(1).path("sourceItemId").asText(), "GOOD", true)).andReturn(), 200));
-        assertThat(finished.path("completed").asBoolean()).isTrue();
-        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempts WHERE quiz_id=UUID_TO_BIN(?)", Integer.class,
-                biology.quizId().toString())).isOne();
+
+        // Earned results and reports read before the final Learning answer...
+        List<MockHttpServletRequestBuilder> reports = List.of(
+                authorized(get(path + "/review"), anna),
+                authorized(get("/api/v1/quizzes/{quiz}/results", biology.quizId()), anna),
+                authorized(get("/api/v1/quizzes/{quiz}/attempts/{attempt}/stats", biology.quizId(), legacyAttempt), anna));
+        List<String> reportBodies = new ArrayList<>();
+        for (var report : reports) reportBodies.add(body(perform(report).andReturn(), 200));
+        assertThat(json.readTree(reportBodies.get(1)).path("attemptsCount").asInt()).isOne();
+        Map<String, Long> outside = checksumsOutsideLearning();
+
+        // ...remain identical after the answer that completes Learning and after its exact replay.
+        UUID last = UUID.randomUUID();
+        String finished = body(perform(respond(anna, session, last, 2,
+                form.path("items").get(1).path("sourceItemId").asText(), "GOOD", true)).andReturn(), 200);
+        assertThat(json.readTree(finished).path("completed").asBoolean()).isTrue();
+        assertRedacted(body(perform(respond(anna, session, last, 2,
+                form.path("items").get(1).path("sourceItemId").asText(), "GOOD", true)).andReturn(), 200)).isEqualTo(finished);
+        assertThat(changed(outside, checksumsOutsideLearning())).isEmpty();
+        for (int index = 0; index < reports.size(); index++) {
+            assertRedacted(body(perform(reports.get(index)).andReturn(), 200)).isEqualTo(reportBodies.get(index));
+        }
+        assertThat(sql.queryForMap("SELECT earned_points, possible_points FROM attempt_automatic_result WHERE attempt_id=UUID_TO_BIN(?)",
+                formal.toString())).isEqualTo(earned);
+        assertThat(sql.queryForMap("""
+                SELECT maximum_attempts, JSON_LENGTH(start_ids) AS used FROM attempt_allowance_scope
+                WHERE user_id=UUID_TO_BIN(?) AND revision_id=UUID_TO_BIN(?)
+                """, anna.id().toString(), biology.revisionId().toString())).isEqualTo(allowance);
+    }
+
+    /** Real v2 writers: finite owner-configured allowance, every item accepted, submission, result and release. */
+    private UUID formalAttempt(Persona author, Source source, long maximumAttempts) {
+        return asPrincipal(author, () -> {
+            var content = new ResolvedAttemptPolicy.ContentPolicy(source.revisionId(), source.schemaVersion(),
+                    ResolvedAttemptPolicy.FormMode.PRECOMPUTED, ResolvedAttemptPolicy.SectionMode.IMPLICIT_FLAT,
+                    ResolvedAttemptPolicy.CaseMode.NOT_CONFIGURED);
+            var start = attemptStarts.start(new AttemptStartService.Command(1, source.quizId(), content, 1,
+                    CommandReceipt.Key.from("formal-" + UUID.randomUUID()), BuiltInPracticePreset.REFERENCE,
+                    LegacyPracticeRequest.LaunchContext.ORDINARY, "ALL_AT_ONCE", ResolvedAttemptPolicy.AnswerOrder.AUTHORED,
+                    false, new ResolvedAttemptPolicy.NavigationPolicy(ResolvedAttemptPolicy.NavigationMode.FREE),
+                    ResolvedAttemptPolicy.DeliveryMode.ALL_AT_ONCE, QuestionSelection.Configuration.all(),
+                    new ResolvedAttemptPolicy.AttemptLimitPolicy(ResolvedAttemptPolicy.AttemptLimitMode.FIXED_COUNT,
+                            maximumAttempts, Duration.ZERO)));
+            var items = attemptDelivery.read(start.attemptId()).form().items();
+            long version = start.stateVersion();
+            for (var item : items) {
+                version = attemptResponses.accept(new ResponseAcceptanceService.Command(start.attemptId(), item.id(), version,
+                        CommandReceipt.Key.from("formal-answer-" + UUID.randomUUID()), item.type(),
+                        json.createObjectNode().put("answer", true))).stateVersion();
+            }
+            var submitted = attemptSubmissions.submit(new AttemptSubmissionService.Command(start.attemptId(), version, true,
+                    CommandReceipt.Key.from("formal-submit-" + UUID.randomUUID())));
+            automaticResults.finalizeSubmission(submitted.submissionId());
+            resultReleases.release(submitted.submissionId());
+            return start.attemptId();
+        });
+    }
+
+    /** The legacy analytics snapshot is refreshed asynchronously after the completion commit. */
+    private void awaitAnalyticsSnapshot(Source source) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+        while (sql.queryForObject("SELECT COUNT(*) FROM quiz_analytics_snapshot WHERE quiz_id=UUID_TO_BIN(?)",
+                Integer.class, source.quizId().toString()) == 0) {
+            if (System.nanoTime() > deadline) throw new AssertionError("Legacy analytics snapshot was not refreshed");
+            Thread.sleep(25);
+        }
     }
 
     @Test
@@ -500,7 +627,7 @@ class LearningConformanceMySqlIntegrationTest {
         assertThat(revisionB.questions().get(index)).isNotEqualTo(revisionA.questions().get(index));
 
         JsonNode resumed = json.readTree(body(perform(resume(anna, session)).andReturn(), 200));
-        assertThat(resumed.path("items")).isEqualTo(form.path("items"));
+        assertThat(resumed.path("items")).withRepresentation(REDACTED).isEqualTo(form.path("items"));
         assertThat(resumed.path("items").get(1).path("questionText").asText()).isEqualTo(originalText);
         JsonNode completed = json.readTree(body(perform(respond(anna, session, UUID.randomUUID(), 2,
                 pending.path("sourceItemId").asText(), "GOOD", true)).andReturn(), 200));
@@ -512,12 +639,12 @@ class LearningConformanceMySqlIntegrationTest {
                 .andReturn(), 200));
         List<String> cyclesA = sql.queryForList("SELECT BIN_TO_UUID(id) FROM learning_schedule_cycle WHERE quiz_revision_id=UUID_TO_BIN(?)",
                 String.class, revisionA.revisionId().toString());
-        assertThat(cyclesA).hasSize(2).doesNotContainAnyElementsOf(textValues(enrolledB.path("items"), "cycleId"));
+        assertRedacted(cyclesA).hasSize(2).doesNotContainAnyElementsOf(textValues(enrolledB.path("items"), "cycleId"));
         for (UUID question : revisionB.questions()) assertThat(sequence(anna, revisionB, question.toString())).isZero();
         for (UUID question : revisionA.questions()) assertThat(sequence(anna, revisionA, question.toString())).isOne();
         JsonNode formB = json.readTree(body(perform(start(anna, revisionB, UUID.randomUUID(), 20, null, null)).andReturn(), 200));
-        assertThat(textValues(formB.path("items"), "questionRevisionId")).containsExactlyInAnyOrderElementsOf(strings(revisionB.questions()));
-        assertThat(textValues(formB.path("items"), "questionText")).contains("Edited after publication A");
+        assertRedacted(textValues(formB.path("items"), "questionRevisionId")).containsExactlyInAnyOrderElementsOf(strings(revisionB.questions()));
+        assertRedacted(textValues(formB.path("items"), "questionText")).contains("Edited after publication A");
         assertThat(count("learning_review_event")).isEqualTo(2);
     }
 
@@ -640,6 +767,15 @@ class LearningConformanceMySqlIntegrationTest {
         try { return work.get(); } finally { SecurityContextHolder.clearContext(); }
     }
 
+    /** Attempt writers resolve an authenticated UserDetails principal, as the JWT filter supplies. */
+    private <T> T asPrincipal(Persona persona, Supplier<T> work) {
+        var principal = org.springframework.security.core.userdetails.User.withUsername(persona.name())
+                .password("unused").authorities(List.of()).build();
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, List.of()));
+        try { return work.get(); } finally { SecurityContextHolder.clearContext(); }
+    }
+
     private ObjectNode sourceRef(Source source) {
         ObjectNode ref = json.createObjectNode();
         ref.put("kind", "QUIZ_REVISION").put("quizId", source.quizId().toString())
@@ -704,8 +840,30 @@ class LearningConformanceMySqlIntegrationTest {
     }
 
     private static String body(MvcResult result, int expectedStatus) throws Exception {
-        assertThat(result.getResponse().getStatus()).as(result.getResponse().getContentAsString()).isEqualTo(expectedStatus);
+        assertThat(result.getResponse().getStatus()).as(describe(result)).isEqualTo(expectedStatus);
         return result.getResponse().getContentAsString();
+    }
+
+    /** Failure diagnostics name the operation, status and problem type only; IDs and bodies stay out. */
+    private static String describe(MvcResult result) throws Exception {
+        String route = UUID_TEXT.matcher(result.getRequest().getRequestURI()).replaceAll("{id}");
+        var matcher = Pattern.compile("\"type\":\"([^\"]{1,120})\"").matcher(result.getResponse().getContentAsString());
+        return result.getRequest().getMethod() + " " + route + " -> " + result.getResponse().getStatus()
+                + (matcher.find() ? " " + matcher.group(1) : "");
+    }
+
+    private static final Representation REDACTED = new StandardRepresentation() {
+        @Override public String toStringOf(Object object) {
+            return UUID_TEXT.matcher(super.toStringOf(object)).replaceAll("<id>");
+        }
+    };
+
+    private static AbstractStringAssert<?> assertRedacted(String actual) {
+        return assertThat(actual).withRepresentation(REDACTED);
+    }
+
+    private static ListAssert<String> assertRedacted(List<String> actual) {
+        return assertThat(actual).withRepresentation(REDACTED);
     }
 
     /**
@@ -791,10 +949,13 @@ class LearningConformanceMySqlIntegrationTest {
 
     private static void assertProblem(MvcResult result, int status, java.net.URI type) throws Exception {
         String body = result.getResponse().getContentAsString();
-        assertThat(result.getResponse().getStatus()).as(body).isEqualTo(status);
-        assertThat(result.getResponse().getContentType()).startsWith("application/problem+json");
-        if (type != null) assertThat(body).contains("\"type\":\"" + type + "\"");
-        assertThat(body).doesNotContain("Exception", "SQL", "fsrs/v99", "0.3172", "at uk.gegc");
+        String operation = describe(result);
+        assertThat(result.getResponse().getStatus()).as(operation).isEqualTo(status);
+        assertThat(result.getResponse().getContentType()).as(operation).startsWith("application/problem+json");
+        if (type != null) assertThat(body.contains("\"type\":\"" + type + "\"")).as(operation + " expected " + type).isTrue();
+        for (String leaked : List.of("Exception", "SQL", "fsrs/v99", "0.3172", "at uk.gegc")) {
+            assertThat(body.contains(leaked)).as(operation + " exposes internal detail " + leaked).isFalse();
+        }
     }
 
     private List<String> tables(boolean learning) {

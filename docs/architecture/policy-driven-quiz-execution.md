@@ -5823,7 +5823,7 @@ The v1 source is `QUIZ_REVISION` and configuration is `fsrs/v1`, version 1.
 |---|---|
 | `POST /api/v1/learning/enrollments` | First enrollment calls the #701 binder for the entire publication. Only explicitly requested question revisions receive #649 enrollments. The receipt preserves their ordered revision, cycle and cycle-version references. |
 | `POST /api/v1/learning/sessions` | By default select up to the explicit limit in #576 due order and apply the saved quiz preference. With `limit: 1` and a `selection`, use one explicitly chosen enrolled question for `EARLY` or `PRACTICE`. Materialize the #647 form, capture each selected cycle and save the start receipt together in writable READ COMMITTED. An empty due selection commits an `EMPTY_COMPLETE` form. |
-| `GET /api/v1/learning/sessions/{sessionId}` | Check current source access and return the persisted form, ordered participant content, version, progress and next allowed response. |
+| `GET /api/v1/learning/sessions/{sessionId}` | Check current source access and return the persisted form, ordered participant content, version, progress and next allowed response. An active session whose next item has an unsupported or damaged retained schedule returns 422 instead of offering RESPOND (#667); completed and superseded sessions stay readable. |
 | `POST /api/v1/learning/sessions/{sessionId}/responses` | Accept a typed answer and self-rating for the next saved item. Advance FSRS once for due/early review; keep the schedule unchanged for extra practice. Save the original acknowledgement and complete when the last item is accepted. |
 
 An exact retry on the same mutation route and learner uses the original `commandId` and
@@ -5896,8 +5896,16 @@ pinned first-review intervals, lost-response replay, completion, an explicit emp
 next due item and explicit early review or extra practice. It also covers authentication, foreign
 source and session denials, unsupported strategy or source kinds, damaged retained FSRS evidence,
 D33 exhaustion and refill, ordinary v1 training on the same quiz, and revision B. Outside Learning
-tables, only the documented first-enrollment contract bindings change. The
+tables, only the documented first-enrollment contract bindings change. Existing v1 and v2 results,
+the v2 allowance and legacy reports stay identical after Learning completes. The
 [testing guide](../testing-guide.md#first-learning-conformance-667) maps each acceptance case.
+
+**Damaged retained schedule (owner decision, 22 November 2026).** An active session is shown only
+while its next item can still be reviewed. When the next item's retained strategy or saved FSRS
+evidence is unsupported, GET returns the same 422 as the response command, so the client never
+receives a RESPOND action that must fail. Completed and superseded sessions remain readable as
+history, and an exact start retry still returns the original acknowledgement. Nothing is repaired
+or replaced by library defaults.
 
 This is the first single-quiz FSRS gate only. NESTED-REVIEW-INTEGRATION still requires real #841,
 custom variants #839/#840 and optional mistake/unseen selection #648. They need their own added

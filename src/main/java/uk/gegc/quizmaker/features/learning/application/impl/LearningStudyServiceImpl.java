@@ -141,9 +141,22 @@ public class LearningStudyServiceImpl implements LearningStudyService {
         return execute("resume", () -> {
             var session = sessions.read(sessionId);
             var start = repository.start(session.id()).orElseThrow(() -> new LearningSessionException(UNAVAILABLE));
-            return new Observed<>(withProgress(readForm(session.id(), start), start.mode(),
-                    start.reviewedItems(), start.superseded()), "resumed");
+            var view = withProgress(readForm(session.id(), start), start.mode(), start.reviewedItems(), start.superseded());
+            if (view.progress().status() == LearningReview.Status.ACTIVE) verifyReviewable(session, view.form(), start.reviewedItems());
+            return new Observed<>(view, "resumed");
         });
+    }
+
+    /**
+     * An active view offers RESPOND only while the next item's retained schedule evidence is readable under
+     * the supported strategy and approved manifest, as the response command requires. Terminal sessions stay readable.
+     */
+    private void verifyReviewable(LearningSession session, LearningForm form, int position) {
+        var capture = repository.capture(session.id(), form.id(), position)
+                .orElseThrow(() -> new LearningSessionException(CORRUPT));
+        require(capture.questionRevisionId().equals(form.items().get(position).questionRevisionId()), CORRUPT);
+        require("fsrs/v1".equals(capture.strategy()), UNSUPPORTED_VERSION);
+        schedules.read(session.source(), capture.questionRevisionId());
     }
 
     @Override public LearningReview.Acknowledgement respond(LearningReview.Command command) {
