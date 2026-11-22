@@ -5979,6 +5979,8 @@ The opt-in management boundary under `/api/v1/learning/plans`, `/plan-bindings` 
 `quizmaker.learning.sessions-enabled=true` and `quizmaker.learning.custom-plans-enabled=true`
 are required; the new flag has no enabled default. It does not activate custom progression.
 The existing FSRS-only session/due readers continue to reject an active `custom/v1` cycle.
+For this learner, one custom item makes FSRS due selection for the entire captured quiz revision
+unavailable, even while other FSRS items remain valid and individually readable.
 #840 must provide the real mixed-strategy review integration before that capability is exposed.
 
 Plans belong to the server-resolved active account. Source bindings and cycle operations also
@@ -6016,6 +6018,16 @@ with the original command ID. Compatible outer writable RC owns commit/rollback;
 unknown and read-only callers reject before identity/domain SQL. Strict bounded JSON rejects
 trailing documents, duplicates, unknown fields and scalar coercions before dispatch. DTO logging
 is redacted, responses are `no-store`, and metrics contain only operation/outcome/version.
+Successful operation counters are emitted only after transaction completion: `success` after
+commit, `rolled_back` after rollback and `unknown` after uncertain completion. An outer RC caller
+does not publish success merely because the service returned provisionally.
+
+Single-cycle GET first reads the existing strategy-neutral slot under `FOR SHARE` and retains
+that shared scope through state projection. A concurrent strategy replacement therefore cannot
+mix a custom check with a later FSRS state; no absent slot is created and unrelated slots remain
+independent. Unknown strategy versions return 422 in both detail and metadata pages, including
+outside the requested time/cursor window; missing known state remains corruption. A temporary
+FSRS persistence failure remains 503 rather than being reclassified as corrupt evidence.
 
 <a id="custom-learning-intervals"></a>
 ### User-defined repetition intervals — Q94–Q114 APPROVED

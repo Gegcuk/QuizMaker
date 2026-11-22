@@ -132,7 +132,8 @@ public class JdbcLearningPlanRepository implements LearningPlanRepository {
                 + (window == Window.DUE ? "<=:now" : ">:now");
         String position = after == null ? "" : " AND (due_at>:after OR (due_at=:after AND UUID_TO_BIN(question)>UUID_TO_BIN(:afterQuestion)))";
         return query("WITH selected AS (" + CYCLES + " AND (c.strategy_id<>'fsrs/v1' OR c.id IS NULL) AND ("
-                        + eligible + " OR f.cycle_id IS NULL OR p.id IS NULL OR v.plan_id IS NULL)) SELECT * FROM selected"
+                        + eligible + " OR f.cycle_id IS NULL OR p.id IS NULL OR v.plan_id IS NULL"
+                        + " OR NOT (c.strategy_id <=> 'custom/v1'))) SELECT * FROM selected"
                         + " WHERE invalid OR (TRUE" + position + ") ORDER BY invalid DESC,due_at,UUID_TO_BIN(question) LIMIT :take",
                 scope(learner, source, null).addValue("now", time(now)).addValue("take", take)
                         .addValue("after", after == null ? null : time(after.dueAt()))
@@ -147,6 +148,8 @@ public class JdbcLearningPlanRepository implements LearningPlanRepository {
         return new Version(r.getLong("version"),format.decode(r.getString("definition"), Definition.class),instant(r,"created_at"));
     }
     private Cycle cycle(ResultSet r, int n) throws SQLException {
+        require(r.getString("strategy_id")!=null,CORRUPT);
+        require("custom/v1".equals(r.getString("strategy_id")),UNSUPPORTED_VERSION);
         require(!r.getBoolean("invalid") && r.getLong("sequence") >= 0 && r.getInt("stage") >= 0, CORRUPT);
         return new Cycle(uuid(r.getString("question")),uuid(r.getString("cycle")),r.getLong("cycle_version"),Strategy.CUSTOM,
                 uuid(r.getString("plan")),r.getLong("plan_version"),r.getLong("sequence"),r.getInt("stage"),

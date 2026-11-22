@@ -5,6 +5,7 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.jdbc.core.*;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.*;
@@ -17,6 +18,8 @@ import uk.gegc.quizmaker.features.learning.config.*;
 import uk.gegc.quizmaker.features.learning.domain.model.*;
 import uk.gegc.quizmaker.features.learning.domain.model.LearningPlan.*;
 import uk.gegc.quizmaker.features.learning.domain.repository.*;
+import uk.gegc.quizmaker.features.learning.domain.repository.LearningScheduleRepository.ActiveCycle;
+import uk.gegc.quizmaker.features.learning.domain.repository.LearningScheduleRepository.Key;
 import uk.gegc.quizmaker.features.learning.infra.repository.*;
 import uk.gegc.quizmaker.features.question.domain.model.*;
 import uk.gegc.quizmaker.features.question.domain.model.contract.*;
@@ -99,7 +102,10 @@ class LearningPlanMySqlIntegrationTest {
     @BeforeEach void setup() {
         source.reset(); login("anna");
         users=new AuthenticatedUserLookup() {
-            public Optional<UUID> findActiveUserId(String name) { throw new AssertionError("locking lookup required"); }
+            public Optional<UUID> findActiveUserId(String name) {
+                return sql.query("SELECT BIN_TO_UUID(user_id) FROM users WHERE username=? AND is_active=TRUE AND is_deleted=FALSE",
+                        (r,n)->UUID.fromString(r.getString(1)),name).stream().findFirst();
+            }
             public Optional<UUID> lockActiveUserId(String name) { return sql.query("SELECT BIN_TO_UUID(user_id) FROM users WHERE username=? AND is_active=TRUE AND is_deleted=FALSE FOR SHARE",(r,n)->UUID.fromString(r.getString(1)),name).stream().findFirst(); }
         };
         authority=new JdbcPublishedLearningSourceVerifier(sql); schedules=new JdbcLearningScheduleRepository(new NamedParameterJdbcTemplate(sql));
@@ -209,6 +215,7 @@ class LearningPlanMySqlIntegrationTest {
         var command=new LearningPlanService.Save(UUID.randomUUID(),0,definition("Lost response",1,3));
         source.loseCommit.set(true); rejected(()->service.create(command),PERSISTENCE_UNAVAILABLE);
         assertThat(source.lostCommits.get()).isOne(); assertThat(count("learning_plan")).isOne();
+        assertThat(counter("create","success")).isZero(); assertThat(counter("create","unknown")).isEqualTo(1);
         var first=service(repository).create(command); assertThat(service.create(command)).isEqualTo(first);
         assertThat(count("learning_plan_command")).isOne(); assertThat(count("learning_plan_version")).isOne();
     }
@@ -345,6 +352,203 @@ class LearningPlanMySqlIntegrationTest {
         rejected(()->service.read(ack.plan().planId()),UNSUPPORTED_VERSION);
         sql.update("UPDATE learning_plan_version SET definition=?",definition); assertThat(service.read(ack.plan().planId())).isEqualTo(ack.plan());
         assertThat(count("learning_plan_command")).isOne();
+    }
+    @ParameterizedTest @EnumSource(Strategy.class)
+    void cycleGetKeepsItsCapturedStrategyWhileASwitchWaitsForTheSharedSlot(Strategy initial) throws Exception {
+        var p=plan("Concurrent read"); defaults(p);
+        Cycle before=initial==Strategy.CUSTOM?service.change(enroll(0)).cycle():service.change(
+                new LearningPlanService.Change(UUID.randomUUID(),ref,question(0),Action.ENROLL,Strategy.FSRS,null,false,null,null)).cycle();
+        CountDownLatch captured=new CountDownLatch(1),release=new CountDownLatch(1);
+        var readingSchedules=new JdbcLearningScheduleRepository(new NamedParameterJdbcTemplate(sql)) {
+            @Override public Optional<ActiveCycle> readCycle(Key key) {
+                var active=super.readCycle(key); captured.countDown();
+                try { if(!release.await(120,TimeUnit.SECONDS)) throw new AssertionError("read release missing"); }
+                catch(InterruptedException e) { Thread.currentThread().interrupt(); throw new AssertionError(e); }
+                return active;
+            }
+        };
+        var reader=new LearningPlanServiceImpl(repository,readingSchedules,fsrs,new FsrsSchedulingStrategyImpl(),users,
+                List.of(authority),budget,limits,clock,metrics,manager);
+        var mvc=mvc(reader); var target=initial==Strategy.FSRS?Strategy.CUSTOM:Strategy.FSRS;
+        var command=new LearningPlanService.Change(UUID.randomUUID(),ref,question(0),Action.SWITCH,target,before.expected(),true,
+                target==Strategy.CUSTOM?p.planId():null,target==Strategy.CUSTOM?1L:null);
+        var workers=Executors.newFixedThreadPool(2);
+        try {
+            Future<String> get=workers.submit(()->asAnna(()-> {
+                try { return cycleGet(mvc,question(0)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                        .andReturn().getResponse().getContentAsString(); }
+                catch(Exception e) { throw new AssertionError(e); }
+            }));
+            long captureDeadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(120);
+            while(!captured.await(10,TimeUnit.MILLISECONDS)) {
+                if(get.isDone()) { get.get(); fail("reader did not reach its capture barrier"); }
+                if(System.nanoTime()>captureDeadline) fail("capture barrier not reached");
+            }
+            Future<String> peerGet=workers.submit(()->asAnna(()-> {
+                try { return cycleGet(mvc(service),question(0)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                        .andReturn().getResponse().getContentAsString(); }
+                catch(Exception e) { throw new AssertionError(e); }
+            }));
+            var peerBody=new com.fasterxml.jackson.databind.ObjectMapper().readTree(peerGet.get(120,TimeUnit.SECONDS));
+            assertThat(peerBody.get("cycleId").asText()).isEqualTo(before.cycleId().toString());
+            // The read holds only this existing slot: a different question can still commit.
+            assertThat(service.change(enroll(1)).cycle().strategy()).isEqualTo(Strategy.CUSTOM);
+            Future<Acknowledgement> write=workers.submit(()->asAnna(()->service.change(command)));
+            long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(120);
+            while(sql.queryForObject("""
+                SELECT COUNT(*) FROM performance_schema.data_lock_waits w
+                JOIN performance_schema.data_locks l ON l.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID
+                WHERE l.OBJECT_SCHEMA=? AND l.OBJECT_NAME='learning_schedule_slot'
+                """,Integer.class,SCHEMA)==0) {
+                if(write.isDone()) { write.get(); fail("switch did not wait for the captured slot"); }
+                if(get.isDone()) { get.get(); fail("reader left its barrier early"); }
+                if(System.nanoTime()>deadline) fail("slot wait not reached"); Thread.sleep(10);
+            }
+            assertThat(write.isDone()).isFalse(); release.countDown();
+            var body=new com.fasterxml.jackson.databind.ObjectMapper().readTree(get.get(120,TimeUnit.SECONDS));
+            assertThat(body.get("strategy").asText()).isEqualTo(initial.name());
+            assertThat(body.get("cycleId").asText()).isEqualTo(before.cycleId().toString());
+            assertThat(write.get(120,TimeUnit.SECONDS).cycle().strategy()).isEqualTo(target);
+            cycleGet(mvc(service),question(0)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.strategy").value(target.name()));
+        } finally { release.countDown(); workers.shutdownNow(); assertThat(workers.awaitTermination(120,TimeUnit.SECONDS)).isTrue(); }
+    }
+    @Test void cycleGetReturns503ForAReachedFsrsSqlFaultAndTheSameRequestThenSucceeds() throws Exception {
+        var initial=fsrs.execute(new LearningScheduleService.Enroll(1,UUID.randomUUID(),ref,question(0),FsrsManifest.approved())).snapshot();
+        var mvc=mvc(service);
+        var expected=cycleGet(mvc,question(0)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        source.fault.set("SELECT s.active_cycle_id,s.cycle_version,c.strategy_id,c.created_at");
+        cycleGet(mvc,question(0)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isServiceUnavailable())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.status").value(503));
+        assertThat(source.reached.get()).isOne();
+        cycleGet(mvc,question(0)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().string(expected));
+        assertThat(fsrs.read(ref,question(0))).isEqualTo(initial); assertThat(count("learning_review_event")).isZero();
+    }
+    @ParameterizedTest @EnumSource(Strategy.class)
+    void cycleGetWaitingForASwitchReadsTheNewHeaderAndStateTogether(Strategy initial) throws Exception {
+        var p=plan("Writer first"); defaults(p);
+        Cycle before=initial==Strategy.CUSTOM?service.change(enroll(0)).cycle():service.change(
+                new LearningPlanService.Change(UUID.randomUUID(),ref,question(0),Action.ENROLL,Strategy.FSRS,null,false,null,null)).cycle();
+        var target=initial==Strategy.FSRS?Strategy.CUSTOM:Strategy.FSRS;
+        var command=new LearningPlanService.Change(UUID.randomUUID(),ref,question(0),Action.SWITCH,target,before.expected(),true,
+                target==Strategy.CUSTOM?p.planId():null,target==Strategy.CUSTOM?1L:null);
+        CountDownLatch written=new CountDownLatch(1),release=new CountDownLatch(1);
+        var store=new JdbcLearningPlanRepository(new NamedParameterJdbcTemplate(sql)) {
+            @Override public void record(UUID learner,UUID id,String input,Acknowledgement result,Instant now) {
+                super.record(learner,id,input,result,now); written.countDown();
+                try { if(!release.await(120,TimeUnit.SECONDS)) throw new AssertionError("writer release missing"); }
+                catch(InterruptedException e) { Thread.currentThread().interrupt(); throw new AssertionError(e); }
+            }
+        };
+        var workers=Executors.newFixedThreadPool(2);
+        try {
+            Future<Acknowledgement> write=workers.submit(()->asAnna(()->service(store).change(command)));
+            long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(120);
+            while(!written.await(10,TimeUnit.MILLISECONDS)) {
+                if(write.isDone()) { write.get(); fail("writer did not reach its barrier"); }
+                if(System.nanoTime()>deadline) fail("writer barrier not reached");
+            }
+            Future<String> get=workers.submit(()->asAnna(()-> {
+                try { return cycleGet(mvc(service),question(0)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                        .andReturn().getResponse().getContentAsString(); }
+                catch(Exception e) { throw new AssertionError(e); }
+            }));
+            while(sql.queryForObject("""
+                SELECT COUNT(*) FROM performance_schema.data_lock_waits w
+                JOIN performance_schema.data_locks l ON l.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID
+                WHERE l.OBJECT_SCHEMA=? AND l.OBJECT_NAME='learning_schedule_slot' AND l.LOCK_MODE LIKE 'S%'
+                """,Integer.class,SCHEMA)==0) {
+                if(get.isDone()) { get.get(); fail("GET did not wait for the writer"); }
+                if(System.nanoTime()>deadline) fail("shared slot wait not reached"); Thread.sleep(10);
+            }
+            release.countDown(); var committed=write.get(120,TimeUnit.SECONDS).cycle();
+            var body=new com.fasterxml.jackson.databind.ObjectMapper().readTree(get.get(120,TimeUnit.SECONDS));
+            assertThat(body.get("strategy").asText()).isEqualTo(target.name());
+            assertThat(body.get("cycleId").asText()).isEqualTo(committed.cycleId().toString());
+            assertThat(service.cycle(ref,question(0))).isEqualTo(committed);
+        } finally { release.countDown(); workers.shutdownNow(); assertThat(workers.awaitTermination(120,TimeUnit.SECONDS)).isTrue(); }
+    }
+    @Test void cycleGetNeverCreatesAnAbsentSlot() throws Exception {
+        source.reset();
+        cycleGet(mvc(service),question(0)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNotFound());
+        assertThat(count("learning_schedule_slot")).isZero();
+        assertThat(source.statements.get()).noneMatch(s->s.stripLeading().startsWith("INSERT") || s.stripLeading().startsWith("UPDATE"));
+    }
+    @Test void unknownStrategyIs422ForDetailAndEveryPageWindowWhileMissingKnownStateIs500() throws Exception {
+        var p=plan("Future strategy"); defaults(p); service.change(enroll(0));
+        sql.update("UPDATE learning_schedule_cycle SET strategy_id='custom/v2'");
+        sql.update("UPDATE learning_custom_state SET due_at='2090-01-01'");
+        sql.update("UPDATE learning_plan SET paused=TRUE");
+        var mvc=mvc(service);
+        cycleGet(mvc,question(0)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnprocessableEntity());
+        for(var window:Window.values()) {
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/learning/plan-cycles")
+                    .param("quizId",ref.quizId().toString()).param("quizRevisionId",ref.quizRevisionId().toString())
+                    .param("revisionSchemaVersion","1").param("window",window.name()).param("limit","10")
+                    .param("afterTime","2099-01-01T00:00:00Z").param("afterQuestion",question(0).toString()))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnprocessableEntity());
+        }
+        sql.update("UPDATE learning_schedule_cycle SET strategy_id='custom/v1'");
+        cycleGet(mvc,question(0)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        sql.update("DELETE FROM learning_custom_state");
+        cycleGet(mvc,question(0)).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isInternalServerError());
+        rejected(()->service.cycles(ref,Window.ALL,10,null),CORRUPT);
+    }
+    @Test void successfulMutationMetricsWaitForTheActualOuterCommitOrRollback() {
+        tx(TransactionDefinition.ISOLATION_READ_COMMITTED).executeWithoutResult(s->{
+            plan("Rolled back"); assertThat(counter("create","success")).isZero(); s.setRollbackOnly();
+        });
+        assertThat(count("learning_plan")).isZero(); assertThat(counter("create","success")).isZero();
+        assertThat(counter("create","rolled_back")).isEqualTo(1);
+        tx(TransactionDefinition.ISOLATION_READ_COMMITTED).executeWithoutResult(s->{
+            plan("Committed"); assertThat(counter("create","success")).isZero();
+        });
+        assertThat(count("learning_plan")).isOne(); assertThat(counter("create","success")).isEqualTo(1);
+        assertThat(counter("create","rolled_back")).isEqualTo(1);
+    }
+    @Test void acceptedFsrsAnswerReplaysItsOriginalReceiptAfterSwitchWithoutAdvancingCustom() {
+        var p=plan("Historical answer"); defaults(p);
+        var initial=fsrs.execute(new LearningScheduleService.Enroll(1,UUID.randomUUID(),ref,question(0),FsrsManifest.approved())).snapshot();
+        var command=new LearningScheduleService.Rate(1,UUID.randomUUID(),ref,question(0),initial.expected(),LearningSchedule.Rating.GOOD);
+        var accepted=fsrs.execute(command).snapshot();
+        var custom=change(service.cycle(ref,question(0)),Strategy.CUSTOM,Action.SWITCH);
+        var restarted=new LearningScheduleServiceImpl(new JdbcLearningScheduleRepository(new NamedParameterJdbcTemplate(sql)),users,
+                List.of(authority),List.of(s->false),sessions,new FsrsSchedulingStrategyImpl(),clock,metrics,manager);
+        var replay=restarted.execute(command);
+        assertThat(replay.replayed()).isTrue(); assertThat(replay.snapshot()).isEqualTo(accepted);
+        assertThat(count("learning_review_event")).isOne(); assertThat(service.cycle(ref,question(0))).isEqualTo(custom);
+        assertThat(custom.sequence()).isZero(); assertThat(count("learning_schedule_cycle")).isEqualTo(2);
+    }
+    @Test void oneCustomCycleKeepsTheWholeLearnerQuizFsrsSelectionGatedUntil840() {
+        var p=plan("Mixed quiz"); defaults(p);
+        for(int i=0;i<2;i++) fsrs.execute(new LearningScheduleService.Enroll(1,UUID.randomUUID(),ref,question(i),FsrsManifest.approved()));
+        var due=new LearningDueSelectionServiceImpl(new JdbcLearningDueSelectionRepository(new NamedParameterJdbcTemplate(sql)),
+                users,List.of(authority),limits,clock,metrics,manager);
+        var request=new LearningDueSelectionService.Select(1,ref,10,null);
+        assertThat(due.select(request).items()).hasSize(2);
+        change(service.cycle(ref,question(0)),Strategy.CUSTOM,Action.SWITCH);
+        assertThatThrownBy(()->due.select(request)).isInstanceOfSatisfying(LearningScheduleException.class,
+                e->assertThat(e.reason()).isEqualTo(LearningScheduleException.Reason.UNSUPPORTED_VERSION));
+        assertThat(service.cycle(ref,question(1)).strategy()).isEqualTo(Strategy.FSRS);
+        assertThat(count("learning_review_event")).isZero();
+    }
+    double counter(String operation,String outcome) {
+        var counter=metrics.find("quizmaker.learning.plans").tags("operation",operation,"outcome",outcome,"version","1").counter();
+        return counter==null?0:counter.count();
+    }
+    static org.springframework.test.web.servlet.MockMvc mvc(LearningPlanService service) {
+        return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                new uk.gegc.quizmaker.features.learning.api.LearningPlanController(service))
+                .setControllerAdvice(new uk.gegc.quizmaker.features.learning.api.LearningSessionErrorHandler())
+                .setMessageConverters(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(
+                        new com.fasterxml.jackson.databind.ObjectMapper().registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule())
+                                .disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS))).build();
+    }
+    static org.springframework.test.web.servlet.ResultActions cycleGet(org.springframework.test.web.servlet.MockMvc mvc,UUID question) throws Exception {
+        return mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/learning/plan-cycles/"+question)
+                .param("quizId",ref.quizId().toString()).param("quizRevisionId",ref.quizRevisionId().toString()).param("revisionSchemaVersion","1"));
     }
     static <T> T asAnna(Supplier<T> work) { login("anna"); try { return work.get(); } finally { SecurityContextHolder.clearContext(); } }
 }

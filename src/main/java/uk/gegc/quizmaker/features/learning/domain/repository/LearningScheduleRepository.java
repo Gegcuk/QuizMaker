@@ -24,6 +24,9 @@ public interface LearningScheduleRepository {
     void complete(Key key, UUID commandId, UUID reservationId, Snapshot result);
     Optional<Snapshot> find(Key key);
     Optional<Snapshot> lock(Key key);
+    /** Read an existing active header under a shared slot lock through state projection.
+     * Never creates a slot and never upgrades this read scope to an exclusive writer. */
+    Optional<ActiveCycle> readCycle(Key key);
     Optional<ActiveCycle> lockCycle(Key key);
     /** Strategy-neutral CAS under the slot lock; future custom writers persist their own state
      * in this same transaction. This does not select/implement a strategy or finish a session. */

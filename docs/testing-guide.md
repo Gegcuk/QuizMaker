@@ -41,6 +41,22 @@ calendar/DST transitions and durable completion remain #840 activation gates. Th
 FSRS conformance and publication suites must still pass before the full four-worker clean verify.
 Do not enable a custom session or interpret this fixture as that integration evidence.
 
+Review regressions cover both directions of strategy replacement while a real GET holds the
+shared slot after reading its header. Observe the competing writer in MySQL's slot lock-wait
+table; a second GET of the same slot and an unrelated question both complete before the held
+reader is released. GET returns its captured strategy, the replacement then commits, and the next
+GET returns the new strategy.
+The inverse barrier holds the writer after real state/receipt writes: a GET waits on a shared slot
+lock, then reads the newly committed header and state together in both replacement directions.
+Missing-cycle GET creates no slot. A reached FSRS SQL fault returns 503 through MVC; the same GET then succeeds.
+Unknown strategies return 422 for detail and all page windows, even behind a future cursor or
+pause; missing state under a known strategy still returns 500. An accepted FSRS answer replays
+its original receipt after switching to custom, retaining one review event and an untouched new
+cycle. Metrics remain provisional inside outer RC: rollback emits no success; commit emits one
+success and uncertain commit emits `unknown`. Mixed-strategy selection remains unavailable for
+the learner's whole quiz revision until #840; a second healthy FSRS question stays individually
+readable. These tests do not activate or implement mixed-strategy sessions.
+
 ## Author publication HTTP command (#935)
 
 `QuizOpenApiContractTest` exercises the request example through MVC and checks the acknowledgement

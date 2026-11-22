@@ -19,6 +19,7 @@ import uk.gegc.quizmaker.shared.exception.*;
 import java.time.*;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.*;
 import static uk.gegc.quizmaker.features.learning.domain.model.LearningSessionException.Reason.*;
 import static uk.gegc.quizmaker.features.learning.domain.model.LearningSessionException.require;
@@ -146,9 +147,9 @@ public class LearningPlanServiceImpl implements LearningPlanService {
     @Override public Cycle cycle(Source source,UUID question) {
         require(question!=null,INVALID_INPUT);
         return run("cycle_read",() -> { var key=new Key(authorize(source,question),source,question);
-            // Reads do not create an empty slot or enroll implicitly.
-            var custom=plans.custom(key); if(custom.isPresent()) return custom.get();
-            return fsrsCycle(key,fsrs.read(source,question)); });
+            // Keep strategy and state on one existing cycle until projection completes.
+            var active=schedules.readCycle(key).orElseThrow(() -> new LearningSessionException(UNAVAILABLE));
+            return current(key,active); });
     }
     @Override public CyclePage cycles(Source source,Window window,int limit,Cursor after) {
         require(window!=null && (after==null || after.dueAt()!=null && after.questionRevisionId()!=null
@@ -203,11 +204,29 @@ public class LearningPlanServiceImpl implements LearningPlanService {
     private <T> T run(String op,Supplier<T> work) {
         require(!TransactionSynchronizationManager.isActualTransactionActive() || !TransactionSynchronizationManager.isCurrentTransactionReadOnly()
                 && Objects.equals(TransactionSynchronizationManager.getCurrentTransactionIsolationLevel(),TransactionDefinition.ISOLATION_READ_COMMITTED),UNSUPPORTED_TRANSACTION);
-        String outcome="success";
-        try { return transaction.execute(status -> { try { return work.get(); } catch(RuntimeException failure) {
+        String outcome="failed";
+        var deferred=new AtomicBoolean();
+        try { return transaction.execute(status -> { try {
+            T result=work.get();
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCompletion(int status) {
+                    record(op,switch(status) {
+                        case STATUS_COMMITTED -> "success";
+                        case STATUS_ROLLED_BACK -> "rolled_back";
+                        default -> "unknown";
+                    });
+                }
+            });
+            deferred.set(true);
+            return result;
+        } catch(RuntimeException failure) {
             status.setRollbackOnly(); throw sanitized(failure); } }); }
         catch(RuntimeException failure) { outcome=failure instanceof LearningSessionException e?e.reason().name().toLowerCase(Locale.ROOT):"unavailable"; throw sanitized(failure); }
-        finally { try { metrics.counter("quizmaker.learning.plans","operation",op,"outcome",outcome,"version","1").increment(); } catch(RuntimeException ignored) { } }
+        finally { if(!deferred.get()) record(op,outcome); }
+    }
+    private void record(String operation,String outcome) {
+        try { metrics.counter("quizmaker.learning.plans","operation",operation,"outcome",outcome,"version","1").increment(); }
+        catch(RuntimeException ignored) { /* Telemetry cannot change transaction completion. */ }
     }
     private static RuntimeException sanitized(RuntimeException failure) {
         if(failure instanceof LearningSessionException known) return new LearningSessionException(known.reason());
@@ -218,6 +237,7 @@ public class LearningPlanServiceImpl implements LearningPlanService {
             case CONFLICT, STALE_STATE, ACTIVE_SESSION, SESSION_INCOMPLETE -> CONFLICT;
             case UNSUPPORTED_VERSION, UNSUPPORTED_MANIFEST -> UNSUPPORTED_VERSION;
             case UNSUPPORTED_TRANSACTION -> UNSUPPORTED_TRANSACTION;
+            case PERSISTENCE_UNAVAILABLE -> PERSISTENCE_UNAVAILABLE;
             default -> CORRUPT;
         });
         return DatabaseConflictException.from(failure).<RuntimeException>map(value -> value)
