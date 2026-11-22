@@ -67,7 +67,7 @@ public class QuizRevisionPublicationServiceImpl implements QuizRevisionPublicati
             if (receipt.isPresent()) {
                 require(receipt.get().requestHash().equals(requestHash), COMMAND_CONFLICT);
                 // Replay returns the old acknowledgement without rereading an edited draft or moving its pointer back.
-                return new Result(receipt.get().publication(), true);
+                return acknowledge(command, receipt.get().publication(), true);
             }
             var questions = repository.lockQuestions(draft.id());
             var byId = questions.stream().collect(Collectors.toMap(Question::id, q -> q));
@@ -104,8 +104,15 @@ public class QuizRevisionPublicationServiceImpl implements QuizRevisionPublicati
                 repository.pointTo(draft.id(), result);
             }
             repository.record(command, actor.id(), requestHash, result, now);
-            return new Result(result, false);
+            return acknowledge(command, result, false);
         });
+    }
+
+    private Result acknowledge(Command command, Current publication, boolean replayed) {
+        var items = repository.revisionItems(command.quizId(), publication.revision().id())
+                .orElseThrow(() -> new PublicationException(INVALID_RETAINED_REVISION));
+        require(items.questionRevisionIds().size() == command.questionOrder().size(), INVALID_RETAINED_REVISION);
+        return new Result(publication, replayed, items);
     }
 
     @Override public Optional<Current> current(UUID quizId) {

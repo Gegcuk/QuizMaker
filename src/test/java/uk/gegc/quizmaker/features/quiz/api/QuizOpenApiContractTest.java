@@ -42,12 +42,14 @@ import uk.gegc.quizmaker.features.quiz.application.ModerationService;
 import uk.gegc.quizmaker.features.quiz.application.QuizExportService;
 import uk.gegc.quizmaker.features.quiz.application.QuizFreshnessService;
 import uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService;
+import uk.gegc.quizmaker.features.quiz.application.QuizRevisionPublicationService;
 import uk.gegc.quizmaker.features.quiz.application.QuizService;
 import uk.gegc.quizmaker.features.quiz.application.ShareLinkService;
 import uk.gegc.quizmaker.features.quiz.application.imports.QuizImportService;
 import uk.gegc.quizmaker.features.quiz.config.QuizImportProperties;
 import uk.gegc.quizmaker.features.quiz.domain.model.QuizStatus;
 import uk.gegc.quizmaker.features.quiz.domain.model.Visibility;
+import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizPublication;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizGenerationJobRepository;
 import uk.gegc.quizmaker.features.quiz.infra.ExportMediaTypeResolver;
 import uk.gegc.quizmaker.features.quiz.infra.web.ShareLinkCookieManager;
@@ -68,11 +70,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = {QuizController.class, ShareLinkController.class, QuizFreshnessController.class, AttemptController.class, ApiDiscoveryController.class})
+@WebMvcTest(controllers = {QuizController.class, ShareLinkController.class, QuizFreshnessController.class,
+        QuizRevisionPublicationController.class, AttemptController.class, ApiDiscoveryController.class})
 @Import({
         ApiDocumentationService.class,
         OpenApiConfig.class,
@@ -84,6 +91,84 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @DisplayName("Quiz OpenAPI contract tests")
 class QuizOpenApiContractTest {
+    private static final String PUBLICATION_PATH = "/api/v1/quizzes/{quizId}/publications";
+    private static final UUID PUBLICATION_QUIZ = UUID.fromString("33333333-3333-4333-8333-333333333333");
+
+    @MockitoBean
+    QuizRevisionPublicationService publications;
+
+    @Test
+    @WithMockUser
+    void quizPublicationDocumentsTheTypedCommandAndAcknowledgementInOneGroup() throws Exception {
+        var spec = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs/quizzes")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+        var operation = spec.path("paths").path(PUBLICATION_PATH).path("post");
+        assertThat(operation.path("operationId").asText()).isEqualTo("publishQuizRevision");
+        assertThat(operation.at("/security/0").has("bearerAuth")).isTrue();
+        var request = operation.at("/requestBody/content/application~1json");
+        var response = operation.at("/responses/200/content/application~1json");
+        assertThat(request.at("/schema/$ref").asText()).isEqualTo("#/components/schemas/PublishQuizRevisionRequest");
+        assertThat(response.at("/schema/$ref").asText()).isEqualTo("#/components/schemas/QuizRevisionPublicationResponse");
+        var schemas = spec.at("/components/schemas");
+        var commandSchema = schemas.path("PublishQuizRevisionRequest");
+        assertThat(commandSchema.at("/properties/expectedPublicationVersion/format").asText()).isEqualTo("int64");
+        assertThat(commandSchema.at("/properties/expectedPublicationVersion/minimum").intValue()).isZero();
+        assertThat(commandSchema.at("/properties/questionOrder/uniqueItems").asBoolean()).isTrue();
+        assertThat(commandSchema.at("/properties/questionOrder/items/format").asText()).isEqualTo("uuid");
+        var resultSchema = schemas.path("QuizRevisionPublicationResponse");
+        assertThat(resultSchema.at("/properties/publicationVersion/format").asText()).isEqualTo("int64");
+        assertThat(resultSchema.at("/properties/revisionSchemaVersion/format").asText()).isEqualTo("int32");
+        assertThat(resultSchema.at("/properties/questionRevisionIds/items/format").asText()).isEqualTo("uuid");
+        for (String code : List.of("400", "401", "404", "409", "415", "422", "500", "503")) {
+            assertThat(operation.at("/responses/" + code + "/content/application~1problem+json/schema/$ref").asText())
+                    .isEqualTo("#/components/schemas/ProblemDetail");
+        }
+        var matcher = new AntPathMatcher();
+        var effectiveGroups = groups.stream().filter(group -> group.getPathsToMatch().stream()
+                        .anyMatch(pattern -> matcher.match(pattern, PUBLICATION_PATH)))
+                .map(GroupedOpenApi::getGroup).toList();
+        assertThat(effectiveGroups).containsExactly("quizzes");
+        var summary = objectMapper.readTree(mockMvc.perform(get("/api/v1/api-summary")).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+        assertThat(summary.path("groups").findValuesAsText("specUrl")).contains("/v3/api-docs/quizzes");
+
+        JsonNode command = request.at("/examples/Publish an unpublished draft/value");
+        JsonNode acknowledgement = response.at("/examples/First publication/value");
+        assertThat(commandSchema.path("required")).extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder("commandId", "expectedPublicationVersion", "questionOrder");
+        assertThat(resultSchema.path("required")).extracting(JsonNode::asText)
+                .containsExactlyInAnyOrder("quizId", "quizRevisionId", "revisionSchemaVersion", "publicationVersion", "questionRevisionIds");
+        UUID revision = UUID.fromString(acknowledgement.path("quizRevisionId").asText());
+        UUID actor = UUID.fromString("66666666-6666-4666-8666-666666666666");
+        var accepted = new QuizPublication.Command(1, PUBLICATION_QUIZ, UUID.fromString(command.path("commandId").asText()),
+                0, List.of(UUID.fromString(command.path("questionOrder").get(0).asText())));
+        var saved = new QuizPublication.Revision(revision, PUBLICATION_QUIZ, actor, 1, "a".repeat(64), Instant.EPOCH);
+        when(publications.publish(accepted)).thenReturn(new QuizPublication.Result(new QuizPublication.Current(1, saved),
+                false, new QuizPublication.RevisionItems(1, List.of(UUID.fromString(
+                acknowledgement.path("questionRevisionIds").get(0).asText())))));
+        mockMvc.perform(post(PUBLICATION_PATH, PUBLICATION_QUIZ).with(csrf())
+                        .contentType("application/json").content(command.toString()))
+                .andExpect(status().isOk()).andExpect(content().json(acknowledgement.toString(), true));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "-1", "1.2", "\"0\"", "9223372036854775808", "\"PRIVATE_VALIDATION_PAYLOAD\""})
+    @WithMockUser
+    void publicationRejectsInvalidVersionsWithoutEchoingInput(String version) throws Exception {
+        var invalid = """
+                {"commandId":"11111111-1111-4111-8111-111111111111","expectedPublicationVersion":%s,
+                 "questionOrder":["22222222-2222-4222-8222-222222222222"]}
+                """.formatted(version);
+        mockMvc.perform(post(PUBLICATION_PATH, PUBLICATION_QUIZ).with(csrf())
+                        .contentType("application/json").content(invalid))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+                .andExpect(jsonPath("$.code").value("QUIZ_PUBLICATION_INVALID_INPUT"))
+                .andExpect(jsonPath("$.parseError").doesNotExist())
+                .andExpect(jsonPath("$.fieldErrors").doesNotExist())
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("PRIVATE_VALIDATION_PAYLOAD"))));
+        verifyNoInteractions(publications);
+    }
 
     @Test @WithMockUser void authoringRoundTripsOptionalLearningShuffle() throws Exception {
         var quiz = objectMapper.readTree(mockMvc.perform(get("/v3/api-docs/quizzes")).andExpect(status().isOk())

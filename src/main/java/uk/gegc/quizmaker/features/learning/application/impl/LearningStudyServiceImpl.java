@@ -335,6 +335,7 @@ public class LearningStudyServiceImpl implements LearningStudyService {
                 case INVALID_INPUT, INVALID_CONTENT, IMAGE_UNAVAILABLE, UNSUPPORTED_VERSION -> UNSUPPORTED_VERSION;
                 case STALE_PUBLICATION, COMMAND_CONFLICT -> CONFLICT;
                 case TRANSACTION_NOT_ALLOWED -> UNSUPPORTED_TRANSACTION;
+                case INVALID_RETAINED_REVISION -> CORRUPT;
                 case PERSISTENCE_UNAVAILABLE, UNKNOWN_OUTCOME -> PERSISTENCE_UNAVAILABLE;
             });
         } catch (ContractResolutionException failure) {
