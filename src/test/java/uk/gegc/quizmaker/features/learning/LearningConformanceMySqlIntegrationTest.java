@@ -480,18 +480,22 @@ class LearningConformanceMySqlIntegrationTest {
 
             // The final answer releases every capture, so both routes refuse instead of offering RESPOND.
             Map<String, Long> damaged = learningChecksums();
+            UUID finalCommand = UUID.randomUUID();
+            String finalItem = items.get(2).path("sourceItemId").asText();
             assertProblem(perform(resume(anna, session)).andReturn(), 422, ErrorTypes.INVALID_ARGUMENT);
-            assertProblem(perform(respond(anna, session, UUID.randomUUID(), 3, items.get(2).path("sourceItemId").asText(), "GOOD", true))
-                    .andReturn(), 422, ErrorTypes.INVALID_ARGUMENT);
+            assertProblem(perform(respond(anna, session, finalCommand, 3, finalItem, "GOOD", true)).andReturn(),
+                    422, ErrorTypes.INVALID_ARGUMENT);
             assertThat(learningChecksums()).as(damage.getKey()).isEqualTo(damaged);
 
+            // After restoration the refused command itself is retried: its key stayed unused by the rolled-back attempt.
             tx.executeWithoutResult(status -> assertThat(sql.update(damage.getValue()[1], answered)).as(damage.getKey()).isOne());
             JsonNode last = json.readTree(body(perform(resume(anna, session)).andReturn(), 200));
-            assertSame(last.path("nextItemId").asText(), items.get(2).path("sourceItemId").asText(), "final item is offered again");
-            JsonNode finished = json.readTree(body(perform(respond(anna, session, UUID.randomUUID(), 3,
-                    items.get(2).path("sourceItemId").asText(), "GOOD", true)).andReturn(), 200));
-            assertThat(finished.path("completed").asBoolean()).as(damage.getKey()).isTrue();
+            assertSame(last.path("nextItemId").asText(), finalItem, "final item is offered again");
+            String finished = body(perform(respond(anna, session, finalCommand, 3, finalItem, "GOOD", true)).andReturn(), 200);
+            assertThat(json.readTree(finished).path("completed").asBoolean()).as(damage.getKey()).isTrue();
             events++;
+            assertSame(body(perform(respond(anna, session, finalCommand, 3, finalItem, "GOOD", true)).andReturn(), 200),
+                    finished, "exact retry returns the original final acknowledgement");
             assertThat(count("learning_review_event")).as(damage.getKey()).isEqualTo(events);
         }
     }
