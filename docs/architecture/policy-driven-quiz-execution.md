@@ -5905,7 +5905,9 @@ while its next item can still be reviewed. When the next item's retained strateg
 evidence is unsupported, GET returns the same 422 as the response command, so the client never
 receives a RESPOND action that must fail. Completed and superseded sessions remain readable as
 history, and an exact start retry still returns the original acknowledgement. Nothing is repaired
-or replaced by library defaults.
+or replaced by library defaults. A read that overlaps the committing final or superseding response
+finds the next capture already released; it rereads the progress and returns the committed terminal
+state. The read takes no new lock, and an active session without its capture remains a 500 integrity error.
 
 This is the first single-quiz FSRS gate only. NESTED-REVIEW-INTEGRATION still requires real #841,
 custom variants #839/#840 and optional mistake/unseen selection #648. They need their own added

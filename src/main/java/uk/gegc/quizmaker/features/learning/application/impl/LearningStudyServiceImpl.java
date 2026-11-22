@@ -141,22 +141,31 @@ public class LearningStudyServiceImpl implements LearningStudyService {
         return execute("resume", () -> {
             var session = sessions.read(sessionId);
             var start = repository.start(session.id()).orElseThrow(() -> new LearningSessionException(UNAVAILABLE));
-            var view = withProgress(readForm(session.id(), start), start.mode(), start.reviewedItems(), start.superseded());
-            if (view.progress().status() == LearningReview.Status.ACTIVE) verifyReviewable(session, view.form(), start.reviewedItems());
+            var saved = readForm(session.id(), start);
+            var view = withProgress(saved, start.mode(), start.reviewedItems(), start.superseded());
+            if (view.progress().status() == LearningReview.Status.ACTIVE && !reviewable(session, view.form(), start.reviewedItems())) {
+                // The response that completed or superseded this session committed after the progress read above.
+                var current = repository.start(session.id()).orElseThrow(() -> new LearningSessionException(UNAVAILABLE));
+                require(current.formId().equals(saved.form().id()), CORRUPT);
+                view = withProgress(saved, current.mode(), current.reviewedItems(), current.superseded());
+                require(view.progress().status() != LearningReview.Status.ACTIVE, CORRUPT);
+            }
             return new Observed<>(view, "resumed");
         });
     }
 
     /**
      * An active view offers RESPOND only while the next item's retained schedule evidence is readable under
-     * the supported strategy and approved manifest, as the response command requires. Terminal sessions stay readable.
+     * the supported strategy and approved manifest, as the response command requires. Damaged evidence fails.
+     * False means the capture was already released, which only completion or supersession does.
      */
-    private void verifyReviewable(LearningSession session, LearningForm form, int position) {
-        var capture = repository.capture(session.id(), form.id(), position)
-                .orElseThrow(() -> new LearningSessionException(CORRUPT));
-        require(capture.questionRevisionId().equals(form.items().get(position).questionRevisionId()), CORRUPT);
-        require("fsrs/v1".equals(capture.strategy()), UNSUPPORTED_VERSION);
-        schedules.read(session.source(), capture.questionRevisionId());
+    private boolean reviewable(LearningSession session, LearningForm form, int position) {
+        var capture = repository.capture(session.id(), form.id(), position);
+        if (capture.isEmpty()) return false;
+        require(capture.get().questionRevisionId().equals(form.items().get(position).questionRevisionId()), CORRUPT);
+        require("fsrs/v1".equals(capture.get().strategy()), UNSUPPORTED_VERSION);
+        schedules.read(session.source(), capture.get().questionRevisionId());
+        return true;
     }
 
     @Override public LearningReview.Acknowledgement respond(LearningReview.Command command) {

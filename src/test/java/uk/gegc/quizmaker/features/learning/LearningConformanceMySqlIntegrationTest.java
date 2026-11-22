@@ -88,10 +88,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
-import org.assertj.core.api.AbstractStringAssert;
-import org.assertj.core.api.ListAssert;
-import org.assertj.core.presentation.Representation;
-import org.assertj.core.presentation.StandardRepresentation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -221,10 +217,10 @@ class LearningConformanceMySqlIntegrationTest {
                 () -> enroll(anna, biology, enrollment, biology.questions()));
         assertThat(raced).allSatisfy(result -> assertThat(result.getResponse().getStatus()).isEqualTo(200));
         String enrolled = raced.get(0).getResponse().getContentAsString();
-        assertRedacted(raced.get(1).getResponse().getContentAsString()).isEqualTo(enrolled);
+        assertSame(raced.get(1).getResponse().getContentAsString(), enrolled, "identical concurrent enrollment acknowledgements");
         JsonNode cycles = json.readTree(enrolled).path("items");
-        assertThat(cycles).withRepresentation(REDACTED).hasSize(3);
-        assertRedacted(textValues(cycles, "questionRevisionId")).containsExactlyElementsOf(strings(biology.questions()));
+        assertThat(cycles.size()).isEqualTo(3);
+        assertSame(textValues(cycles, "questionRevisionId"), strings(biology.questions()), "enrolled questions in requested order");
         assertThat(count("learning_enrollment")).isOne();
         assertThat(count("learning_schedule_cycle")).isEqualTo(3);
         assertThat(count("learning_schedule_slot")).isEqualTo(3);
@@ -233,7 +229,7 @@ class LearningConformanceMySqlIntegrationTest {
 
         // A second device enrolling the same questions reuses the same active cycles.
         String again = body(perform(enroll(anna, biology, UUID.randomUUID(), biology.questions())).andReturn(), 200);
-        assertRedacted(textValues(json.readTree(again).path("items"), "cycleId")).containsExactlyElementsOf(textValues(cycles, "cycleId"));
+        assertSame(textValues(json.readTree(again).path("items"), "cycleId"), textValues(cycles, "cycleId"), "second enrollment reuses the active cycles");
         assertThat(count("learning_schedule_cycle")).isEqualTo(3);
         assertThat(count("learning_enrollment")).isEqualTo(2);
 
@@ -241,12 +237,13 @@ class LearningConformanceMySqlIntegrationTest {
         String started = body(perform(start(anna, biology, startCommand, 20, null, null)).andReturn(), 200);
         JsonNode form = json.readTree(started);
         assertThat(form.path("outcome").asText()).isEqualTo("READY");
-        assertThat(form.path("items")).withRepresentation(REDACTED).hasSize(3);
-        assertRedacted(textValues(form.path("items"), "questionRevisionId")).containsExactlyInAnyOrderElementsOf(strings(biology.questions()));
-        assertRedacted(started).doesNotContain("\"correct\"", "\"explanation\"", "\"hint\"", anna.id().toString(), anna.name());
+        assertThat(form.path("items").size()).isEqualTo(3);
+        assertSameElements(textValues(form.path("items"), "questionRevisionId"), strings(biology.questions()), "due session holds every enrolled question");
+        assertExcludes(started, "participant view exposes no answer key or learner identity", "\"correct\"", "\"explanation\"", "\"hint\"",
+                anna.id().toString(), anna.name());
         UUID session = UUID.fromString(form.path("sessionId").asText());
-        assertRedacted(body(perform(resume(anna, session)).andReturn(), 200)).isEqualTo(started);
-        assertRedacted(body(perform(start(anna, biology, startCommand, 20, null, null)).andReturn(), 200)).isEqualTo(started);
+        assertSame(body(perform(resume(anna, session)).andReturn(), 200), started, "saved start view");
+        assertSame(body(perform(start(anna, biology, startCommand, 20, null, null)).andReturn(), 200), started, "saved start view");
 
         List<String> ratings = List.of("GOOD", "AGAIN", "EASY");
         List<Instant> expectedDue = List.of(now.plusSeconds(600), now.plusSeconds(60), now.plus(16, ChronoUnit.DAYS));
@@ -265,18 +262,18 @@ class LearningConformanceMySqlIntegrationTest {
             if (position == 0) {
                 firstAcknowledgement = acknowledgement;
                 // The response was lost: the same command returns the original acknowledgement without a second review.
-                assertRedacted(body(perform(respond(anna, session, command, 1, item.path("sourceItemId").asText(),
-                        "GOOD", true)).andReturn(), 200)).isEqualTo(acknowledgement);
+                assertSame(body(perform(respond(anna, session, command, 1, item.path("sourceItemId").asText(),
+                        "GOOD", true)).andReturn(), 200), acknowledgement, "original acknowledgement");
                 assertThat(count("learning_review_event")).isOne();
             }
         }
-        assertRedacted(body(perform(respond(anna, session, firstCommand, 1,
-                form.path("items").get(0).path("sourceItemId").asText(), "GOOD", true)).andReturn(), 200))
-                .isEqualTo(firstAcknowledgement);
+        assertSame(body(perform(respond(anna, session, firstCommand, 1,
+                form.path("items").get(0).path("sourceItemId").asText(), "GOOD", true)).andReturn(), 200),
+                firstAcknowledgement, "original acknowledgement after completion");
         JsonNode completed = json.readTree(body(perform(resume(anna, session)).andReturn(), 200));
         assertThat(completed.path("completed").asBoolean()).isTrue();
         assertThat(completed.path("reviewedItems").asInt()).isEqualTo(3);
-        assertThat(completed.path("allowedActions")).withRepresentation(REDACTED).hasSize(1);
+        assertThat(completed.path("allowedActions").size()).isOne();
         assertThat(count("learning_review_event")).isEqualTo(3);
         assertThat(count("learning_session_response")).isEqualTo(3);
         assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_cycle_session WHERE released=1", Integer.class)).isEqualTo(3);
@@ -287,7 +284,7 @@ class LearningConformanceMySqlIntegrationTest {
         // Nothing is due at the same instant; this is an explicit empty session, not an error.
         JsonNode empty = json.readTree(body(perform(start(anna, biology, UUID.randomUUID(), 20, null, null)).andReturn(), 200));
         assertThat(empty.path("outcome").asText()).isEqualTo("EMPTY_COMPLETE");
-        assertThat(empty.path("items")).withRepresentation(REDACTED).isEmpty();
+        assertThat(empty.path("items").size()).isZero();
         assertThat(credit(anna)).isEqualTo(13 * TOKEN);
 
         // Sixty seconds later only the question rated AGAIN is due.
@@ -295,7 +292,7 @@ class LearningConformanceMySqlIntegrationTest {
         String goodQuestion = form.path("items").get(0).path("questionRevisionId").asText();
         CLOCK.set(now.plusSeconds(60));
         JsonNode second = json.readTree(body(perform(start(anna, biology, UUID.randomUUID(), 20, null, null)).andReturn(), 200));
-        assertRedacted(textValues(second.path("items"), "questionRevisionId")).containsExactly(againQuestion);
+        assertSame(textValues(second.path("items"), "questionRevisionId"), List.of(againQuestion), "only the AGAIN question is due");
         JsonNode secondAck = json.readTree(body(perform(respond(anna, UUID.fromString(second.path("sessionId").asText()),
                 UUID.randomUUID(), 1, second.path("items").get(0).path("sourceItemId").asText(), "GOOD", true)).andReturn(), 200));
         assertThat(Instant.parse(secondAck.path("nextDueAt").asText())).isAfter(now.plusSeconds(60));
@@ -316,7 +313,7 @@ class LearningConformanceMySqlIntegrationTest {
                 UUID.randomUUID(), 1, practice.path("items").get(0).path("sourceItemId").asText(), "AGAIN", false)).andReturn(), 200));
         assertThat(practiceAck.path("nextDueAt").isNull()).isTrue();
         assertThat(practiceAck.path("completed").asBoolean()).isTrue();
-        assertThat(fsrsState(anna, biology, goodQuestion)).isEqualTo(scheduleBeforePractice);
+        assertSame(fsrsState(anna, biology, goodQuestion), scheduleBeforePractice, "extra practice keeps the FSRS state");
         assertThat(count("learning_review_event")).isEqualTo(eventsBeforePractice);
         assertThat(count("learning_schedule_cycle")).isEqualTo(3);
         // The minute refilled the burst; six more accepted commands followed.
@@ -407,7 +404,7 @@ class LearningConformanceMySqlIntegrationTest {
         String cycle = sql.queryForObject("SELECT BIN_TO_UUID(id) FROM learning_schedule_cycle WHERE learner_id=UUID_TO_BIN(?)",
                 String.class, anna.id().toString());
         String original = sql.queryForObject("SELECT state FROM learning_fsrs_state WHERE cycle_id=UUID_TO_BIN(?)", String.class, cycle);
-        assertRedacted(original).contains("0.2172");
+        assertThat(original.contains("0.2172")).as("saved state holds the approved first weight").isTrue();
         Map<String, String[]> damages = new LinkedHashMap<>();
         damages.put("unknown strategy", new String[] {"UPDATE learning_schedule_cycle SET strategy_id='fsrs/v99' WHERE id=UUID_TO_BIN(?)",
                 "UPDATE learning_schedule_cycle SET strategy_id='fsrs/v1' WHERE id=UUID_TO_BIN(?)"});
@@ -422,15 +419,16 @@ class LearningConformanceMySqlIntegrationTest {
             assertProblem(perform(respond(anna, session, UUID.randomUUID(), 1, item, "GOOD", true)).andReturn(),
                     422, ErrorTypes.INVALID_ARGUMENT);
             // An exact start retry remains the original acknowledgement of the accepted command.
-            assertRedacted(body(perform(start(anna, biology, startCommand, 20, null, null)).andReturn(), 200)).isEqualTo(started);
+            assertSame(body(perform(start(anna, biology, startCommand, 20, null, null)).andReturn(), 200), started,
+                    "original start acknowledgement");
             // Compared before the fixture is restored: no event, progress, credit or self-repair.
             assertThat(learningChecksums()).as(damage.getKey()).isEqualTo(damaged);
             tx.executeWithoutResult(status -> assertThat(sql.update(damage.getValue()[1], cycle)).as(damage.getKey()).isOne());
             assertThat(learningChecksums()).as(damage.getKey()).isEqualTo(learning);
-            assertRedacted(body(perform(resume(anna, session)).andReturn(), 200)).isEqualTo(started);
+            assertSame(body(perform(resume(anna, session)).andReturn(), 200), started, "saved start view");
         }
-        assertThat(sql.queryForObject("SELECT state FROM learning_fsrs_state WHERE cycle_id=UUID_TO_BIN(?)", String.class, cycle))
-                .isEqualTo(original);
+        assertSame(sql.queryForObject("SELECT state FROM learning_fsrs_state WHERE cycle_id=UUID_TO_BIN(?)", String.class, cycle),
+                original, "restored FSRS state");
         assertThat(credit(anna)).isEqualTo(annaCredit);
 
         JsonNode accepted = json.readTree(body(perform(respond(anna, session, UUID.randomUUID(), 1, item, "GOOD", true)).andReturn(), 200));
@@ -445,7 +443,7 @@ class LearningConformanceMySqlIntegrationTest {
         assertThat(json.readTree(history).path("completed").asBoolean()).isTrue();
         tx.executeWithoutResult(status -> sql.update(damages.get("unknown strategy")[0], cycle));
         try {
-            assertRedacted(body(perform(resume(anna, session)).andReturn(), 200)).isEqualTo(history);
+            assertSame(body(perform(resume(anna, session)).andReturn(), 200), history, "completed session history");
         } finally {
             tx.executeWithoutResult(status -> sql.update(damages.get("unknown strategy")[1], cycle));
         }
@@ -474,7 +472,7 @@ class LearningConformanceMySqlIntegrationTest {
         assertThat(learningChecksums()).isEqualTo(learning);
         assertThat(count("learning_session")).isEqualTo(20);
         // An exact retry of an accepted command is not a new command.
-        assertRedacted(body(perform(start(dana, botany, first, 1, null, null)).andReturn(), 200)).isEqualTo(firstStart);
+        assertSame(body(perform(start(dana, botany, first, 1, null, null)).andReturn(), 200), firstStart, "original start acknowledgement");
         assertThat(credit(dana)).isZero();
 
         CLOCK.set(now.plusSeconds(1));
@@ -515,7 +513,7 @@ class LearningConformanceMySqlIntegrationTest {
         assertThat(result.path("totalScore").asDouble()).isEqualTo(1.0);
         awaitAnalyticsSnapshot(biology);
         JsonNode due = json.readTree(body(perform(authorized(get("/api/v1/repetition/due"), anna)).andReturn(), 200));
-        assertThat(due.path("content")).withRepresentation(REDACTED).isEmpty();
+        assertThat(due.path("content").size()).isZero();
 
         // A formal policy result through the real v2 start, response and submission writers, with a finite allowance.
         UUID formal = formalAttempt(anna, biology, 3);
@@ -536,7 +534,7 @@ class LearningConformanceMySqlIntegrationTest {
 
         // Ordinary practice and formal results did not touch Learning, and Learning created no repetition entries.
         assertThat(learningChecksums()).isEqualTo(learning);
-        assertRedacted(body(perform(resume(anna, session)).andReturn(), 200)).isEqualTo(openSession);
+        assertSame(body(perform(resume(anna, session)).andReturn(), 200), openSession, "unchanged open session");
         for (String table : List.of("spaced_repetition_entry", "repetition_review_log")) assertThat(count(table)).as(table).isZero();
 
         // Earned results and reports read before the final Learning answer...
@@ -554,11 +552,11 @@ class LearningConformanceMySqlIntegrationTest {
         String finished = body(perform(respond(anna, session, last, 2,
                 form.path("items").get(1).path("sourceItemId").asText(), "GOOD", true)).andReturn(), 200);
         assertThat(json.readTree(finished).path("completed").asBoolean()).isTrue();
-        assertRedacted(body(perform(respond(anna, session, last, 2,
-                form.path("items").get(1).path("sourceItemId").asText(), "GOOD", true)).andReturn(), 200)).isEqualTo(finished);
+        assertSame(body(perform(respond(anna, session, last, 2,
+                form.path("items").get(1).path("sourceItemId").asText(), "GOOD", true)).andReturn(), 200), finished, "original final acknowledgement");
         assertThat(changed(outside, checksumsOutsideLearning())).isEmpty();
         for (int index = 0; index < reports.size(); index++) {
-            assertRedacted(body(perform(reports.get(index)).andReturn(), 200)).isEqualTo(reportBodies.get(index));
+            assertSame(body(perform(reports.get(index)).andReturn(), 200), reportBodies.get(index), "unchanged earned result or report");
         }
         assertThat(sql.queryForMap("SELECT earned_points, possible_points FROM attempt_automatic_result WHERE attempt_id=UUID_TO_BIN(?)",
                 formal.toString())).isEqualTo(earned);
@@ -623,12 +621,12 @@ class LearningConformanceMySqlIntegrationTest {
         String originalText = pending.path("questionText").asText();
         edit(anna, revisionA.authored().get(index), "Edited after publication A");
         Source revisionB = publish(anna, revisionA.quizId(), 1, revisionA.authored());
-        assertThat(revisionB.revisionId()).isNotEqualTo(revisionA.revisionId());
-        assertThat(revisionB.questions().get(index)).isNotEqualTo(revisionA.questions().get(index));
+        assertThat(revisionB.revisionId().equals(revisionA.revisionId())).as("publication B is a new revision").isFalse();
+        assertThat(revisionB.questions().get(index).equals(revisionA.questions().get(index))).as("edited question gets a new revision").isFalse();
 
         JsonNode resumed = json.readTree(body(perform(resume(anna, session)).andReturn(), 200));
-        assertThat(resumed.path("items")).withRepresentation(REDACTED).isEqualTo(form.path("items"));
-        assertThat(resumed.path("items").get(1).path("questionText").asText()).isEqualTo(originalText);
+        assertSame(resumed.path("items"), form.path("items"), "open session keeps the revision A items");
+        assertSame(resumed.path("items").get(1).path("questionText").asText(), originalText, "open session keeps the revision A text");
         JsonNode completed = json.readTree(body(perform(respond(anna, session, UUID.randomUUID(), 2,
                 pending.path("sourceItemId").asText(), "GOOD", true)).andReturn(), 200));
         assertThat(completed.path("completed").asBoolean()).isTrue();
@@ -639,12 +637,14 @@ class LearningConformanceMySqlIntegrationTest {
                 .andReturn(), 200));
         List<String> cyclesA = sql.queryForList("SELECT BIN_TO_UUID(id) FROM learning_schedule_cycle WHERE quiz_revision_id=UUID_TO_BIN(?)",
                 String.class, revisionA.revisionId().toString());
-        assertRedacted(cyclesA).hasSize(2).doesNotContainAnyElementsOf(textValues(enrolledB.path("items"), "cycleId"));
+        assertThat(cyclesA.size()).isEqualTo(2);
+        assertThat(java.util.Collections.disjoint(cyclesA, textValues(enrolledB.path("items"), "cycleId")))
+                .as("revision B starts new cycles").isTrue();
         for (UUID question : revisionB.questions()) assertThat(sequence(anna, revisionB, question.toString())).isZero();
         for (UUID question : revisionA.questions()) assertThat(sequence(anna, revisionA, question.toString())).isOne();
         JsonNode formB = json.readTree(body(perform(start(anna, revisionB, UUID.randomUUID(), 20, null, null)).andReturn(), 200));
-        assertRedacted(textValues(formB.path("items"), "questionRevisionId")).containsExactlyInAnyOrderElementsOf(strings(revisionB.questions()));
-        assertRedacted(textValues(formB.path("items"), "questionText")).contains("Edited after publication A");
+        assertSameElements(textValues(formB.path("items"), "questionRevisionId"), strings(revisionB.questions()), "revision B session uses B questions");
+        assertThat(textValues(formB.path("items"), "questionText").contains("Edited after publication A")).as("revision B shows the edited text").isTrue();
         assertThat(count("learning_review_event")).isEqualTo(2);
     }
 
@@ -657,7 +657,8 @@ class LearningConformanceMySqlIntegrationTest {
             assertThat(tags).extracting(io.micrometer.core.instrument.Tag::getKey)
                     .containsExactlyInAnyOrder("operation", "outcome", "strategy", "version");
             for (var tag : tags) {
-                assertThat(tag.getValue()).doesNotContainPattern(UUID_TEXT).doesNotContain("@").hasSizeLessThan(40);
+                assertThat(UUID_TEXT.matcher(tag.getValue()).find() || tag.getValue().contains("@") || tag.getValue().length() >= 40)
+                        .as("bounded Learning metric tag " + tag.getKey()).isFalse();
             }
             assertThat(timer.getId().getTag("strategy")).isEqualTo("fsrs");
             operations.add(timer.getId().getTag("operation"));
@@ -665,7 +666,8 @@ class LearningConformanceMySqlIntegrationTest {
         assertThat(operations).contains("enroll", "start", "resume", "respond");
         List<String> routes = metrics.find("http.server.requests").meters().stream()
                 .map(meter -> meter.getId().getTag("uri")).filter(Objects::nonNull).filter(uri -> uri.startsWith(ROOT)).toList();
-        assertThat(routes).isNotEmpty().allSatisfy(uri -> assertThat(uri).doesNotContainPattern(UUID_TEXT));
+        assertThat(routes.size()).isPositive();
+        for (String uri : routes) assertThat(UUID_TEXT.matcher(uri).find()).as("HTTP metric records a route template").isFalse();
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -852,18 +854,17 @@ class LearningConformanceMySqlIntegrationTest {
                 + (matcher.find() ? " " + matcher.group(1) : "");
     }
 
-    private static final Representation REDACTED = new StandardRepresentation() {
-        @Override public String toStringOf(Object object) {
-            return UUID_TEXT.matcher(super.toStringOf(object)).replaceAll("<id>");
-        }
-    };
-
-    private static AbstractStringAssert<?> assertRedacted(String actual) {
-        return assertThat(actual).withRepresentation(REDACTED);
+    /** Compares values without placing either one, or any response content, in the failure report. */
+    private static void assertSame(Object actual, Object expected, String expectation) {
+        assertThat(Objects.equals(actual, expected)).as(expectation).isTrue();
     }
 
-    private static ListAssert<String> assertRedacted(List<String> actual) {
-        return assertThat(actual).withRepresentation(REDACTED);
+    private static void assertSameElements(List<String> actual, List<String> expected, String expectation) {
+        assertSame(actual.stream().sorted().toList(), expected.stream().sorted().toList(), expectation);
+    }
+
+    private static void assertExcludes(String actual, String expectation, String... forbidden) {
+        for (String value : forbidden) assertThat(actual.contains(value)).as(expectation).isFalse();
     }
 
     /**
