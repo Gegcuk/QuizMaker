@@ -1,517 +1,511 @@
-# QuizMaker: локальное HTTP-окружение
+# QuizMaker: local HTTP test environment
 
-Небольшая коллекция для повторяемых запросов из Postman к приложению в Docker.
-Приложение работает с настоящей MySQL и схемой Flyway. Nginx публикует только
-`http://127.0.0.1:8080`; приложение и MySQL находятся в отдельной внутренней сети.
-Служебный порт `8081` и MySQL на хост не публикуются.
+A collection for repeatable Postman requests against the application in Docker
+on your own computer. It uses real MySQL and the Flyway-managed schema. Nginx
+exposes only `http://127.0.0.1:8080`; the application and MySQL share a separate
+internal network. Management port `8081` and MySQL are not published to the host.
 
-## Запуск и обновление приложения
+## What server/local contains
 
-Из корня основного checkout, при запущенном Docker Desktop:
+`server/local/` defines this local test runtime. The `server` directory groups
+container configurations; these files are used by the local Postman workflow,
+not by a remote-server test or deployment workflow.
+
+| File | Local purpose |
+| --- | --- |
+| `Dockerfile` | Packages the application JAR built from this checkout into a local container |
+| `Dockerfile.dockerignore` | Restricts the build context to the JAR and local application configuration |
+| `compose.yaml` | Starts the application, MySQL and Nginx, with local volumes and an internal application network |
+| `application-local.properties` | Selects local settings, readiness checks, fake provider configuration and the existing no-op email provider |
+| `nginx.conf` | Routes the localhost gateway to the application container |
+| `.gitignore` | Excludes generated private fixture state and temporary files |
+
+For example, a request follows Postman -> `127.0.0.1:8080` -> Nginx -> the local
+application -> local MySQL. External providers stay isolated. The generated
+`server/local/.env` holds local credentials and is excluded from Git.
+
+## Start and update the application
+
+From the primary checkout root, with Docker Desktop running:
 
 ```bash
 ./tools/local-api.sh up
 ./tools/local-api.sh status
 ```
 
-Требуются JDK 17, Python 3 и Docker Compose. На macOS скрипт выбирает установленный
-JDK 17 автоматически; на других системах задайте `JAVA_HOME`. Первый запуск может
-скачивать Maven-зависимости и базовые образы. Новые зависимости Java не добавляются.
+Requires JDK 17, Python 3 and Docker Compose. On macOS, the script automatically
+selects an installed JDK 17; set `JAVA_HOME` on other systems. The first build may
+download Maven dependencies and base images. No Java dependencies are added.
 
-`up` каждый раз выполняет `clean package` с пропуском тестов, собирает образ из
-полученного JAR и ждёт готовности трёх контейнеров. Это обновление до текущего кода
-checkout, включая незакоммиченные изменения; Git pull скрипт не выполняет.
-Запускайте сборку после завершения параллельных правок в этом checkout.
-Git SHA сохраняется в метке `org.opencontainers.image.revision`; изменения в
-`src`, `pom.xml` или `.mvn` отмечаются суффиксом `-dirty`.
+Each `up` runs `clean package` with tests skipped, builds an image from the
+resulting JAR and waits for all three containers to become healthy. It builds
+the current checkout, including uncommitted changes; it does not run Git pull.
+Finish concurrent edits in this checkout before building. The Git SHA is stored
+in `org.opencontainers.image.revision`; changes under `src`, `pom.xml` or `.mvn`
+add the `-dirty` suffix.
 
-Пароли локальной БД и ключи приложения генерируются при первом запуске в
-`server/local/.env` с правами `600`. Файл исключён существующим правилом Git.
-Скрипт не подставляет одноимённые секреты из окружения вызывающего shell.
-Сохраните этот файл вместе с существующими Docker volumes: повторная генерация
-пароля не меняет пароль уже созданной MySQL.
+Local database passwords and application keys are generated on first startup in
+`server/local/.env` with mode `600`. Git ignores this file. The script prevents
+same-named credentials in the calling shell from overriding the generated
+values. Keep this file with the existing Docker volumes: generating a new
+password does not change the password of an already initialized MySQL instance.
 
-## Коллекция и окружение Postman
+## Postman collection and environment
 
-Импортируйте оба файла, если их ещё нет в Postman:
+Import both files if they are not already in Postman:
 
-- `QuizMaker.postman_collection.json` — коллекция **QuizMaker — Local Docker**.
-- `environments/Local-Docker.postman_environment.json` — одноимённое окружение с
-  `baseUrl=http://127.0.0.1:8080` и пустым шаблоном `accessFixtureData`.
+- `QuizMaker.postman_collection.json`: **QuizMaker — Local Docker** collection.
+- `environments/Local-Docker.postman_environment.json`: the matching environment,
+  with `baseUrl=http://127.0.0.1:8080` and an empty `accessFixtureData` placeholder.
 
-Формат импорта описан в [документации Postman](https://learning.postman.com/docs/getting-started/importing-and-exporting/importing-data/).
-Выберите это окружение, откройте коллекцию и нажмите **Run**. Для обычного
-повторного запуска достаточно папки **00 Smoke**, одной итерации, без data file.
-Запускайте локальный Collection Runner в desktop-приложении: облачный runner
-не имеет доступа к localhost вашего компьютера.
+See the [Postman import documentation](https://learning.postman.com/docs/getting-started/importing-and-exporting/importing-data/).
+Select the environment, open the collection and choose **Run**. A routine smoke
+check needs only **00 Smoke**, one iteration and no data file. Use the local
+Collection Runner in the desktop application: a cloud runner cannot access your
+computer's localhost.
 
-| Папка | Назначение |
+| Folder | Purpose |
 | --- | --- |
-| `00 Smoke` | Четыре готовых запроса, не создающих пользовательские данные |
-| `10 Auth` | Полный повторяемый сценарий регистрации, входа, me и выхода |
-| `11 Access` | Права существующих reader/author/admin, владение приватным квизом и отсутствие записей при отказе |
-| `20 Quizzes and attempts` | Повторяемый CRUD приватного квиза автора с пятью подготовленными вопросами |
-| `21 Quiz revision publication` | OpenAPI-сценарий последней завершённой фичи #935: публикации, точные повторы и конфликты |
-| `22 Publication ownership` | Два самостоятельных вложенных сценария: владение квизом и права на источники вопросов при публикации |
+| `00 Smoke` | Four requests that do not create user data |
+| `10 Auth` | Repeatable registration, login, me and logout scenario |
+| `11 Access` | Existing reader/author/admin permissions, private quiz ownership and no writes after denial |
+| `20 Quizzes and attempts` | Repeatable private quiz CRUD with five prepared questions |
+| `21 Quiz revision publication` | OpenAPI coverage for completed feature #935: publication, exact replay and conflicts |
+| `22 Publication ownership` | Independent child scenarios for quiz ownership and question-source authority during publication |
 
-Smoke проверяет `GET /api/v1/health`, `GET /api/v1/api-summary`,
-`GET /v3/api-docs/auth` и `GET /api/v1/auth/me` без авторизации.
-Ожидаются соответственно **200, 200, 200, 401** и **12 успешных assertions**.
-Например, запрос текущего пользователя без токена должен вернуть `ProblemDetail`
-с `status=401`, а публичный health — только `{"status":"UP"}`.
-Готовность MySQL и диска отдельно проверяет Docker healthcheck приложения.
+Smoke checks `GET /api/v1/health`, `GET /api/v1/api-summary`,
+`GET /v3/api-docs/auth` and unauthenticated `GET /api/v1/auth/me`.
+Expected statuses are **200, 200, 200, 401**, with **12 passing assertions**.
+For example, unauthenticated me returns `ProblemDetail` with `status=401`, while
+public health returns only `{"status":"UP"}`. The application Docker healthcheck
+separately checks MySQL and disk readiness.
 
-Коллекция запрещает адреса за пределами localhost:8080; cookies и перенаправления
-отключены. Smoke использует `No Auth`; Auth передаёт Bearer только на нужных шагах.
-Токены и пользовательские пароли
-в экспортируемые файлы добавлять не нужно. При последующих изменениях коллекции
-экспортируйте её обратно в этот каталог и проверяйте diff перед коммитом.
+The collection rejects destinations outside localhost:8080 and disables cookies
+and redirects. Smoke uses `No Auth`; Auth sends Bearer credentials only where
+needed. Keep tokens and user passwords out of exported files. After later
+collection edits, export it back into this directory and review the diff before
+committing.
 
-## Один повторяемый Auth-сценарий
+## Repeatable Auth scenario
 
-В Postman откройте меню папки **10 Auth → Run**, выберите окружение
-**QuizMaker — Local Docker**, режим **Local**, без iteration data. Запускайте все
-шесть запросов в исходном порядке. Можно задать две итерации для проверки повтора.
-Отключите **Persist responses for a session**, **Keep variable values** и
-**Save cookies after collection run**; включите **Turn off logs during run** и
-**Run collection without using stored cookies**.
+Open **10 Auth -> Run**, select **QuizMaker — Local Docker**, choose **Local** and
+leave iteration data empty. Run all six requests in their original order. Use
+two iterations to check repetition. Disable **Persist responses for a session**,
+**Keep variable values** and **Save cookies after collection run**; enable
+**Turn off logs during run** and **Run collection without using stored cookies**.
 
-| Шаг | Запрос | Ожидаемый результат |
+| Step | Request | Expected result |
 | --- | --- | --- |
-| 1 | `POST /api/v1/auth/register` | 201; новый уникальный пользователь с существующими регистрационными ролями |
-| 2 | `POST /api/v1/auth/login` | 200; access/refresh-токены и положительные сроки в миллисекундах |
-| 3 | `GET /api/v1/auth/me` | 200; тот же UUID, username, email и роли |
-| 4 | `POST /api/v1/auth/logout` | 204 без тела ответа |
-| 5 | `GET /api/v1/auth/me` со старым access-токеном | 401 ProblemDetail |
-| 6 | `POST /api/v1/auth/refresh` со старым refresh-токеном | 401 ProblemDetail |
+| 1 | `POST /api/v1/auth/register` | 201; unique new user with the existing registration roles |
+| 2 | `POST /api/v1/auth/login` | 200; access/refresh tokens and positive lifetimes in milliseconds |
+| 3 | `GET /api/v1/auth/me` | 200; the same UUID, username, email and roles |
+| 4 | `POST /api/v1/auth/logout` | 204 with no response body |
+| 5 | `GET /api/v1/auth/me` with the old access token | 401 ProblemDetail |
+| 6 | `POST /api/v1/auth/refresh` with the old refresh token | 401 ProblemDetail |
 
-На одну итерацию приходится **15 assertions**, на две — **30**. Папки
-Smoke + Auth вместе содержат 10 запросов и 27 assertions на итерацию. `authRun*` живут
-только в `pm.variables` в рамках прогона; пароли и JWT не сохраняются в environment,
-collection variables, примерах ответов или исходных JSON. После входа пароль
-удаляется, после последнего шага очищаются и токены. При ошибке проверки цепочка
-останавливается. Запуск отдельного шага без предыдущих шагов отклоняется.
-Временная область описана в [документации Postman](https://learning.postman.com/latest-v-12/docs/use/send-requests/variables/variables).
+One iteration has **15 assertions**; two have **30**. Smoke + Auth contain ten
+requests and 27 assertions per iteration. `authRun*` exists only in run-scoped
+`pm.variables`; passwords and JWTs are not persisted to environment/collection
+variables, response examples or source JSON. The password is cleared after
+login, and tokens after the last step. An assertion failure stops the chain.
+Running a step without its prerequisites is rejected. See the
+[Postman variable scope documentation](https://learning.postman.com/latest-v-12/docs/use/send-requests/variables/variables).
 
-Каждый прогон создаёт отдельный аккаунт, например `qma_<уникальный суффикс>`.
-Выход отзывает сессию, аккаунт остаётся в локальной БД. Автоматического удаления
-или обхода ограничений регистрации нет. При `429` дождитесь `Retry-After`.
-Проверка email не отключается: используется текущая возможность входа после
-обычной регистрации и существующий noop-провайдер почты.
+Each run creates a separate account, such as `qma_<unique-suffix>`. Logout revokes
+the session; the account remains in the local database. There is no automatic
+account deletion or registration-limit bypass. On `429`, respect `Retry-After`.
+Email verification stays enabled: this uses the existing login behavior after
+normal registration and the existing no-op email provider.
 
-## Повторяемые проверки прав: 11 Access
+## Repeatable permission checks: 11 Access
 
-Используются уже созданные `qmfx_reader`, `qmfx_author_a` и `qmfx_admin`.
-Целевой квиз — PRIVATE DRAFT **HTTP basics**, принадлежащий `qmfx_author_b`.
-Новые пользователи, роли и вопросы во время этого сценария не создаются.
+Uses prepared `qmfx_reader`, `qmfx_author_a` and `qmfx_admin` accounts. The target
+is the PRIVATE DRAFT **HTTP basics** quiz owned by `qmfx_author_b`. This scenario
+does not create users, roles or questions.
 
-1. При необходимости обновите локальные data-файлы: `./tools/local-api.sh fixtures`.
-2. В меню папки **11 Access** выберите **Run**, окружение **QuizMaker — Local Docker**
-   и режим **Local**.
-3. В **Environments → QuizMaker — Local Docker** у переменной **accessFixtureData**
-   вставьте содержимое локального `postman/data/Access.private.json` в колонку
-   **Value**. Колонку **Shared Value** оставьте пустой; её можно показать через
-   меню таблицы **Show as column → Shared Value**. Кнопку Share для этой переменной
-   не используйте. Сохраняется только локальное значение в этом экземпляре Postman.
-4. Вернитесь в Runner. Оставьте **Iteration data** пустым, **1 iteration** и все
-   16 запросов в исходном порядке. Отключите
-   **Persist responses for a session**, **Keep variable values** и **Save cookies**;
-   включите **Turn off logs during run** и **Run collection without using stored cookies**.
-5. Для повторения нажмите **Rerun**. Можно также задать несколько итераций:
-   каждая возьмёт те же подготовленные аккаунты и заново откроет/закроет сессии.
+1. Refresh local data files if needed: `./tools/local-api.sh fixtures`.
+2. Open **11 Access -> Run**, select **QuizMaker — Local Docker** and **Local**.
+3. In **Environments -> QuizMaker — Local Docker**, paste the contents of local
+   `postman/data/Access.private.json` into the **Value** column for
+   **accessFixtureData**. Leave **Shared Value** empty; show it using
+   **Show as column -> Shared Value**. Do not use Share for this variable. Only
+   the local value in this Postman installation is populated.
+4. Return to Runner. Leave **Iteration data** empty, use **1 iteration** and run
+   all 16 requests in their original order. Disable **Persist responses for a
+   session**, **Keep variable values** and **Save cookies**; enable **Turn off
+   logs during run** and **Run collection without using stored cookies**.
+5. Choose **Rerun** to repeat. Multiple iterations reuse the prepared accounts
+   and open/close fresh sessions each time.
 
-На установленном плане Postman подключение data files требует подписки; локальное
-значение окружения позволяет запускать этот сценарий без data files. Переменная
-принимает объект fixtures или массив из одного такого объекта. При отсутствии
-или некорректных данных сценарий останавливается до первого входа.
+On the installed Postman plan, attaching data files requires a subscription.
+The local environment value lets this scenario run without data files. It
+accepts a fixture object or a one-element array containing it. Missing or invalid
+data stops the scenario before the first login.
 
-Локальный Value не синхронизируется с Postman Cloud; shared value — отдельное
-значение. См. [описание Postman](https://learning.postman.com/latest-v-12/docs/use/send-requests/variables/environment-variables).
-В файле окружения, хранящемся в Git, `accessFixtureData.value` остаётся пустым.
-Не заменяйте этот шаблон экспортом заполненного локального окружения.
+Local Value is not synchronized to Postman Cloud; shared value is separate.
+See [Postman environment variables](https://learning.postman.com/latest-v-12/docs/use/send-requests/variables/environment-variables).
+The environment file in Git keeps `accessFixtureData.value` empty. Do not replace
+this template with an export of a populated local environment.
 
-| Проверка | Ожидаемый результат и доказательство |
+| Check | Expected result and evidence |
 | --- | --- |
-| Администратор получает `GET /api/v1/admin/roles` | 200; массив именованных ролей и permissions. У ROLE_USER нет QUIZ_CREATE, у ROLE_QUIZ_CREATOR есть QUIZ_UPDATE и нет полномочий модерации, у ROLE_ADMIN есть ROLE_READ |
-| Читатель вызывает `POST /api/v1/quizzes` с валидным телом | 403 ProblemDetail; totalElements собственного списка квизов до и после совпадает |
-| Автор A вызывает `PATCH /api/v1/quizzes/{id}` для приватного квиза автора B | 403 ProblemDetail; администратор читает квиз до и после, все возвращаемые поля совпадают |
+| Administrator calls `GET /api/v1/admin/roles` | 200; named roles and permissions. ROLE_USER lacks QUIZ_CREATE, ROLE_QUIZ_CREATOR has QUIZ_UPDATE without moderation permissions, and ROLE_ADMIN has ROLE_READ |
+| Reader calls `POST /api/v1/quizzes` with a valid body | 403 ProblemDetail; the reader's own quiz totalElements is unchanged |
+| Author A calls `PATCH /api/v1/quizzes/{id}` for B's private quiz | 403 ProblemDetail; administrator reads before and after, and every response field matches |
 
-Каждый участник сначала входит и подтверждает через `/auth/me` свой UUID, username,
-активность и точный набор ролей. Целевой UUID и разные владельцы проверяются до
-попыток записи. Поэтому отказ не принимается за доказательство нужного ограничения,
-если выбран неверный пользователь, квиз отсутствует или роль автора потеряла
-QUIZ_UPDATE. Пагинация читателя ограничена `size=1`.
+Each actor first logs in and confirms UUID, username, active status and exact
+roles through `/auth/me`. Target identity and distinct owners are checked before
+writes. A denial is not accepted as evidence if the actor is wrong, the quiz is
+missing or the author has lost QUIZ_UPDATE. Reader pagination uses `size=1`.
 
-На один успешный прогон приходится **36 assertions**. В конце идут три явных
-logout-запроса. При неуспешной проверке управление переходит к этим шагам; отказ
-одного logout не отменяет остальные. Для отрицательных запросов проверка состояния
-после попытки выполняется даже при неожиданном успешном HTTP-статусе. После
-завершения очищаются временные `accessRun*`; токены не сохраняются в environment
-или collection variables. Оборванный вручную Runner или недоступный API не могут
-гарантировать завершение logout.
+A successful run has **36 assertions**. Three explicit logout requests run at
+the end. Assertion failures route execution to cleanup; one failed logout does
+not cancel the others. Negative cases check subsequent state even after an
+unexpected successful HTTP status. Temporary `accessRun*` is cleared at the end;
+tokens are not saved to environment or collection variables. Manually stopping
+Runner or losing the API can prevent logout completion.
 
-`Access.private.json` генерируется из того же private state, имеет права `600` и
-исключён из Git. Коллекция содержит только ссылки на переменные и не записывает эти данные
-в shared values. Для переноса на другой компьютер заново заполните локальный
-Value из private-файла; не импортируйте его как shared environment, коллекцию
-или облачный dataset.
-Если контроль доступа сломан и отрицательный запрос неожиданно создаёт/меняет квиз,
-сценарий фиксирует ошибку и не скрывает её автоматическим восстановлением fixtures.
+`Access.private.json` is generated from the same private state, has mode `600`
+and is ignored by Git. The collection contains variable references and does not
+write credentials to shared values. On another computer, populate local Value
+from that computer's private file; do not import it as a shared environment,
+collection or cloud dataset. If broken access control unexpectedly creates or
+changes a quiz, the scenario reports the failure rather than concealing it by
+automatically restoring fixtures.
 
-## Повторяемый жизненный цикл квиза: 20 Quizzes and attempts
+## Repeatable quiz lifecycle: 20 Quizzes and attempts
 
-Используется `qmfx_author_a` из уже заполненного локального **Value** переменной
-`accessFixtureData`. Дополнительные пароли, UUID и data files не нужны.
-Папка сама находит принадлежащий автору PRIVATE DRAFT **Java basics** и проверяет
-содержимое его пяти вопросов по определениям из `fixtures/question-sets.json`.
+Uses `qmfx_author_a` from the existing local **Value** of `accessFixtureData`.
+No additional passwords, UUIDs or data files are needed. The folder finds the
+author's PRIVATE DRAFT **Java basics** quiz and checks its five questions against
+`fixtures/question-sets.json`.
 
-Откройте меню **20 Quizzes and attempts → Run**, выберите окружение
-**QuizMaker — Local Docker**, режим **Local**, одну итерацию и все **19 запросов**
-в исходном порядке. Оставьте **Iteration data** пустым. Отключите **Persist responses
-for a session**, **Keep variable values**, **Save cookies after collection run**
-и **Stop run if an error occurs**; включите **Turn off logs during run** и
-**Run collection without using stored cookies**. Отдельные шаги цепочки запускать
-не следует: порядок контролируется временным состоянием сценария.
+Open **20 Quizzes and attempts -> Run**, select **QuizMaker — Local Docker**,
+**Local**, one iteration and all **19 requests** in their original order. Leave
+**Iteration data** empty. Disable **Persist responses for a session**, **Keep
+variable values**, **Save cookies after collection run** and **Stop run if an
+error occurs**; enable **Turn off logs during run** and **Run collection without
+using stored cookies**. Do not run individual steps: transient scenario state
+enforces their order.
 
-| Шаги | Ожидаемое поведение |
+| Steps | Expected behavior |
 | --- | --- |
-| 01–04 | Вход, проверка UUID и ролей автора, поиск исходного квиза, проверка пяти разных подготовленных вопросов |
-| 05 | Создание нового PRIVATE DRAFT с уникальным названием `Local CRUD <UUID>`; 201 |
-| 06–10 | Привязка существующих MCQ_SINGLE, MCQ_MULTI, TRUE_FALSE, FILL_GAP и ORDERING; по 204 |
-| 11–12 | Чтение нового квиза и вопросов; владелец, видимость, количество, UUID и содержимое совпадают с ожидаемыми |
-| 13–14 | Изменение названия, описания, сложности на MEDIUM и estimatedTime на 12; повторное чтение подтверждает сохранение |
-| 90–92 | Повторная проверка владельца и уникального названия перед удалением, DELETE 204, затем GET 404 ProblemDetail |
-| 93, 99 | Исходные вопросы и связи полностью совпадают с начальным состоянием; logout 204 и очистка временных переменных |
+| 01–04 | Login, verify author UUID/roles, find the source quiz and check five distinct prepared questions |
+| 05 | Create a PRIVATE DRAFT named `Local CRUD <UUID>`; 201 |
+| 06–10 | Link existing MCQ_SINGLE, MCQ_MULTI, TRUE_FALSE, FILL_GAP and ORDERING questions; 204 each |
+| 11–12 | Read the new quiz and questions; verify owner, visibility, count, UUIDs and content |
+| 13–14 | Update title, description, difficulty to MEDIUM and estimatedTime to 12; read back the saved changes |
+| 90–92 | Recheck owner and unique title before deletion, DELETE 204, then GET 404 ProblemDetail |
+| 93, 99 | Original questions/associations match their initial state; logout 204 and clear transient variables |
 
-Один успешный прогон — **40 assertions**. Кнопка **Rerun** повторяет весь сценарий
-с новым квизом; два последовательных полных запуска в desktop Postman прошли
-успешно, по 40 проверок каждый. Исходные пользователи, активные квизы, вопросы
-и строки связей после запусков совпали со снимком до них; активных сессий fixtures
-и оставшихся активных квизов сценария — ноль.
+One successful run has **40 assertions**. **Rerun** creates a fresh quiz. Two full
+consecutive desktop runs passed all 40 checks each. Original users, active quizzes,
+questions and association rows matched their initial snapshots; zero active
+fixture sessions or active scenario quizzes remained.
 
-При неуспешной проверке цепочка переходит к шагам завершения. Удалять разрешено
-только UUID, полученный при создании в текущем прогоне, после проверки владельца
-и одного из двух уникальных названий этого прогона. Исходный и чужой fixture-квизы
-дополнительно исключены из целей удаления. Привязываются существующие вопросы;
-сценарий не редактирует и не удаляет их. Токен хранится в `pm.variables` вместе
-с остальными `quizCrud*` и очищается при logout. Если вручную остановить Runner
-или API станет недоступен, завершение удаления и logout не гарантируется.
+An assertion failure routes the chain to cleanup. Deletion permits only the UUID
+created by this run, after checking its owner and one of the run's two unique
+titles. Source and foreign fixture quizzes are explicitly excluded. Existing
+questions are linked, never edited or deleted. The token and other `quizCrud*`
+state stay in `pm.variables` and are cleared at logout. Manual Runner interruption
+or an unavailable API can prevent deletion/logout completion.
 
-Удаление использует существующий soft delete приложения: квиз исчезает из API,
-а помеченная удалённой запись остаётся в локальной БД. Очистка tombstones не
-выполняется. Внешние сервисы не вызываются.
+Deletion uses the application's existing soft delete: the quiz disappears from
+the API while its marked row remains in local MySQL. Tombstones are not purged.
+External services are not called.
 
-## OpenAPI и публикация ревизий: 21 Quiz revision publication
+## OpenAPI and revision publication: 21 Quiz revision publication
 
-Правило для новых и изменяемых сценариев закреплено в [AGENTS.md](AGENTS.md):
-сначала публичный OpenAPI локального приложения, затем запросы и проверки.
-Пути, методы, авторизация, параметры, ограничения, схемы ответов, ошибки и
-семантика повторов берутся только из Swagger. Подготовленные fixtures служат
-входными данными. Реализацию можно читать после неуспешной HTTP-проверки или
-первоначального прогона для диагностики. Наблюдаемое расхождение не становится
-новым ожидаемым результатом теста: оно остаётся явной ошибкой контракта.
-Приоритет — последняя завершённая фича в основной ветке с merged PR, закрытой
-owning issue и доступным контрактом; незавершённая ветка не считается публикацией.
+[AGENTS.md](AGENTS.md) requires public OpenAPI from the local application before
+requests and assertions. Paths, methods, authentication, parameters, constraints,
+response schemas, errors and replay semantics come only from Swagger. Fixtures
+are inputs. Implementation code may be read after a failed HTTP check or initial
+run for diagnosis. A runtime discrepancy remains a visible contract failure;
+observed behavior does not replace the expected result. Prioritize the latest
+completed feature on the main branch with a merged PR, completed owning issue
+and available contract; an unfinished branch does not count as published.
 
-Выбрана последняя завершённая фича в `master` на момент подготовки:
-[#935](https://github.com/Gegcuk/QuizMaker/issues/935), merged
-[PR #937](https://github.com/Gegcuk/QuizMaker/pull/937), CI run 860 успешен.
-Контейнер работает на её merge-коммите `1eb446d666a6a5a56c4ab3b7b2d1bc96d3ef9a27`.
-Контракт взят из `/api/v1/api-summary` и `/v3/api-docs/quizzes`,
-`/v3/api-docs/questions`, `/v3/api-docs/auth`.
-Основная операция — `publishQuizRevision`:
-`POST /api/v1/quizzes/{quizId}/publications`, схемы
-`PublishQuizRevisionRequest` и `QuizRevisionPublicationResponse`.
+At preparation time, the selected completed feature in `master` was
+[#935](https://github.com/Gegcuk/QuizMaker/issues/935), merged through
+[PR #937](https://github.com/Gegcuk/QuizMaker/pull/937), with successful CI run 860.
+The verified container revision was `1eb446d666a6a5a56c4ab3b7b2d1bc96d3ef9a27`.
+Contracts came from `/api/v1/api-summary`, `/v3/api-docs/quizzes`,
+`/v3/api-docs/questions` and `/v3/api-docs/auth`. The main operation is
+`publishQuizRevision`: `POST /api/v1/quizzes/{quizId}/publications`, with named
+`PublishQuizRevisionRequest` and `QuizRevisionPublicationResponse` schemas.
 
-В меню **21 Quiz revision publication → Run** выберите то же локальное окружение,
-одну итерацию, весь набор из **41 запроса**, без iteration data. Используется существующий
-локальный Value `accessFixtureData`. Настройки приватности Runner такие же, как
-для папки 20; **Stop run if an error occurs** также отключён, чтобы завершение
-могло выполняться после ошибки.
+Open **21 Quiz revision publication -> Run**, use the same local environment,
+one iteration and all **41 requests**, with no iteration data. It uses the
+existing local `accessFixtureData` Value. Runner privacy settings match folder 20;
+**Stop run if an error occurs** stays disabled so cleanup can run after failures.
 
-Сначала сценарий загружает живой Swagger и проверяет наличие нужной операции,
-схем, авторизации и ошибок. Автор создаёт отдельный PRIVATE-квиз с уникальным
-названием и привязывает пять подготовленных Java-вопросов. Дальше проверяются:
+The scenario downloads live Swagger and checks the operation, schemas,
+authentication and errors. The author creates a unique PRIVATE quiz and links
+five prepared Java questions. It then verifies:
 
-- Без Bearer и с заведомо неверным Bearer публикация возвращает **401**.
-  Подготовленный `qmfx_reader` отдельно входит и подтверждает свою активность,
-  UUID и ROLE_USER, затем получает отказ при публикации приватного квиза автора.
-  Для этого отказа проверяется принадлежность статуса к описанным в Swagger 4xx
-  и ProblemDetail; контракт не содержит отдельного статуса для роли читателя.
-- Отсутствие commandId, неправильный JSON или UUID пути, отрицательный счётчик
-  и пустой порядок вопросов дают **400**; отсутствующий квиз — **404**,
-  Content-Type `text/plain` — **415**. Все ошибки проверяются как ProblemDetail.
-  Повторяющиеся UUID вопросов должны отклоняться: допустимы описанные **400/422**,
-  поскольку Swagger не уточняет отдельное сопоставление для дубликатов между
-  невалидными полями и неверным порядком. Наблюдаемый ответ — **400**.
-  Неполный, но непустой порядок вопросов даёт **422**.
-- Первая публикация владельцем после всех отрицательных запросов при
-  expectedPublicationVersion=0 возвращает **200**, counter=1: отказы не создали
-  публикацию и не продвинули счётчик. Ответ содержит
-  UUID неизменяемой ревизии и пять UUID question revisions. Ответ проверяется
-  по именованной схеме непосредственно из загруженного Swagger. Для встроенного
-  Ajv настроены числовые форматы int32 и int64; счётчики этого сценария должны
-  оставаться точно представимыми целыми JavaScript. Параметры валидатора описаны
-  в [документации Postman](https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/pm-response/).
-- Точная повторная отправка commandId и тела возвращает всё исходное подтверждение,
-  включая порядок идентификаторов.
-- После изменения названия черновика новая команда с устаревшим counter=0 даёт
-  **409**. Повтор исходного commandId с изменённым порядком также даёт **409**.
-- Команда с counter=1 и обратным порядком вопросов создаёт публикацию counter=2.
-  Затем и старая команда, и новая возвращают собственные точные подтверждения.
-- В конце удаляется только черновик текущего прогона, поиск собственных квизов
-  подтверждает его отсутствие, исходные вопросы сравниваются с начальным снимком,
-  читатель и автор явно выходят, временные `pubRun*` очищаются. Отказ одного logout
-  не отменяет второй. В добавленных проверках отрицательный запрос с неожиданным
-  4xx сохраняет отдельный failed assertion статуса и позволяет проверить оставшиеся случаи; при принятой
-  вместо отказа команде, 5xx или неверной структуре ошибки выполняется завершение.
+- Missing Bearer and deliberately invalid Bearer both return **401**. Prepared
+  `qmfx_reader` logs in and confirms active status, UUID and ROLE_USER before a
+  denied private-quiz publication. The denial must be a documented 4xx with
+  ProblemDetail; Swagger does not assign a separate status to the reader role.
+- Missing commandId, malformed JSON/path UUID, a negative counter and empty
+  question order return **400**; missing quiz returns **404**, and Content-Type
+  `text/plain` returns **415**. Errors are checked as ProblemDetail. Duplicate
+  question UUIDs must be rejected with documented **400/422**, because Swagger
+  does not separately map duplicates between invalid fields and invalid order.
+  The observed status is **400**. Incomplete nonempty order returns **422**.
+- The owner's first publication after the negative cases, using
+  expectedPublicationVersion=0, returns **200**, counter=1: denials created no
+  publication and did not advance the counter. The response identifies an
+  immutable quiz revision and five question revisions. Validation uses the named
+  schema from live Swagger. Built-in Ajv is configured for int32/int64 numeric
+  formats; scenario counters must stay exactly representable JavaScript integers.
+  See the [Postman response validator documentation](https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-reference/pm-response/).
+- Exact replay of commandId and body returns the complete original acknowledgement,
+  including identifier order.
+- After a draft title change, a new command with stale counter=0 returns **409**.
+  Reusing the original commandId with changed order also returns **409**.
+- Counter=1 with reversed question order creates publication counter=2. Both old
+  and new commands subsequently return their own original acknowledgements.
+- Cleanup deletes only this run's draft, confirms absence from own quiz search,
+  compares original questions with their initial snapshot, explicitly logs out
+  reader and author, and clears `pubRun*`. One logout failure does not skip the
+  other. An unexpected 4xx in a negative case retains a failed status assertion
+  while allowing remaining cases; an unexpectedly accepted command, 5xx or
+  invalid error shape routes execution to cleanup.
 
-`publicationVersion` — счётчик публикаций, `revisionSchemaVersion` — версия формата;
-это разные значения. Swagger не обещает повторное использование question revision
-UUID между разными публикациями. Проверяется устойчивость порядка в replay каждого
-подтверждения; независимого публичного чтения истории или содержимого этих ревизий
-в данном контракте нет. Сценарий не включает Learning или скрытые служебные операции.
+`publicationVersion` is the publication counter; `revisionSchemaVersion` is the
+format version. Swagger does not promise reuse of question revision UUIDs across
+different publications. The scenario checks ordered identifier stability for
+each replay. This contract offers no separate public read of revision history
+or content. Learning and hidden administrative operations are outside this
+scenario.
 
-**Обнаруженное расхождение OpenAPI:** `POST /api/v1/quizzes` описывает только **200**,
-а фактически возвращает **201**. Зарегистрировано как **D-001** в
-[реестре расхождений #938](https://github.com/Gegcuk/QuizMaker/issues/938).
-Проверка `Draft creation HTTP status matches live
-OpenAPI` намеренно фиксирует это как ошибку. При валидном успешном создании остальные
-шаги продолжаются, чтобы проверить публикацию и завершить удаление/выход.
-Приложение и Swagger этим сценарием не исправляются. После исправления спецификации
-и обновления контейнера тот же assertion автоматически использует новый статус.
+**Confirmed OpenAPI discrepancy:** `POST /api/v1/quizzes` documents only **200**,
+but successful creation returns **201**. It is **D-001** in
+[discrepancy register #938](https://github.com/Gegcuk/QuizMaker/issues/938).
+`Draft creation HTTP status matches live OpenAPI` deliberately reports this
+failure. A valid successful creation lets later publication and cleanup checks
+continue. This scenario does not fix the application or Swagger. After a
+specification fix and container update, the assertion reads the new status from
+live OpenAPI automatically.
 
-Первоначальные два полных последовательных запуска из 29 запросов в desktop
-Postman дали по **69 assertions**:
-**68 passed, 1 failed**, без ошибок выполнения скриптов. Единственный failed —
-описанное выше расхождение статуса создания черновика. Все проверки публикации,
-повторов, конфликтов и завершения прошли. Исходные пользователи, активные квизы,
-вопросы и связи совпали со снимком до запусков; активных квизов сценария
-и сессий fixtures не осталось.
-После расширения папки до 41 запроса два полных desktop-прогона дали по
-**102 assertions: 101 passed, 1 failed**, без ошибок выполнения скриптов.
-Все **33 добавленные проверки** прошли в обоих запусках; failed остаётся D-001.
-При отказе читателю фактически получен
-описанный в контракте **404**; первая последующая публикация владельца получила
-counter=1. Отдельно проверены 15 защитных условий сценария: порядок шагов,
-пропуск logout без сессии, независимость двух сессий, очистка состояния и запрет
-удаления исходных или чужих fixture-квизов.
-Каждый новый прогон создаёт отдельные команды и две публикации. Существующие
-правила хранения сохраняют неизменяемую историю публикаций после удаления
-черновика; сценарий её не очищает. Исходные fixtures и локальный Shared Value
-не меняются. Приложение и его JPA-пути не изменяются; прежние ограниченные SQL-замеры
-для используемых списков приведены ниже и не являются замером publication writer.
+The initial two full desktop runs of 29 requests produced **69 assertions:
+68 passed, 1 failed** each, with zero script execution errors. D-001 was the only
+failure; publication, replay, conflicts and cleanup passed. Original users,
+active quizzes, questions and associations matched initial snapshots; no active
+scenario quizzes or fixture sessions remained.
 
-## Владение при публикации: 22 Publication ownership
+After expansion to 41 requests, two full desktop runs produced **102 assertions:
+101 passed, 1 failed** each, with zero script errors. All **33 added assertions**
+passed in both runs; D-001 remained. Reader denial returned documented **404**,
+and the owner's subsequent first publication used counter=1. Fifteen scenario
+controls checked step order, logout skipping without a session, independent
+sessions, state clearing and protection of source/foreign fixture quizzes.
+Each run creates unique commands and two publications. Existing retention keeps
+immutable history after draft deletion; the scenario does not purge it. Original
+fixtures and local Shared Value are preserved. Application/JPA paths are
+unchanged. Earlier bounded SQL measurements below cover the indicated reads,
+not the publication writer.
 
-Сценарий следует тому же Swagger `publishQuizRevision` в группе `quizzes`.
-Дополнительные контракты — `addQuestion`, `getAllRoles`/`RoleDto`, авторизация
-из группы `auth` и чтение подготовленных вопросов из `questions`.
+## Publication ownership: 22 Publication ownership
 
-Чтобы раздел не превращался в плоский список из 65 запросов, используются
-самостоятельные вложенные сценарии одного уровня:
+Uses `publishQuizRevision` in the `quizzes` group, plus `addQuestion`,
+`getAllRoles`/`RoleDto`, authentication from `auth` and prepared-question reads
+from `questions`.
+
+Two independent child folders keep the section from becoming a flat list of
+65 requests:
 
 ```text
 22 Publication ownership
-├── 01 Quiz ownership and moderation  (36 запросов)
-└── 02 Question source ownership      (29 запросов)
+├── 01 Quiz ownership and moderation  (36 requests)
+└── 02 Question source ownership      (29 requests)
 ```
 
-У каждой вложенной папки собственные вход, проверка данных, временный квиз,
-публикации, защищённое удаление и logout. Запускайте **Run** на нужной вложенной
-папке или на родительской **22**, чтобы последовательно выполнить оба сценария.
-На родительском уровне будет **65 запросов**. Временные переменные разделены на
-`ownRun*` и `srcRun*`, имена запросов для переходов уникальны. После завершения
-очистки первого сценария Runner продолжает второй даже при известном D-001;
-failed assertion остаётся в отчёте. Ошибка начальных fixtures останавливает запуск
-до входа и создания ресурсов.
+Each child includes login, input verification, its own temporary quiz,
+publications, guarded deletion and logout. Run a complete child or parent **22**
+to execute both in sequence, for **65 requests**. Transient variables use separate
+`ownRun*` and `srcRun*` prefixes, with unique transition request names. Completed
+cleanup in the first child allows the second to run even after known D-001,
+while the failed assertion stays visible. Invalid initial fixtures stop the run
+before login or resource creation.
 
-Папка 21 содержит один связанный сценарий из 41 запроса и остаётся единой.
-Отдельные фазы без собственного setup/cleanup не выделяются в запускаемые папки.
+Folder 21 remains one cohesive 41-request scenario. Dependent phases without
+their own setup/cleanup are not exposed as independently runnable folders.
 
-В локальный экспорт `postman/data/Access.private.json` добавлены поля
-`authorBUsername`, `authorBPassword`, `authorBUserId`, а также
-`moderatorUsername`, `moderatorPassword`, `moderatorUserId`. Экспорт сохраняет прежние
-поля читателя, автора A, администратора и исходного HTTP-квиза. При обновлении
-fixtures перенесите весь JSON в существующий локальный **Value** переменной
-`accessFixtureData`; **Shared Value** оставьте пустым. Публичный шаблон окружения
-по-прежнему содержит пустую строку. Пароли и роли самих пользователей не меняются.
+Local `postman/data/Access.private.json` includes `authorBUsername`,
+`authorBPassword`, `authorBUserId`, `moderatorUsername`, `moderatorPassword` and
+`moderatorUserId`, while retaining reader, author A, administrator and source
+HTTP-quiz fields. After refreshing fixtures, copy the full JSON into the existing
+local `accessFixtureData` **Value** and leave **Shared Value** empty. The public
+environment template stays empty. Account passwords and roles are not changed.
 
 ### 01 Quiz ownership and moderation
 
-Откройте **22 Publication ownership → 01 Quiz ownership and moderation → Run**,
-выберите **QuizMaker — Local Docker**,
-режим **Local**, одну итерацию и все **36 запросов**. Iteration data остаётся пустым.
-Настройки Runner такие же, как для папки 21: логи, сохранение ответов, cookies
-и переменных отключены; **Stop run if an error occurs** отключён для завершения
-всех четырёх logout. Для повтора используйте **Rerun**.
+Open **22 Publication ownership -> 01 Quiz ownership and moderation -> Run**,
+select **QuizMaker — Local Docker**, **Local**, one iteration and all **36
+requests**. Leave iteration data empty. Use folder 21's Runner settings: disable
+logs, saved responses, cookies and persisted values; keep **Stop run if an error
+occurs** disabled so all four logout requests can run. Use **Rerun** to repeat.
 
-| Шаги | Проверка |
+| Steps | Check |
 | --- | --- |
-| 01–07 | Загрузка живого OpenAPI, вход A/B/admin, разные UUID, активность и точные роли каждого |
-| 07a–07b | Вход подготовленного qmfx_moderator; подтверждение его UUID, активности и единственной роли ROLE_MODERATOR |
-| 08 | По реальному списку ролей у авторов есть QUIZ_UPDATE без полномочий модерации, у admin есть QUIZ_ADMIN или QUIZ_MODERATE; у модератора есть QUIZ_MODERATE без QUIZ_ADMIN и QUESTION_ADMIN |
-| 09–10 | B читает свой подготовленный приватный HTTP-квиз и пять исходных вопросов; содержимое сохраняется для сравнения |
-| 11–17 | A создаёт временный PRIVATE DRAFT с уникальным названием; администратор привязывает к нему подготовленные вопросы B |
-| 18–19 | B получает 404 ProblemDetail при публикации квиза A; все поля черновика до и после отказа совпадают |
-| 20–21 | Администратор публикует тот же квиз с counter=1; подтверждение соответствует схеме, владельцем остаётся A |
-| 22–23 | B не может повторить принятую команду администратора — 404; администратор получает своё точное исходное подтверждение |
-| 24–26 | Модератор публикует тот же квиз с обратным порядком пяти вопросов и counter=2, A остаётся владельцем; точный replay возвращает прежнее подтверждение |
-| 90–99 | A удаляет только квиз этого прогона; исходные вопросы и связи совпадают со снимком; четыре независимых logout и очистка `ownRun*` |
+| 01–07 | Read live OpenAPI; log in A/B/admin and confirm distinct UUIDs, active status and exact roles |
+| 07a–07b | Log in qmfx_moderator and confirm UUID, active status and only ROLE_MODERATOR |
+| 08 | Live grants: authors have QUIZ_UPDATE without moderation; admin has QUIZ_ADMIN or QUIZ_MODERATE; moderator has QUIZ_MODERATE without QUIZ_ADMIN/QUESTION_ADMIN |
+| 09–10 | B reads the prepared private HTTP quiz and five original questions; retain a content snapshot |
+| 11–17 | A creates a unique PRIVATE DRAFT; administrator links B's prepared questions |
+| 18–19 | B receives 404 ProblemDetail on A's quiz publication; every draft response field is unchanged |
+| 20–21 | Administrator publishes at counter=1; acknowledgement matches the schema and A stays owner |
+| 22–23 | B cannot replay the administrator's accepted command: 404; administrator receives the original exact acknowledgement |
+| 24–26 | Moderator publishes the same quiz with reversed order at counter=2; A stays owner and exact replay is stable |
+| 90–99 | A deletes only this run's quiz; original content/associations match; four independent logouts and `ownRun*` cleanup |
 
-Используются вопросы, первоначально созданные подготовленным автором B. Администратор
-связывает их с квизом A через разрешённый Swagger путь повторного использования.
-У B есть права автора и собственные источники вопросов, поэтому проверка выделяет
-отсутствие владения **квизом**. Администратор проходит успешный контроль через тот же
-маршрут публикации, а версия 1 подтверждает, что отказ B не создал публикацию.
-Проверка replay дополнительно подтверждает повторную проверку текущих прав.
+The prepared questions were originally authored by B. Administrator links them
+to A's quiz through documented cross-owner reuse. B has author permissions and
+source authority, isolating missing **quiz ownership**. Administrator succeeds
+through the same publication route; counter one proves the earlier denial did
+not publish. Replay additionally checks current authorization again.
 
-Модератор использует существующее право **QUIZ_MODERATE**, которое Swagger
-разрешает и для публикации чужого квиза, и для повторного использования чужих
-источников вопросов. Новая команда передаёт `expectedPublicationVersion=1` и
-обратный порядок всего набора: это изменённое содержимое, поэтому проверяется
-новая публикация **2** с другим `quizRevisionId`, а не возможное повторное
-использование неизменённой публикации. Повтор команды сохраняет все поля и порядок
-UUID подтверждения. Источники и вопросы при этом не редактируются.
+The moderator uses existing **QUIZ_MODERATE**, which Swagger permits for both
+cross-owner publication and reuse of another author's recorded sources. A new
+command uses `expectedPublicationVersion=1` and the entire reversed question
+order. Changed content must create publication **2** with a new `quizRevisionId`,
+rather than potentially reuse identical current content. Replay retains every
+acknowledged field and ordered UUID. Source content/questions are not edited.
 
-Как и в папке 21, создание черновика сохраняет явный failed assertion **D-001**
-(Swagger 200, фактически 201). Проверки владения продолжаются при валидном
-успешном создании. Завершение допускает удаление только UUID текущего прогона
-после проверки владельца A и уникального названия; исходный HTTP-квиз исключён.
-Неизменяемая история публикации сохраняется по существующим правилам приложения.
+As in folder 21, creation retains explicit **D-001** failure (Swagger 200, actual
+201). Ownership checks continue after valid successful setup. Guarded cleanup
+allows only this run's UUID after checking A's ownership and unique title, and
+excludes the source HTTP quiz. Immutable history follows existing retention.
 
-До добавления модератора два полных desktop-запуска дали по **68 assertions**:
-**67 passed, 1 failed**, без ошибок выполнения скриптов. Failed — только известное
-D-001 создания черновика; новых расхождений не найдено. В обоих запусках B получил
-404 до публикации и при попытке replay команды администратора, admin — 200 с
-counter=1 и тем же подтверждением на повторе. Три logout вернули 204. Исходные
-активные квизы, вопросы и связи совпали со снимком до запусков; временных активных
-квизов и сессий fixtures не осталось. Для экспорта аккаунтов прошли пять Python-тестов,
-для порядка шагов, независимости сессий, очистки и защиты удаления — 15 проверок.
+Before moderator coverage, two full desktop runs produced **68 assertions:
+67 passed, 1 failed** each, with zero script errors. Only D-001 failed; no new
+discrepancy was found. B received 404 initially and on administrator-command
+replay; admin received 200 at counter=1 and the same replay acknowledgement.
+Three logouts returned 204. Active quiz/question/association snapshots were
+preserved; no active temporary quiz or fixture session remained. Five Python
+fixture-export tests and 15 step-order/session/cleanup/deletion controls passed.
 
-После добавления модератора два полных последовательных desktop-запуска из
-**36 запросов** дали по **85 assertions: 84 passed, 1 failed**, без ошибок скриптов.
-Все **17 добавленных проверок** прошли; единственный failed остаётся D-001.
-Модератор получил 200 с counter=2 и новым UUID ревизии; точный replay совпал,
-владение A сохранилось. Четыре logout вернули 204. Снимки исходных активных квизов,
-вопросов и связей, а также количество пользователей совпали с начальными;
-активных временных квизов и сессий fixtures не осталось. Прошли пять Python-тестов
-экспорта и 15 дополнительных проверок отсутствующих/совпадающих данных модератора,
-порядка шагов, отказа входа, независимого logout и финальной очистки.
+After adding the moderator, two full desktop runs of **36 requests** produced
+**85 assertions: 84 passed, 1 failed** each, with zero script errors. All **17
+added assertions** passed; only D-001 failed. Moderator received 200 at counter=2
+with a new revision UUID, exact replay matched and A remained owner. Four logouts
+returned 204. Initial active quiz/question/association snapshots and user count
+were preserved; no active temporary quiz/session remained. Five Python export
+tests and 15 additional controls for missing/colliding moderator identities,
+step order, failed login, independent logout and final clearing passed.
 
 ### 02 Question source ownership
 
-Запускается отдельно через **22 Publication ownership → 02 Question source
-ownership → Run**, без iteration data, с теми же локальными fixtures и настройками
-Runner. Все **29 запросов** выполняются в исходном порядке; требуется автор A,
-автор B и администратор. Новые аккаунты, роли и вопросы не создаются.
+Open **22 Publication ownership -> 02 Question source ownership -> Run** with
+no iteration data and the same local fixtures/Runner settings. Run all **29
+requests** in order. It uses author A, author B and administrator; no new
+accounts, roles or questions are created.
 
-1. Живой Swagger подтверждает отдельное требование recorded source ownership.
-   Три пользователя входят и подтверждают свои UUID, активность и роли; по
-   реальному списку grants у A есть QUIZ_UPDATE, но нет QUIZ_MODERATE, QUIZ_ADMIN
-   и QUESTION_ADMIN.
-2. B читает свой подготовленный HTTP-квиз и пять исходных вопросов. A создаёт
-   уникальный PRIVATE-квиз `Local source ownership <UUID>`, а администратор
-   привязывает вопросы B через документированный `addQuestion`.
-3. A читает свой квиз и получает **404 ProblemDetail** при публикации: владение
-   квизом не даёт права публиковать чужие источники вопросов. Все возвращаемые
-   поля черновика после отказа должны совпасть с исходным снимком.
-4. Администратор публикует тот же набор с **200** и `publicationVersion=1`:
-   предыдущий отказ не создал публикацию. A остаётся владельцем PRIVATE-квиза.
-   Точная повторная отправка команды администратором возвращает то же полное
-   подтверждение, включая порядок UUID ревизий вопросов.
-5. A удаляет только квиз текущего прогона после проверки UUID, владельца и
-   уникального названия; исходный HTTP-квиз исключён из удаления. Исходные вопросы
-   и их связи сравниваются с начальным снимком. Три независимых logout закрывают
-   сессии, `srcRun*` очищаются. История публикации сохраняется по правилам приложения.
+1. Live Swagger confirms recorded source ownership as a separate requirement.
+   All three users confirm UUIDs, active status and roles. Live grants give A
+   QUIZ_UPDATE without QUIZ_MODERATE, QUIZ_ADMIN or QUESTION_ADMIN.
+2. B reads the prepared HTTP quiz and five questions. A creates a unique PRIVATE
+   quiz named `Local source ownership <UUID>`; administrator links B's questions
+   through documented `addQuestion`.
+3. A reads the owned quiz, then receives **404 ProblemDetail** on publication:
+   quiz ownership does not grant authority to publish another author's sources.
+   Every draft response field must match the initial snapshot after denial.
+4. Administrator publishes the same set with **200**, `publicationVersion=1`:
+   the denial created no publication. A remains owner of the PRIVATE quiz.
+   Administrator's exact replay returns the full original acknowledgement,
+   including ordered question revision UUIDs.
+5. A deletes only this run's quiz after verifying UUID, owner and unique title;
+   source HTTP quiz is protected. Original content/associations match their
+   initial snapshot. Three independent logouts close sessions and `srcRun*` is
+   cleared. Publication history follows existing application retention.
 
-Swagger обещает для exact replay повторную проверку текущих полномочий на
-**квиз**. Отдельный отказ владельцу на replay принятой администратором команды
-из-за источников здесь не предполагается: такая гарантия в контракте не указана.
-Как и в соседнем сценарии, создание квиза сохраняет известный failed assertion
-D-001, а успешная подготовка позволяет проверить остальные действия и очистку.
+Swagger promises that exact replay rechecks current **quiz** authority. This
+scenario does not invent a separate source-authority replay denial for the owner
+using an administrator's accepted command; the contract does not state that
+guarantee. As in the sibling scenario, creation retains D-001, while valid
+successful setup permits later assertions and cleanup.
 
-Самостоятельный desktop-запуск нового вложенного сценария дал **65 assertions:
-64 passed, 1 failed**, без ошибок скриптов. Два полных последовательных запуска
-родительской **22** выполнили все **65 запросов** каждый: **150 assertions,
-148 passed, 2 failed**, без ошибок скриптов. Два failed — это D-001 в двух
-независимых операциях создания временных квизов, а не два разных расхождения.
-Оба сценария доходят до своих logout; известный failed первого не мешает второму.
-Новых расхождений не обнаружено.
+A standalone desktop run produced **65 assertions: 64 passed, 1 failed**, with
+zero script errors. Two full consecutive parent **22** runs executed all **65
+requests** each: **150 assertions, 148 passed, 2 failed**, with zero script errors.
+Both failures were D-001 at two independent temporary-quiz creations, not two
+separate discrepancies. Both children reached logout, and the first child's
+known failed assertion did not prevent the second from running. No additional
+discrepancy was found.
 
-Во всех запусках A получил 404 при публикации вопросов B, поля черновика остались
-неизменными, первая публикация администратора получила counter=1 и устойчивый
-replay. Снимки исходных активных квизов, вопросов и связей и количество
-пользователей совпали с начальными. Активных временных квизов и сессий fixtures
-не осталось. Прошли 15 прежних защитных проверок для вложенного сценария владения
-квизом и 15 проверок нового сценария: начальные данные, изоляция переменных,
-порядок переходов, защита исходного квиза от удаления, независимые logout и
-продолжение родительского запуска после зарегистрированной ошибки.
+In every run, A received 404 for B's sources, draft fields stayed unchanged and
+administrator's first publication used counter=1 with stable replay. Initial
+active quiz/question/association snapshots and user count were preserved. No
+active temporary quizzes or fixture sessions remained. Fifteen existing quiz
+ownership controls and 15 new controls passed: input validation, variable
+isolation, transition order, protected source deletion, independent logout and
+parent-run continuation after a reported failure.
 
-Производственные Java/JPA-пути не изменяются. Проверяются реальные HTTP-операции
-с подготовленными источниками; это функциональное покрытие владения и повторов.
+Production Java/JPA paths are unchanged. These are functional checks of real
+HTTP publication, ownership and replay with prepared sources.
 
-## Постоянные пользователи и вопросы для будущих сценариев
+## Prepared users and questions for future scenarios
 
-При уже запущенном окружении:
+With the local environment running:
 
 ```bash
 ./tools/local-api.sh fixtures
 ```
 
-Команда привязана к healthy Docker-проекту `quizmaker-postman`, БД
-`quizmaker_local` и loopback gateway. Она не принимает произвольные адреса БД/API.
-HTTP-редиректы и системный proxy не используются.
-Сначала создаёт пользователей обычным HTTP-вызовом регистрации. Затем назначает
-согласованные существующие роли и флаг активности через SQL только этим локальным
-fixture-аккаунтам: начального администратора для назначения ролей через HTTP нет.
-Матрица ролей приложения и содержимое permission manifest не меняются.
+The command is restricted to the healthy `quizmaker-postman` Docker project,
+`quizmaker_local` database and loopback gateway. It accepts no arbitrary database
+or API destinations, follows no HTTP redirects and uses no system proxy.
+It registers users through normal HTTP, then assigns the approved existing
+roles and active flags through SQL only to these local fixture accounts: no
+initial administrator is available to assign roles over HTTP. Application
+permission mappings and the permission manifest are unchanged.
 
-| Persona / username | Роли | Назначение |
+| Persona / username | Roles | Purpose |
 | --- | --- | --- |
-| `reader` / `qmfx_reader` | ROLE_USER | Вход разрешён, создания вопросов/квизов и чтения admin roles нет |
-| `author_a` / `qmfx_author_a` | ROLE_USER + ROLE_QUIZ_CREATOR | Владелец набора Java |
-| `author_b` / `qmfx_author_b` | ROLE_USER + ROLE_QUIZ_CREATOR | Владелец набора HTTP; чужой автор для проверок владения |
-| `moderator` / `qmfx_moderator` | ROLE_MODERATOR | Проверки существующих полномочий модерации |
-| `admin` / `qmfx_admin` | ROLE_ADMIN | Проверки административных разрешений, включая чтение ролей |
-| `disabled` / `qmfx_disabled` | ROLE_USER + ROLE_QUIZ_CREATOR; inactive | Вход отклоняется с 401 |
+| `reader` / `qmfx_reader` | ROLE_USER | Can log in; cannot create questions/quizzes or read admin roles |
+| `author_a` / `qmfx_author_a` | ROLE_USER + ROLE_QUIZ_CREATOR | Owns Java fixtures |
+| `author_b` / `qmfx_author_b` | ROLE_USER + ROLE_QUIZ_CREATOR | Owns HTTP fixtures; foreign author for ownership checks |
+| `moderator` / `qmfx_moderator` | ROLE_MODERATOR | Existing moderation permissions |
+| `admin` / `qmfx_admin` | ROLE_ADMIN | Administrative permissions, including role reads |
+| `disabled` / `qmfx_disabled` | ROLE_USER + ROLE_QUIZ_CREATOR; inactive | Login rejected with 401 |
 
-ROLE_SUPER_ADMIN не создаётся. ROLE_ADMIN не содержит SYSTEM_ADMIN; доступа ко
-всем служебным endpoint только по названию «admin» ожидать не следует.
-Принадлежность организации и tenant-сценарии этим набором не моделируются.
+No ROLE_SUPER_ADMIN is created. ROLE_ADMIN lacks SYSTEM_ADMIN; its name does not
+grant access to every operational endpoint. Organization/tenant scenarios are
+not modeled by these fixtures.
 
-Определения находятся в `fixtures/personas.json` и `fixtures/question-sets.json`.
-Создаются два **PRIVATE DRAFT** квиза по пять вопросов: **Java basics** автора A
-и **HTTP basics** автора B. Каждый содержит MCQ_SINGLE, MCQ_MULTI, TRUE_FALSE,
-FILL_GAP и ORDERING. В JSON сохранены ручные request bodies и примеры правильного
-и неправильного ответа. AI, изображения и удалённое хранилище не используются.
-Для сценариев прохождения потребуется отдельно опубликовать нужный квиз обычным
-путём приложения; fixtures сами его не публикуют.
+Definitions are in `fixtures/personas.json` and `fixtures/question-sets.json`.
+Two **PRIVATE DRAFT** quizzes contain five questions each: A's **Java basics**
+and B's **HTTP basics**. Both cover MCQ_SINGLE, MCQ_MULTI, TRUE_FALSE, FILL_GAP and
+ORDERING. JSON includes hand-written request bodies and correct/incorrect answer
+examples. AI, images and remote storage are not used. Attempt scenarios must
+publish a quiz through the normal application operation first; seeding does not
+publish fixtures.
 
-Повторный `fixtures` сохраняет существующие UUID и пароли. Он сверяет содержимое
-вопросов, владельцев, приватный статус и число вопросов; при расхождении
-останавливается и не перезаписывает отредактированный пользователем контент.
-Операция не является одной транзакцией: после прерывания её можно повторить,
-состояние сохраняется после каждого созданного объекта. Неоднозначные совпадения
-и чужие аккаунты с таким же username не захватываются.
+Repeated `fixtures` preserves UUIDs/passwords and checks content, ownership,
+private draft status and question count. Mismatches stop seeding instead of
+overwriting user edits. The operation is not one transaction: state is saved
+after each created object and an interrupted run can resume. Ambiguous matches
+and unrelated accounts with matching usernames are never claimed.
 
-Сгенерированные пароли и ID сохраняются локально в
-`server/local/fixtures.private.json` и в `data/Personas.private.json` с правами
-`600`; оба файла исключены из Git. Значения не выводятся в терминал.
-Команда также создаёт `data/Access.private.json` — источник локального значения
-`accessFixtureData` для готового сценария **11 Access**. После пересоздания fixture
-аккаунтов/БД обновите это значение в Postman из нового файла.
-`Personas.private.json` — JSON-массив iteration data для будущих запросов вида
-`{{username}}`, `{{password}}`, `{{userId}}`, `{{javaQuizId}}`, `{{httpQuizId}}`.
-Подключайте его в локальном Runner через **Iteration data**, когда будет готов
-соответствующий сценарий persona; к текущему **10 Auth** этот файл не нужен.
-Не импортируйте его как общую коллекцию или shared environment.
+Generated passwords/IDs are stored locally in `server/local/fixtures.private.json`
+and `data/Personas.private.json`, both mode `600` and ignored by Git. Values are
+not printed to the terminal. `data/Access.private.json` supplies local
+`accessFixtureData` for **11 Access** and later scenarios. Refresh that Postman
+value from the new private file after recreating fixture accounts or the database.
 
-Не удаляйте private state отдельно от существующей БД: без него seed не сбрасывает
-пароли и не присваивает себе найденные аккаунты. Удалённые или изменённые fixtures
-требуют явного решения; автоматических repair/reset/delete нет.
+`Personas.private.json` is a JSON iteration-data array for future requests using
+`{{username}}`, `{{password}}`, `{{userId}}`, `{{javaQuizId}}` and `{{httpQuizId}}`.
+Attach it to local Runner **Iteration data** when a matching persona scenario is
+available; current **10 Auth** does not need it. Do not import it as a shared
+collection or environment.
 
-## Остановка и диагностика
+Keep private state together with its database: without state, seeding neither
+resets passwords nor claims existing accounts. Deleted/modified fixtures require
+an explicit decision; there is no automatic repair, reset or deletion.
+
+## Stop and diagnose
 
 ```bash
 ./tools/local-api.sh logs
@@ -519,44 +513,42 @@ FILL_GAP и ORDERING. В JSON сохранены ручные request bodies и 
 ./tools/local-api.sh down
 ```
 
-`stop` останавливает контейнеры; `down` также удаляет контейнеры и сети. Оба
-сохраняют данные MySQL и загрузки в volumes проекта `quizmaker-postman`.
-Если порт `8080` занят, остановите использующий его локальный процесс и повторите
-запуск. При ошибке миграции изучите лог: скрипт не делает автоматический Flyway repair
-и не удаляет существующие данные. Локальная MySQL работает без binlog, чтобы
-миграции с хранимыми функциями выполнялись владельцем схемы без глобальной роли SUPER.
+`stop` stops containers; `down` also removes containers and networks. Both keep
+MySQL/uploads in `quizmaker-postman` volumes. If port `8080` is occupied, stop the
+local process using it and retry. On migration failure, inspect logs: the script
+does not run automatic Flyway repair or delete data. Local MySQL disables binlog
+so migrations with stored functions can run as schema owner without global SUPER.
 
-## Границы первого этапа
+## Coverage boundaries
 
-У приложения нет исходящего доступа в интернет. Используются фиктивные настройки
-OpenAI, Stripe и хранилища, существующий noop-провайдер почты, пустые Stripe Price ID
-и отключённая локальная синхронизация пакетов. Реальные ключи из корневого `.env`
-в контейнер не передаются. Оплата, OAuth у внешнего провайдера, AI-генерация,
-доставка почты и удалённые медиа потребуют отдельного тестового окружения со стабами
-или согласованным sandbox-подключением.
+The application has no outbound internet access. It uses fake OpenAI, Stripe and
+storage settings, the existing no-op email provider, empty Stripe Price IDs and
+disabled local pack synchronization. Real root `.env` keys are not passed into
+the container. Payments, provider OAuth, AI generation, email delivery and remote
+media need a separate test environment with stubs or an agreed sandbox connection.
 
-Эти проверки не заменяют полный набор unit/integration-тестов. Новые чтения JPA
-здесь не добавляются. Для используемых путей отдельно измерены приращения MySQL
-`performance_schema.events_statements_summary_by_digest`: чтение страницы с одним
-и пятью связанными вопросами — по **11 SELECT**, карточки квиза с одним и пятью
-вопросами — по **9**, страницы собственных квизов с одним и двумя элементами —
-по **9**. Включены запросы аутентификации и прав; исключены диагностические
-запросы mysql-клиента. В SQL вопросов видны отдельная пагинация и две пакетные
-загрузки связей; количество запросов не растёт с размером этих fixtures.
-Замер относится к указанным локальным путям и объёмам, а не ко всему приложению.
+These checks do not replace the unit/integration suite. No JPA read paths are
+added. Earlier MySQL `performance_schema.events_statements_summary_by_digest`
+measurements found **11 SELECTs** for question pages containing one or five linked
+questions, **9** for quiz details with one or five questions, and **9** for own
+quiz pages with one or two items. Counts include authentication/permission reads
+and exclude diagnostic MySQL client queries. Question SQL uses separate
+pagination and two batched relationship loads; query count did not increase
+within these fixtures. Evidence covers these local paths and sizes, not the
+entire application.
 
-Ближайшие примеры в репозитории: `server/backend/Dockerfile`,
+Closest repository examples: `server/backend/Dockerfile`,
 `server/backend/docker-compose.yml`, `docs/runbooks/health-probes.md`,
-`shared/api/UtilityController`, `shared/config/SecurityConfig` и
-`shared/api/docs/ApiDiscoveryController` в `src/main/java/uk/gegc/quizmaker`.
+`shared/api/UtilityController`, `shared/config/SecurityConfig` and
+`shared/api/docs/ApiDiscoveryController` under `src/main/java/uk/gegc/quizmaker`.
 
-Контракты Auth: `features/auth/api/AuthController`, `RegisterRequest`,
-`LoginRequest`, `JwtResponse` и `features/auth/application/impl/AuthServiceImpl`.
-Состав существующих прав — `src/main/resources/policy/role-permission-manifest.json`;
-форматы вопросов — `docs/question-contracts.md` и
+Auth references: `features/auth/api/AuthController`, `RegisterRequest`,
+`LoginRequest`, `JwtResponse` and `features/auth/application/impl/AuthServiceImpl`.
+Existing permissions: `src/main/resources/policy/role-permission-manifest.json`.
+Question formats: `docs/question-contracts.md` and
 `src/test/resources/question-contracts/baseline-v1-golden.json`.
 
-Проверить защиту локального seed без изменения БД:
+Check local seeding safeguards without changing the database:
 
 ```bash
 PYTHONPATH=tools python3 -B -m unittest tools/test_local_api_fixtures.py -v

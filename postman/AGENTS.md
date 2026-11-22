@@ -1,53 +1,57 @@
-# Правила сценариев Postman
+# Postman scenario rules
 
-Эти правила относятся к коллекциям, окружениям и сценариям в `postman/`.
+These rules apply to collections, environments and scenarios in `postman/`.
+Write all instructions, documentation, request and folder descriptions, comments
+and assertion messages in English.
 
-## Сначала OpenAPI
+## OpenAPI first
 
-- До создания или изменения сценария прочитать `/api/v1/api-summary` работающего
-  локального приложения и соответствующие спецификации `/v3/api-docs/{group}`.
-- Строить запросы и ожидаемые результаты только по OpenAPI: пути, методы,
-  авторизация, параметры, обязательные поля, ограничения, именованные схемы,
-  примеры, статусы, ошибки и описанная семантика повторов.
-- Указывать в сценарии группу/operationId контракта и проверяемую фичу. Проверять
-  согласованность версии контейнера с выбранной опубликованной реализацией.
-- Подготовленные пользователи, вопросы и локальные значения окружения являются
-  входными данными; они не заменяют публичный контракт API.
-- До первого прогона не читать реализацию контроллеров, сервисов, репозиториев
-  или существующие Java-тесты, чтобы вывести из них ожидаемое поведение.
-  После неуспешной HTTP-проверки или завершённого первоначального прогона можно
-  обратиться к коду для диагностики или дополнительной проверки.
-- Расхождение реализации и Swagger фиксировать явно. Не подменять ожидаемый
-  результат фактически наблюдаемым и не ослаблять assertion ради зелёного прогона.
-  Отсутствующую гарантию не выдумывать. Исправление приложения или его OpenAPI
-  согласовывать отдельно, если оно выходит за текущую задачу.
-- Реестр подтверждённых расхождений — [GitHub #938](https://github.com/Gegcuk/QuizMaker/issues/938).
-  Записи содержат стабильный ID, версию приложения, ожидаемый и фактический
-  результат, воспроизведение, влияние, статус и ссылку на исправление с перепроверкой.
+- Before creating or changing a scenario, read `/api/v1/api-summary` from the
+  running local application and the relevant `/v3/api-docs/{group}` specifications.
+- Derive requests and expected results only from OpenAPI: paths, methods,
+  authentication, parameters, required fields, constraints, named schemas,
+  examples, statuses, errors and documented replay semantics.
+- Identify the contract group/operationId and the feature under test in the
+  scenario. Verify that the container revision matches the selected published
+  implementation.
+- Prepared users, questions and local environment values are inputs; they do
+  not replace the public API contract.
+- Before the first run, do not read controllers, services, repositories or
+  existing Java tests to derive expected behavior. After a failed HTTP check or
+  an initial verification run, implementation code may be read for diagnosis
+  or additional verification.
+- Record differences between Swagger and runtime explicitly. Do not replace an
+  expected result with observed behavior or weaken an assertion to make a run
+  pass. Do not invent undocumented guarantees. Agree application or OpenAPI
+  fixes separately when they are outside the current task.
+- Track confirmed discrepancies in [GitHub #938](https://github.com/Gegcuk/QuizMaker/issues/938).
+  Each entry includes a stable ID, application revision, expected and actual
+  results, reproduction, impact, status, and a linked fix with recheck evidence.
 
-## Выбор и повторяемость сценариев
+## Scenario selection and repeatability
 
-- В первую очередь покрывать последнюю завершённую фичу, опубликованную в основной
-  ветке: сверять merged PR, завершённую owning issue и доступный OpenAPI. Открытая
-  ветка или одобренное архитектурное решение сами по себе не доказывают готовность.
-- Сохранять ранее созданные сценарии при добавлении нового покрытия.
-- Если раздел содержит несколько независимых сценариев, размещать их во вложенных
-  папках одного уровня. Каждая такая папка включает собственные setup, проверки,
-  удаление временных ресурсов и logout и запускается отдельно или вместе с соседними
-  через родительскую папку. Разделять временные переменные и имена переходов между
-  сценариями. Завершённая очистка одного сценария не должна останавливать следующий
-  из-за уже зарегистрированного contract assertion. Не создавать папки для отдельных
-  зависимых фаз, которые нельзя корректно запустить самостоятельно.
-- Использовать локальный Runner, существующие локальные fixtures и уникальные
-  идентификаторы команд/ресурсов для каждого независимого прогона.
-- Отделять логический повтор той же команды от нового прогона: точный replay
-  повторяет исходный commandId и всё исходное тело, новый прогон получает новые UUID.
-- Проверять happy path и существенные ошибки, указанные контрактом, а также
-  отсутствие нежелательных эффектов через доступные публичные операции.
-- Удалять только ресурсы, созданные текущим прогоном, с проверкой владельца и
-  уникального признака прогона. Соблюдать существующую семантику хранения истории.
-- Пароли fixtures хранить только в локальном Value окружения; Shared Value и
-  публичный экспорт должны оставаться пустыми. JWT и промежуточное состояние
-  держать в `pm.variables`, очищать при завершении, сессии явно закрывать.
-- Внешние сервисы не вызывать. Сохранять защиту localhost, запрет перенаправлений,
-  отключённые cookies и сохранение чувствительных ответов/логов Runner.
+- Prioritize the latest completed feature published on the main branch: verify
+  its merged PR, completed owning issue and available OpenAPI. An open branch
+  or an approved architectural decision alone does not establish readiness.
+- Preserve existing scenarios when adding coverage.
+- When a section contains several independent scenarios, place them in child
+  folders at one level. Each child includes its own setup, assertions, temporary
+  resource cleanup and logout, and runs independently or with its siblings from
+  the parent folder. Use separate transient variables and unique request names
+  for transitions. Completed cleanup must allow the next independent scenario
+  to run after an already reported contract assertion. Do not create runnable
+  folders for dependent phases that cannot execute independently.
+- Use the local Runner, existing local fixtures and unique command/resource
+  identifiers for each independent run.
+- Distinguish exact command replay from a new run: replay retains the original
+  commandId and entire request body; a new run uses new UUIDs.
+- Check happy paths and significant documented errors, plus the absence of
+  unwanted effects through available public operations.
+- Delete only resources created by the current run, after verifying ownership
+  and a unique run marker. Preserve existing publication-history retention.
+- Store fixture passwords only in the environment's local Value. Shared Value
+  and public exports must stay empty. Keep JWTs and intermediate state in
+  `pm.variables`, clear them at completion and explicitly log out sessions.
+- Use only the local Docker environment in `server/local/`. Never target remote
+  or production services. Preserve the localhost guard, disabled redirects and
+  cookies, and disabled storage of sensitive Runner responses/logs.
