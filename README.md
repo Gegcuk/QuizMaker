@@ -103,6 +103,11 @@ contracts are in `/v3/api-docs/seo`, discoverable through `/api/v1/api-summary`.
 
 Tests use the `test` profile and expect a MySQL test database (e.g. `quizmaker_test`). See [src/test/resources/application-test.properties](src/test/resources/application-test.properties). CI runs the full suite with a MySQL service container (see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
+For repeatable local HTTP checks in Postman, run `./tools/local-api.sh up` and use
+the small collection and environment in [postman/README.md](postman/README.md).
+This starts an isolated MySQL, the current application build, and a localhost-only
+Nginx gateway; external providers remain offline.
+
 ## Contributing and issue planning
 
 Human contributors and AI agents use the same local-first workflow:

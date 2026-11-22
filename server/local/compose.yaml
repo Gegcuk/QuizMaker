@@ -1,0 +1,79 @@
+name: quizmaker-postman
+
+services:
+  gateway:
+    image: nginx:alpine@sha256:db35bfc6b2951e7f8a72db5db120288c127ffaeeb4a6d4b95a26fead017d5913
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks: [ingress, local]
+
+  app:
+    image: quizmaker-backend:postman-local
+    build:
+      context: ../..
+      dockerfile: server/local/Dockerfile
+      args:
+        SOURCE_REVISION: ${SOURCE_REVISION:-unknown}
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/quizmaker_local?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: quizmaker
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?Run tools/local-api.sh up first}
+      JWT_SECRET: ${JWT_SECRET:?Run tools/local-api.sh up first}
+      TOKEN_PEPPER_SECRET: ${TOKEN_PEPPER_SECRET:?Run tools/local-api.sh up first}
+      RESET_TOKEN_PEPPER: ${RESET_TOKEN_PEPPER:?Run tools/local-api.sh up first}
+      VERIFICATION_TOKEN_PEPPER: ${VERIFICATION_TOKEN_PEPPER:?Run tools/local-api.sh up first}
+      AWS_EC2_METADATA_DISABLED: "true"
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx1g
+    volumes:
+      - uploads:/app/uploads
+      - ./application-local.properties:/app/config/application-local.properties:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8081/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      start_period: 120s
+      retries: 12
+    networks: [local]
+
+  mysql:
+    image: mysql:8.4.13
+    # No replication in this disposable local server. V108 creates stored
+    # functions with the schema owner, without granting it global SUPER access.
+    command: ["--skip-log-bin"]
+    environment:
+      MYSQL_DATABASE: quizmaker_local
+      MYSQL_USER: quizmaker
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Run tools/local-api.sh up first}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run tools/local-api.sh up first}
+    volumes:
+      - mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "--host=127.0.0.1", "--silent"]
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 30
+    networks: [local]
+
+volumes:
+  mysql:
+  uploads:
+
+networks:
+  ingress:
+  local:
+    internal: true
