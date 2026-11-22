@@ -873,6 +873,23 @@ class QuizPublicationMySqlIntegrationTest {
         assertThat(CountingSource.selectedQuestions.get()).isOne();
     }
 
+    @Test void finalItemResumeChecksEachCapturedScheduleOnceLikeTheFinalRelease() {
+        var fixture = enrolledLearning(6);
+        var source = fixture.start().source();
+        // Due order is stable, so each later session starts on the still-due questions and is answered up to its last item.
+        var one = study.start(new LearningStudyService.Start(UUID.randomUUID(), source, 1));
+        int oneCapture = measure(() -> assertThat(study.resume(one.form().sessionId()).progress().nextItemId()).isNotNull());
+        var two = study.start(new LearningStudyService.Start(UUID.randomUUID(), source, 2));
+        study.respond(answer(two, 0));
+        int twoCaptures = measure(() -> assertThat(study.resume(two.form().sessionId()).progress().nextItemId()).isNotNull());
+        var three = study.start(new LearningStudyService.Start(UUID.randomUUID(), source, 3));
+        study.respond(answer(three, 0));
+        study.respond(answer(three, 1));
+        int threeCaptures = measure(() -> assertThat(study.resume(three.form().sessionId()).progress().nextItemId()).isNotNull());
+        // One capture list plus one bounded schedule read per capture, as the final release visits them.
+        assertThat(twoCaptures - oneCapture).isPositive().isEqualTo(threeCaptures - twoCaptures);
+    }
+
     private record EnrolledLearning(LearningStudyService.Start start, List<UUID> questions) { }
 
     private EnrolledLearning enrolledLearning(int count) {

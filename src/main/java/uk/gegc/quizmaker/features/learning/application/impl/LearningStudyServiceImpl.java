@@ -155,16 +155,24 @@ public class LearningStudyServiceImpl implements LearningStudyService {
     }
 
     /**
-     * An active view offers RESPOND only while the next item's retained schedule evidence is readable under
-     * the supported strategy and approved manifest, as the response command requires. Damaged evidence fails.
-     * False means the capture was already released, which only completion or supersession does.
+     * An active view offers RESPOND only while the next response can pass the same schedule checks: a middle
+     * answer reads its own item, and the final answer releases every capture of the form. Each checked item must
+     * be readable under the supported strategy and approved manifest; damaged evidence fails. The final read
+     * visits each capture once, as the release does. False means the captures were already released, which only
+     * completion or supersession does.
      */
     private boolean reviewable(LearningSession session, LearningForm form, int position) {
-        var capture = repository.capture(session.id(), form.id(), position);
-        if (capture.isEmpty()) return false;
-        require(capture.get().questionRevisionId().equals(form.items().get(position).questionRevisionId()), CORRUPT);
-        require("fsrs/v1".equals(capture.get().strategy()), UNSUPPORTED_VERSION);
-        schedules.read(session.source(), capture.get().questionRevisionId());
+        boolean last = position == form.items().size() - 1;
+        List<LearningStudyRepository.Capture> captures = last ? repository.captures(session.id(), form.id())
+                : repository.capture(session.id(), form.id(), position).map(List::of).orElse(List.of());
+        if (captures.isEmpty()) return false;
+        require(captures.size() == (last ? form.items().size() : 1), CORRUPT);
+        for (var capture : captures) {
+            require(capture.position() >= 0 && capture.position() < form.items().size()
+                    && capture.questionRevisionId().equals(form.items().get(capture.position()).questionRevisionId()), CORRUPT);
+            require("fsrs/v1".equals(capture.strategy()), UNSUPPORTED_VERSION);
+            schedules.read(session.source(), capture.questionRevisionId());
+        }
         return true;
     }
 

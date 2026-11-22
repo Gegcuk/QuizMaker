@@ -5823,7 +5823,7 @@ The v1 source is `QUIZ_REVISION` and configuration is `fsrs/v1`, version 1.
 |---|---|
 | `POST /api/v1/learning/enrollments` | First enrollment calls the #701 binder for the entire publication. Only explicitly requested question revisions receive #649 enrollments. The receipt preserves their ordered revision, cycle and cycle-version references. |
 | `POST /api/v1/learning/sessions` | By default select up to the explicit limit in #576 due order and apply the saved quiz preference. With `limit: 1` and a `selection`, use one explicitly chosen enrolled question for `EARLY` or `PRACTICE`. Materialize the #647 form, capture each selected cycle and save the start receipt together in writable READ COMMITTED. An empty due selection commits an `EMPTY_COMPLETE` form. |
-| `GET /api/v1/learning/sessions/{sessionId}` | Check current source access and return the persisted form, ordered participant content, version, progress and next allowed response. An active session whose next item has an unsupported or damaged retained schedule returns 422 instead of offering RESPOND (#667); completed and superseded sessions stay readable. |
+| `GET /api/v1/learning/sessions/{sessionId}` | Check current source access and return the persisted form, ordered participant content, version, progress and next allowed response. An active session returns 422 instead of offering RESPOND when a schedule the next response reads is unsupported or damaged: its own item, and every capture before the final answer (#667). Completed and superseded sessions stay readable. |
 | `POST /api/v1/learning/sessions/{sessionId}/responses` | Accept a typed answer and self-rating for the next saved item. Advance FSRS once for due/early review; keep the schedule unchanged for extra practice. Save the original acknowledgement and complete when the last item is accepted. |
 
 An exact retry on the same mutation route and learner uses the original `commandId` and
@@ -5901,9 +5901,12 @@ the v2 allowance and legacy reports stay identical after Learning completes. The
 [testing guide](../testing-guide.md#first-learning-conformance-667) maps each acceptance case.
 
 **Damaged retained schedule (owner decision, 22 November 2026).** An active session is shown only
-while its next item can still be reviewed. When the next item's retained strategy or saved FSRS
-evidence is unsupported, GET returns the same 422 as the response command, so the client never
-receives a RESPOND action that must fail. Completed and superseded sessions remain readable as
+while its next response can pass the same schedule checks. A middle answer reads its own item; the
+final answer also releases every capture of the form. When a schedule that the next response reads
+has an unsupported strategy or saved FSRS evidence, GET returns the same 422 as the response command,
+so the client never receives a RESPOND action that must fail. Before the final answer, GET therefore
+visits each capture once, as the release does; this grows linearly with the session size, which the
+configured batch size bounds. Completed and superseded sessions remain readable as
 history, and an exact start retry still returns the original acknowledgement. Nothing is repaired
 or replaced by library defaults. A read that overlaps the committing final or superseding response
 finds the next capture already released; it rereads the progress and returns the committed terminal

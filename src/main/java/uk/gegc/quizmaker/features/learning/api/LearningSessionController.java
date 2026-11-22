@@ -63,7 +63,7 @@ public class LearningSessionController {
     }
 
     @GetMapping("/sessions/{sessionId}")
-    @Operation(summary = "Resume a fixed Learning session", description = "Session owner with current access to the captured publication. Reads consume no Learning command credit. The saved content and order survive later quiz publication. An active session is returned only while its next item can still be reviewed: an unsupported or damaged retained schedule returns 422 instead of offering RESPOND. Completed and superseded sessions remain readable.")
+    @Operation(summary = "Resume a fixed Learning session", description = "Session owner with current access to the captured publication. Reads consume no Learning command credit. The saved content and order survive later quiz publication. An active session is returned only while its next response can pass the schedule checks: its own item, and before the final answer every captured item. An unsupported or damaged retained schedule returns 422 instead of offering RESPOND. Completed and superseded sessions remain readable.")
     @ApiResponse(responseCode = "200", description = "Persisted order, progress and currently available actions. A SUPERSEDED session has no next item or response action and retains its accepted progress.")
     public ResponseEntity<View> resume(@PathVariable UUID sessionId) {
         return ok(View.from(study.resume(sessionId)));

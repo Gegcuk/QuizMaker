@@ -450,6 +450,53 @@ class LearningConformanceMySqlIntegrationTest {
     }
 
     @Test
+    void resumeOffersTheFinalAnswerOnlyWhenEveryCapturedScheduleCanBeReleased() throws Exception {
+        Persona anna = persona("anna", "QUIZ_UPDATE");
+        Map<String, String[]> damages = new LinkedHashMap<>();
+        damages.put("unknown strategy", new String[] {"UPDATE learning_schedule_cycle SET strategy_id='fsrs/v99' WHERE id=UUID_TO_BIN(?)",
+                "UPDATE learning_schedule_cycle SET strategy_id='fsrs/v1' WHERE id=UUID_TO_BIN(?)"});
+        damages.put("changed FSRS weight", new String[] {"UPDATE learning_fsrs_state SET state=REPLACE(state,'0.2172','0.3172') WHERE cycle_id=UUID_TO_BIN(?)",
+                "UPDATE learning_fsrs_state SET state=REPLACE(state,'0.3172','0.2172') WHERE cycle_id=UUID_TO_BIN(?)"});
+        int events = 0;
+        for (var damage : damages.entrySet()) {
+            Source biology = publishedQuiz(anna, "Cells have a membrane", "Mitochondria store DNA", "Ribosomes build proteins");
+            body(perform(enroll(anna, biology, UUID.randomUUID(), biology.questions())).andReturn(), 200);
+            JsonNode form = json.readTree(body(perform(start(anna, biology, UUID.randomUUID(), 20, null, null)).andReturn(), 200));
+            JsonNode items = form.path("items");
+            UUID session = UUID.fromString(form.path("sessionId").asText());
+            body(perform(respond(anna, session, UUID.randomUUID(), 1, items.get(0).path("sourceItemId").asText(), "GOOD", true))
+                    .andReturn(), 200);
+            events++;
+            // The schedule of the question Anna already answered is damaged.
+            String answered = activeCycle(anna, biology, items.get(0).path("questionRevisionId").asText());
+            tx.executeWithoutResult(status -> assertThat(sql.update(damage.getValue()[0], answered)).as(damage.getKey()).isOne());
+
+            // A middle answer reads only its own schedule, so resume still offers it and it is accepted.
+            JsonNode middle = json.readTree(body(perform(resume(anna, session)).andReturn(), 200));
+            assertThat(middle.path("allowedActions").size()).as(damage.getKey()).isEqualTo(2);
+            body(perform(respond(anna, session, UUID.randomUUID(), 2, items.get(1).path("sourceItemId").asText(), "GOOD", true))
+                    .andReturn(), 200);
+            events++;
+
+            // The final answer releases every capture, so both routes refuse instead of offering RESPOND.
+            Map<String, Long> damaged = learningChecksums();
+            assertProblem(perform(resume(anna, session)).andReturn(), 422, ErrorTypes.INVALID_ARGUMENT);
+            assertProblem(perform(respond(anna, session, UUID.randomUUID(), 3, items.get(2).path("sourceItemId").asText(), "GOOD", true))
+                    .andReturn(), 422, ErrorTypes.INVALID_ARGUMENT);
+            assertThat(learningChecksums()).as(damage.getKey()).isEqualTo(damaged);
+
+            tx.executeWithoutResult(status -> assertThat(sql.update(damage.getValue()[1], answered)).as(damage.getKey()).isOne());
+            JsonNode last = json.readTree(body(perform(resume(anna, session)).andReturn(), 200));
+            assertSame(last.path("nextItemId").asText(), items.get(2).path("sourceItemId").asText(), "final item is offered again");
+            JsonNode finished = json.readTree(body(perform(respond(anna, session, UUID.randomUUID(), 3,
+                    items.get(2).path("sourceItemId").asText(), "GOOD", true)).andReturn(), 200));
+            assertThat(finished.path("completed").asBoolean()).as(damage.getKey()).isTrue();
+            events++;
+            assertThat(count("learning_review_event")).as(damage.getKey()).isEqualTo(events);
+        }
+    }
+
+    @Test
     void exhaustedCommandBudgetRejectsNewCommandsUntilRefillWhileExactReplayStillWorks() throws Exception {
         Persona dana = persona("dana", "QUIZ_UPDATE");
         Source botany = publishedQuiz(dana, "Plants photosynthesise");
@@ -717,7 +764,7 @@ class LearningConformanceMySqlIntegrationTest {
             Quiz quiz = new Quiz();
             quiz.setCreator(users.findById(author.id()).orElseThrow());
             quiz.setCategory(category);
-            quiz.setTitle("Biology basics");
+            quiz.setTitle("Biology basics " + UUID.randomUUID().toString().substring(0, 8));
             quiz.setDescription("Synthetic Learning conformance source");
             quiz.setDifficulty(Difficulty.EASY);
             quiz.setStatus(QuizStatus.DRAFT);
@@ -927,6 +974,13 @@ class LearningConformanceMySqlIntegrationTest {
     private long credit(Persona persona) {
         return sql.queryForObject("SELECT credit_units FROM learning_command_budget WHERE learner_id=UUID_TO_BIN(?)",
                 Long.class, persona.id().toString());
+    }
+
+    private String activeCycle(Persona learner, Source source, String questionRevision) {
+        return sql.queryForObject("""
+                SELECT BIN_TO_UUID(active_cycle_id) FROM learning_schedule_slot
+                WHERE learner_id=UUID_TO_BIN(?) AND quiz_revision_id=UUID_TO_BIN(?) AND question_revision_id=UUID_TO_BIN(?)
+                """, String.class, learner.id().toString(), source.revisionId().toString(), questionRevision);
     }
 
     private long sequence(Persona learner, Source source, String questionRevision) {
