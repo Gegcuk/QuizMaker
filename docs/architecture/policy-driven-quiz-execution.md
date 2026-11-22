@@ -5823,7 +5823,7 @@ The v1 source is `QUIZ_REVISION` and configuration is `fsrs/v1`, version 1.
 |---|---|
 | `POST /api/v1/learning/enrollments` | First enrollment calls the #701 binder for the entire publication. Only explicitly requested question revisions receive #649 enrollments. The receipt preserves their ordered revision, cycle and cycle-version references. |
 | `POST /api/v1/learning/sessions` | By default select up to the explicit limit in #576 due order and apply the saved quiz preference. With `limit: 1` and a `selection`, use one explicitly chosen enrolled question for `EARLY` or `PRACTICE`. Materialize the #647 form, capture each selected cycle and save the start receipt together in writable READ COMMITTED. An empty due selection commits an `EMPTY_COMPLETE` form. |
-| `GET /api/v1/learning/sessions/{sessionId}` | Check current source access and return the persisted form, ordered participant content, version, progress and next allowed response. |
+| `GET /api/v1/learning/sessions/{sessionId}` | Check current source access and return the persisted form, ordered participant content, version, progress and next allowed response. An active session returns 422 instead of offering RESPOND when a schedule the next response reads is unsupported or damaged: its own item, and every capture before the final answer (#667). Completed and superseded sessions stay readable. |
 | `POST /api/v1/learning/sessions/{sessionId}/responses` | Accept a typed answer and self-rating for the next saved item. Advance FSRS once for due/early review; keep the schedule unchanged for extra practice. Save the original acknowledgement and complete when the last item is accepted. |
 
 An exact retry on the same mutation route and learner uses the original `commandId` and
@@ -5845,7 +5845,8 @@ When enabled, the server shuffles whole selected items once before storing form 
 Each option retains its captured identity and position. Later edits, new due items and retries
 cannot reorder the saved form. Existing internal CREATED sessions keep their own lifecycle;
 this API serves sessions with a committed start and matching form. There is no historical
-enrollment or response backfill. First full FSRS conformance and public activation belong to #667.
+enrollment or response backfill. #667 records the first full FSRS conformance and the
+[activation boundary](#learning-first-conformance); public activation remains gated.
 See the [owner decision](decision-register.md#learning-session-presentation) and
 [verification fixtures](../testing-guide.md#single-quiz-learning-sessions-578).
 
@@ -5881,6 +5882,65 @@ Response handling loads the saved form's bounded metadata to verify its fingerpr
 immutable question's content for validation. Exact replays read receipt metadata after current
 authorization. Final release visits the completed form's captures once per item. Existing
 personal data and future retention ownership apply to the new Learning evidence.
+
+<a id="learning-first-conformance"></a>
+### First single-quiz Learning conformance and activation boundary (#667)
+
+`LearningConformanceMySqlIntegrationTest` runs the production application context with
+`quizmaker.learning.sessions-enabled=true`, real JWT authentication, security filter chain and
+error advice, a Flyway-built catalog and MySQL. All Learning rows come from HTTP commands that
+start from empty Learning and legacy repetition storage. The only precondition outside HTTP is the
+source revision, published by the internal #700 writer. The scenario covers concurrent identical
+first enrollment, a second enrollment that reuses the active cycles, due start, saved order,
+pinned first-review intervals, lost-response replay, completion, an explicit empty session, the
+next due item and explicit early review or extra practice. It also covers authentication, foreign
+source and session denials, unsupported strategy or source kinds, damaged retained FSRS evidence,
+D33 exhaustion and refill, ordinary v1 training on the same quiz, and revision B. Outside Learning
+tables, only the documented first-enrollment contract bindings change. Existing v1 and v2 results,
+the v2 allowance and legacy reports stay identical after Learning completes. The
+[testing guide](../testing-guide.md#first-learning-conformance-667) maps each acceptance case.
+
+**Damaged retained schedule (owner decision, 22 November 2026).** An active session is shown only
+while its next response can pass the same schedule checks. A middle answer reads its own item; the
+final answer also releases every capture of the form. When a schedule that the next response reads
+has an unsupported strategy or saved FSRS evidence, GET returns the same 422 as the response command,
+so the client never receives a RESPOND action that must fail. Before the final answer, GET therefore
+visits each capture once, as the release does; this grows linearly with the session size, which the
+configured batch size bounds. Completed and superseded sessions remain readable as
+history, and an exact start retry still returns the original acknowledgement. Nothing is repaired
+or replaced by library defaults. A read that overlaps the committing final or superseding response
+finds the next capture already released; it rereads the progress and returns the committed terminal
+state. The read takes no new lock, and an active session without its capture remains a 500 integrity error.
+
+This is the first single-quiz FSRS gate only. NESTED-REVIEW-INTEGRATION still requires real #841,
+custom variants #839/#840 and optional mistake/unseen selection #648. They need their own added
+scenarios before activation; their absence is not reported as passing.
+
+**Activation boundary (owner decision, 21 November 2026).** The setting stays `false` by default.
+This conformance does not activate Learning or establish production capacity. Public activation is
+blocked because no public route publishes an immutable quiz revision: `QuizRevisionPublicationService`
+remains internal. Without it, an author cannot create a Learning source, so enabling the setting would
+expose routes whose enrollments always answer 404. [#935](https://github.com/Gegcuk/QuizMaker/issues/935)
+owns that author publication command. After it lands, #667 still adds the integrated public
+publish-to-enrollment scenario before public activation.
+
+When an environment is later approved for activation, the operator:
+
+1. Confirms the clean-start assumption with read-only counts of `spaced_repetition_entry`,
+   `repetition_review_log` and `quizzes WHERE is_repetition_enabled = TRUE`. Unexpected rows are a
+   discrepancy to classify, not permission for a reset or import.
+2. Sets `quizmaker.learning.sessions-enabled=true` and a positive
+   `quizmaker.learning.due.max-batch-size`. `quizmaker.learning.command-rate.*` may only lower D33.
+3. Restarts the application and checks that `/api/v1/api-summary` lists the `learning` group.
+
+Rollback is the same setting set to `false` followed by a restart. The routes are no longer
+registered, so retained Learning rows are not served. They are not deleted, and no schema rollback
+is involved. Re-enabling them after a rollback is not covered by this gate.
+
+Bounded signals exist for the gate: `quizmaker.learning.study` uses only `operation`, `outcome`,
+`strategy` and `version` tags, and `http.server.requests` records route templates without IDs.
+The application currently configures no metrics exporter or alert threshold. Choosing an
+exporter, dashboards and thresholds remains an activation-time operational decision.
 
 ### First enrollment, selection and public progress
 

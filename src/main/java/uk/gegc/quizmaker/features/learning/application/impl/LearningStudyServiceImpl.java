@@ -141,9 +141,39 @@ public class LearningStudyServiceImpl implements LearningStudyService {
         return execute("resume", () -> {
             var session = sessions.read(sessionId);
             var start = repository.start(session.id()).orElseThrow(() -> new LearningSessionException(UNAVAILABLE));
-            return new Observed<>(withProgress(readForm(session.id(), start), start.mode(),
-                    start.reviewedItems(), start.superseded()), "resumed");
+            var saved = readForm(session.id(), start);
+            var view = withProgress(saved, start.mode(), start.reviewedItems(), start.superseded());
+            if (view.progress().status() == LearningReview.Status.ACTIVE && !reviewable(session, view.form(), start.reviewedItems())) {
+                // The response that completed or superseded this session committed after the progress read above.
+                var current = repository.start(session.id()).orElseThrow(() -> new LearningSessionException(UNAVAILABLE));
+                require(current.formId().equals(saved.form().id()), CORRUPT);
+                view = withProgress(saved, current.mode(), current.reviewedItems(), current.superseded());
+                require(view.progress().status() != LearningReview.Status.ACTIVE, CORRUPT);
+            }
+            return new Observed<>(view, "resumed");
         });
+    }
+
+    /**
+     * An active view offers RESPOND only while the next response can pass the same schedule checks: a middle
+     * answer reads its own item, and the final answer releases every capture of the form. Each checked item must
+     * be readable under the supported strategy and approved manifest; damaged evidence fails. The final read
+     * visits each capture once, as the release does. False means the captures were already released, which only
+     * completion or supersession does.
+     */
+    private boolean reviewable(LearningSession session, LearningForm form, int position) {
+        boolean last = position == form.items().size() - 1;
+        List<LearningStudyRepository.Capture> captures = last ? repository.captures(session.id(), form.id())
+                : repository.capture(session.id(), form.id(), position).map(List::of).orElse(List.of());
+        if (captures.isEmpty()) return false;
+        require(captures.size() == (last ? form.items().size() : 1), CORRUPT);
+        for (var capture : captures) {
+            require(capture.position() >= 0 && capture.position() < form.items().size()
+                    && capture.questionRevisionId().equals(form.items().get(capture.position()).questionRevisionId()), CORRUPT);
+            require("fsrs/v1".equals(capture.strategy()), UNSUPPORTED_VERSION);
+            schedules.read(session.source(), capture.questionRevisionId());
+        }
+        return true;
     }
 
     @Override public LearningReview.Acknowledgement respond(LearningReview.Command command) {

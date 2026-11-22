@@ -678,6 +678,57 @@ class QuizPublicationMySqlIntegrationTest {
         }
     }
 
+    @Test void resumeOverlappingTheCompletingResponseShowsTheCommittedTerminalStateInsteadOfAnError() throws Exception {
+        var fixture = enrolledLearning(1);
+        var own = study.start(fixture.start());
+        var peer = study.start(new LearningStudyService.Start(UUID.randomUUID(), fixture.start().source(), 1));
+        var winning = answer(own, 0);
+        var mvc = learningHttp(study);
+        var repository = (org.springframework.aop.framework.Advised) beans.getBean(
+                uk.gegc.quizmaker.features.learning.domain.repository.LearningStudyRepository.class);
+        var progressRead = new CountDownLatch(2);
+        var release = new CountDownLatch(1);
+        // Each read pauses after its progress row, so the completing response commits before its next statements.
+        org.aopalliance.intercept.MethodInterceptor hold = invocation -> {
+            Object result = invocation.proceed();
+            if (invocation.getMethod().getName().equals("start") && Thread.currentThread().getName().startsWith("resume-race")) {
+                progressRead.countDown();
+                if (!release.await(30, TimeUnit.SECONDS)) throw new IllegalStateException("Resume race was not released");
+            }
+            return result;
+        };
+        repository.addAdvice(0, hold);
+        var pool = Executors.newFixedThreadPool(2, runnable -> new Thread(runnable, "resume-race-" + UUID.randomUUID()));
+        try {
+            var reads = new ArrayList<Future<String>>();
+            for (var session : List.of(own.form().sessionId(), peer.form().sessionId())) {
+                reads.add(pool.submit(() -> {
+                    loginLearner(username);
+                    try {
+                        var response = mvc.perform(get("/api/v1/learning/sessions/" + session)).andReturn().getResponse();
+                        return response.getStatus() + " " + json.readTree(response.getContentAsString()).path("status").asText();
+                    } finally { SecurityContextHolder.clearContext(); }
+                }));
+            }
+            await(progressRead);
+            loginLearner(username);
+            mvc.perform(learningAnswer(winning)).andExpect(status().isOk()).andExpect(jsonPath("$.completed").value(true));
+            release.countDown();
+            assertThat(reads.get(0).get(30, TimeUnit.SECONDS)).isEqualTo("200 COMPLETED");
+            assertThat(reads.get(1).get(30, TimeUnit.SECONDS)).isEqualTo("200 SUPERSEDED");
+        } finally {
+            release.countDown();
+            repository.removeAdvice(hold);
+            pool.shutdownNow();
+            assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+        }
+        assertThat(count("learning_review_event")).isOne();
+        mvc.perform(get("/api/v1/learning/sessions/" + own.form().sessionId())).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+        mvc.perform(get("/api/v1/learning/sessions/" + peer.form().sessionId())).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUPERSEDED"));
+    }
+
     @Test void supersessionPreservesAnEarlierAcceptedResponseAndItsReplay() throws Exception {
         var fixture = enrolledLearning(2);
         var remaining = study.start(fixture.start());
@@ -820,6 +871,23 @@ class QuizPublicationMySqlIntegrationTest {
         int largeStatements = measure(() -> assertThat(study.respond(answer(large, 0)).progress().reviewedItems()).isOne());
         assertThat(largeStatements).isEqualTo(smallStatements);
         assertThat(CountingSource.selectedQuestions.get()).isOne();
+    }
+
+    @Test void finalItemResumeChecksEachCapturedScheduleOnceLikeTheFinalRelease() {
+        var fixture = enrolledLearning(6);
+        var source = fixture.start().source();
+        // Due order is stable, so each later session starts on the still-due questions and is answered up to its last item.
+        var one = study.start(new LearningStudyService.Start(UUID.randomUUID(), source, 1));
+        int oneCapture = measure(() -> assertThat(study.resume(one.form().sessionId()).progress().nextItemId()).isNotNull());
+        var two = study.start(new LearningStudyService.Start(UUID.randomUUID(), source, 2));
+        study.respond(answer(two, 0));
+        int twoCaptures = measure(() -> assertThat(study.resume(two.form().sessionId()).progress().nextItemId()).isNotNull());
+        var three = study.start(new LearningStudyService.Start(UUID.randomUUID(), source, 3));
+        study.respond(answer(three, 0));
+        study.respond(answer(three, 1));
+        int threeCaptures = measure(() -> assertThat(study.resume(three.form().sessionId()).progress().nextItemId()).isNotNull());
+        // One capture list plus one bounded schedule read per capture, as the final release visits them.
+        assertThat(twoCaptures - oneCapture).isPositive().isEqualTo(threeCaptures - twoCaptures);
     }
 
     private record EnrolledLearning(LearningStudyService.Start start, List<UUID> questions) { }

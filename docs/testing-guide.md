@@ -2,6 +2,49 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## First Learning conformance (#667)
+
+`LearningConformanceMySqlIntegrationTest` is the single-quiz FSRS phase gate. It starts the full
+`@SpringBootTest` application with the Learning setting enabled, real JWT access tokens, the real
+security filter chain and error handlers, and a class-owned catalog built by Flyway and checked by
+Hibernate `validate`. Every Learning row comes from HTTP. The source revision is published through the
+internal #700 writer, because no public publication route exists yet (#935 owns it); this is
+precondition data, not Learning evidence. The integrated public publish-to-enrollment scenario is
+added after #935. The suite does not change the default setting or prove production capacity.
+
+Use JDK 17, the offline fake environment and a disposable MySQL server:
+
+```bash
+./mvnw test -Dtest=LearningConformanceMySqlIntegrationTest,ContextTestManifestTest,DatabaseTestExecutionTagTest
+```
+
+| Acceptance case | Evidence |
+|---|---|
+| LEARNING-EMPTY-START | An independent connection holds the learner's account row while two identical first enrollments wait in `performance_schema`. Both return the same body; one receipt and one cycle per item exist. Due start, saved order, lost-response replay, completion, `EMPTY_COMPLETE` at the same instant and the AGAIN item 60 seconds later follow. Credit equals accepted commands. |
+| FSRS-03 | Two ratings racing for one current state stay in `LearningScheduleMySqlIntegrationTest#realLockRacesHaveOneWinnerAndReplayOrExplicitConflict` and, through the response command, `QuizPublicationMySqlIntegrationTest#concurrentLearningResponsesGiveOneReviewAndKeepTheExactReplay`. The conformance suite adds the exact HTTP replay of an accepted response. |
+| Multiple entry points | A second enrollment command reuses the active cycles. EARLY advances its selected cycle once. PRACTICE leaves the FSRS state text and event count unchanged. |
+| FSRS-01 | First ratings return the pinned +600 s, +60 s and +16 days. Golden traces and serialization stay in `FsrsSchedulingStrategyTest` and `FsrsStateFormatTest`. |
+| FSRS-02 | Explicit instants, DST and full-day arithmetic stay in `FsrsSchedulingStrategyTest`. HTTP adds no profile-time input. |
+| FSRS-04 | An unknown retained strategy and a changed saved FSRS weight each make both GET of the active session and the response return 422, so RESPOND is never offered for an item that cannot be reviewed. Learning checksums are compared before the fixture is restored: no event, progress, credit or self-repair. An exact start retry keeps its original acknowledgement, and a completed session stays readable. The restored state accepts GOOD with the approved +600 s. |
+| Final answer readiness | After Anna answers the first of three questions, the schedule of that answered question is damaged in each of the two ways. Resume still offers the middle answer, which reads only its own schedule and is accepted. Before the final answer, which releases every capture, GET and the response both return 422 with unchanged Learning checksums. After restoration the final answer completes and the event count matches. `QuizPublicationMySqlIntegrationTest#finalItemResumeChecksEachCapturedScheduleOnceLikeTheFinalRelease` measured 24, 28 and 32 statements for one, two and three captures: one bounded schedule read per capture, as the final release performs. |
+| Resume during completion | `QuizPublicationMySqlIntegrationTest#resumeOverlappingTheCompletingResponseShowsTheCommittedTerminalStateInsteadOfAnError` holds two GETs after their progress read while the final response commits, completing one session and superseding the other. Both return 200 with `COMPLETED` and `SUPERSEDED`, not 500, and one review event exists. |
+| LEARNING_BOUNDARY-01 | `CHECKSUM TABLE` over every non-Learning table changes only `question_revision_contract_bindings`. Ordinary v1 start, answer and completion on the same quiz keep their envelopes and change no Learning row. A scored v1 result with its refreshed analytics, and a submitted v2 result with a three-attempt allowance from the real start, response and submission writers, then exist. The v1 review, quiz results and attempt statistics, the v2 earned points, the allowance and every non-Learning checksum stay identical after the final Learning answer and its exact replay. Legacy repetition remains empty; no certificate store exists yet. |
+| LEARNING_BOUNDARY-02 | After an author edit and publication B, the open session still shows A and accepts its answer. B enrollment creates new cycles at sequence 0, including for unchanged content. A remains at sequence 1. |
+| LEARNING_BOUNDARY-03 | Missing and forged bearer tokens return 401. Another user, a known foreign session ID, a public foreign quiz and a missing session return the same 404. No foreign credit row is created. |
+| LEARNING_BOUNDARY-04, D33 | `custom/v1`, a future FSRS version, `NESTED_SET` and an unknown mode fail before writes. Twenty accepted starts exhaust the burst; the next start or enrollment returns 429 with `Retry-After: 1`. An exact replay still succeeds, and one second refills one command. |
+| Invalid item, failure | A foreign or stale item returns 409 and a response of another family returns 400; Learning checksums and credit stay unchanged. Rollback after reached form, schedule, receipt and budget writes stays in the #578/#650 trigger fixtures of `QuizPublicationMySqlIntegrationTest`. |
+
+`quizmaker.learning.study` must keep only its four bounded tags, and the HTTP metric must record route
+templates. Service reconstruction after restart remains covered by the #578/#650 publication suite.
+NESTED-REVIEW-INTEGRATION, custom plans and mistake/unseen selection have no implementation yet. Their
+scenarios must be added here before those capabilities activate.
+
+Three harness rules matter. MockMvc's security support keeps one context object per test thread, and the
+JWT filter writes into it, so the suite clears it before each simulated request. Issue tokens from the
+stored user row: the Flyway column `users.password_changed_at` has whole-second precision. Failure reports
+name the operation, status, problem type or expectation only; body, JSON and ID comparisons never put
+either value into the assertion message or its expected/actual payload.
+
 ## Learning responses and completion (#650)
 
 The publication MySQL fixture starts from a real owned revision and uses the actual Learning
