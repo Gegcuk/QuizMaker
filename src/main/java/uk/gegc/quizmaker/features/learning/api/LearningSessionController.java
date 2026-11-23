@@ -51,7 +51,7 @@ public class LearningSessionController {
     }
 
     @PostMapping("/sessions")
-    @Operation(summary = "Start a fixed Learning session", description = "Active quiz author with current publication access. By default select currently due items and optionally shuffle once. With limit 1 and explicit selection, use one already enrolled question for EARLY review or PRACTICE. Exact retry returns the original start snapshot even if due items, progress or the quiz setting change.")
+    @Operation(summary = "Start a fixed Learning session", description = "Active quiz author with current publication access. By default select currently due items and optionally shuffle once. With custom-plans-enabled and the separate custom-reviews-enabled opt-in, selection also includes enrolled custom/v1 cycles, preserving each captured immutable plan. Paused/completed custom cycles are excluded from due selection. With limit 1 and explicit selection, use one already enrolled question for EARLY review or PRACTICE. Exact retry returns the original start snapshot even if due items, progress or the quiz setting change.")
     @ApiResponse(responseCode = "200", description = "Saved form or explicit EMPTY_COMPLETE.")
     @ApiResponse(responseCode = "429", description = "Shared Learning command limit reached.", headers = @Header(name = "Retry-After", description = "Whole seconds"), content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     public ResponseEntity<View> start(@Valid @RequestBody
@@ -70,7 +70,7 @@ public class LearningSessionController {
     }
 
     @PostMapping("/sessions/{sessionId}/responses")
-    @Operation(summary = "Answer and rate the next Learning item", description = "Online, session owner with current publication access. Submit the next unanswered item in saved order and its expected session version. A due or early review advances FSRS once and ends other scheduled sessions that still need that step. Extra practice records progress without changing FSRS or ending other sessions. The last answer completes the session. Retry the exact command after a lost response. Learning responses do not create assessment results.")
+    @Operation(summary = "Answer and rate the next Learning item", description = "Online, session owner with current publication access. Submit the next unanswered item in saved order and its expected session version. A due or early review advances the captured FSRS/custom strategy once and ends other scheduled sessions that still need that step. Extra practice records progress without changing a schedule or ending other sessions. The last answer completes the session. Retry the exact command after a lost response. Learning responses do not create assessment results.")
     @ApiResponse(responseCode = "200", description = "Original acknowledgement with the next session item and, if advanced, the next scheduled review.")
     @ApiResponse(responseCode = "409", description = "Changed command, stale item or state, or a completed or superseded session. An exact accepted replay still returns its original acknowledgement.", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "429", description = "Shared Learning command limit reached.", headers = @Header(name = "Retry-After", description = "Whole seconds"), content = @Content(schema = @Schema(implementation = ProblemDetail.class)))

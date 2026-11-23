@@ -29,7 +29,8 @@ public class LearningPlanJsonConfig implements WebMvcConfigurer {
                 .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS,DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES,
                         DeserializationFeature.FAIL_ON_NUMBERS_FOR_ENUMS,DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
                 .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS).disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT);
-        var types=Set.of(LearningPlanApi.SaveRequest.class,LearningPlanApi.PauseRequest.class,LearningPlanApi.BindRequest.class,LearningPlanApi.ChangeRequest.class);
+        var types=Set.of(LearningPlanApi.SaveRequest.class,LearningPlanApi.PauseRequest.class,LearningPlanApi.BindRequest.class,LearningPlanApi.ChangeRequest.class,
+                LearningTimezoneController.PreviewRequest.class,LearningTimezoneController.ConfirmRequest.class);
         converters.add(0,new MappingJackson2HttpMessageConverter(mapper) {
             @Override public boolean canRead(Class<?> type,MediaType media) { return types.contains(type) && super.canRead(type,media); }
             @Override public boolean canRead(Type type,Class<?> context,MediaType media) { return types.contains(type) && super.canRead(type,context,media); }

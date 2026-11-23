@@ -20,6 +20,7 @@ public record LearningSession(UUID id, int schemaVersion, UUID learnerId, UUID c
     public enum Status { CREATED }
 
     /** Immutable source metadata only; never a mutable quiz, question text or access grant. */
+    @io.swagger.v3.oas.annotations.media.Schema(name="LearningPublicationSource")
     public record Source(int version, UUID quizId, UUID quizRevisionId, int revisionSchemaVersion) {
         public Source {
             require(version == 1, UNSUPPORTED_VERSION);

@@ -30,6 +30,9 @@ import static uk.gegc.quizmaker.features.learning.domain.model.LearningSessionEx
 public class LearningPlanServiceImpl implements LearningPlanService {
     private final LearningPlanRepository plans;
     private final LearningScheduleRepository schedules;
+    private final uk.gegc.quizmaker.features.question.application.PublishedQuestionContractService bindings;
+    private final LearningStudyRepository preparation;
+    private final boolean customReviewsEnabled;
     private final LearningScheduleService fsrs;
     private final LearningSchedulingStrategy calculation;
     private final AuthenticatedUserLookup users;
@@ -43,7 +46,10 @@ public class LearningPlanServiceImpl implements LearningPlanService {
     public LearningPlanServiceImpl(LearningPlanRepository plans, LearningScheduleRepository schedules,
             LearningScheduleService fsrs, LearningSchedulingStrategy calculation, AuthenticatedUserLookup users,
             List<LearningSessionSourceVerifier> authorities, LearningCommandBudget budget, LearningDueSelectionConfig limits,
-            Clock clock, MeterRegistry metrics, PlatformTransactionManager manager) {
+            Clock clock, MeterRegistry metrics, PlatformTransactionManager manager,
+            uk.gegc.quizmaker.features.question.application.PublishedQuestionContractService bindings,LearningStudyRepository preparation,
+            @org.springframework.beans.factory.annotation.Value("${quizmaker.learning.custom-reviews-enabled:false}") boolean customReviewsEnabled) {
+        this.bindings=bindings; this.preparation=preparation; this.customReviewsEnabled=customReviewsEnabled;
         this.plans=plans; this.schedules=schedules; this.fsrs=fsrs; this.calculation=calculation; this.users=users;
         this.authorities=List.copyOf(authorities); this.budget=budget; this.limits=limits; this.clock=clock; this.metrics=metrics;
         transaction=new TransactionTemplate(manager); transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
@@ -110,6 +116,7 @@ public class LearningPlanServiceImpl implements LearningPlanService {
             Cycle previous=active.map(a -> current(key,a)).orElse(null);
             if(c.action()==Action.ENROLL && previous!=null) {
                 require(previous.strategy()==c.strategy(),CONFLICT);
+                if(c.strategy()==Strategy.CUSTOM) prepare(c.source());
                 return new Acknowledgement(c.commandId(),null,null,previous);
             }
             if(c.action()!=Action.ENROLL) require(previous!=null && previous.expected().equals(c.expected()),CONFLICT);
@@ -125,6 +132,7 @@ public class LearningPlanServiceImpl implements LearningPlanService {
                 if(c.action()==Action.SWITCH) require(previous.strategy()!=Strategy.CUSTOM
                         || !previous.planId().equals(binding.planId()) || !previous.planVersion().equals(binding.planVersion()),CONFLICT);
                 if(c.action()==Action.RESTART) require(previous.strategy()==Strategy.CUSTOM && previous.completed(),CONFLICT);
+                prepare(c.source());
                 next=new Cycle(c.questionRevisionId(),UUID.randomUUID(),oldVersion+1,Strategy.CUSTOM,
                         plan.planId(),binding.planVersion(),0,0,now(),plan.paused(),false);
                 schedules.replaceCycle(key,new ActiveCycle(next.cycleId(),next.cycleVersion(),"custom/v1"),oldVersion,c.commandId(),next.dueAt());
@@ -158,6 +166,12 @@ public class LearningPlanServiceImpl implements LearningPlanService {
             var rows=plans.cycles(learner,source,window,now(),limit+1,after); var page=rows.subList(0,Math.min(rows.size(),limit));
             var last=page.isEmpty()?null:page.get(page.size()-1);
             return new CyclePage(page,rows.size()>limit?new Cursor(last.dueAt(),last.questionRevisionId()):null); });
+    }
+    private void prepare(Source source) {
+        if(customReviewsEnabled && !preparation.prepared(source.quizRevisionId())) {
+            bindings.bind(source.quizId(),source.quizRevisionId());
+            preparation.recordPreparation(source.quizRevisionId());
+        }
     }
     private Cycle current(Key key,ActiveCycle active) {
         if("fsrs/v1".equals(active.strategyId())) return fsrsCycle(key,fsrs.read(key.source(),key.questionRevisionId()));
@@ -231,6 +245,14 @@ public class LearningPlanServiceImpl implements LearningPlanService {
     private static RuntimeException sanitized(RuntimeException failure) {
         if(failure instanceof LearningSessionException known) return new LearningSessionException(known.reason());
         if(failure instanceof RateLimitExceededException rate) return rate;
+        if(failure instanceof uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException known)
+            return new LearningSessionException(switch(known.reason()) {
+                case PERSISTENCE_UNAVAILABLE -> PERSISTENCE_UNAVAILABLE;
+                case BINDING_CONFLICT -> CONFLICT;
+                case INVALID_STORED_BINDING, TRANSACTION_REQUIRED, INVALID_SCOPE, SCOPE_REQUIRED, SCOPE_VIOLATION -> CORRUPT;
+                case REVISION_UNAVAILABLE -> SOURCE_UNAVAILABLE;
+                default -> UNSUPPORTED_VERSION;
+            });
         if(failure instanceof LearningScheduleException known) return new LearningSessionException(switch(known.reason()) {
             case UNAUTHENTICATED -> UNAUTHENTICATED;
             case UNAVAILABLE, SOURCE_UNAVAILABLE, SESSION_UNAVAILABLE -> UNAVAILABLE;

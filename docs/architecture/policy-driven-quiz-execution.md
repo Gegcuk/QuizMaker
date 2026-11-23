@@ -5978,10 +5978,10 @@ The opt-in management boundary under `/api/v1/learning/plans`, `/plan-bindings` 
 `/plan-cycles` implements Q96/Q101–Q106 without a custom review writer. Both
 `quizmaker.learning.sessions-enabled=true` and `quizmaker.learning.custom-plans-enabled=true`
 are required; the new flag has no enabled default. It does not activate custom progression.
-The existing FSRS-only session/due readers continue to reject an active `custom/v1` cycle.
+The retained FSRS-only session/due readers reject an active `custom/v1` cycle when custom review is disabled.
 For this learner, one custom item makes FSRS due selection for the entire captured quiz revision
 unavailable, even while other FSRS items remain valid and individually readable.
-#840 must provide the real mixed-strategy review integration before that capability is exposed.
+#840 supplies the separately gated mixed-strategy integration described below; management alone does not expose it.
 
 Plans belong to the server-resolved active account. Source bindings and cycle operations also
 require current author authority over the exact retained publication under #692, including replay.
@@ -6030,6 +6030,43 @@ outside the requested time/cursor window; missing known state remains corruption
 FSRS persistence failure remains 503 rather than being reclassified as corrupt evidence.
 
 <a id="custom-learning-intervals"></a>
+### Custom review and explicit calendar rescheduling (#840)
+
+With sessions-enabled, custom-plans-enabled and the separate custom-reviews-enabled opt-in, canonical session commands select active
+FSRS/custom cycles from the same learner/publication. The existing `fsrs/v1` request configuration
+retains the pinned FSRS manifest; it does not replace a custom item's captured plan. Each form item
+captures its own authoritative cycle, and response/release validates that identity. Without the
+review flag, the original FSRS-only selector and writer remain in use. Existing plan-management opt-in alone never activates progression. With the review opt-in, the first explicit custom
+enrollment/switch prepares the whole publication in the same transaction, just as FSRS enrollment
+does; start/resume do not implicitly enroll or repair source bindings.
+For a retained V125 custom cycle without preparation, a new explicit enrollment command prepares
+the source while retaining that cycle and its immediate due. Reads and old exact receipts do not
+manufacture preparation or review history.
+
+Custom responses use Q94–Q114, append a durable change and advance the schedule together with the
+ordinary response receipt/progress. Initial availability precedes the first entered interval;
+successful first review schedules that interval. Finite completion has no next scheduled date
+(`nextDueAt=null`); the plan-cycle read supplies its explicit `completed` fact. Extra practice also
+returns null but preserves the schedule. A pause excludes new scheduled captures, while an already
+captured response can finish; practice does not advance paused/completed state. Generated lineage
+contains only reached stages, with one constant/capped plateau; each review still has its own event.
+
+`POST /api/v1/learning/plan-cycles/{questionRevisionId}/timezone/preview` computes one cycle's
+new zone from its last actual advancing review, preserved unit and chosen local time. It changes
+neither due nor credit. `/timezone/confirm` requires the exact preview and explicit confirmation,
+current source authority and no active capture. It compares cycle/sequence and schedule version;
+a review or earlier rescheduling invalidates an old preview. Confirmation preserves stage/review
+count, records calendar evidence and one exact-input acknowledgement atomically. Other cycles and
+immutable reusable settings do not change implicitly; profile changes alone never rewrite dues.
+Elapsed minute/hour dates stay elapsed; DST gaps use the first valid time and overlaps the earlier
+occurrence. No generic date clamp, mastery percentage, daily quota or notification channel is added.
+
+V126 adds current calendar evidence, reached generated stages and immutable custom changes to the
+V125 cycle store. Old untouched cycles keep immediate availability; reads do not manufacture review
+history. Unknown strategies/configurations fail closed. All mutations join writable RC and caller
+rollback. The dedicated local profile is an explicit synthetic opt-in; remote activation and the
+separate #841 nested-review composition retain their own gates.
+
 ### User-defined repetition intervals — Q94–Q114 APPROVED
 
 **Approved on 22 October 2026:** a learner may use a personal interval sequence, review both questions and quizzes, and organize review through nested Learning sets. The [Q94–Q114 decisions](./decision-register.md#custom-interval-decisions) include unit-preserving duration/calendar scheduling and DST resolution, a two-interval rollback, coefficient-based indefinite continuation and nondecreasing entered sequences. All Q108–Q113 answers are A, including the explicitly accepted DST rules. [Q114 A](./decision-register.md#custom-interval-decisions) also approves nominal mixed-unit ordering with unchanged due calculation. No product question remains open within this selected scope; implementation evidence is still required.

@@ -31,7 +31,7 @@ public final class LearningPlan {
             return value.multiply(BigDecimal.valueOf(unit == Unit.DAYS ? 1440 : unit == Unit.HOURS ? 60 : 1));
         }
     }
-    @io.swagger.v3.oas.annotations.media.Schema(name="LearningPlanDefinition")
+    @io.swagger.v3.oas.annotations.media.Schema(name="LearningPlanDefinition",description="Custom cycles begin immediately available. The first scheduled response selects interval zero. Later AGAIN moves back two stages, bounded at zero; HARD/GOOD/EASY advance one. FINITE completes after advancing past its last entered interval. INDEFINITE multiplies the last actual interval by coefficient, rounds up to whole calendar days or minutes, and caps at 3650 days. Equal entered steps remain separate; generated steps without growth retain their stage. Minutes/hours use elapsed time from the actual review. DAYS uses that review's date in timeZone plus the interval at explicit localTime; a DST gap uses the first valid instant and an overlap uses the earlier offset. PRACTICE never changes scheduling.")
     public record Definition(int version,
                              @io.swagger.v3.oas.annotations.media.Schema(minLength=1,maxLength=200) String name,
                              @io.swagger.v3.oas.annotations.media.ArraySchema(minItems=1,maxItems=100) List<Interval> intervals,
@@ -82,7 +82,8 @@ public final class LearningPlan {
     }
     @io.swagger.v3.oas.annotations.media.Schema(name="LearningPlanCycle")
     public record Cycle(UUID questionRevisionId, UUID cycleId, long cycleVersion, Strategy strategy,
-                        UUID planId, Long planVersion, long sequence, int stage, Instant dueAt,
+                        UUID planId, Long planVersion, long sequence, int stage,
+                        @io.swagger.v3.oas.annotations.media.Schema(description="UTC due instant. When completed=true, this retains the last scheduled instant; there is no pending review.") Instant dueAt,
                         boolean paused, boolean completed) {
         public Cycle {
             require(questionRevisionId!=null && cycleId!=null && cycleVersion>0 && strategy!=null

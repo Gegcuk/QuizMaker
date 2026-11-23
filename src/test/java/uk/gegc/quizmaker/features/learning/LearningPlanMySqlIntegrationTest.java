@@ -117,7 +117,7 @@ class LearningPlanMySqlIntegrationTest {
     }
     @AfterEach void clear() {
         source.reset(); SecurityContextHolder.clearContext();
-        for(String t:List.of("learning_plan_command","learning_plan_question_override","learning_plan_quiz_default","learning_custom_state","learning_cycle_session","learning_review_event","learning_fsrs_state")) sql.update("DELETE FROM "+t);
+        for(String t:List.of("learning_prepared_publication","learning_plan_command","learning_plan_question_override","learning_plan_quiz_default","learning_custom_state","learning_cycle_session","learning_review_event","learning_fsrs_state")) sql.update("DELETE FROM "+t);
         sql.update("UPDATE learning_schedule_slot SET active_cycle_id=NULL,cycle_version=0");
         for(String t:List.of("learning_schedule_cycle","learning_schedule_slot","learning_schedule_receipt","learning_form_option","learning_form_item","learning_form","learning_session_create_receipt","learning_session","learning_plan_version","learning_plan","learning_command_budget")) sql.update("DELETE FROM "+t);
         sql.update("UPDATE users SET is_active=TRUE,is_deleted=FALSE");
@@ -125,7 +125,14 @@ class LearningPlanMySqlIntegrationTest {
         assertThat(count("spaced_repetition_entry")).isZero(); assertThat(count("repetition_review_log")).isZero();
         assertThat(count("attempt_automatic_result")).isZero(); assertThat(count("attempts")).isZero(); metrics.close();
     }
-    LearningPlanService service(LearningPlanRepository store) { return new LearningPlanServiceImpl(store,schedules,fsrs,new FsrsSchedulingStrategyImpl(),users,List.of(authority),budget,limits,clock,metrics,manager); }
+    LearningPlanService service(LearningPlanRepository store) { return new LearningPlanServiceImpl(store,schedules,fsrs,new FsrsSchedulingStrategyImpl(),users,List.of(authority),budget,limits,clock,metrics,manager,this::preparedBindings,new JdbcLearningStudyRepository(sql),false); }
+    // This suite starts with committed bindings. The #840 HTTP suite proves real first preparation.
+    List<QuestionContractBinding> preparedBindings(UUID quiz,UUID requestedRevision) {
+        assertThat(quiz).isEqualTo(ref.quizId()); assertThat(requestedRevision).isEqualTo(ref.quizRevisionId());
+        assertThat(count("question_revision_contract_bindings")).isEqualTo(revision.items().size());
+        return revision.items().stream().map(item -> new QuestionContractBinding(item.question().id(),
+                new ContractVersion("question.true-false.response",1),new ContractVersion("question.true-false.binary",1))).toList();
+    }
     static UUID question(int i) { return revision.items().get(i).question().id(); }
     static int count(String table) { return sql.queryForObject("SELECT COUNT(*) FROM "+table,Integer.class); }
     static TransactionTemplate tx(int isolation) { var t=new TransactionTemplate(manager); t.setIsolationLevel(isolation); return t; }
@@ -368,7 +375,7 @@ class LearningPlanMySqlIntegrationTest {
             }
         };
         var reader=new LearningPlanServiceImpl(repository,readingSchedules,fsrs,new FsrsSchedulingStrategyImpl(),users,
-                List.of(authority),budget,limits,clock,metrics,manager);
+                List.of(authority),budget,limits,clock,metrics,manager,this::preparedBindings,new JdbcLearningStudyRepository(sql),false);
         var mvc=mvc(reader); var target=initial==Strategy.FSRS?Strategy.CUSTOM:Strategy.FSRS;
         var command=new LearningPlanService.Change(UUID.randomUUID(),ref,question(0),Action.SWITCH,target,before.expected(),true,
                 target==Strategy.CUSTOM?p.planId():null,target==Strategy.CUSTOM?1L:null);

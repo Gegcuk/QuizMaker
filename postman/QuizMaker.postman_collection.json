@@ -16754,6 +16754,1880 @@
           ]
         }
       ]
+    },
+    {
+      "name": "23 Custom Learning",
+      "description": "Issue #840: independently repeatable custom review progression through the canonical Learning session API, alongside an FSRS peer. Read live discovery and learning/quizzes/questions/auth contracts first. Requires the three approved Learning opt-ins in the dedicated localhost Docker runtime and the existing local unshared fixture Value. Exact replays retain the entire accepted body; a fresh folder run creates new identifiers. The known D-001 quiz creation assertion remains visible and does not prevent issue-owned checks or guarded cleanup. Two authors log out independently; immutable Learning history and the paused run-created plan remain under existing retention semantics. No providers are called.",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const step = pm.info.requestName.split(' ')[1];",
+              "const get = key => pm.variables.get('l840Run' + key);",
+              "const set = (key, value) => pm.variables.set('l840Run' + key, value);",
+              "const uuid = () => pm.variables.replaceIn('{{$guid}}');",
+              "const body = value => set('Body', JSON.stringify(value));",
+              "const source = () => JSON.parse(get('Source'));",
+              "const command = value => body({commandId: uuid(), ...value});",
+              "const cleanup = 'L840 90 Pause run-created private plan';",
+              "if (step === '01') {",
+              "    Object.keys(pm.variables.toObject()).filter(k => k.startsWith('l840Run')).forEach(k => pm.variables.unset(k));",
+              "    let fixture;",
+              "    try {",
+              "        fixture = JSON.parse(pm.environment.get('accessFixtureData'));",
+              "        if (Array.isArray(fixture)) {",
+              "            if (fixture.length !== 1) throw new Error('Invalid fixture shape.');",
+              "            fixture = fixture[0];",
+              "        }",
+              "        ['author', 'authorB'].forEach((key, i) => {",
+              "            if (fixture[key + 'Username'] !== ['qmfx_author_a', 'qmfx_author_b'][i] ||",
+              "                typeof fixture[key + 'Password'] !== 'string' || !fixture[key + 'Password'] ||",
+              "                !/^[0-9a-f-]{36}$/i.test(fixture[key + 'UserId'])) throw new Error('Invalid prepared identity.');",
+              "            const actor = i === 0 ? 'A' : 'B';",
+              "            set('UserId' + actor, fixture[key + 'UserId']);",
+              "            set('Login' + actor, JSON.stringify({username: fixture[key + 'Username'], password: fixture[key + 'Password']}));",
+              "        });",
+              "        if (get('UserIdA') === get('UserIdB')) throw new Error('Distinct authors required.');",
+              "        set('ProtectedId', fixture.targetQuizId);",
+              "        set('Title', 'Local custom Learning ' + uuid());",
+              "        set('ExpectedStep', '01');",
+              "    } catch (error) {",
+              "        Object.keys(pm.variables.toObject()).filter(k => k.startsWith('l840Run')).forEach(k => pm.variables.unset(k));",
+              "        pm.execution.setNextRequest(null); pm.execution.skipRequest();",
+              "        throw new Error('Set local, unshared accessFixtureData Value with both prepared authors.');",
+              "    }",
+              "}",
+              "if (Number(step) < 90 && get('ExpectedStep') !== step) {",
+              "    pm.test('Run the complete L840 folder in order', () => { throw new Error('Missing scenario prerequisite.'); });",
+              "    pm.execution.setNextRequest(cleanup); pm.execution.skipRequest();",
+              "}",
+              "if (step === '06' || step === '08') set('Body', get('Login' + (step === '06' ? 'A' : 'B')));",
+              "if (step === '12') body({title:get('Title'),description:'Local #840 custom Learning verification',visibility:'PRIVATE',difficulty:'EASY',isRepetitionEnabled:false,timerEnabled:false,estimatedTime:10,timerDuration:10,tagIds:[]});",
+              "if (step === '15') command({expectedPublicationVersion:0,questionOrder:[get('QuestionTRUE_FALSE'),get('QuestionMCQ_SINGLE')]});",
+              "if (step === '16') command({expectedVersion:0,definition:{version:1,name:get('Title'),intervals:[{value:1,unit:'DAYS'}],mode:'FINITE',coefficient:2,timeZone:'Europe/London',localTime:'09:00'}});",
+              "if (step === '17') command({source:source(),questionRevisionId:get('CustomId'),expectedVersion:0,planId:get('PlanId'),planVersion:1});",
+              "if (step === '18') command({source:source(),questionRevisionId:get('CustomId'),action:'ENROLL',strategy:'CUSTOM',confirmed:false});",
+              "if (step === '19') command({source:source(),configuration:{strategy:'fsrs/v1',version:1},questionRevisionIds:[get('FsrsId')]});",
+              "if (step === '20' || step === '31') body({source:source(),timeZone:'America/New_York'});",
+              "if (step === '21') command({source:source(),configuration:{strategy:'fsrs/v1',version:1},limit:2});",
+              "if (step === '22' || step === '23' || step === '36' || step === '39') {",
+              "    const session=JSON.parse(get(step === '36' ? 'Practice' : step === '39' ? 'Early' : 'Mixed'));",
+              "    const item=session.items.find(i => i.sourceItemId === session.nextItemId);",
+              "    if (!item) { pm.execution.setNextRequest(cleanup); pm.execution.skipRequest(); throw new Error('No next saved item.'); }",
+              "    let response;",
+              "    if (item.responseContract === 'TRUE_FALSE' || item.content.kind === 'TRUE_FALSE') response={type:'TRUE_FALSE',answer:true};",
+              "    else if (item.content.kind === 'CHOICES' && item.content.options.length) response={type:'MCQ_SINGLE',selectedOptionId:item.content.options[0].id};",
+              "    else { pm.execution.setNextRequest(cleanup); pm.execution.skipRequest(); throw new Error('Prepared saved form type unavailable.'); }",
+              "    command({expectedSessionVersion:session.sessionVersion,sourceItemId:item.sourceItemId,rating:'GOOD',response});",
+              "    set('AnswerQuestion',item.questionRevisionId);",
+              "    if ((step === '22' || step === '23') && item.questionRevisionId === get('CustomId')) set('CustomResponseBody',get('Body'));",
+              "}",
+              "if (step === '24') set('Body',get('CustomResponseBody'));",
+              "if (step === '25') { const replay=JSON.parse(get('CustomResponseBody'));replay.rating='AGAIN';body(replay); }",
+              "if (step === '29') command({confirmed:true,preview:JSON.parse(get('OldPreview'))});",
+              "if (step === '32') { command({confirmed:true,preview:JSON.parse(get('Preview'))}); set('ConfirmBody',get('Body')); }",
+              "if (step === '33') set('Body',get('ConfirmBody'));",
+              "if (step === '35' || step === '38') command({source:source(),configuration:{strategy:'fsrs/v1',version:1},limit:1,selection:{mode:step === '35' ? 'PRACTICE' : 'EARLY',questionRevisionId:get('CustomId')}});",
+              "if (step === '90') {",
+              "    if (!get('PlanId') || !get('TokenA')) { pm.execution.setNextRequest('L840 91 Inspect run quiz before deletion'); pm.execution.skipRequest(); }",
+              "    else command({expectedVersion:1,paused:true});",
+              "}",
+              "if (step === '91' && (!get('QuizId') || !get('TokenA'))) { pm.execution.setNextRequest('L840 98 Logout author B'); pm.execution.skipRequest(); }",
+              "if (step === '92' && get('DeleteAllowed') !== true) { pm.execution.setNextRequest('L840 94 Verify original questions unchanged'); pm.execution.skipRequest(); }",
+              "if (step === '93' && get('Deleted') !== true) { pm.execution.setNextRequest('L840 94 Verify original questions unchanged'); pm.execution.skipRequest(); }",
+              "if (step === '94' && (!get('SourceId') || !get('TokenA'))) { pm.execution.setNextRequest('L840 98 Logout author B'); pm.execution.skipRequest(); }",
+              "if (step === '98' && !get('TokenB')) { pm.execution.setNextRequest('L840 99 Logout author A and clear state'); pm.execution.skipRequest(); }",
+              "if (step === '99' && !get('TokenA')) {",
+              "    Object.keys(pm.variables.toObject()).filter(k => k.startsWith('l840Run')).forEach(k => pm.variables.unset(k));",
+              "    pm.execution.skipRequest();",
+              "}"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const step=pm.info.requestName.split(' ')[1];",
+              "const get=key=>pm.variables.get('l840Run'+key);",
+              "const set=(key,value)=>pm.variables.set('l840Run'+key,value);",
+              "let passed=true;",
+              "function check(name, fn) { pm.test(name,()=>{try {fn();} catch(error) {passed=false;throw error;}}); }",
+              "function status(code) { check('HTTP '+code+' matches public contract',()=>pm.response.to.have.status(code)); if (pm.response.code!==code) throw new Error('Unexpected HTTP status.'); }",
+              "function json() { return pm.response.json(); }",
+              "function save(key,value) { set(key,JSON.stringify(value)); }",
+              "function load(key) { return JSON.parse(get(key)); }",
+              "function schema(name) {",
+              "    check('Response matches live '+name,()=>pm.response.to.have.jsonSchema({$ref:'#/definitions/'+name,definitions:load('Schemas')},{formats:{int32:{type:'number',validate:Number.isInteger},int64:{type:'number',validate:Number.isSafeInteger}}}));",
+              "}",
+              "function problem(code) { status(code);schema('ProblemDetail');check('ProblemDetail has expected status and media type',()=>{pm.expect(json().status).to.equal(code);pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');}); }",
+              "function canonical(rows) { return rows.map(q=>({...q,quizIds:[...q.quizIds].sort(),tagIds:[...q.tagIds].sort()})).sort((a,b)=>a.id.localeCompare(b.id)); }",
+              "function cycle() {status(200);schema('LearningPlanCycle');return json();}",
+              "function unchanged(key) {const b=cycle();check('Entire schedule metadata remains unchanged',()=>pm.expect(b).to.deep.equal(load(key)));return b;}",
+              "function transform(value) {",
+              "    if (Array.isArray(value)) return value.map(transform);",
+              "    if (!value || typeof value!=='object') return value;",
+              "    const out={};Object.keys(value).filter(k=>k!=='nullable').forEach(k=>{out[k]=k==='$ref'?value[k].replace('#/components/schemas/','#/definitions/'):transform(value[k]);});",
+              "    return value.nullable===true?{anyOf:[out,{type:'null'}]}:out;",
+              "}",
+              "try {",
+              "    if (step==='01') {status(200);check('Discovery exposes the Learning contract exactly once',()=>pm.expect(json().groups.filter(g=>g.group==='learning').map(g=>g.specUrl)).to.deep.equal(['/v3/api-docs/learning']));}",
+              "    if (step==='02') {",
+              "        status(200);const spec=json();save('Schemas',transform(spec.components.schemas));",
+              "        check('Canonical responses and explicit timezone operations are documented',()=>{",
+              "            const p=spec.paths;",
+              "            pm.expect(p['/api/v1/learning/sessions/{sessionId}/responses'].post.operationId).to.equal('respond');",
+              "            ['preview','confirm'].forEach(action=>{",
+              "                const o=p['/api/v1/learning/plan-cycles/{questionRevisionId}/timezone/'+action].post;",
+              "                pm.expect(o.operationId).to.equal(action);['200','400','401','404','409','415','422','429','503'].forEach(code=>pm.expect(o.responses).to.have.property(code));",
+              "                pm.expect(o.security || spec.security).to.deep.include({bearerAuth:[]});",
+              "            });",
+              "            ['LearningTimezonePreview','LearningScheduleExpectedCycle','LearningPlanCycle','LearningResponseAcknowledgement'].forEach(n=>pm.expect(spec.components.schemas).to.have.property(n));",
+              "            pm.expect(p['/api/v1/learning/sessions'].post.description).to.include('custom-reviews-enabled');",
+              "        });",
+              "    }",
+              "    if (step==='03') { status(200);const spec=json();save('CreateStatuses',Object.keys(spec.paths['/api/v1/quizzes'].post.responses).filter(k=>/^2/.test(k)));check('Publication setup has a named public contract',()=>pm.expect(spec.paths['/api/v1/quizzes/{quizId}/publications'].post.operationId).to.equal('publishQuizRevision')); }",
+              "    if (step==='04') { status(200);check('Prepared questions use documented pageable operation',()=>pm.expect(json().paths['/api/v1/questions'].get.operationId).to.equal('getQuestions')); }",
+              "    if (step==='05') { status(200);check('Authentication and explicit logout are documented',()=>{pm.expect(json().paths['/api/v1/auth/login'].post.responses).to.have.property('200');pm.expect(json().paths['/api/v1/auth/logout'].post.responses).to.have.property('204');}); }",
+              "    if (step==='06' || step==='08') {status(200);const a=step==='06'?'A':'B';const b=json();check('Session access credential is present',()=>pm.expect(typeof b.accessToken==='string' && b.accessToken.length>0).to.equal(true));if(passed)set('Token'+a,b.accessToken);pm.variables.unset('l840RunLogin'+a);pm.variables.unset('l840RunBody');}",
+              "    if (step==='07' || step==='09') {status(200);const a=step==='07'?'A':'B';check('Prepared author is active with exact identity and roles',()=>{const b=json();pm.expect(b.id).to.equal(get('UserId'+a));pm.expect(b.username).to.equal(a==='A'?'qmfx_author_a':'qmfx_author_b');pm.expect(b.isActive).to.equal(true);pm.expect([...b.roles].sort()).to.deep.equal(['ROLE_QUIZ_CREATOR','ROLE_USER']);});}",
+              "    if (step==='10') {status(200);const rows=json().content;check('Exactly one matching prepared private source exists',()=>{pm.expect(rows).to.have.lengthOf(1);pm.expect(rows[0].title).to.equal('Local fixtures v1 - Java basics');pm.expect(rows[0].creatorId).to.equal(get('UserIdA'));pm.expect(rows[0].visibility).to.equal('PRIVATE');pm.expect(rows[0].status).to.equal('DRAFT');});if(passed)set('SourceId',rows[0].id);}",
+              "    if (step==='11') {status(200);const b=json();check('Prepared source contains the five supported fixture families',()=>{pm.expect(b.totalElements).to.equal(5);pm.expect(b.content.map(q=>q.type).sort()).to.deep.equal(['FILL_GAP','MCQ_MULTI','MCQ_SINGLE','ORDERING','TRUE_FALSE']);});save('Originals',canonical(b.content));b.content.forEach(q=>set('Question'+q.type,q.id));}",
+              "    if (step==='12') {",
+              "        // D-001 stays visible; its unrelated contract failure must not stop safe cleanup.",
+              "        pm.test('Draft creation HTTP status matches live OpenAPI',()=>pm.expect(load('CreateStatuses')).to.include(String(pm.response.code)));",
+              "        check('Disposable draft setup succeeded',()=>pm.expect(pm.response.code>=200 && pm.response.code<300).to.equal(true));",
+              "        if (pm.response.code<200 || pm.response.code>=300) throw new Error('Draft unavailable.');",
+              "        const ids=Object.values(json());check('New UUID cannot identify a protected fixture',()=>{pm.expect(ids).to.have.lengthOf(1);pm.expect(ids[0]).to.match(/^[0-9a-f-]{36}$/i);pm.expect(ids[0]).not.to.equal(get('SourceId'));pm.expect(ids[0]).not.to.equal(get('ProtectedId'));});if(passed){set('QuizId',ids[0]);set('Created',true);}",
+              "    }",
+              "    if (step==='13' || step==='14') {status(204);check('Question link has no response body',()=>pm.expect(pm.response.text()).to.equal(''));}",
+              "    if (step==='15') {status(200);const b=json();check('First publication has two immutable question revisions',()=>{pm.expect(b.quizId).to.equal(get('QuizId'));pm.expect(b.publicationVersion).to.equal(1);pm.expect(b.questionRevisionIds).to.have.lengthOf(2);pm.expect(new Set(b.questionRevisionIds).size).to.equal(2);});set('RevisionId',b.quizRevisionId);set('SchemaVersion',b.revisionSchemaVersion);set('CustomId',b.questionRevisionIds[0]);set('FsrsId',b.questionRevisionIds[1]);save('Source',{kind:'QUIZ_REVISION',quizId:b.quizId,quizRevisionId:b.quizRevisionId,revisionSchemaVersion:b.revisionSchemaVersion});}",
+              "    if (step==='16') {status(200);schema('LearningPlanAcknowledgement');const b=json().plan;check('Private finite plan retains its explicit calendar definition',()=>{pm.expect(b.planVersion).to.equal(1);pm.expect(b.version).to.equal(1);pm.expect(b.definition).to.deep.equal(JSON.parse(get('Body')).definition);pm.expect(b.paused).to.equal(false);});if(b.definition.name===get('Title') && /^[0-9a-f-]{36}$/i.test(b.planId))set('PlanId',b.planId);}",
+              "    if (step==='17') {status(200);schema('LearningPlanAcknowledgement');check('Question override pins immutable plan version one',()=>{pm.expect(json().binding.planId).to.equal(get('PlanId'));pm.expect(json().binding.planVersion).to.equal(1);});}",
+              "    if (step==='18') {status(200);schema('LearningPlanAcknowledgement');const b=json().cycle;check('Custom enrollment starts without an advancing review',()=>{pm.expect(b.strategy).to.equal('CUSTOM');pm.expect(b.questionRevisionId).to.equal(get('CustomId'));pm.expect(b.planId).to.equal(get('PlanId'));pm.expect(b.planVersion).to.equal(1);pm.expect(b.sequence).to.equal(0);pm.expect(b.completed).to.equal(false);});save('InitialCycle',b);}",
+              "    if (step==='19') {status(200);schema('EnrollLearningItemsResponse');check('Only the explicitly selected FSRS peer is enrolled',()=>pm.expect(json().items.map(i=>i.questionRevisionId)).to.deep.equal([get('FsrsId')]));}",
+              "    if (step==='20' || step==='31') {status(200);schema('LearningTimezonePreview');const b=json();check('Preview identifies this custom cycle and explicit selected zone',()=>{pm.expect(b.questionRevisionId).to.equal(get('CustomId'));pm.expect(b.expected.cycleId).to.equal(load('InitialCycle').cycleId);pm.expect(b.timeZone).to.equal('America/New_York');});save(step==='20'?'OldPreview':'Preview',b);if(step==='20')check('Initial unreviewed preview keeps immediate due unchanged',()=>pm.expect(b.nextDueAt).to.equal(b.previousDueAt));}",
+              "    if (step==='21') {status(200);schema('LearningSessionView');const b=json();check('One saved due form contains both strategies',()=>{pm.expect(b.mode).to.equal('DUE');pm.expect(b.status).to.equal('ACTIVE');pm.expect(b.items.map(i=>i.questionRevisionId).sort()).to.deep.equal([get('CustomId'),get('FsrsId')].sort());pm.expect(b.items.map(i=>i.content.kind).sort()).to.deep.equal(['CHOICES','TRUE_FALSE']);});save('Mixed',b);set('MixedSessionId',b.sessionId);}",
+              "    if (step==='22' || step==='23') {",
+              "        status(200);schema('LearningResponseAcknowledgement');const b=json();const saved=load('Mixed');",
+              "        check('Exactly the next saved item advances once',()=>{pm.expect(b.sourceItemId).to.equal(saved.nextItemId);pm.expect(b.reviewedItems).to.equal(Number(step)-21);pm.expect(b.sessionVersion).to.equal(saved.sessionVersion+1);pm.expect(typeof b.nextDueAt).to.equal('string');});",
+              "        if(get('AnswerQuestion')===get('CustomId'))save('CustomAck',b);",
+              "        save('Mixed',{...saved,...b});",
+              "        if(step==='23')check('Both responses complete the mixed session',()=>pm.expect(b.completed).to.equal(true));",
+              "    }",
+              "    if (step==='24') {status(200);schema('LearningResponseAcknowledgement');check('Exact custom response replay retains the whole original acknowledgement',()=>pm.expect(json()).to.deep.equal(load('CustomAck')));}",
+              "    if (step==='25') problem(409);",
+              "    if (step==='26') {const b=cycle();check('Custom schedule records one review and its next due',()=>{pm.expect(b.sequence).to.equal(1);pm.expect(b.stage).to.equal(0);pm.expect(b.completed).to.equal(false);pm.expect(b.dueAt).to.equal(load('CustomAck').nextDueAt);});save('BeforeTimezone',b);}",
+              "    if (step==='27') {const b=cycle();check('FSRS peer advanced exactly once',()=>{pm.expect(b.strategy).to.equal('FSRS');pm.expect(b.sequence).to.equal(1);});save('Peer',b);}",
+              "    if (step==='28') problem(404);",
+              "    if (step==='29') problem(409);",
+              "    if (step==='30') unchanged('BeforeTimezone');",
+              "    if (step==='32') {status(200);schema('LearningPlanAcknowledgement');const b=json();check('Confirmation applies only previewed due and preserves review progress',()=>{const old=load('BeforeTimezone');pm.expect(b.cycle).to.deep.equal({...old,dueAt:load('Preview').nextDueAt});});save('ConfirmAck',b);save('AfterTimezone',b.cycle);}",
+              "    if (step==='33') {status(200);schema('LearningPlanAcknowledgement');check('Exact timezone confirmation replay returns original acknowledgement',()=>pm.expect(json()).to.deep.equal(load('ConfirmAck')));}",
+              "    if (step==='34') unchanged('AfterTimezone');",
+              "    if (step==='35' || step==='38') {status(200);schema('LearningSessionView');const b=json();check('Explicit one-item mode captures only the custom question',()=>{pm.expect(b.mode).to.equal(step==='35'?'PRACTICE':'EARLY');pm.expect(b.items.map(i=>i.questionRevisionId)).to.deep.equal([get('CustomId')]);pm.expect(b.status).to.equal('ACTIVE');});const k=step==='35'?'Practice':'Early';save(k,b);set(k+'SessionId',b.sessionId);}",
+              "    if (step==='36' || step==='39') {status(200);schema('LearningResponseAcknowledgement');const b=json();check('Single-item session completes with no pending due in acknowledgement',()=>{pm.expect(b.completed).to.equal(true);pm.expect(b.reviewedItems).to.equal(1);pm.expect(b.nextDueAt==null).to.equal(true);});}",
+              "    if (step==='37') unchanged('AfterTimezone');",
+              "    if (step==='40') {const b=cycle();check('Finite plan completes explicitly after its entered interval',()=>{pm.expect(b.completed).to.equal(true);pm.expect(b.sequence).to.equal(2);pm.expect(b.cycleId).to.equal(load('InitialCycle').cycleId);pm.expect(b.planVersion).to.equal(1);});}",
+              "    if (step==='41') {status(200);schema('LearningPlanCyclePage');check('Completed custom cycle is absent from due selection',()=>pm.expect(json().items).to.deep.equal([]));}",
+              "    if (step==='42') unchanged('Peer');",
+              "    if (step==='90') {status(200);schema('LearningPlanAcknowledgement');check('Only this run-created plan is paused for retained history',()=>{pm.expect(json().plan.planId).to.equal(get('PlanId'));pm.expect(json().plan.definition.name).to.equal(get('Title'));pm.expect(json().plan.paused).to.equal(true);});}",
+              "    if (step==='91') {status(200);check('Deletion guard verifies created UUID, owner and unique run marker',()=>{const b=json();pm.expect(get('Created')).to.equal(true);pm.expect(b.id).to.equal(get('QuizId'));pm.expect(b.creatorId).to.equal(get('UserIdA'));pm.expect(b.title).to.equal(get('Title'));pm.expect(b.id).not.to.equal(get('SourceId'));pm.expect(b.id).not.to.equal(get('ProtectedId'));});set('DeleteAllowed',passed);}",
+              "    if (step==='92') {status(204);set('Deleted',true);check('Deletion returns no body',()=>pm.expect(pm.response.text()).to.equal(''));}",
+              "    // getQuiz documents 404 in its operation description, without a response schema.",
+              "    // Do not apply the separate Learning group's ProblemDetail schema here.",
+              "    if (step==='93') {status(404);check('Deleted quiz reports unavailable',()=>pm.expect(json().status).to.equal(404));}",
+              "    if (step==='94') {status(200);check('Prepared question content and original associations are unchanged',()=>pm.expect(canonical(json().content)).to.deep.equal(load('Originals')));}",
+              "    if (step==='98' || step==='99') {status(204);check('Explicit logout has no response body',()=>pm.expect(pm.response.text()).to.equal(''));}",
+              "} catch(error) {",
+              "    check('Response supports safe scenario continuation',()=>{throw new Error('Unexpected response or missing documented prerequisite; inspect the failed checks.');});",
+              "}",
+              "if(Number(step)<90) {",
+              "    if(passed)set('ExpectedStep',String(Number(step)+1).padStart(2,'0'));",
+              "    else pm.execution.setNextRequest('L840 90 Pause run-created private plan');",
+              "}",
+              "if(step==='98')pm.variables.unset('l840RunTokenB');",
+              "if(step==='99')Object.keys(pm.variables.toObject()).filter(k=>k.startsWith('l840Run')).forEach(k=>pm.variables.unset(k));"
+            ]
+          }
+        }
+      ],
+      "item": [
+        {
+          "name": "L840 01 Read API discovery",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/api-summary",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 02 Read learning OpenAPI",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/v3/api-docs/learning",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 03 Read quizzes OpenAPI",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/v3/api-docs/quizzes",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 04 Read questions OpenAPI",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/v3/api-docs/questions",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 05 Read auth OpenAPI",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/v3/api-docs/auth",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 06 Login author A",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 07 Confirm author A",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/me",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 08 Login author B",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 09 Confirm author B",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenB}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/me",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 10 Find prepared source",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/quizzes?scope=me&search=Local%20fixtures%20v1%20-%20Java%20basics&page=0&size=2",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 11 Snapshot prepared questions",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/questions?quizId={{l840RunSourceId}}&pageNumber=0&size=10",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 12 Create disposable private quiz",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/quizzes",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 13 Link prepared TRUE_FALSE",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/quizzes/{{l840RunQuizId}}/questions/{{l840RunQuestionTRUE_FALSE}}",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 14 Link prepared MCQ_SINGLE",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/quizzes/{{l840RunQuizId}}/questions/{{l840RunQuestionMCQ_SINGLE}}",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 15 Publish two immutable questions",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/quizzes/{{l840RunQuizId}}/publications",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 16 Create finite custom plan",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plans",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 17 Pin question plan override",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-bindings",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 18 Enroll custom question",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 19 Enroll FSRS peer",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/enrollments",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 20 Preview before first review",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l840RunCustomId}}/timezone/preview",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 21 Start mixed due session",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/sessions",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 22 Answer first saved item",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/sessions/{{l840RunMixedSessionId}}/responses",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 23 Answer second saved item",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/sessions/{{l840RunMixedSessionId}}/responses",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 24 Replay exact custom response",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/sessions/{{l840RunMixedSessionId}}/responses",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 25 Reject changed response replay",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/sessions/{{l840RunMixedSessionId}}/responses",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 26 Read advanced custom cycle",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l840RunCustomId}}?quizId={{l840RunQuizId}}&quizRevisionId={{l840RunRevisionId}}&revisionSchemaVersion={{l840RunSchemaVersion}}",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 27 Snapshot FSRS peer cycle",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l840RunFsrsId}}?quizId={{l840RunQuizId}}&quizRevisionId={{l840RunRevisionId}}&revisionSchemaVersion={{l840RunSchemaVersion}}",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 28 Deny other author cycle read",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenB}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l840RunCustomId}}?quizId={{l840RunQuizId}}&quizRevisionId={{l840RunRevisionId}}&revisionSchemaVersion={{l840RunSchemaVersion}}",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 29 Reject stale timezone preview",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l840RunCustomId}}/timezone/confirm",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 30 Verify stale confirm has no effect",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l840RunCustomId}}?quizId={{l840RunQuizId}}&quizRevisionId={{l840RunRevisionId}}&revisionSchemaVersion={{l840RunSchemaVersion}}",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 31 Preview current timezone change",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l840RunCustomId}}/timezone/preview",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 32 Confirm timezone change",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l840RunCustomId}}/timezone/confirm",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 33 Replay exact timezone confirmation",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l840RunCustomId}}/timezone/confirm",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 34 Verify preserved review progress",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l840RunCustomId}}?quizId={{l840RunQuizId}}&quizRevisionId={{l840RunRevisionId}}&revisionSchemaVersion={{l840RunSchemaVersion}}",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 35 Start extra practice",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/sessions",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 36 Answer extra practice",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/sessions/{{l840RunPracticeSessionId}}/responses",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 37 Verify practice preserves schedule",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l840RunCustomId}}?quizId={{l840RunQuizId}}&quizRevisionId={{l840RunRevisionId}}&revisionSchemaVersion={{l840RunSchemaVersion}}",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 38 Start early finite review",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/sessions",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 39 Complete finite plan",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/sessions/{{l840RunEarlySessionId}}/responses",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 40 Read completed custom cycle",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l840RunCustomId}}?quizId={{l840RunQuizId}}&quizRevisionId={{l840RunRevisionId}}&revisionSchemaVersion={{l840RunSchemaVersion}}",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 41 Exclude completed from custom due page",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles?quizId={{l840RunQuizId}}&quizRevisionId={{l840RunRevisionId}}&revisionSchemaVersion={{l840RunSchemaVersion}}&window=DUE&limit=2",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 42 Verify FSRS peer unchanged",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l840RunFsrsId}}?quizId={{l840RunQuizId}}&quizRevisionId={{l840RunRevisionId}}&revisionSchemaVersion={{l840RunSchemaVersion}}",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 90 Pause run-created private plan",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plans/{{l840RunPlanId}}/pause",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 91 Inspect run quiz before deletion",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/quizzes/{{l840RunQuizId}}",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 92 Delete verified run quiz",
+          "request": {
+            "method": "DELETE",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/quizzes/{{l840RunQuizId}}",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 93 Verify deleted quiz unavailable",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/quizzes/{{l840RunQuizId}}",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 94 Verify original questions unchanged",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/questions?quizId={{l840RunSourceId}}&pageNumber=0&size=10",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 98 Logout author B",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenB}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/logout",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 99 Logout author A and clear state",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/auth/logout",
+            "description": "Issue #840. Contract: live /v3/api-docs/learning (canonical sessions, custom plan cycles and timezone preview/confirm), with quizzes/questions/auth for setup and cleanup. Run the complete folder against the dedicated local Docker app. All transient state is run-scoped; prepared source questions are never modified."
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        }
+      ]
     }
   ]
 }

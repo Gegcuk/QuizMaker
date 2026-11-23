@@ -131,7 +131,7 @@ public class JdbcLearningStudyRepository implements LearningStudyRepository, Lea
 
     private static final String CAPTURES = """
             SELECT i.position, BIN_TO_UUID(c.question_revision_id), BIN_TO_UUID(c.id), c.cycle_version,
-                   b.captured_sequence, state.sequence, c.strategy_id
+                   b.captured_sequence, CASE WHEN c.strategy_id='custom/v1' THEN custom_state.sequence ELSE state.sequence END, c.strategy_id
             FROM learning_form_item i
             JOIN learning_session se ON se.id=UUID_TO_BIN(?)
             JOIN learning_cycle_session b ON b.session_id=se.id AND b.released=0
@@ -139,6 +139,7 @@ public class JdbcLearningStudyRepository implements LearningStudyRepository, Lea
               AND c.learner_id=se.learner_id AND c.quiz_id=se.quiz_id AND c.quiz_revision_id=se.quiz_revision_id
             LEFT JOIN learning_schedule_slot slot ON slot.active_cycle_id=c.id
             LEFT JOIN learning_fsrs_state state ON state.cycle_id=slot.active_cycle_id
+            LEFT JOIN learning_custom_state custom_state ON custom_state.cycle_id=slot.active_cycle_id
             WHERE i.form_id=UUID_TO_BIN(?)
             """;
 

@@ -46,6 +46,7 @@ public class LearningStudyServiceImpl implements LearningStudyService {
     private final LearningStudyRepository repository;
     private final PublishedQuestionContractService bindings;
     private final LearningScheduleService schedules;
+    private final List<LearningCycleService> mixedCycles;
     private final LearningDueSelectionService selection;
     private final LearningDueSelectionConfig limits;
     private final LearningItemMaterial material;
@@ -117,7 +118,8 @@ public class LearningStudyServiceImpl implements LearningStudyService {
             var view = forms.materialize(new LearningFormService.Materialize(1, session.id(), items)).view();
             // The real schedule writer revalidates the selected identity/version and requires the committed-in-scope form.
             for (var item : reviewItems) {
-                schedules.execute(new LearningScheduleService.Capture(1, UUID.randomUUID(), session.source(),
+                if (mixedCycles.size()==1) mixedCycles.get(0).capture(session.source(),item.questionRevisionId(),item.expected(),session.id(),command.mode()==Mode.PRACTICE);
+                else schedules.execute(new LearningScheduleService.Capture(1, UUID.randomUUID(), session.source(),
                         item.questionRevisionId(), item.expected(), session.id()));
             }
             repository.recordStart(session.id(), view.form().id(), command.limit(), shuffled,
@@ -128,9 +130,15 @@ public class LearningStudyServiceImpl implements LearningStudyService {
 
     private List<LearningDueSelection.Item> select(LearningSession.Source source, Start command) {
         if (command.mode() == Mode.DUE) {
+            if (mixedCycles.size()==1) return mixedCycles.get(0).due(source,command.limit());
             return selection.select(new LearningDueSelectionService.Select(1, source, command.limit(), null)).items();
         }
         var question = command.questionRevisionId();
+        if (mixedCycles.size()==1) {
+            var current=mixedCycles.get(0).readyForCapture(source,question);
+            require(command.mode()!=Mode.EARLY || current.dueAt().isAfter(clock.instant().truncatedTo(ChronoUnit.MICROS)),STALE_REVIEW);
+            return List.of(new LearningDueSelection.Item(question,current.expected(),current.dueAt()));
+        }
         var schedule = schedules.read(source, question);
         require(command.mode() != Mode.EARLY
                 || schedule.state().dueAt().isAfter(clock.instant().truncatedTo(ChronoUnit.MICROS)), STALE_REVIEW);
@@ -170,8 +178,9 @@ public class LearningStudyServiceImpl implements LearningStudyService {
         for (var capture : captures) {
             require(capture.position() >= 0 && capture.position() < form.items().size()
                     && capture.questionRevisionId().equals(form.items().get(capture.position()).questionRevisionId()), CORRUPT);
-            require("fsrs/v1".equals(capture.strategy()), UNSUPPORTED_VERSION);
-            schedules.read(session.source(), capture.questionRevisionId());
+            verifyActive(capture);
+            if (mixedCycles.size()==1) mixedCycles.get(0).read(session.source(),capture.questionRevisionId());
+            else schedules.read(session.source(), capture.questionRevisionId());
         }
         return true;
     }
@@ -223,6 +232,8 @@ public class LearningStudyServiceImpl implements LearningStudyService {
                          LearningReview.Command command, Mode mode) {
         require(capture.activeSequence() == capture.captured().sequence(), STALE_REVIEW);
         try {
+            if (mixedCycles.size()==1) return mixedCycles.get(0).rate(session.source(),capture.questionRevisionId(),
+                    capture.captured(),command.rating(),command.commandId(),mode==Mode.DUE);
             if (mode == Mode.DUE) {
                 var snapshot = schedules.read(session.source(), capture.questionRevisionId());
                 require(capture.captured().equals(snapshot.expected())
@@ -246,13 +257,14 @@ public class LearningStudyServiceImpl implements LearningStudyService {
             verifyActive(capture);
             var expected = new LearningSchedule.Expected(capture.captured().cycleId(), capture.captured().cycleVersion(),
                     capture.activeSequence());
-            schedules.execute(new LearningScheduleService.Release(1, UUID.randomUUID(), session.source(),
+            if (mixedCycles.size()==1) mixedCycles.get(0).release(session.source(),capture.questionRevisionId(),expected,session.id());
+            else schedules.execute(new LearningScheduleService.Release(1, UUID.randomUUID(), session.source(),
                     capture.questionRevisionId(), expected, session.id()));
         }
     }
 
-    private static void verifyActive(LearningStudyRepository.Capture capture) {
-        require("fsrs/v1".equals(capture.strategy()), UNSUPPORTED_VERSION);
+    private void verifyActive(LearningStudyRepository.Capture capture) {
+        require("fsrs/v1".equals(capture.strategy()) || mixedCycles.size()==1 && "custom/v1".equals(capture.strategy()), UNSUPPORTED_VERSION);
         require(capture.activeSequence() != null, STALE_REVIEW);
     }
 
@@ -292,6 +304,7 @@ public class LearningStudyServiceImpl implements LearningStudyService {
                 && !TransactionSynchronizationManager.isCurrentTransactionReadOnly()
                 && Objects.equals(TransactionSynchronizationManager.getCurrentTransactionIsolationLevel(),
                     TransactionDefinition.ISOLATION_READ_COMMITTED), UNSUPPORTED_TRANSACTION);
+        require(mixedCycles.size()<=1,PERSISTENCE_UNAVAILABLE);
         long started = System.nanoTime();
         String outcome = "failed";
         boolean deferred = false;
@@ -354,7 +367,7 @@ public class LearningStudyServiceImpl implements LearningStudyService {
     private void record(String operation, String outcome, long started) {
         try {
             Timer.builder("quizmaker.learning.study").tags("operation", operation, "outcome", outcome,
-                    "strategy", "fsrs", "version", "1").register(metrics)
+                    "strategy", mixedCycles.size()==1?"mixed":"fsrs", "version", "1").register(metrics)
                     .record(System.nanoTime() - started, java.util.concurrent.TimeUnit.NANOSECONDS);
         } catch (RuntimeException ignored) { /* Telemetry must not change transaction semantics. */ }
     }
