@@ -8,6 +8,7 @@ import uk.gegc.quizmaker.features.learning.domain.repository.LearningScheduleRep
 
 /** All reads/writes join the authorized RC transaction and the common cycle slot. */
 public interface CustomScheduleRepository {
+    boolean timezoneCommandConflicts(UUID learnerId, UUID commandId);
     State state(Key key, Cycle cycle, Definition definition);
     Interval stage(UUID cycleId, int stage);
     void change(Key key, Cycle cycle, State before, State after, UUID commandId, String kind,

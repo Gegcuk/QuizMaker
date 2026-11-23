@@ -6071,6 +6071,10 @@ Calculated custom due instants are normalized to microseconds before state/histo
 construction, matching MySQL DATETIME(6). Accepted nanosecond local-time definitions remain
 valid and immutable. Custom rating and timezone events share the learner/command namespace;
 a fresh command colliding with another event returns 409, while the original receipt replays.
+That lookup runs in admission's callback before quota refusal, including its second check under
+the learner lock after a competing command commits. A zero balance never changes a known
+custom-history conflict into 429. Ordinary unused keys retain rate-limit behavior; FSRS and
+practice retain their existing command namespaces.
 
 Session inspection shares the existing learner admission row before progress or schedule locks;
 new mutations acquire it exclusively first. This prevents inverse lock order during final-item

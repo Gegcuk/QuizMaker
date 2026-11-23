@@ -91,7 +91,11 @@ public class LearningCycleServiceImpl implements LearningCycleService {
         require(command!=null && preview!=null && confirmed,INVALID_INPUT);
         var key=key(preview.source(),preview.questionRevisionId());
         String input=format.encode(Arrays.asList("timezone",preview));
-        budget.chargeIfNew(key.learnerId(),() -> plans.receipt(key.learnerId(),command).isPresent());
+        budget.chargeIfNew(key.learnerId(),() -> {
+            if(plans.receipt(key.learnerId(),command).isPresent()) return true;
+            require(!store.timezoneCommandConflicts(key.learnerId(),command),CONFLICT);
+            return false;
+        });
         var saved=plans.receipt(key.learnerId(),command);
         if(saved.isPresent()) {
             require(input.equals(saved.get().input()),CONFLICT);

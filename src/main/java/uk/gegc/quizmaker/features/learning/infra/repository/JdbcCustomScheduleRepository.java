@@ -23,6 +23,23 @@ public class JdbcCustomScheduleRepository implements CustomScheduleRepository {
     private final LearningPlanFormat format = new LearningPlanFormat();
     public JdbcCustomScheduleRepository(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
 
+    @Override public boolean timezoneCommandConflicts(UUID learnerId,UUID commandId) {
+        // One statement snapshot: a peer's newly committed timezone receipt must remain replayable.
+        return safe(() -> Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM learning_custom_change h
+                    WHERE h.learner_id=UUID_TO_BIN(:learner) AND h.command_id=UUID_TO_BIN(:command)
+                    AND NOT EXISTS(SELECT 1 FROM learning_plan_command r
+                        WHERE r.learner_id=h.learner_id AND r.command_id=h.command_id))
+                """,new MapSqlParameterSource("learner",learnerId.toString()).addValue("command",commandId.toString()),Boolean.class)));
+    }
+
+    private boolean commandExists(UUID learnerId,UUID commandId) {
+        return safe(() -> Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM learning_custom_change
+                    WHERE learner_id=UUID_TO_BIN(:learner) AND command_id=UUID_TO_BIN(:command))
+                """,new MapSqlParameterSource("learner",learnerId.toString()).addValue("command",commandId.toString()),Boolean.class)));
+    }
+
     @Override public State state(Key key, Cycle cycle, Definition definition) {
         return safe(() -> jdbc.queryForObject("""
             SELECT s.schedule_version,s.reviewed_at,s.time_zone,e.after_json,c.created_at
@@ -57,10 +74,7 @@ public class JdbcCustomScheduleRepository implements CustomScheduleRepository {
                     .addValue("before",format.encode(before)).addValue("after",format.encode(after));
             // Ratings and timezone confirmations share this command namespace. The caller's
             // learner admission lock serializes fresh writes before this check and the insert.
-            require(!Boolean.TRUE.equals(jdbc.queryForObject("""
-                    SELECT EXISTS(SELECT 1 FROM learning_custom_change
-                        WHERE learner_id=UUID_TO_BIN(:learner) AND command_id=UUID_TO_BIN(:command))
-                    """,p,Boolean.class)),CONFLICT);
+            require(!commandExists(key.learnerId(),command),CONFLICT);
             if (generated != null) {
                 p.addValue("interval",format.encode(generated));
                 jdbc.update("""

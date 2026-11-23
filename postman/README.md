@@ -676,15 +676,63 @@ class fingerprints match the passing gate and the local configuration checksum
 remains the separately verified value above. Live discovery and all four relevant
 OpenAPI groups were read from this rebuilt application before the collection edit.
 
-The updated **50-request** scenario has passed JSON, JavaScript syntax, ordering,
-cleanup-transition, local-only and transient-variable checks. Its two desktop
-runs are **pending**: the Postman application is running, but window control
-repeatedly times out after 20–60 seconds, and no supported Postman/Newman CLI is
+The updated **50-request** scenario passed JSON, JavaScript syntax, ordering,
+cleanup-transition, local-only and transient-variable checks. At this revision,
+its two desktop runs were **not performed**: Postman was running, but window control
+repeatedly timed out after 20–60 seconds, and no supported Postman/Newman CLI was
 installed. The earlier 49-request results describe the previous build and do not
-establish execution of this revision. D-001 has not been rechecked at runtime on
-this new image. No scenario requests or mutations were sent during this pending
-stage; the pre-run baseline has zero active fixture sessions/captures.
+establish execution of this revision. D-001 was not rechecked at runtime on
+that image. No scenario requests or mutations were sent during that pending
+stage; the pre-run baseline had zero active fixture sessions/captures.
+The later recheck below resolves this execution gap against its named build.
 
 Evidence: `/private/tmp/quizmaker-840-review-fixes-evidence.json`, backend reports
 in `/private/tmp/quizmaker-840-review-fixes-verify2-20261123/verify/`, and live
 contracts in `/private/tmp/quizmaker-840-review-fixes-openapi/`.
+
+### Exhausted-quota conflict correction — 23 November 2026
+
+An accepted response UUID reused for timezone confirmation, or vice versa, now
+returns **409 even with zero command credit**. Admission checks the shared custom
+key before quota refusal and again under the learner lock. Unused keys still
+receive 429/Retry-After; exact original commands replay their entire acknowledgement.
+FSRS and practice retain their existing namespaces and admission behavior.
+
+The latest focused run passed **46 tests**, including 31 custom MySQL scenarios.
+The full clean four-worker gate passed **10,824 tests**, with zero failures,
+errors or skips, exclusive suites, merged coverage thresholds and completed
+database cleanup. Real HTTP/MySQL tests spend credit through ordinary commands
+using a controlled clock, race both writers for the last credit and commit an
+identical peer between receipt/namespace reads. These timing conditions belong
+to that deterministic layer; no new live budget endpoint or timing-dependent
+Postman exhaustion loop is introduced. The existing 50-request scenario already
+checks the unchanged public conflict contract.
+
+The final local image is
+`sha256:f47b1fbba829a24c6ff6f12c38e330d55f95070a9df32d97b252e4167c214fe3`,
+label `14214754eca58651cf1ef43626d45c015bcf984f-dirty`, source fingerprint
+`c75a0ea000725399970e705411c445dc7c425bf6a90eb071714ae4e1f66410d3`.
+Rebuilt classes match the passing gate; host/container JAR SHA-256 is
+`5e0e9dd8cf1d8d55dc48f9c14726747d28943a314a696925b0883de7fdce6be8`.
+The separately checked host/container local configuration checksum remains
+`c5aafa0a9014389d6c13ead199b89f7183b1e2b3574f87de0ed7503777e233fe`.
+Live discovery and all four relevant OpenAPI groups were read from this build.
+
+The matching collection was replaced in desktop Postman without importing an
+environment. Two complete local runs at **18:51:37** and **18:52:24 UTC** each
+executed **50 requests, 132 assertions: 131 passed, one D-001 failure, zero
+skipped and zero script errors**. All Learning/schema/precision/replay checks
+passed. The original D-001 assertion remains failed: quiz creation declares
+200 but returns 201. No new discrepancy was found; D-002 nullability checks pass.
+Responses, logs, cookies and variable persistence were disabled for both runs.
+
+Both runs used fresh setup and completed guarded deletion, original-question and
+association comparison, private-plan pause and both 204 logouts. Read-only counts
+confirmed zero active fixture sessions/captures and zero unpaused run-created
+plans. History grew by four GOOD events and two TIMEZONE events across the two
+runs; both legacy repetition tables remain empty. Prepared fixtures and local
+unshared environment values were preserved.
+
+Evidence: `/private/tmp/quizmaker-840-quota-conflict-evidence.json`, backend reports
+in `/private/tmp/quizmaker-840-quota-conflict-verify-20261123/verify/`, and live
+contracts in `/private/tmp/quizmaker-840-quota-conflict-openapi/`.

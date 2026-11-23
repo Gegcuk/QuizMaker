@@ -196,7 +196,14 @@ public class LearningStudyServiceImpl implements LearningStudyService {
             var session = sessions.read(command.sessionId());
             UUID learner = session.learnerId();
             String fingerprint = fingerprint(command);
-            budget.chargeIfNew(learner, () -> repository.response(learner, command.commandId()).isPresent());
+            budget.chargeIfNew(learner, () -> {
+                if (repository.response(learner, command.commandId()).isPresent()) return true;
+                // Admission invokes this before and after taking the learner lock, before any
+                // rate-limit refusal. Preserve the existing FSRS/practice namespaces.
+                if (mixedCycles.size()==1) require(!repository.responseCommandConflicts(learner,session.id(),
+                        command.sourceItemId(),command.commandId()),CONFLICT);
+                return false;
+            });
             var receipt = repository.response(learner, command.commandId());
             if (receipt.isPresent()) {
                 require(receipt.get().fingerprint().equals(fingerprint), CONFLICT);

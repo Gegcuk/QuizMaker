@@ -65,6 +65,16 @@ assert both HTTP outcomes and exactly-once events, and verify that inspection ne
 refills command credit. A retained session also remains readable after idle admission metadata
 has been recycled. Response and timezone UUID collisions are tested in both directions: repeated
 409s preserve state/progress/credit while the original accepted command still replays.
+The exhausted-quota regressions spend credit through real plan commands with a fixed admission
+clock, then verify repeated cross-operation 409s, ordinary fresh-command 429/Retry-After,
+unchanged state/history/credit and original replay. Both arrival orders also race a response and
+a timezone confirmation on different cycles for the last credit using a common UUID. The loser
+waits on the real admission lock and must observe the winner's key before any quota refusal.
+A separate barrier pauses the first real receipt read, commits an identical peer command, and
+then releases the retry. Both response and timezone retries must return the original 200 at zero
+credit. The conflict probes exclude their own receipt within one statement snapshot, preventing
+a false conflict between the initial receipt lookup and shared-key lookup. FSRS/practice keep
+their existing namespaces and still debit a fresh response rather than bypassing throttling.
 
 ## Private Learning plans and cycles (#839)
 

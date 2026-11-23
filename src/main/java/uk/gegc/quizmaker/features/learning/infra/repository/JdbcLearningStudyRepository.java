@@ -129,6 +129,26 @@ public class JdbcLearningStudyRepository implements LearningStudyRepository, Lea
                 }, learner.toString(), command.toString()).stream().findFirst());
     }
 
+    @Override public boolean responseCommandConflicts(UUID learner,UUID session,UUID sourceItem,UUID command) {
+        // Inspect history and exclude a newly committed own receipt in the same RC statement snapshot.
+        return safe(() -> Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM learning_custom_change h
+                    WHERE h.learner_id=UUID_TO_BIN(?) AND h.command_id=UUID_TO_BIN(?)
+                    AND NOT EXISTS(SELECT 1 FROM learning_session_response r
+                        WHERE r.learner_id=h.learner_id AND r.command_id=h.command_id)
+                    AND EXISTS(SELECT 1 FROM learning_session se
+                        JOIN learning_session_start s ON s.session_id=se.id
+                        JOIN learning_form_item i ON i.form_id=s.form_id
+                        JOIN learning_cycle_session capture ON capture.session_id=se.id
+                        JOIN learning_schedule_cycle cycle ON cycle.id=capture.cycle_id
+                            AND cycle.question_revision_id=i.question_revision_id AND cycle.learner_id=se.learner_id
+                            AND cycle.quiz_id=se.quiz_id AND cycle.quiz_revision_id=se.quiz_revision_id
+                        WHERE se.id=UUID_TO_BIN(?) AND se.learner_id=h.learner_id
+                            AND i.source_item_id=UUID_TO_BIN(?) AND s.review_mode IN ('DUE','EARLY')
+                            AND cycle.strategy_id='custom/v1'))
+                """,Boolean.class,learner.toString(),command.toString(),session.toString(),sourceItem.toString())));
+    }
+
     private static final String CAPTURES = """
             SELECT i.position, BIN_TO_UUID(c.question_revision_id), BIN_TO_UUID(c.id), c.cycle_version,
                    b.captured_sequence, CASE WHEN c.strategy_id='custom/v1' THEN custom_state.sequence ELSE state.sequence END, c.strategy_id
