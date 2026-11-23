@@ -109,7 +109,7 @@ class LearningPlanMySqlIntegrationTest {
             public Optional<UUID> lockActiveUserId(String name) { return sql.query("SELECT BIN_TO_UUID(user_id) FROM users WHERE username=? AND is_active=TRUE AND is_deleted=FALSE FOR SHARE",(r,n)->UUID.fromString(r.getString(1)),name).stream().findFirst(); }
         };
         authority=new JdbcPublishedLearningSourceVerifier(sql); schedules=new JdbcLearningScheduleRepository(new NamedParameterJdbcTemplate(sql));
-        sessions=new LearningSessionServiceImpl(new JdbcLearningSessionRepository(new NamedParameterJdbcTemplate(sql)),(a,b)->{},users,List.of(authority),clock,metrics,manager);
+        sessions=new LearningSessionServiceImpl(new JdbcLearningSessionRepository(new NamedParameterJdbcTemplate(sql)),org.mockito.Mockito.mock(uk.gegc.quizmaker.features.learning.domain.repository.LearningCommandBudget.class),users,List.of(authority),clock,metrics,manager);
         fsrs=new LearningScheduleServiceImpl(schedules,users,List.of(authority),List.of(s->completedSessions.contains(s.id())),sessions,new FsrsSchedulingStrategyImpl(),clock,metrics,manager);
         var rate=new LearningCommandRateConfig(); budget=new JdbcLearningCommandBudget(sql,clock,rate);
         limits=new LearningDueSelectionConfig(); limits.setMaxBatchSize(100);

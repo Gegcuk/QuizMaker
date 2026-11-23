@@ -170,6 +170,10 @@ class LearningCustomMySqlIntegrationTest {
     @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
     uk.gegc.quizmaker.features.learning.domain.repository.LearningStudyRepository responseStore;
     @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    uk.gegc.quizmaker.features.learning.domain.repository.CustomScheduleRepository customStore;
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    uk.gegc.quizmaker.features.learning.domain.repository.LearningCommandBudget admission;
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
     uk.gegc.quizmaker.features.learning.domain.repository.LearningPlanRepository planStore;
     @Autowired uk.gegc.quizmaker.features.learning.application.LearningCycleService cycleService;
     @Autowired org.springframework.context.ApplicationContext context;
@@ -569,6 +573,173 @@ class LearningCustomMySqlIntegrationTest {
         org.assertj.core.api.Assertions.assertThatThrownBy(()->asPrincipal(anna,()->tx.execute(status->cycleService.read(domain(source),source.questions().get(0)))))
                 .isInstanceOf(uk.gegc.quizmaker.features.learning.domain.model.LearningSessionException.class);
         assertThat(sql.queryForObject("SELECT @@transaction_read_only",Integer.class)).isZero();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints={1,2})
+    void nanosecondCalendarPlansKeepResponsesHistoryReadsAndTimezoneConfirmationConsistent(int size) throws Exception {
+        var anna=persona("precision","QUIZ_UPDATE");
+        var source=publishedQuiz(anna,size==1?new String[]{"Precision"}:new String[]{"Precision A","Precision B"});
+        for(int i=0;i<size;i++) custom(anna,source,i,definition("FINITE",1,3).put("localTime","09:00:00.123456789"));
+        var form=read(perform(start(anna,source,UUID.randomUUID(),size,null,null)).andReturn(),200);
+        UUID session=UUID.fromString(form.path("sessionId").asText());
+        var expected=CLOCK.instant().atZone(ZoneId.of("Europe/London")).toLocalDate().plusDays(1)
+                .atTime(java.time.LocalTime.parse("09:00:00.123456")).atZone(ZoneId.of("Europe/London")).toInstant();
+        for(int i=0;i<size;i++) {
+            UUID command=UUID.randomUUID();String item=form.path("items").get(i).path("sourceItemId").asText();
+            var ack=read(perform(respond(anna,session,command,i+1,item,"GOOD",true)).andReturn(),200);
+            assertThat(Instant.parse(ack.path("nextDueAt").asText())).isEqualTo(expected);
+            assertSame(read(perform(respond(anna,session,command,i+1,item,"GOOD",true)).andReturn(),200),ack,"precise response replay");
+            var resumed=read(perform(resume(anna,session)).andReturn(),200);
+            assertThat(resumed.path("reviewedItems").asInt()).isEqualTo(i+1);
+            assertThat(resumed.path("completed").asBoolean()).isEqualTo(i+1==size);
+        }
+        for(int i=0;i<size;i++) assertThat(Instant.parse(cycle(anna,source,i).path("dueAt").asText())).isEqualTo(expected);
+        var request=json.createObjectNode().put("timeZone","America/New_York");request.set("source",sourceRef(source));
+        var preview=send(anna,timezone(source,0)+"/preview",request,200);
+        var confirm=json.createObjectNode().put("commandId",UUID.randomUUID().toString()).put("confirmed",true);confirm.set("preview",preview);
+        var accepted=send(anna,timezone(source,0)+"/confirm",confirm,200);
+        assertSame(send(anna,timezone(source,0)+"/confirm",confirm,200),accepted,"precise timezone replay");
+        assertSame(cycle(anna,source,0),accepted.path("cycle"),"precise confirmed cycle remains readable");
+        assertThat(count("learning_custom_change")).isEqualTo(size+1);
+        assertThat(count("learning_session_response")).isEqualTo(size);
+    }
+
+    @Test
+    void mixedUnitAgainReturnsNextDayEighteenThroughRealApiProgressionAndExactReplay() throws Exception {
+        CLOCK.set(Instant.parse("2026-11-23T21:55:00Z"));
+        var anna=persona("q114","QUIZ_UPDATE");var source=publishedQuiz(anna,"Mixed units");
+        var definition=definition("FINITE",1);var intervals=definition.putArray("intervals");
+        intervals.addObject().put("value",20).put("unit","HOURS");
+        intervals.addObject().put("value",20).put("unit","HOURS");
+        intervals.addObject().put("value",1).put("unit","DAYS");
+        custom(anna,source,0,definition);
+        review(anna,source,null,"GOOD");
+        CLOCK.set(Instant.parse("2026-11-23T21:56:00Z"));review(anna,source,"EARLY","GOOD");
+        CLOCK.set(Instant.parse("2026-11-23T21:57:00Z"));review(anna,source,"EARLY","GOOD");
+        assertThat(cycle(anna,source,0).path("stage").asInt()).isEqualTo(2);
+        CLOCK.set(Instant.parse("2026-11-23T22:00:00Z"));
+        var form=read(perform(start(anna,source,UUID.randomUUID(),1,"EARLY",source.questions().get(0))).andReturn(),200);
+        UUID session=UUID.fromString(form.path("sessionId").asText()),command=UUID.randomUUID();
+        String item=form.path("items").get(0).path("sourceItemId").asText();
+        var ack=read(perform(respond(anna,session,command,1,item,"AGAIN",true)).andReturn(),200);
+        assertThat(ack.path("nextDueAt").asText()).isEqualTo("2026-11-24T18:00:00Z");
+        assertSame(read(perform(respond(anna,session,command,1,item,"AGAIN",true)).andReturn(),200),ack,"Q114 exact API replay");
+        var cycle=cycle(anna,source,0);assertThat(cycle.path("stage").asInt()).isZero();
+        assertThat(cycle.path("dueAt").asText()).isEqualTo(ack.path("nextDueAt").asText());
+        assertThat(count("learning_custom_change")).isEqualTo(4);
+    }
+
+    @Test
+    void responseAndTimezoneCommandsConflictAcrossTheirSharedHistoryNamespace() throws Exception {
+        var anna=persona("collision","QUIZ_UPDATE");var source=publishedQuiz(anna,"Command identities");
+        custom(anna,source,0,definition("FINITE",1,3));
+        var form=read(perform(start(anna,source,UUID.randomUUID(),1,null,null)).andReturn(),200);
+        UUID session=UUID.fromString(form.path("sessionId").asText()),responseId=UUID.randomUUID();
+        String item=form.path("items").get(0).path("sourceItemId").asText();
+        var response=read(perform(respond(anna,session,responseId,1,item,"GOOD",true)).andReturn(),200);
+        var request=json.createObjectNode().put("timeZone","America/New_York");request.set("source",sourceRef(source));
+        var preview=send(anna,timezone(source,0)+"/preview",request,200);
+        var confirm=json.createObjectNode().put("commandId",responseId.toString()).put("confirmed",true);confirm.set("preview",preview);
+        var before=cycle(anna,source,0);long balance=credit(anna);
+        for(int i=0;i<2;i++) send(anna,timezone(source,0)+"/confirm",confirm,409);
+        assertSame(cycle(anna,source,0),before,"occupied response identity preserves schedule");
+        assertThat(credit(anna)).isEqualTo(balance);assertThat(count("learning_custom_change")).isOne();
+        assertSame(read(perform(respond(anna,session,responseId,1,item,"GOOD",true)).andReturn(),200),response,"original response still replays");
+        UUID timezoneId=UUID.randomUUID();confirm.put("commandId",timezoneId.toString());
+        var accepted=send(anna,timezone(source,0)+"/confirm",confirm,200);
+        var early=read(perform(start(anna,source,UUID.randomUUID(),1,"EARLY",source.questions().get(0))).andReturn(),200);
+        UUID nextSession=UUID.fromString(early.path("sessionId").asText());String next=early.path("items").get(0).path("sourceItemId").asText();
+        balance=credit(anna);
+        for(int i=0;i<2;i++) read(perform(respond(anna,nextSession,timezoneId,1,next,"GOOD",true)).andReturn(),409);
+        assertThat(credit(anna)).isEqualTo(balance);assertThat(count("learning_custom_change")).isEqualTo(2);
+        assertThat(read(perform(resume(anna,nextSession)).andReturn(),200).path("reviewedItems").asInt()).isZero();
+        read(perform(respond(anna,nextSession,UUID.randomUUID(),1,next,"GOOD",true)).andReturn(),200);
+        assertSame(send(anna,timezone(source,0)+"/confirm",confirm,200),accepted,"original timezone acknowledgement still replays");
+        assertThat(count("learning_custom_change")).isEqualTo(3);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans={false,true})
+    void resumeWaitsBeforeScheduleLocksWhenFinalResponseIsInFlight(boolean overlappingSession) throws Exception {
+        var anna=persona("read-race","QUIZ_UPDATE");var source=publishedQuiz(anna,"First","Last");
+        for(int i=0;i<2;i++) custom(anna,source,i,definition("FINITE",1,3));
+        var form=read(perform(start(anna,source,UUID.randomUUID(),2,null,null)).andReturn(),200);
+        UUID session=UUID.fromString(form.path("sessionId").asText()),command=UUID.randomUUID();
+        read(perform(respond(anna,session,UUID.randomUUID(),1,form.path("items").get(0).path("sourceItemId").asText(),"GOOD",true)).andReturn(),200);
+        UUID readerSession=overlappingSession?UUID.fromString(read(perform(start(anna,source,UUID.randomUUID(),2,null,null)).andReturn(),200).path("sessionId").asText()):session;
+        var store=(uk.gegc.quizmaker.features.learning.domain.repository.CustomScheduleRepository)
+                org.springframework.test.util.AopTestUtils.getUltimateTargetObject(customStore);
+        var reached=new java.util.concurrent.CountDownLatch(1);var release=new java.util.concurrent.CountDownLatch(1);
+        var pool=Executors.newFixedThreadPool(2);String item=form.path("items").get(1).path("sourceItemId").asText();
+        try {
+            org.mockito.Mockito.doAnswer(inv->{inv.callRealMethod();reached.countDown();assertThat(release.await(25,TimeUnit.SECONDS)).isTrue();return null;})
+                    .when(store).change(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any(),
+                            org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.anyString(),
+                            org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any());
+            var writer=pool.submit(()->perform(respond(anna,session,command,2,item,"GOOD",true)).andReturn());
+            assertThat(reached.await(20,TimeUnit.SECONDS)).isTrue();
+            var reader=pool.submit(()->perform(resume(anna,readerSession)).andReturn());
+            awaitBudgetWait(reader);release.countDown();
+            var accepted=read(writer.get(30,TimeUnit.SECONDS),200);
+            var resumed=read(reader.get(30,TimeUnit.SECONDS),200);
+            assertThat(resumed.path("status").asText()).isEqualTo(overlappingSession?"SUPERSEDED":"COMPLETED");
+            assertSame(read(perform(respond(anna,session,command,2,item,"GOOD",true)).andReturn(),200),accepted,"racing final response replay");
+            assertThat(count("learning_custom_change")).isEqualTo(2);assertThat(count("learning_session_response")).isEqualTo(2);
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM learning_cycle_session WHERE released=0",Integer.class)).isZero();
+        } finally {release.countDown();pool.shutdownNow();assertThat(pool.awaitTermination(30,TimeUnit.SECONDS)).isTrue();org.mockito.Mockito.reset(store);}
+    }
+
+    @Test
+    void finalResponseWaitsForAnInFlightReadWithoutChargingTheRead() throws Exception {
+        var anna=persona("reader-first","QUIZ_UPDATE");var source=publishedQuiz(anna,"First","Last");
+        for(int i=0;i<2;i++) custom(anna,source,i,definition("FINITE",1,3));
+        var form=read(perform(start(anna,source,UUID.randomUUID(),2,null,null)).andReturn(),200);
+        UUID session=UUID.fromString(form.path("sessionId").asText());
+        read(perform(respond(anna,session,UUID.randomUUID(),1,form.path("items").get(0).path("sourceItemId").asText(),"GOOD",true)).andReturn(),200);
+        long balance=credit(anna);
+        var guard=(uk.gegc.quizmaker.features.learning.domain.repository.LearningCommandBudget)
+                org.springframework.test.util.AopTestUtils.getUltimateTargetObject(admission);
+        var reached=new java.util.concurrent.CountDownLatch(1);var release=new java.util.concurrent.CountDownLatch(1);var pool=Executors.newFixedThreadPool(2);
+        try {
+            org.mockito.Mockito.doAnswer(inv->{inv.callRealMethod();reached.countDown();assertThat(release.await(25,TimeUnit.SECONDS)).isTrue();return null;})
+                    .when(guard).lockForInspection(org.mockito.ArgumentMatchers.eq(anna.id()));
+            var reader=pool.submit(()->perform(resume(anna,session)).andReturn());assertThat(reached.await(20,TimeUnit.SECONDS)).isTrue();
+            var writer=pool.submit(()->perform(respond(anna,session,UUID.randomUUID(),2,form.path("items").get(1).path("sourceItemId").asText(),"GOOD",true)).andReturn());
+            awaitBudgetWait(writer);release.countDown();
+            assertThat(read(reader.get(30,TimeUnit.SECONDS),200).path("reviewedItems").asInt()).isOne();
+            assertThat(read(writer.get(30,TimeUnit.SECONDS),200).path("completed").asBoolean()).isTrue();
+            assertThat(credit(anna)).isEqualTo(balance-60_000_000L);
+        } finally {release.countDown();pool.shutdownNow();assertThat(pool.awaitTermination(30,TimeUnit.SECONDS)).isTrue();org.mockito.Mockito.reset(guard);}
+    }
+
+    @Test
+    void retainedSessionRemainsReadableAfterIdleAdmissionMetadataIsRecycled() throws Exception {
+        var anna=persona("idle-read","QUIZ_UPDATE");var source=publishedQuiz(anna,"Retained session");
+        custom(anna,source,0,definition("FINITE",1,3));review(anna,source,null,"GOOD");
+        var practice=read(perform(start(anna,source,UUID.randomUUID(),1,"PRACTICE",source.questions().get(0))).andReturn(),200);
+        UUID session=UUID.fromString(practice.path("sessionId").asText());var cycle=cycle(anna,source,0);
+        // Reachable after the existing idle-row recycler; immutable Learning evidence is untouched.
+        sql.update("DELETE FROM learning_command_budget WHERE learner_id=UUID_TO_BIN(?)",anna.id().toString());
+        read(perform(resume(anna,session)).andReturn(),200);
+        assertThat(credit(anna)).isEqualTo(20*60_000_000L);
+        var budget=sql.queryForMap("SELECT credit_units,accounted_us FROM learning_command_budget WHERE learner_id=UUID_TO_BIN(?)",anna.id().toString());
+        read(perform(resume(anna,session)).andReturn(),200);
+        assertSame(sql.queryForMap("SELECT credit_units,accounted_us FROM learning_command_budget WHERE learner_id=UUID_TO_BIN(?)",anna.id().toString()),budget,"read neither debits nor refills");
+        assertSame(cycle(anna,source,0),cycle,"idle metadata recovery preserves schedule");
+    }
+
+    private void awaitBudgetWait(Future<MvcResult> request) throws Exception {
+        long deadline=System.nanoTime()+Duration.ofSeconds(20).toNanos();
+        while(System.nanoTime()<deadline) {
+            Integer waits=admin().queryForObject("""
+                    SELECT COUNT(*) FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks l
+                    ON l.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID WHERE l.OBJECT_SCHEMA=? AND l.OBJECT_NAME='learning_command_budget'
+                    """,Integer.class,CATALOG);
+            if(waits!=null && waits>0) return;
+            assertThat(request.isDone()).as("request waits before taking schedule locks").isFalse();Thread.sleep(20);
+        }
+        throw new AssertionError("Request never reached the shared command coordination lock");
     }
 
     private ObjectNode definition(String mode,int... days) {

@@ -55,6 +55,12 @@ public class JdbcCustomScheduleRepository implements CustomScheduleRepository {
                     .addValue("zone",after.timeZone()).addValue("completed",after.completed())
                     .addValue("command",command.toString()).addValue("kind",kind).addValue("now",time(at))
                     .addValue("before",format.encode(before)).addValue("after",format.encode(after));
+            // Ratings and timezone confirmations share this command namespace. The caller's
+            // learner admission lock serializes fresh writes before this check and the insert.
+            require(!Boolean.TRUE.equals(jdbc.queryForObject("""
+                    SELECT EXISTS(SELECT 1 FROM learning_custom_change
+                        WHERE learner_id=UUID_TO_BIN(:learner) AND command_id=UUID_TO_BIN(:command))
+                    """,p,Boolean.class)),CONFLICT);
             if (generated != null) {
                 p.addValue("interval",format.encode(generated));
                 jdbc.update("""

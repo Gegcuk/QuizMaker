@@ -16757,7 +16757,7 @@
     },
     {
       "name": "23 Custom Learning",
-      "description": "Issue #840: independently repeatable custom review progression through the canonical Learning session API, alongside an FSRS peer. Read live discovery and learning/quizzes/questions/auth contracts first. Requires the three approved Learning opt-ins in the dedicated localhost Docker runtime and the existing local unshared fixture Value. Exact replays retain the entire accepted body; a fresh folder run creates new identifiers. The known D-001 quiz creation assertion remains visible and does not prevent issue-owned checks or guarded cleanup. Two authors log out independently; immutable Learning history and the paused run-created plan remain under existing retention semantics. No providers are called.",
+      "description": "Issue #840: independently repeatable custom review progression through the canonical Learning session API, alongside an FSRS peer. Read live discovery and learning/quizzes/questions/auth contracts first. Requires the three approved Learning opt-ins in the dedicated localhost Docker runtime and the existing local unshared fixture Value. Exact replays retain the entire accepted body; a fresh folder run creates new identifiers. The known D-001 quiz creation assertion remains visible and does not prevent issue-owned checks or guarded cleanup. Two authors log out independently; immutable Learning history and the paused run-created plan remain under existing retention semantics. No providers are called. Review regressions: retain nanosecond local-time input while due instants use documented microsecond precision; reject a response UUID reused for timezone confirmation with 409.",
       "event": [
         {
           "listen": "prerequest",
@@ -16806,14 +16806,14 @@
               "if (step === '06' || step === '08') set('Body', get('Login' + (step === '06' ? 'A' : 'B')));",
               "if (step === '12') body({title:get('Title'),description:'Local #840 custom Learning verification',visibility:'PRIVATE',difficulty:'EASY',isRepetitionEnabled:false,timerEnabled:false,estimatedTime:10,timerDuration:10,tagIds:[]});",
               "if (step === '15') command({expectedPublicationVersion:0,questionOrder:[get('QuestionTRUE_FALSE'),get('QuestionMCQ_SINGLE')]});",
-              "if (step === '16') command({expectedVersion:0,definition:{version:1,name:get('Title'),intervals:[{value:1,unit:'DAYS'}],mode:'FINITE',coefficient:2,timeZone:'Europe/London',localTime:'09:00'}});",
+              "if (step === '16') command({expectedVersion:0,definition:{version:1,name:get('Title'),intervals:[{value:1,unit:'DAYS'}],mode:'FINITE',coefficient:2,timeZone:'Europe/London',localTime:'09:00:00.123456789'}});",
               "if (step === '17') command({source:source(),questionRevisionId:get('CustomId'),expectedVersion:0,planId:get('PlanId'),planVersion:1});",
               "if (step === '18') command({source:source(),questionRevisionId:get('CustomId'),action:'ENROLL',strategy:'CUSTOM',confirmed:false});",
               "if (step === '19') command({source:source(),configuration:{strategy:'fsrs/v1',version:1},questionRevisionIds:[get('FsrsId')]});",
               "if (step === '20' || step === '31') body({source:source(),timeZone:'America/New_York'});",
               "if (step === '21') command({source:source(),configuration:{strategy:'fsrs/v1',version:1},limit:2});",
-              "if (step === '22' || step === '23' || step === '36' || step === '39') {",
-              "    const session=JSON.parse(get(step === '36' ? 'Practice' : step === '39' ? 'Early' : 'Mixed'));",
+              "if (step === '22' || step === '23' || step === '37' || step === '40') {",
+              "    const session=JSON.parse(get(step === '37' ? 'Practice' : step === '40' ? 'Early' : 'Mixed'));",
               "    const item=session.items.find(i => i.sourceItemId === session.nextItemId);",
               "    if (!item) { pm.execution.setNextRequest(cleanup); pm.execution.skipRequest(); throw new Error('No next saved item.'); }",
               "    let response;",
@@ -16827,9 +16827,10 @@
               "if (step === '24') set('Body',get('CustomResponseBody'));",
               "if (step === '25') { const replay=JSON.parse(get('CustomResponseBody'));replay.rating='AGAIN';body(replay); }",
               "if (step === '29') command({confirmed:true,preview:JSON.parse(get('OldPreview'))});",
-              "if (step === '32') { command({confirmed:true,preview:JSON.parse(get('Preview'))}); set('ConfirmBody',get('Body')); }",
-              "if (step === '33') set('Body',get('ConfirmBody'));",
-              "if (step === '35' || step === '38') command({source:source(),configuration:{strategy:'fsrs/v1',version:1},limit:1,selection:{mode:step === '35' ? 'PRACTICE' : 'EARLY',questionRevisionId:get('CustomId')}});",
+              "if (step === '32') body({commandId:JSON.parse(get('CustomResponseBody')).commandId,confirmed:true,preview:JSON.parse(get('Preview'))});",
+              "if (step === '33') { command({confirmed:true,preview:JSON.parse(get('Preview'))}); set('ConfirmBody',get('Body')); }",
+              "if (step === '34') set('Body',get('ConfirmBody'));",
+              "if (step === '36' || step === '39') command({source:source(),configuration:{strategy:'fsrs/v1',version:1},limit:1,selection:{mode:step === '36' ? 'PRACTICE' : 'EARLY',questionRevisionId:get('CustomId')}});",
               "if (step === '90') {",
               "    if (!get('PlanId') || !get('TokenA')) { pm.execution.setNextRequest('L840 91 Inspect run quiz before deletion'); pm.execution.skipRequest(); }",
               "    else command({expectedVersion:1,paused:true});",
@@ -16887,6 +16888,7 @@
               "            });",
               "            ['LearningTimezonePreview','LearningScheduleExpectedCycle','LearningPlanCycle','LearningResponseAcknowledgement'].forEach(n=>pm.expect(spec.components.schemas).to.have.property(n));",
               "            pm.expect(p['/api/v1/learning/sessions'].post.description).to.include('custom-reviews-enabled');",
+              "            pm.expect(JSON.stringify(spec.components.schemas.LearningPlanDefinition.properties.localTime)).to.include('truncated to microseconds');",
               "        });",
               "    }",
               "    if (step==='03') { status(200);const spec=json();save('CreateStatuses',Object.keys(spec.paths['/api/v1/quizzes'].post.responses).filter(k=>/^2/.test(k)));check('Publication setup has a named public contract',()=>pm.expect(spec.paths['/api/v1/quizzes/{quizId}/publications'].post.operationId).to.equal('publishQuizRevision')); }",
@@ -16920,20 +16922,21 @@
               "    }",
               "    if (step==='24') {status(200);schema('LearningResponseAcknowledgement');check('Exact custom response replay retains the whole original acknowledgement',()=>pm.expect(json()).to.deep.equal(load('CustomAck')));}",
               "    if (step==='25') problem(409);",
-              "    if (step==='26') {const b=cycle();check('Custom schedule records one review and its next due',()=>{pm.expect(b.sequence).to.equal(1);pm.expect(b.stage).to.equal(0);pm.expect(b.completed).to.equal(false);pm.expect(b.dueAt).to.equal(load('CustomAck').nextDueAt);});save('BeforeTimezone',b);}",
+              "    if (step==='26') {const b=cycle();check('Custom schedule records one review and its next due',()=>{pm.expect(b.sequence).to.equal(1);pm.expect(b.stage).to.equal(0);pm.expect(b.completed).to.equal(false);pm.expect(b.dueAt).to.equal(load('CustomAck').nextDueAt);pm.expect(b.dueAt).to.match(/\\.123456Z$/);});save('BeforeTimezone',b);}",
               "    if (step==='27') {const b=cycle();check('FSRS peer advanced exactly once',()=>{pm.expect(b.strategy).to.equal('FSRS');pm.expect(b.sequence).to.equal(1);});save('Peer',b);}",
               "    if (step==='28') problem(404);",
               "    if (step==='29') problem(409);",
               "    if (step==='30') unchanged('BeforeTimezone');",
-              "    if (step==='32') {status(200);schema('LearningPlanAcknowledgement');const b=json();check('Confirmation applies only previewed due and preserves review progress',()=>{const old=load('BeforeTimezone');pm.expect(b.cycle).to.deep.equal({...old,dueAt:load('Preview').nextDueAt});});save('ConfirmAck',b);save('AfterTimezone',b.cycle);}",
-              "    if (step==='33') {status(200);schema('LearningPlanAcknowledgement');check('Exact timezone confirmation replay returns original acknowledgement',()=>pm.expect(json()).to.deep.equal(load('ConfirmAck')));}",
-              "    if (step==='34') unchanged('AfterTimezone');",
-              "    if (step==='35' || step==='38') {status(200);schema('LearningSessionView');const b=json();check('Explicit one-item mode captures only the custom question',()=>{pm.expect(b.mode).to.equal(step==='35'?'PRACTICE':'EARLY');pm.expect(b.items.map(i=>i.questionRevisionId)).to.deep.equal([get('CustomId')]);pm.expect(b.status).to.equal('ACTIVE');});const k=step==='35'?'Practice':'Early';save(k,b);set(k+'SessionId',b.sessionId);}",
-              "    if (step==='36' || step==='39') {status(200);schema('LearningResponseAcknowledgement');const b=json();check('Single-item session completes with no pending due in acknowledgement',()=>{pm.expect(b.completed).to.equal(true);pm.expect(b.reviewedItems).to.equal(1);pm.expect(b.nextDueAt==null).to.equal(true);});}",
-              "    if (step==='37') unchanged('AfterTimezone');",
-              "    if (step==='40') {const b=cycle();check('Finite plan completes explicitly after its entered interval',()=>{pm.expect(b.completed).to.equal(true);pm.expect(b.sequence).to.equal(2);pm.expect(b.cycleId).to.equal(load('InitialCycle').cycleId);pm.expect(b.planVersion).to.equal(1);});}",
-              "    if (step==='41') {status(200);schema('LearningPlanCyclePage');check('Completed custom cycle is absent from due selection',()=>pm.expect(json().items).to.deep.equal([]));}",
-              "    if (step==='42') unchanged('Peer');",
+              "    if (step==='32') problem(409);",
+              "    if (step==='33') {status(200);schema('LearningPlanAcknowledgement');const b=json();check('Confirmation applies only previewed due and preserves review progress',()=>{const old=load('BeforeTimezone');pm.expect(b.cycle).to.deep.equal({...old,dueAt:load('Preview').nextDueAt});});save('ConfirmAck',b);save('AfterTimezone',b.cycle);}",
+              "    if (step==='34') {status(200);schema('LearningPlanAcknowledgement');check('Exact timezone confirmation replay returns original acknowledgement',()=>pm.expect(json()).to.deep.equal(load('ConfirmAck')));}",
+              "    if (step==='35') unchanged('AfterTimezone');",
+              "    if (step==='36' || step==='39') {status(200);schema('LearningSessionView');const b=json();check('Explicit one-item mode captures only the custom question',()=>{pm.expect(b.mode).to.equal(step==='36'?'PRACTICE':'EARLY');pm.expect(b.items.map(i=>i.questionRevisionId)).to.deep.equal([get('CustomId')]);pm.expect(b.status).to.equal('ACTIVE');});const k=step==='36'?'Practice':'Early';save(k,b);set(k+'SessionId',b.sessionId);}",
+              "    if (step==='37' || step==='40') {status(200);schema('LearningResponseAcknowledgement');const b=json();check('Single-item session completes with no pending due in acknowledgement',()=>{pm.expect(b.completed).to.equal(true);pm.expect(b.reviewedItems).to.equal(1);pm.expect(b.nextDueAt==null).to.equal(true);});}",
+              "    if (step==='38') unchanged('AfterTimezone');",
+              "    if (step==='41') {const b=cycle();check('Finite plan completes explicitly after its entered interval',()=>{pm.expect(b.completed).to.equal(true);pm.expect(b.sequence).to.equal(2);pm.expect(b.cycleId).to.equal(load('InitialCycle').cycleId);pm.expect(b.planVersion).to.equal(1);});}",
+              "    if (step==='42') {status(200);schema('LearningPlanCyclePage');check('Completed custom cycle is absent from due selection',()=>pm.expect(json().items).to.deep.equal([]));}",
+              "    if (step==='43') unchanged('Peer');",
               "    if (step==='90') {status(200);schema('LearningPlanAcknowledgement');check('Only this run-created plan is paused for retained history',()=>{pm.expect(json().plan.planId).to.equal(get('PlanId'));pm.expect(json().plan.definition.name).to.equal(get('Title'));pm.expect(json().plan.paused).to.equal(true);});}",
               "    if (step==='91') {status(200);check('Deletion guard verifies created UUID, owner and unique run marker',()=>{const b=json();pm.expect(get('Created')).to.equal(true);pm.expect(b.id).to.equal(get('QuizId'));pm.expect(b.creatorId).to.equal(get('UserIdA'));pm.expect(b.title).to.equal(get('Title'));pm.expect(b.id).not.to.equal(get('SourceId'));pm.expect(b.id).not.to.equal(get('ProtectedId'));});set('DeleteAllowed',passed);}",
               "    if (step==='92') {status(204);set('Deleted',true);check('Deletion returns no body',()=>pm.expect(pm.response.text()).to.equal(''));}",
@@ -18015,7 +18018,49 @@
           }
         },
         {
-          "name": "L840 32 Confirm timezone change",
+          "name": "L840 32 Reject response UUID in timezone confirmation",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{l840RunTokenA}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l840RunCustomId}}/timezone/confirm",
+            "description": "Issue #840 review regression. Learning confirm documents 409 for conflicting command reuse. A fresh valid timezone preview is confirmed using the UUID of this run's accepted custom response. Expect 409; the following request uses a new UUID and the same preview, proving the rejected command did not reschedule it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{{l840RunBody}}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "protocolProfileBehavior": {
+            "followRedirects": false,
+            "disableCookies": true
+          }
+        },
+        {
+          "name": "L840 33 Confirm timezone change",
           "request": {
             "method": "POST",
             "auth": {
@@ -18057,7 +18102,7 @@
           }
         },
         {
-          "name": "L840 33 Replay exact timezone confirmation",
+          "name": "L840 34 Replay exact timezone confirmation",
           "request": {
             "method": "POST",
             "auth": {
@@ -18099,7 +18144,7 @@
           }
         },
         {
-          "name": "L840 34 Verify preserved review progress",
+          "name": "L840 35 Verify preserved review progress",
           "request": {
             "method": "GET",
             "auth": {
@@ -18128,7 +18173,7 @@
           }
         },
         {
-          "name": "L840 35 Start extra practice",
+          "name": "L840 36 Start extra practice",
           "request": {
             "method": "POST",
             "auth": {
@@ -18170,7 +18215,7 @@
           }
         },
         {
-          "name": "L840 36 Answer extra practice",
+          "name": "L840 37 Answer extra practice",
           "request": {
             "method": "POST",
             "auth": {
@@ -18212,7 +18257,7 @@
           }
         },
         {
-          "name": "L840 37 Verify practice preserves schedule",
+          "name": "L840 38 Verify practice preserves schedule",
           "request": {
             "method": "GET",
             "auth": {
@@ -18241,7 +18286,7 @@
           }
         },
         {
-          "name": "L840 38 Start early finite review",
+          "name": "L840 39 Start early finite review",
           "request": {
             "method": "POST",
             "auth": {
@@ -18283,7 +18328,7 @@
           }
         },
         {
-          "name": "L840 39 Complete finite plan",
+          "name": "L840 40 Complete finite plan",
           "request": {
             "method": "POST",
             "auth": {
@@ -18325,7 +18370,7 @@
           }
         },
         {
-          "name": "L840 40 Read completed custom cycle",
+          "name": "L840 41 Read completed custom cycle",
           "request": {
             "method": "GET",
             "auth": {
@@ -18354,7 +18399,7 @@
           }
         },
         {
-          "name": "L840 41 Exclude completed from custom due page",
+          "name": "L840 42 Exclude completed from custom due page",
           "request": {
             "method": "GET",
             "auth": {
@@ -18383,7 +18428,7 @@
           }
         },
         {
-          "name": "L840 42 Verify FSRS peer unchanged",
+          "name": "L840 43 Verify FSRS peer unchanged",
           "request": {
             "method": "GET",
             "auth": {

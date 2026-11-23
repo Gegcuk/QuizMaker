@@ -148,6 +148,9 @@ public class LearningStudyServiceImpl implements LearningStudyService {
     @Override public LearningFormService.View resume(UUID sessionId) {
         return execute("resume", () -> {
             var session = sessions.read(sessionId);
+            // All fresh mutations take this row exclusively before progress or cycle locks.
+            // Share it first so a multi-item read cannot invert completion/supersession locks.
+            budget.lockForInspection(session.learnerId());
             var start = repository.start(session.id()).orElseThrow(() -> new LearningSessionException(UNAVAILABLE));
             var saved = readForm(session.id(), start);
             var view = withProgress(saved, start.mode(), start.reviewedItems(), start.superseded());

@@ -91,6 +91,12 @@ class CustomSchedulingStrategyTest {
         var result=next(plan,state(2),Rating.AGAIN,Instant.parse("2026-11-23T22:00:00Z"));
         assertThat(result.dueAt()).isEqualTo(Instant.parse("2026-11-24T18:00:00Z"));
     }
+    @Test void calendarAndDurationDatesUseDatabasePrecisionWithoutRejectingNanosecondInput() {
+        assertThat(strategy.due(days(1),at,"Europe/London","09:00:00.123456789"))
+                .isEqualTo(Instant.parse("2026-11-24T09:00:00.123456Z"));
+        assertThat(strategy.due(new Interval(BigDecimal.ONE,Unit.MINUTES),at.plusNanos(123456789),null,null))
+                .isEqualTo(Instant.parse("2026-11-23T10:01:00.123456Z"));
+    }
     @Test void completedBackwardsTimeAndUnstorableDatesFailBeforeAResult() {
         var plan=plan(Mode.FINITE,"2",days(1));
         assertThatThrownBy(()->next(plan,new State(1,1,0,at,at,"Europe/London",true),Rating.GOOD,at)).isInstanceOf(LearningSessionException.class);

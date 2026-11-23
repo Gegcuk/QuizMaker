@@ -8,4 +8,7 @@ public interface LearningCommandBudget {
     /** Serialize a new debit before domain writes. The callback checks durable identity in
      * the caller's RC transaction. Any subsequent rejection or failed write rolls back the debit. */
     void chargeIfNew(UUID trustedLearnerId, BooleanSupplier recorded);
+
+    /** Share the mutation lock before inspecting progress/schedules, without debit or refill. */
+    void lockForInspection(UUID trustedLearnerId);
 }

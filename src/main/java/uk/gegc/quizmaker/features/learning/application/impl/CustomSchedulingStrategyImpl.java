@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.learning.application.impl;
 import org.springframework.stereotype.Component;
 import java.math.*;
 import java.time.*;
+import java.time.temporal.ChronoUnit;
 import java.util.function.IntFunction;
 import uk.gegc.quizmaker.features.learning.application.CustomSchedulingStrategy;
 import uk.gegc.quizmaker.features.learning.domain.model.CustomSchedule.*;
@@ -59,7 +60,8 @@ public class CustomSchedulingStrategyImpl implements CustomSchedulingStrategy {
             }
             require(!result.isBefore(Instant.parse("1000-01-01T00:00:00Z"))
                     && result.isBefore(Instant.parse("+10000-01-01T00:00:00Z")), INVALID_INPUT);
-            return result;
+            // State, immutable JSON evidence and DATETIME(6) receipts must share one precision.
+            return result.truncatedTo(ChronoUnit.MICROS);
         } catch (DateTimeException | ArithmeticException | NullPointerException failure) {
             throw new LearningSessionException(INVALID_INPUT);
         }

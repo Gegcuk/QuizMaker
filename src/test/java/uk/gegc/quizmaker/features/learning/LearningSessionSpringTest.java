@@ -77,7 +77,7 @@ class LearningSessionSpringTest {
         @Bean LearningSessionService sessions(LearningSessionRepository repository, AuthenticatedUserLookup users,
                 java.util.List<LearningSessionSourceVerifier> sources, SimpleMeterRegistry metrics,
                 PlatformTransactionManager manager) {
-            return new LearningSessionServiceImpl(repository, (learner, recorded) -> {}, users, sources, Clock.fixed(TIME, ZoneOffset.UTC), metrics, manager);
+            return new LearningSessionServiceImpl(repository, org.mockito.Mockito.mock(uk.gegc.quizmaker.features.learning.domain.repository.LearningCommandBudget.class), users, sources, Clock.fixed(TIME, ZoneOffset.UTC), metrics, manager);
         }
     }
 

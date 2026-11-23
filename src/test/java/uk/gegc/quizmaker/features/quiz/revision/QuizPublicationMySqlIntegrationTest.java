@@ -607,7 +607,8 @@ class QuizPublicationMySqlIntegrationTest {
         outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         var reached = new CountDownLatch(1);
         var release = new CountDownLatch(1);
-        var workers = Executors.newFixedThreadPool(3);
+        var workers = Executors.newFixedThreadPool(4);
+        assertThat(study.resume(overlapping.form().sessionId()).progress().status()).isEqualTo(LearningReview.Status.ACTIVE);
         try {
             var first = workers.submit(() -> {
                 loginLearner(username);
@@ -621,7 +622,6 @@ class QuizPublicationMySqlIntegrationTest {
             });
             assertThat(reached.await(10, TimeUnit.SECONDS)).isTrue();
             assertThat(count("learning_review_event")).isZero();
-            assertThat(study.resume(overlapping.form().sessionId()).progress().status()).isEqualTo(LearningReview.Status.ACTIVE);
             var second = workers.submit(() -> {
                 loginLearner(username);
                 deniedLearning(() -> study.respond(peer), LearningSessionException.Reason.REVIEW_SUPERSEDED);
@@ -630,15 +630,21 @@ class QuizPublicationMySqlIntegrationTest {
                 loginLearner(username);
                 return study.respond(winner);
             });
+            var reader = workers.submit(() -> {
+                loginLearner(username);
+                return study.resume(overlapping.form().sessionId());
+            });
             org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(10)).until(() -> admin.queryForObject("""
-                    SELECT EXISTS(SELECT 1 FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks l
-                    ON l.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID WHERE l.OBJECT_SCHEMA=?)
+                    SELECT COUNT(*)>=3 FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks l
+                    ON l.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID
+                    WHERE l.OBJECT_SCHEMA=? AND l.OBJECT_NAME='learning_command_budget'
                     """, Boolean.class, SCHEMA));
             release.countDown();
             var accepted = first.get(15, TimeUnit.SECONDS);
             second.get(15, TimeUnit.SECONDS);
             assertThat(accepted.progress().completed()).isTrue();
             assertThat(sameCommand.get(15, TimeUnit.SECONDS)).isEqualTo(accepted);
+            assertThat(reader.get(15, TimeUnit.SECONDS).progress().status()).isEqualTo(LearningReview.Status.SUPERSEDED);
             assertThat(study.start(fixture.start())).isEqualTo(overlapping);
             var restarted = beans.createBean(LearningStudyServiceImpl.class);
             var mvc = learningHttp(restarted);
@@ -684,22 +690,26 @@ class QuizPublicationMySqlIntegrationTest {
         var peer = study.start(new LearningStudyService.Start(UUID.randomUUID(), fixture.start().source(), 1));
         var winning = answer(own, 0);
         var mvc = learningHttp(study);
-        var repository = (org.springframework.aop.framework.Advised) beans.getBean(
-                uk.gegc.quizmaker.features.learning.domain.repository.LearningStudyRepository.class);
-        var progressRead = new CountDownLatch(2);
+        var outer = new TransactionTemplate(transactions);
+        outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        var responseWritten = new CountDownLatch(1);
         var release = new CountDownLatch(1);
-        // Each read pauses after its progress row, so the completing response commits before its next statements.
-        org.aopalliance.intercept.MethodInterceptor hold = invocation -> {
-            Object result = invocation.proceed();
-            if (invocation.getMethod().getName().equals("start") && Thread.currentThread().getName().startsWith("resume-race")) {
-                progressRead.countDown();
-                if (!release.await(30, TimeUnit.SECONDS)) throw new IllegalStateException("Resume race was not released");
-            }
-            return result;
-        };
-        repository.addAdvice(0, hold);
-        var pool = Executors.newFixedThreadPool(2, runnable -> new Thread(runnable, "resume-race-" + UUID.randomUUID()));
+        var pool = Executors.newFixedThreadPool(3);
         try {
+            // Keep the real completion/supersession transaction uncommitted while both GETs arrive.
+            var writer = pool.submit(() -> {
+                loginLearner(username);
+                try {
+                    return outer.execute(status -> {
+                        var result = study.respond(winning);
+                        responseWritten.countDown();
+                        await(release);
+                        return result;
+                    });
+                } finally { SecurityContextHolder.clearContext(); }
+            });
+            await(responseWritten);
+            assertThat(count("learning_review_event")).isZero();
             var reads = new ArrayList<Future<String>>();
             for (var session : List.of(own.form().sessionId(), peer.form().sessionId())) {
                 reads.add(pool.submit(() -> {
@@ -710,15 +720,17 @@ class QuizPublicationMySqlIntegrationTest {
                     } finally { SecurityContextHolder.clearContext(); }
                 }));
             }
-            await(progressRead);
-            loginLearner(username);
-            mvc.perform(learningAnswer(winning)).andExpect(status().isOk()).andExpect(jsonPath("$.completed").value(true));
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(10)).until(() -> admin.queryForObject("""
+                    SELECT COUNT(*)>=2 FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks l
+                    ON l.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID
+                    WHERE l.OBJECT_SCHEMA=? AND l.OBJECT_NAME='learning_command_budget'
+                    """, Boolean.class, SCHEMA));
             release.countDown();
+            assertThat(writer.get(30, TimeUnit.SECONDS).progress().completed()).isTrue();
             assertThat(reads.get(0).get(30, TimeUnit.SECONDS)).isEqualTo("200 COMPLETED");
             assertThat(reads.get(1).get(30, TimeUnit.SECONDS)).isEqualTo("200 SUPERSEDED");
         } finally {
             release.countDown();
-            repository.removeAdvice(hold);
             pool.shutdownNow();
             assertThat(pool.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
         }

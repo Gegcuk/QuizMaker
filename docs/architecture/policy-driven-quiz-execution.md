@@ -6067,6 +6067,17 @@ history. Unknown strategies/configurations fail closed. All mutations join writa
 rollback. The dedicated local profile is an explicit synthetic opt-in; remote activation and the
 separate #841 nested-review composition retain their own gates.
 
+Calculated custom due instants are normalized to microseconds before state/history/receipt
+construction, matching MySQL DATETIME(6). Accepted nanosecond local-time definitions remain
+valid and immutable. Custom rating and timezone events share the learner/command namespace;
+a fresh command colliding with another event returns 409, while the original receipt replays.
+
+Session inspection shares the existing learner admission row before progress or schedule locks;
+new mutations acquire it exclusively first. This prevents inverse lock order during final-item
+release and overlapping-session supersession without charging or refilling a read. Existing
+balances are untouched. If the idle-row recycler removed the balance, inspection seeds the same
+full metadata that the next mutation already initializes, without changing immutable evidence.
+
 ### User-defined repetition intervals — Q94–Q114 APPROVED
 
 **Approved on 22 October 2026:** a learner may use a personal interval sequence, review both questions and quizzes, and organize review through nested Learning sets. The [Q94–Q114 decisions](./decision-register.md#custom-interval-decisions) include unit-preserving duration/calendar scheduling and DST resolution, a two-interval rollback, coefficient-based indefinite continuation and nondecreasing entered sequences. All Q108–Q113 answers are A, including the explicitly accepted DST rules. [Q114 A](./decision-register.md#custom-interval-decisions) also approves nominal mixed-unit ordering with unchanged due calculation. No product question remains open within this selected scope; implementation evidence is still required.

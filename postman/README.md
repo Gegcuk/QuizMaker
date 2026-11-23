@@ -565,7 +565,7 @@ It requires `sessions-enabled`, `custom-plans-enabled` and the separate
 `custom-reviews-enabled` opt-in. The dedicated local configuration enables all
 three; enabling plan management alone preserves its earlier behavior.
 
-Run the complete **23 Custom Learning** folder with **49 requests**, **Local**,
+Run the complete **23 Custom Learning** folder with **50 requests**, **Local**,
 one iteration and no iteration data. Reuse the existing local, unshared
 `accessFixtureData` Value with `qmfx_author_a` and `qmfx_author_b`; the public
 export remains empty. Disable **Persist responses for a session**, **Keep
@@ -573,6 +573,10 @@ variable values**, **Save cookies after collection run** and **Stop run if an
 error occurs**. Enable **Turn off logs during run** and **Run collection without
 using stored cookies**. Respect `Retry-After` on a limited run; do not change
 shared budgets or retry state-changing commands with new IDs automatically.
+
+The plan uses the accepted local time `09:00:00.123456789`; the response, replay,
+cycle read and timezone confirmation must consistently retain microsecond due
+precision (`.123456Z`) while the plan definition keeps its original local time.
 
 The first five requests read live discovery and the Learning, quizzes, questions
 and auth specifications. Relevant Learning operations are `start`, `respond`,
@@ -587,8 +591,9 @@ run's specification, retaining references and null unions. The scenario checks:
   custom acknowledgement; changed input with the same command returns 409.
 - Another author cannot read the cycle (404). A timezone preview taken before
   the review conflicts after it (409), with the entire cycle unchanged.
-- Fresh explicit timezone confirmation and its exact replay preserve review
-  count and stage. Extra practice leaves the whole schedule unchanged.
+- A response UUID reused with a fresh timezone preview returns 409. A new UUID
+  confirms that same preview; exact confirmation replay preserves review count
+  and stage. Extra practice leaves the whole schedule unchanged.
 - An explicit early review completes the finite plan. Its acknowledgement has
   no pending due, the cycle reports completion, and custom due selection omits
   it. The FSRS peer's complete metadata remains unchanged.
@@ -649,3 +654,37 @@ Local evidence is retained in
 `/private/tmp/quizmaker-840-verify-final4-20261123/verify/` and
 `/private/tmp/quizmaker-840-evidence.json`; live contract snapshots are in
 `/private/tmp/quizmaker-840-openapi-final/`.
+
+
+### Review correction verification — 23 November 2026
+
+The review corrections preserve accepted nanosecond local-time definitions while
+normalizing due instants before state/history/receipt construction, coordinate
+session inspection with completion/supersession, and return 409 for response/timezone
+UUID collisions. The Q114 API trace now reaches its stage through real commands.
+All 103 focused tests and the final full four-worker gate passed: **10,816 tests,
+zero failures, errors or skips**. Existing FSRS interleaving tests now wait on real
+coordination locks and retain their terminal-state, one-event and replay assertions.
+
+The rebuilt local image is
+`sha256:2a7087b7b767ec24adbcfec51375264fcce12571afdcf1c81b02363f58e2126a`,
+label `88967d1fb42b96342f036e4e2dcbb69b764d08ac-dirty`, with source fingerprint
+`425a272931de48404c870b6d6c0574a043acff93f674345dde2128160ceeb474`.
+Host/container JAR SHA-256 matches
+`b338914f550487c294eb35af2f7923756aad4bb8e66405d62faeb9532d8c9fd6`;
+class fingerprints match the passing gate and the local configuration checksum
+remains the separately verified value above. Live discovery and all four relevant
+OpenAPI groups were read from this rebuilt application before the collection edit.
+
+The updated **50-request** scenario has passed JSON, JavaScript syntax, ordering,
+cleanup-transition, local-only and transient-variable checks. Its two desktop
+runs are **pending**: the Postman application is running, but window control
+repeatedly times out after 20–60 seconds, and no supported Postman/Newman CLI is
+installed. The earlier 49-request results describe the previous build and do not
+establish execution of this revision. D-001 has not been rechecked at runtime on
+this new image. No scenario requests or mutations were sent during this pending
+stage; the pre-run baseline has zero active fixture sessions/captures.
+
+Evidence: `/private/tmp/quizmaker-840-review-fixes-evidence.json`, backend reports
+in `/private/tmp/quizmaker-840-review-fixes-verify2-20261123/verify/`, and live
+contracts in `/private/tmp/quizmaker-840-review-fixes-openapi/`.

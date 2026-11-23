@@ -47,15 +47,39 @@ public class JdbcLearningCommandBudget implements LearningCommandBudget {
     @Override
     public void chargeIfNew(UUID trustedLearnerId, BooleanSupplier recorded) {
         require(trustedLearnerId != null && recorded != null, INVALID_INPUT);
-        require(TransactionSynchronizationManager.isActualTransactionActive()
-                && !TransactionSynchronizationManager.isCurrentTransactionReadOnly()
-                && Objects.equals(TransactionSynchronizationManager.getCurrentTransactionIsolationLevel(),
-                    TransactionDefinition.ISOLATION_READ_COMMITTED), UNSUPPORTED_TRANSACTION);
+        requireTransaction();
         try {
             if (!recorded.getAsBoolean()) chargeUnderLock(trustedLearnerId.toString(), recorded);
         } catch (DataAccessException failure) {
             throw SafeDataAccess.sanitize(failure);
         }
+    }
+
+    @Override public void lockForInspection(UUID trustedLearnerId) {
+        require(trustedLearnerId != null, INVALID_INPUT);
+        requireTransaction();
+        try {
+            var rows = jdbc.queryForList("""
+                    SELECT learner_id FROM learning_command_budget WHERE learner_id=UUID_TO_BIN(?) FOR SHARE
+                    """, byte[].class, trustedLearnerId.toString());
+            if (rows.isEmpty()) {
+                // Idle budget rows may have been recycled. A missing balance is already full on
+                // the next mutation; seed that same metadata without spending/refilling credit.
+                jdbc.update("""
+                        INSERT INTO learning_command_budget(learner_id,credit_units,accounted_us)
+                        VALUES(UUID_TO_BIN(?),?,?) ON DUPLICATE KEY UPDATE learner_id=learner_id
+                        """, trustedLearnerId.toString(), TOKEN * config.getBurst(), nowMicros());
+            }
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
+    }
+
+    private static void requireTransaction() {
+        require(TransactionSynchronizationManager.isActualTransactionActive()
+                && !TransactionSynchronizationManager.isCurrentTransactionReadOnly()
+                && Objects.equals(TransactionSynchronizationManager.getCurrentTransactionIsolationLevel(),
+                    TransactionDefinition.ISOLATION_READ_COMMITTED), UNSUPPORTED_TRANSACTION);
     }
 
     private void chargeUnderLock(String learner, BooleanSupplier recorded) {

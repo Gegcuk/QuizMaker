@@ -53,6 +53,19 @@ cycle and cursor fields using OpenAPI 3.1 unions. Its ProblemDetail URI fields
 accept URI references, including relative request paths. These contract checks
 were added after the initial local HTTP scenario exposed the generated-schema gap.
 
+The review regressions additionally exercise accepted nanosecond local times through one- and
+two-question HTTP sessions, exact response replay, resume, fresh cycle reads and timezone
+confirmation. All persisted due instants use microsecond precision. Q114 now reaches the
+calendar stage through real commands before verifying the API's next-day 18:00 acknowledgement,
+exact replay and persisted due.
+
+Barrier-controlled MySQL tests cover GET versus the final response in both arrival orders and
+an overlapping session's supersession. They wait for the real command-coordination row lock,
+assert both HTTP outcomes and exactly-once events, and verify that inspection never spends or
+refills command credit. A retained session also remains readable after idle admission metadata
+has been recycled. Response and timezone UUID collisions are tested in both directions: repeated
+409s preserve state/progress/credit while the original accepted command still replays.
+
 ## Private Learning plans and cycles (#839)
 
 Run `LearningPlanTest`, `LearningPlanOpenApiTest` and `LearningPlanMySqlIntegrationTest` with

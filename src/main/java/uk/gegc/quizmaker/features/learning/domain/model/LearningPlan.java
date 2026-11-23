@@ -38,7 +38,7 @@ public final class LearningPlan {
                              Mode mode,
                              @io.swagger.v3.oas.annotations.media.Schema(minimum="1",defaultValue="2") BigDecimal coefficient,
                              @io.swagger.v3.oas.annotations.media.Schema(nullable=true,description="Explicit IANA zone required for calendar days.") String timeZone,
-                             @io.swagger.v3.oas.annotations.media.Schema(nullable=true,description="Explicit ISO local time required for calendar days; no implicit 09:00 default.") String localTime) {
+                             @io.swagger.v3.oas.annotations.media.Schema(nullable=true,description="Explicit ISO local time required for calendar days; no implicit 09:00 default. Nanosecond input is accepted and retained; calculated UTC due instants are truncated to microseconds for durable state, history and replay.") String localTime) {
         public Definition {
             require(version == 1, UNSUPPORTED_VERSION);
             require(name != null && !name.isBlank() && name.length() <= 200
