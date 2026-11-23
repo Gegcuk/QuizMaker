@@ -86,7 +86,7 @@ public final class LearningSessionApi {
     public record Acknowledgement(UUID sessionId, UUID commandId, UUID sourceItemId, long sessionVersion,
                                   int reviewedItems, boolean completed,
                                   @Schema(nullable = true, description = "Next item in saved presentation order, or null at completion.") UUID nextItemId,
-                                  @Schema(nullable = true, description = "Next scheduled review of the answered question in UTC. Null for extra practice.") Instant nextDueAt) {
+                                  @Schema(nullable = true, description = "Next scheduled review of the answered question in UTC. Null for extra practice or completion of a finite custom plan; read the plan cycle for its explicit completed state.") Instant nextDueAt) {
         static Acknowledgement from(LearningReview.Acknowledgement ack) {
             var progress = ack.progress();
             return new Acknowledgement(ack.sessionId(), ack.commandId(), ack.sourceItemId(), progress.version(),

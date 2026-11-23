@@ -11,4 +11,5 @@ import uk.gegc.quizmaker.features.learning.domain.model.LearningSession.Source;
 public interface LearningDueSelectionRepository {
     boolean sourceExists(Source source);
     List<Item> find(UUID trustedLearner, Source source, Instant now, Cursor after, int take);
+    List<Item> findMixed(UUID learner, Source source, Instant now, int take);
 }

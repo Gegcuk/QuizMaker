@@ -156,6 +156,7 @@
     "uk.gegc.quizmaker.features.documentProcess.infra.repository.NormalizedDocumentRepositoryTest",
     "uk.gegc.quizmaker.features.learning.FsrsSpringCompatibilityTest",
     "uk.gegc.quizmaker.features.learning.LearningConformanceMySqlIntegrationTest",
+    "uk.gegc.quizmaker.features.learning.LearningCustomMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.learning.LearningDueSelectionSpringTest",
     "uk.gegc.quizmaker.features.learning.LearningFormSpringTest",
     "uk.gegc.quizmaker.features.learning.LearningScheduleSpringTest",

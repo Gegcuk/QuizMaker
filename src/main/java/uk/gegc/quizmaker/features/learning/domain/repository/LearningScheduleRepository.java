@@ -37,4 +37,6 @@ public interface LearningScheduleRepository {
     boolean sessionContains(Key key, UUID sessionId);
     void capture(Key key, Snapshot current, UUID sessionId);
     void release(Key key, Snapshot current, UUID sessionId);
+    void captureCycle(Key key, uk.gegc.quizmaker.features.learning.domain.model.LearningSchedule.Expected expected, UUID sessionId);
+    void releaseCycle(Key key, uk.gegc.quizmaker.features.learning.domain.model.LearningSchedule.Expected expected, UUID sessionId);
 }

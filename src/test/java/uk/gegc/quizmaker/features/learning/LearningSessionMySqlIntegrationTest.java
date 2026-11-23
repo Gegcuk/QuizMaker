@@ -427,7 +427,7 @@ class LearningSessionMySqlIntegrationTest {
                         """, (row, index) -> UUID.fromString(row.getString(1)), username).stream().findFirst();
             }
         };
-        return new LearningSessionServiceImpl(store, (learner, recorded) -> {}, identity,
+        return new LearningSessionServiceImpl(store, org.mockito.Mockito.mock(uk.gegc.quizmaker.features.learning.domain.repository.LearningCommandBudget.class), identity,
                 List.of((learner, ref) -> access.get() && permitted.contains(ref)), clock, metrics, transactions);
     }
 

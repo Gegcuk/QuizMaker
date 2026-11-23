@@ -17,6 +17,7 @@ public final class LearningSchedule {
     public enum Rating { AGAIN, HARD, GOOD, EASY }
     public enum Phase { LEARNING, REVIEW, RELEARNING }
 
+    @io.swagger.v3.oas.annotations.media.Schema(name="LearningScheduleExpectedCycle")
     public record Expected(UUID cycleId, long cycleVersion, long sequence) {
         @Override public String toString() { return "ExpectedLearningCycle[redacted]"; }
     }

@@ -2,6 +2,80 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Custom and mixed Learning reviews (#840)
+
+Start with `CustomSchedulingStrategyTest`, then run `LearningCustomMySqlIntegrationTest`,
+`LearningPlanMySqlIntegrationTest`, `LearningSessionOpenApiTest` and
+`LearningConformanceMySqlIntegrationTest` on JDK 17 using the existing disposable MySQL/offline
+environment. The full four-worker `context_benchmark.py verify` remains the final backend gate.
+
+The calculation suite covers all ratings, finite completion, initial/overdue anchoring, two-stage
+Again, explicit duplicate stages, recursive 14/28/56/112 and 7/9/11 generation, minute rounding,
+the 3650-day ceiling, constant/capped plateaus, DST gap/overlap, and Q114's next-day 18:00 result.
+Generated stages are retained only when reached. No review reads or rebuilds the whole lineage.
+
+The HTTP suite runs the real application, JWT security, publication writer, plan/cycle commands,
+mixed selector and response transaction on its own Flyway catalog. It verifies:
+
+- One fixed session advances custom and FSRS independently; exact responses survive service
+  reconstruction and a later strategy switch without advancing the replacement.
+- Ordinary practice preserves active/completed schedules; finite success completes, and real
+  restart, pause/resume and generated history retain their respective meanings.
+- A barrier in MySQL's lock-wait table admits two competing requests. One scheduled response
+  wins and supersedes its peer; identical concurrent retries return the same acknowledgement.
+- A fault after real custom, progress and response writes rolls back schedule, event, receipt,
+  progress and command credit; fresh reads and the original command prove successful recovery.
+- A reached first custom-cycle fault rolls back the real whole-publication contract preparation.
+  An identical enrollment retry prepares the entire publication and creates one cycle.
+- A classified V125 cycle without preparation remains readable without repair. A new explicit
+  enrollment prepares its source without replacing the cycle; the first actual response succeeds.
+  Constant and 1.2 tails also prove durable repeated events, rounded predecessor dates, reconstruction
+  and exact replay, with zero generated stages for the constant plateau.
+- Timezone preview spends no credit or writes. A later review invalidates it; fresh confirmation
+  preserves review count/stage, records one rescheduling change and replays exactly. Outer RC
+  rollback restores due/history/credit; RR, RU and read-only composition are refused.
+- Foreign ownership and current permission loss deny the new routes, including an old replay.
+  Named OpenAPI requests, examples, errors, discovery and strict body parsing are checked.
+- A measured due query returns one/four rows using one statement across four different private
+  plan parents. It selects bounded schedule/configuration metadata, never source bodies. Sorting
+  still examines this learner/publication's slots; LIMIT is not a constant-work claim. No JPA
+  relationship read is introduced; existing content/publication conformance remains applicable.
+
+Legacy repetition and assessment stores remain empty in the custom fixture. Existing FSRS-only
+conformance separately proves unchanged ordinary training/results/allowances and the original
+FSRS configuration. The local Docker profile explicitly enables synthetic mixed HTTP checks with the separate
+`quizmaker.learning.custom-reviews-enabled=true` opt-in; existing plan-management settings alone
+do not activate progression.
+These settings do not enable a deployment or claim nested-review/production readiness.
+
+The #840 Learning OpenAPI contract explicitly represents nullable acknowledgement,
+cycle and cursor fields using OpenAPI 3.1 unions. Its ProblemDetail URI fields
+accept URI references, including relative request paths. These contract checks
+were added after the initial local HTTP scenario exposed the generated-schema gap.
+
+The review regressions additionally exercise accepted nanosecond local times through one- and
+two-question HTTP sessions, exact response replay, resume, fresh cycle reads and timezone
+confirmation. All persisted due instants use microsecond precision. Q114 now reaches the
+calendar stage through real commands before verifying the API's next-day 18:00 acknowledgement,
+exact replay and persisted due.
+
+Barrier-controlled MySQL tests cover GET versus the final response in both arrival orders and
+an overlapping session's supersession. They wait for the real command-coordination row lock,
+assert both HTTP outcomes and exactly-once events, and verify that inspection never spends or
+refills command credit. A retained session also remains readable after idle admission metadata
+has been recycled. Response and timezone UUID collisions are tested in both directions: repeated
+409s preserve state/progress/credit while the original accepted command still replays.
+The exhausted-quota regressions spend credit through real plan commands with a fixed admission
+clock, then verify repeated cross-operation 409s, ordinary fresh-command 429/Retry-After,
+unchanged state/history/credit and original replay. Both arrival orders also race a response and
+a timezone confirmation on different cycles for the last credit using a common UUID. The loser
+waits on the real admission lock and must observe the winner's key before any quota refusal.
+A separate barrier pauses the first real receipt read, commits an identical peer command, and
+then releases the retry. Both response and timezone retries must return the original 200 at zero
+credit. The conflict probes exclude their own receipt within one statement snapshot, preventing
+a false conflict between the initial receipt lookup and shared-key lookup. FSRS/practice keep
+their existing namespaces and still debit a fresh response rather than bypassing throttling.
+
 ## Private Learning plans and cycles (#839)
 
 Run `LearningPlanTest`, `LearningPlanOpenApiTest` and `LearningPlanMySqlIntegrationTest` with
@@ -112,7 +186,7 @@ Use JDK 17, the offline fake environment and a disposable MySQL server:
 
 `quizmaker.learning.study` must keep only its four bounded tags, and the HTTP metric must record route
 templates. Service reconstruction after restart remains covered by the #578/#650 publication suite.
-NESTED-REVIEW-INTEGRATION, custom plans and mistake/unseen selection have no implementation yet. Their
+NESTED-REVIEW-INTEGRATION and mistake/unseen selection have no implementation yet. Their
 scenarios must be added here before those capabilities activate.
 
 Three harness rules matter. MockMvc's security support keeps one context object per test thread, and the

@@ -72,6 +72,7 @@ computer's localhost.
 | `20 Quizzes and attempts` | Repeatable private quiz CRUD with five prepared questions |
 | `21 Quiz revision publication` | OpenAPI coverage for completed feature #935: publication, exact replay and conflicts |
 | `22 Publication ownership` | Independent child scenarios for quiz ownership and question-source authority during publication |
+| `23 Custom Learning` | Issue #840: custom progression, mixed FSRS sessions, replay, timezone confirmation and practice |
 
 Smoke checks `GET /api/v1/health`, `GET /api/v1/api-summary`,
 `GET /v3/api-docs/auth` and unauthenticated `GET /api/v1/auth/me`.
@@ -553,3 +554,185 @@ Check local seeding safeguards without changing the database:
 ```bash
 PYTHONPATH=tools python3 -B -m unittest tools/test_local_api_fixtures.py -v
 ```
+
+
+## Custom review progression: 23 Custom Learning
+
+The issue-branch implementation of [#840](https://github.com/Gegcuk/QuizMaker/issues/840)
+adds custom review progression through the canonical Learning session commands.
+This scenario deliberately targets that approved implementation before merge.
+It requires `sessions-enabled`, `custom-plans-enabled` and the separate
+`custom-reviews-enabled` opt-in. The dedicated local configuration enables all
+three; enabling plan management alone preserves its earlier behavior.
+
+Run the complete **23 Custom Learning** folder with **50 requests**, **Local**,
+one iteration and no iteration data. Reuse the existing local, unshared
+`accessFixtureData` Value with `qmfx_author_a` and `qmfx_author_b`; the public
+export remains empty. Disable **Persist responses for a session**, **Keep
+variable values**, **Save cookies after collection run** and **Stop run if an
+error occurs**. Enable **Turn off logs during run** and **Run collection without
+using stored cookies**. Respect `Retry-After` on a limited run; do not change
+shared budgets or retry state-changing commands with new IDs automatically.
+
+The plan uses the accepted local time `09:00:00.123456789`; the response, replay,
+cycle read and timezone confirmation must consistently retain microsecond due
+precision (`.123456Z`) while the plan definition keeps its original local time.
+
+The first five requests read live discovery and the Learning, quizzes, questions
+and auth specifications. Relevant Learning operations are `start`, `respond`,
+`change`, `preview`, `confirm` and `cycle`. Named schemas are loaded from that
+run's specification, retaining references and null unions. The scenario checks:
+
+- Both active prepared author identities and their exact roles before writes.
+- A unique private quiz reusing the original TRUE_FALSE and MCQ_SINGLE questions,
+  followed by one immutable publication and a private finite calendar plan.
+- One custom question and one FSRS peer in a saved due session; both responses
+  advance once in saved order. Full-body exact replay returns the original
+  custom acknowledgement; changed input with the same command returns 409.
+- Another author cannot read the cycle (404). A timezone preview taken before
+  the review conflicts after it (409), with the entire cycle unchanged.
+- A response UUID reused with a fresh timezone preview returns 409. A new UUID
+  confirms that same preview; exact confirmation replay preserves review count
+  and stage. Extra practice leaves the whole schedule unchanged.
+- An explicit early review completes the finite plan. Its acknowledgement has
+  no pending due, the cycle reports completion, and custom due selection omits
+  it. The FSRS peer's complete metadata remains unchanged.
+
+Cleanup pauses only the newly created private plan, verifies the new quiz's UUID,
+owner and exact unique title before deleting it, rechecks the original question
+content/associations, and logs out both sessions independently. `l840Run*` state
+is cleared at the end. Original fixtures are never edited or deleted. Existing
+immutable publication, review and plan history remains under normal retention;
+this is not a purge. A stopped/interrupted run can leave incomplete cleanup or
+captured sessions and must be reported rather than silently erased.
+
+The existing D-001 quiz creation assertion stays failed while OpenAPI declares
+200 and runtime returns 201. A valid creation acknowledgement still permits
+Learning checks and cleanup. Other top-level scenarios and their transitions are
+unchanged. Quiz deletion's 404 is checked against the `getQuiz` description;
+that operation does not publish a 404 response schema, so the separate Learning
+group's schema is not applied to it. Learning errors validate their own live
+ProblemDetail contract.
+
+The initial exploratory run exposed missing OpenAPI 3.1 null alternatives in
+Learning acknowledgements despite existing `nullable` annotations. The Learning
+contract now expresses explicit null unions and RFC 7807 URI references. The
+backend verification and local build are repeated after that correction; the
+scenario's schema checks remain strict.
+
+
+Verified on **23 November 2026** against the final local image
+`sha256:4062e0ca9db0e63573406966baeacfa7afc3ed2342dfbd4415a733a9bde0ed1e`,
+label `b7f39c91f7fd578fa9093a1b3ffa669eaac7f09a-dirty`.
+The label alone is insufficient: the verification source fingerprint is
+`01788b84557b30cc8816a7154879cc83827ea6e433f02db21216168867d6aa69`,
+the rebuilt class fingerprint matches the full backend gate, and the host and
+container JAR SHA-256 both equal
+`25555cd98fc0351cd6c91d2b86f8433764d62158d772e516aac9b347eb8b0ed2`.
+The separately checked local configuration SHA-256 is
+`c5aafa0a9014389d6c13ead199b89f7183b1e2b3574f87de0ed7503777e233fe`;
+`server/local` is outside the backend helper's source fingerprint.
+
+Two complete desktop runs at **01:53:50** and **01:54:29 UTC** each executed
+**49 requests** and **129 assertions: 128 passed, one failed, zero skipped, zero
+script errors**. The sole failure was D-001. Every #840 behavior and strict
+Learning schema check passed. The runs used fresh quiz/command/session IDs,
+retained whole-body exact replays within each run, and completed guarded deletion,
+original-question comparison, plan pause and both 204 logout requests. Local
+read-only counts afterwards confirmed zero active fixture sessions/captures and
+zero unpaused run-created plans, with four custom review events and two timezone
+changes across the two runs. Both legacy repetition tables remained empty.
+The exploratory run's separate plan was also paused through the public API after
+identifying its unique marker and creation time. No immutable history was purged.
+
+D-002 in [the discrepancy register](https://github.com/Gegcuk/QuizMaker/issues/938)
+records the initial Learning nullability gap and its verified correction in
+#840. D-001 remains unresolved with its original failed assertion. The final
+backend gate executed 10,807 tests with no failures, errors or skips, including
+four-worker context execution, exclusive suites and merged coverage thresholds.
+Local evidence is retained in
+`/private/tmp/quizmaker-840-verify-final4-20261123/verify/` and
+`/private/tmp/quizmaker-840-evidence.json`; live contract snapshots are in
+`/private/tmp/quizmaker-840-openapi-final/`.
+
+
+### Review correction verification — 23 November 2026
+
+The review corrections preserve accepted nanosecond local-time definitions while
+normalizing due instants before state/history/receipt construction, coordinate
+session inspection with completion/supersession, and return 409 for response/timezone
+UUID collisions. The Q114 API trace now reaches its stage through real commands.
+All 103 focused tests and the final full four-worker gate passed: **10,816 tests,
+zero failures, errors or skips**. Existing FSRS interleaving tests now wait on real
+coordination locks and retain their terminal-state, one-event and replay assertions.
+
+The rebuilt local image is
+`sha256:2a7087b7b767ec24adbcfec51375264fcce12571afdcf1c81b02363f58e2126a`,
+label `88967d1fb42b96342f036e4e2dcbb69b764d08ac-dirty`, with source fingerprint
+`425a272931de48404c870b6d6c0574a043acff93f674345dde2128160ceeb474`.
+Host/container JAR SHA-256 matches
+`b338914f550487c294eb35af2f7923756aad4bb8e66405d62faeb9532d8c9fd6`;
+class fingerprints match the passing gate and the local configuration checksum
+remains the separately verified value above. Live discovery and all four relevant
+OpenAPI groups were read from this rebuilt application before the collection edit.
+
+The updated **50-request** scenario passed JSON, JavaScript syntax, ordering,
+cleanup-transition, local-only and transient-variable checks. At this revision,
+its two desktop runs were **not performed**: Postman was running, but window control
+repeatedly timed out after 20–60 seconds, and no supported Postman/Newman CLI was
+installed. The earlier 49-request results describe the previous build and do not
+establish execution of this revision. D-001 was not rechecked at runtime on
+that image. No scenario requests or mutations were sent during that pending
+stage; the pre-run baseline had zero active fixture sessions/captures.
+The later recheck below resolves this execution gap against its named build.
+
+Evidence: `/private/tmp/quizmaker-840-review-fixes-evidence.json`, backend reports
+in `/private/tmp/quizmaker-840-review-fixes-verify2-20261123/verify/`, and live
+contracts in `/private/tmp/quizmaker-840-review-fixes-openapi/`.
+
+### Exhausted-quota conflict correction — 23 November 2026
+
+An accepted response UUID reused for timezone confirmation, or vice versa, now
+returns **409 even with zero command credit**. Admission checks the shared custom
+key before quota refusal and again under the learner lock. Unused keys still
+receive 429/Retry-After; exact original commands replay their entire acknowledgement.
+FSRS and practice retain their existing namespaces and admission behavior.
+
+The latest focused run passed **46 tests**, including 31 custom MySQL scenarios.
+The full clean four-worker gate passed **10,824 tests**, with zero failures,
+errors or skips, exclusive suites, merged coverage thresholds and completed
+database cleanup. Real HTTP/MySQL tests spend credit through ordinary commands
+using a controlled clock, race both writers for the last credit and commit an
+identical peer between receipt/namespace reads. These timing conditions belong
+to that deterministic layer; no new live budget endpoint or timing-dependent
+Postman exhaustion loop is introduced. The existing 50-request scenario already
+checks the unchanged public conflict contract.
+
+The final local image is
+`sha256:f47b1fbba829a24c6ff6f12c38e330d55f95070a9df32d97b252e4167c214fe3`,
+label `14214754eca58651cf1ef43626d45c015bcf984f-dirty`, source fingerprint
+`c75a0ea000725399970e705411c445dc7c425bf6a90eb071714ae4e1f66410d3`.
+Rebuilt classes match the passing gate; host/container JAR SHA-256 is
+`5e0e9dd8cf1d8d55dc48f9c14726747d28943a314a696925b0883de7fdce6be8`.
+The separately checked host/container local configuration checksum remains
+`c5aafa0a9014389d6c13ead199b89f7183b1e2b3574f87de0ed7503777e233fe`.
+Live discovery and all four relevant OpenAPI groups were read from this build.
+
+The matching collection was replaced in desktop Postman without importing an
+environment. Two complete local runs at **18:51:37** and **18:52:24 UTC** each
+executed **50 requests, 132 assertions: 131 passed, one D-001 failure, zero
+skipped and zero script errors**. All Learning/schema/precision/replay checks
+passed. The original D-001 assertion remains failed: quiz creation declares
+200 but returns 201. No new discrepancy was found; D-002 nullability checks pass.
+Responses, logs, cookies and variable persistence were disabled for both runs.
+
+Both runs used fresh setup and completed guarded deletion, original-question and
+association comparison, private-plan pause and both 204 logouts. Read-only counts
+confirmed zero active fixture sessions/captures and zero unpaused run-created
+plans. History grew by four GOOD events and two TIMEZONE events across the two
+runs; both legacy repetition tables remain empty. Prepared fixtures and local
+unshared environment values were preserved.
+
+Evidence: `/private/tmp/quizmaker-840-quota-conflict-evidence.json`, backend reports
+in `/private/tmp/quizmaker-840-quota-conflict-verify-20261123/verify/`, and live
+contracts in `/private/tmp/quizmaker-840-quota-conflict-openapi/`.

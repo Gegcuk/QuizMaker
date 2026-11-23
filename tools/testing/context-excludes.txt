@@ -333,6 +333,8 @@ uk/gegc/quizmaker/features/learning/FsrsSpringCompatibilityTest.java
 uk/gegc/quizmaker/features/learning/FsrsSpringCompatibilityTest$*.java
 uk/gegc/quizmaker/features/learning/LearningConformanceMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/learning/LearningConformanceMySqlIntegrationTest$*.java
+uk/gegc/quizmaker/features/learning/LearningCustomMySqlIntegrationTest.java
+uk/gegc/quizmaker/features/learning/LearningCustomMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/learning/LearningDueSelectionSpringTest.java
 uk/gegc/quizmaker/features/learning/LearningDueSelectionSpringTest$*.java
 uk/gegc/quizmaker/features/learning/LearningFormMySqlIntegrationTest.java

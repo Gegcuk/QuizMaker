@@ -29,6 +29,8 @@ public interface LearningStudyRepository {
     void recordEnrollment(UUID learner, UUID command, UUID revision, List<EnrolledItem> items);
 
     Optional<ResponseReceipt> response(UUID learner, UUID command);
+    /** A saved scheduled custom capture writes the shared custom history; FSRS/practice do not. */
+    boolean responseCommandConflicts(UUID learner, UUID session, UUID sourceItem, UUID command);
     Optional<Capture> capture(UUID session, UUID form, int position);
     List<Capture> captures(UUID session, UUID form);
     /** Close other sessions with an unanswered capture of the step just advanced by the winning session. */

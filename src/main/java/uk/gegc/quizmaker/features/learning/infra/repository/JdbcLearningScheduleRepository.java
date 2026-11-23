@@ -205,9 +205,12 @@ public class JdbcLearningScheduleRepository implements LearningScheduleRepositor
     }
 
     @Override public void capture(Key key, Snapshot current, UUID sessionId) {
+        captureCycle(key,current.expected(),sessionId);
+    }
+    @Override public void captureCycle(Key key, Expected expected, UUID sessionId) {
         safe(() -> {
-            var p = parameters(key).addValue("cycle", bytes(current.state().identity().cycleId()))
-                    .addValue("session", bytes(sessionId)).addValue("sequence", current.state().sequence());
+            var p = parameters(key).addValue("cycle", bytes(expected.cycleId()))
+                    .addValue("session", bytes(sessionId)).addValue("sequence", expected.sequence());
             // The caller holds this question's slot lock. Release does not erase the session's
             // captured cycle: a new command must not move that binding after a restart.
             require(Boolean.FALSE.equals(jdbc.queryForObject("""
@@ -225,9 +228,12 @@ public class JdbcLearningScheduleRepository implements LearningScheduleRepositor
     }
 
     @Override public void release(Key key, Snapshot current, UUID sessionId) {
+        releaseCycle(key,current.expected(),sessionId);
+    }
+    @Override public void releaseCycle(Key key, Expected expected, UUID sessionId) {
         safe(() -> {
             require(jdbc.update("UPDATE learning_cycle_session SET released=1 WHERE cycle_id=:cycle AND session_id=:session AND released=0",
-                    parameters(key).addValue("cycle", bytes(current.state().identity().cycleId())).addValue("session", bytes(sessionId))) == 1, SESSION_CLOSED);
+                    parameters(key).addValue("cycle", bytes(expected.cycleId())).addValue("session", bytes(sessionId))) == 1, SESSION_CLOSED);
             return null;
         });
     }
