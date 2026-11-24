@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.*;
 import jakarta.validation.Validator;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.http.*;
 import org.springframework.http.converter.*;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
@@ -22,6 +23,7 @@ import static uk.gegc.quizmaker.features.learning.domain.model.LearningSessionEx
 public class LearningSetJsonConfig implements WebMvcConfigurer {
     private final Validator validator;
     public LearningSetJsonConfig(Validator validator) { this.validator=validator; }
+    @Bean LearningSetQueryPrivacyFilter learningSetQueryPrivacyFilter() { return new LearningSetQueryPrivacyFilter(); }
     @Override public void extendMessageConverters(List<HttpMessageConverter<?>> converters) {
         var original=converters.stream().filter(MappingJackson2HttpMessageConverter.class::isInstance)
                 .map(MappingJackson2HttpMessageConverter.class::cast).findFirst().orElseThrow();

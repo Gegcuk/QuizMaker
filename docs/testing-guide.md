@@ -67,11 +67,19 @@ observes the revoker's specific connection in `performance_schema.data_lock_wait
 and after selection, proving returned publications retain their grants until the enclosing
 read-only READ_COMMITTED transaction completes. Revocation then commits and a fresh read denies.
 
-The DEBUG/TRACE MVC regression captures the real body processors, requires three request-read
-and eight response-write diagnostics, and compares the JSON responses with the complete expected
-wire objects. Command IDs, question/source/cycle IDs, private names and cursors extracted from
-those actual responses must be absent from body diagnostics. A separate unit check covers every
-set command, response, retained receipt and cursor's diagnostic representation.
+The DEBUG/TRACE MVC regression captures the real body processors, DispatcherServlet and handler
+argument diagnostics. It follows `next` from actual JSON on all four paged routes, including
+quiz-source query parameters, and verifies that the service receives each unchanged `after`.
+It requires three request-read, twelve response-write and nine GET diagnostics; TRACE must also
+record twelve resolved argument lists. All eight query-bearing GET diagnostics must retain a
+redaction marker. Complete expected wire objects are compared on both pages. Command IDs,
+question/source/cycle IDs, private names and cursors extracted from those actual responses must
+be absent from the captured diagnostics (set IDs remain legitimate path arguments).
+Spring's explicit request-detail logging remains disabled, as in the application defaults;
+turning it on deliberately logs raw parameter maps and headers and is outside this guarantee.
+The route-scoped filter changes only raw query-string presentation, preserving parsed parameter
+values, repeated parameters and unrelated routes. Separate unit checks cover that boundary and
+every set command, response, retained receipt and cursor's diagnostic representation.
 
 Publication rows are committed immutable source fixtures, not proof of the #700 publication
 command. Initial empty legacy repetition tables, ordinary training, assessment results and

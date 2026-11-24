@@ -6150,6 +6150,10 @@ from metric labels and operation diagnostics.
 Set commands, acknowledgements, selection items/pages and cursors have closed diagnostic
 representations; MVC DEBUG/TRACE body diagnostics do not render their private values. Their
 JSON fields and opaque continuation tokens remain available to authorized clients.
+Paged set/selection routes also bind incoming `after` through closed diagnostic query objects
+and mask raw query strings before MVC request logging. Parsed query parameters and pagination
+contracts remain unchanged. This applies with Spring request-detail logging disabled (the
+application default); explicitly enabling raw parameter/header logging is outside this boundary.
 
 ### User-defined repetition intervals — Q94–Q114 APPROVED
 

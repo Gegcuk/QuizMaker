@@ -118,6 +118,15 @@ class LearningSetOpenApiTest {
         for(String name:List.of("LearningSetPage","LearningSetMemberPage","LearningSelectionPage"))
             assertThat(schemas.at("/"+name+"/properties/next/anyOf").toString()).contains("null");
         assertThat(paths.get(ROOT+"/sets/{setId}/items").get("get").path("description").asText()).contains("#667");
+        for(String path:List.of("/sets","/sets/{setId}/members","/sets/{setId}/items","/quiz-items")) {
+            var parameters=paths.get(ROOT+path).get("get").path("parameters");
+            var after=new ArrayList<JsonNode>(); parameters.forEach(p->{if(p.path("name").asText().equals("after")) after.add(p);});
+            assertThat(after).as("One optional scalar after query parameter on %s",path).hasSize(1);
+            assertThat(after.get(0).path("in").asText()).isEqualTo("query");
+            assertThat(after.get(0).path("required").asBoolean()).isFalse();
+            assertThat(after.get(0).at("/schema/type").asText()).isEqualTo("string");
+            if(path.equals("/sets")) assertThat(after.get(0).at("/schema/format").asText()).isEqualTo("uuid");
+        }
         String example=operation.at("/requestBody/content/application~1json/examples").elements().next().get("value").toString();
         if(json.readTree(example).isTextual()) example=json.readTree(example).asText();
         var request=json.readValue(example,LearningSetController.CreateRequest.class);
@@ -128,7 +137,7 @@ class LearningSetOpenApiTest {
         mvc.perform(get("/api/v1/api-summary")).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString("learning")));
     }
     @ParameterizedTest @ValueSource(strings={"DEBUG","TRACE"}) @WithMockUser
-    void mvcBodyDiagnosticsHideCommandsQuestionsAndCursorsWithoutChangingJson(String level) throws Exception {
+    void mvcDiagnosticsHideCommandsQuestionsAndReturnedCursorsOnNextPage(String level) throws Exception {
         var name="PRIVATE_SET_"+UUID.randomUUID();
         // An existing version-five set can already contain both a quiz and an overlapping question.
         // Read it first; the later create command targets a distinct set, then mutate/delete this one.
@@ -162,9 +171,21 @@ class LearningSetOpenApiTest {
         var quizPage=new LearningSet.ItemPage(LearningSet.Window.DUE,Instant.EPOCH,List.of(item),quizCursor);
         when(sets.items(eq(scope),eq(LearningSet.Window.DUE),eq(1),isNull())).thenReturn(page);
         when(sets.items(eq(quizScope),eq(LearningSet.Window.DUE),eq(1),isNull())).thenReturn(quizPage);
+        var lastQuestion=new UUID(-1L,-1L);
+        var lastMember=new LearningSet.Member(LearningSet.Kind.QUESTION,null,source,lastQuestion);
+        var lastItem=new LearningSet.Item(source,lastQuestion,new LearningSchedule.Expected(UUID.randomUUID(),1,0),Strategy.FSRS,Instant.EPOCH);
+        var lastView=new LearningSet.View(new UUID(-1L,-1L),"PRIVATE_SECOND_SET",1,false,Instant.EPOCH,Instant.EPOCH);
+        var lastSets=new LearningSet.SetPage(List.of(lastView),null);
+        var lastMembers=new LearningSet.MemberPage(List.of(lastMember),null);
+        var lastItems=new LearningSet.ItemPage(LearningSet.Window.DUE,Instant.EPOCH,List.of(lastItem),null);
+        when(sets.list(1,ID)).thenReturn(lastSets);
+        when(sets.members(ID,1,memberCursor)).thenReturn(lastMembers);
+        when(sets.items(scope,LearningSet.Window.DUE,1,itemCursor)).thenReturn(lastItems);
+        when(sets.items(quizScope,LearningSet.Window.DUE,1,quizCursor)).thenReturn(lastItems);
 
         var loggers=List.of((Logger)LoggerFactory.getLogger("org.springframework.web.servlet.mvc.method.annotation"),
-                (Logger)LoggerFactory.getLogger("org.springframework.web.method"));
+                (Logger)LoggerFactory.getLogger("org.springframework.web.method"),
+                (Logger)LoggerFactory.getLogger(mvc.getDispatcherServlet().getClass()));
         var levels=loggers.stream().map(Logger::getLevel).toList();
         var additivity=loggers.stream().map(Logger::isAdditive).toList();
         var thread=Thread.currentThread();
@@ -181,18 +202,36 @@ class LearningSetOpenApiTest {
             var paths=List.of(ROOT+"/sets",ROOT+"/sets/"+ID+"/members",ROOT+"/sets/"+ID+"/deletion");
             var actualView=json.readTree(mvc.perform(get(ROOT+"/sets/"+ID)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
             assertThat(actualView).isEqualTo(wire(view));
-            var actualSets=json.readTree(mvc.perform(get(ROOT+"/sets").param("limit","1")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            var actualSets=json.readTree(mvc.perform(get(ROOT+"/sets").queryParam("limit","1")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
             assertThat(actualSets.path("next").asText()).isEqualTo(ID.toString());
-            var actualMembers=json.readTree(mvc.perform(get(ROOT+"/sets/"+ID+"/members").param("limit","1"))
+            var actualMembers=json.readTree(mvc.perform(get(ROOT+"/sets/"+ID+"/members").queryParam("limit","1"))
                     .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
             assertThat(actualMembers).isEqualTo(wire(new LearningSet.MemberPage(List.of(member),memberCursor)));
-            var actualItems=json.readTree(mvc.perform(get(ROOT+"/sets/"+ID+"/items").param("window","DUE").param("limit","1"))
+            var actualItems=json.readTree(mvc.perform(get(ROOT+"/sets/"+ID+"/items").queryParam("window","DUE").queryParam("limit","1"))
                     .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-            var actualQuizItems=json.readTree(mvc.perform(get(ROOT+"/quiz-items").param("quizId",source.quizId().toString())
-                    .param("quizRevisionId",source.quizRevisionId().toString()).param("revisionSchemaVersion","1").param("window","DUE").param("limit","1"))
+            var actualQuizItems=json.readTree(mvc.perform(get(ROOT+"/quiz-items").queryParam("quizId",source.quizId().toString())
+                    .queryParam("quizRevisionId",source.quizRevisionId().toString()).queryParam("revisionSchemaVersion","1").queryParam("window","DUE").queryParam("limit","1"))
                     .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
             assertThat(actualItems).isEqualTo(wire(page)); assertThat(actualQuizItems).isEqualTo(wire(quizPage));
             assertThat(actualQuizItems.path("items")).isEqualTo(actualItems.path("items"));
+
+            var nextSets=json.readTree(mvc.perform(get(ROOT+"/sets").queryParam("limit","1").queryParam("after",actualSets.path("next").asText()))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            var nextMembers=json.readTree(mvc.perform(get(ROOT+"/sets/"+ID+"/members").queryParam("limit","1").queryParam("after",actualMembers.path("next").asText()))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            var nextItems=json.readTree(mvc.perform(get(ROOT+"/sets/"+ID+"/items").queryParam("window","DUE").queryParam("limit","1")
+                    .queryParam("after",actualItems.path("next").asText()))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            var nextQuizItems=json.readTree(mvc.perform(get(ROOT+"/quiz-items").queryParam("quizId",source.quizId().toString())
+                    .queryParam("quizRevisionId",source.quizRevisionId().toString()).queryParam("revisionSchemaVersion","1")
+                    .queryParam("window","DUE").queryParam("limit","1").queryParam("after",actualQuizItems.path("next").asText()))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            assertThat(nextSets).isEqualTo(wire(lastSets)); assertThat(nextMembers).isEqualTo(wire(lastMembers));
+            assertThat(nextItems).isEqualTo(wire(lastItems)); assertThat(nextQuizItems).isEqualTo(wire(lastItems));
+            verify(sets).list(1,UUID.fromString(actualSets.path("next").asText()));
+            verify(sets).members(ID,1,actualMembers.path("next").asText());
+            verify(sets).items(scope,LearningSet.Window.DUE,1,actualItems.path("next").asText());
+            verify(sets).items(quizScope,LearningSet.Window.DUE,1,actualQuizItems.path("next").asText());
 
             for(int i=0;i<commands.size();i++) acknowledgements.add(json.readTree(mvc.perform(post(paths.get(i))
                     .contentType("application/json").content(json.writeValueAsString(commands.get(i))))
@@ -204,12 +243,23 @@ class LearningSetOpenApiTest {
             assertThat(bodyEvents.stream().filter(event->event.getFormattedMessage().startsWith("Read ")).count())
                     .as("MVC actually logged all three command body reads").isEqualTo(3);
             assertThat(bodyEvents.stream().filter(event->event.getFormattedMessage().startsWith("Writing [")).count())
-                    .as("MVC actually logged all eight response body writes").isEqualTo(8);
+                    .as("MVC actually logged all twelve response body writes").isEqualTo(12);
+            var requestEvents=captured.list.stream().filter(event->event.getLoggerName().equals(loggers.get(2).getName())
+                    && event.getFormattedMessage().startsWith("GET ")).toList();
+            assertThat(requestEvents).as("DispatcherServlet actually logged all nine GET requests").hasSize(9);
+            assertThat(requestEvents.stream().map(ILoggingEvent::getFormattedMessage).filter(message->message.contains("?")))
+                    .as("Every real query string was logged in redacted form").hasSize(8)
+                    .allSatisfy(message->assertThat(message).contains("?[redacted]"));
+            if(level.equals("TRACE")) assertThat(captured.list.stream().filter(event->event.getFormattedMessage().startsWith("Arguments: ")).count())
+                    .as("MVC actually logged all twelve resolved argument lists").isEqualTo(12);
             var forbidden=new ArrayList<String>(List.of(actualView.path("name").asText(),actualSets.path("next").asText(),
                     actualMembers.path("next").asText(),actualItems.path("next").asText(),
                     actualQuizItems.path("next").asText(),
                     actualItems.at("/items/0/questionRevisionId").asText(),actualItems.at("/items/0/expected/cycleId").asText(),
                     actualItems.at("/items/0/source/quizId").asText(),actualItems.at("/items/0/source/quizRevisionId").asText()));
+            forbidden.add(nextSets.at("/items/0/name").asText());
+            forbidden.add(nextItems.at("/items/0/questionRevisionId").asText());
+            forbidden.add(nextItems.at("/items/0/expected/cycleId").asText());
             acknowledgements.forEach(ack->{forbidden.add(ack.path("commandId").asText());forbidden.add(ack.at("/set/setId").asText());});
             assertThat(forbidden).allSatisfy(value->assertThat(value).isNotBlank());
             var diagnostics=bodyEvents.stream().map(event->event.getFormattedMessage()+

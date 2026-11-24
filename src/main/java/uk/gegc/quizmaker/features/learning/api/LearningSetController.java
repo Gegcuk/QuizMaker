@@ -44,6 +44,12 @@ public class LearningSetController {
     public record DeleteRequest(@NotNull UUID commandId,@Positive long expectedVersion) {
         @Override public String toString() { return "DeleteLearningSetRequest[redacted]"; }
     }
+    public record AfterQuery(String after) {
+        @Override public String toString() { return "LearningSetAfterQuery[redacted]"; }
+    }
+    public record SetAfterQuery(UUID after) {
+        @Override public String toString() { return "LearningSetUuidAfterQuery[redacted]"; }
+    }
 
     @PostMapping(value="/sets",consumes=MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary="Create a private Learning set",description="Active account only. Name has 1–255 characters with no leading/trailing whitespace or control characters. Membership never grants source access. Retry the same commandId and complete input after response loss; all set mutations share one per-learner command namespace.")
@@ -73,23 +79,23 @@ public class LearningSetController {
     @GetMapping("/sets")
     @Operation(summary="Page private Learning sets",description="Active owner only. Excludes deleted sets. Required limit uses the configured Learning maxBatchSize; ascending unsigned set UUID. next is null at the end. No daily study quota.")
     @ApiResponse(responseCode="200",description="Bounded set page.")
-    public ResponseEntity<SetPage> listLearningSets(@RequestParam int limit,@RequestParam(required=false) UUID after) { return ok(sets.list(limit,after)); }
+    public ResponseEntity<SetPage> listLearningSets(@RequestParam int limit,@ParameterObject SetAfterQuery page) { return ok(sets.list(limit,page.after())); }
     @GetMapping("/sets/{setId}/members")
     @Operation(summary="Page direct currently authorized members",description="Owner only. Inaccessible source members are omitted without exposing their data/counts. Required limit uses configured maxBatchSize. Stable binary member-key order; next is a nullable opaque cursor bound to this set and graph version. Supply it unchanged as after. Structural changes invalidate it with 409. This is a live view, not an authorization token or snapshot.")
     @ApiResponse(responseCode="200",description="Bounded typed member page.")
-    public ResponseEntity<MemberPage> listLearningSetMembers(@PathVariable UUID setId,@RequestParam int limit,@RequestParam(required=false) String after) { return ok(sets.members(setId,limit,after)); }
+    public ResponseEntity<MemberPage> listLearningSetMembers(@PathVariable UUID setId,@RequestParam int limit,@ParameterObject AfterQuery page) { return ok(sets.members(setId,limit,page.after())); }
     @GetMapping("/sets/{setId}/items")
     @Operation(summary="Select existing cycles through a nested set",description="Active owner only. Recursively union currently authorized member-question cycles; each quiz/revision/question appears once, across every path. DUE means dueAt <= server time; UPCOMING means dueAt > server time. Exclude paused/completed custom cycles. Sort by UTC dueAt then unsigned quiz, revision and question UUIDs. Required limit uses configured maxBatchSize. Pass nullable next unchanged as after; cursor binds scope/window/graph version, and graph changes return 409. Schedule changes remain visible between pages. No source bodies/counts, enrollment, review, implicit inheritance or set schedule. The returned cycle is selection provenance only. Starting a nested session remains unavailable pending #667.")
     @ApiResponse(responseCode="200",description="Bounded metadata page, including an explicit empty items array.")
-    public ResponseEntity<ItemPage> selectLearningSetItems(@PathVariable UUID setId,@RequestParam Window window,@RequestParam int limit,@RequestParam(required=false) String after) {
-        return ok(sets.items(new Scope(setId,null),window,limit,after));
+    public ResponseEntity<ItemPage> selectLearningSetItems(@PathVariable UUID setId,@RequestParam Window window,@RequestParam int limit,@ParameterObject AfterQuery page) {
+        return ok(sets.items(new Scope(setId,null),window,limit,page.after()));
     }
     @GetMapping("/quiz-items")
     @Operation(summary="Select the same cycles through an exact quiz publication",description="Current active author with exact publication access. Uses the same DUE/UPCOMING classification, ordering, cursor, configured batch bound and read-only semantics as nested-set items. No implicit enrollment or review; custom cycles require custom-plans-enabled and custom-reviews-enabled. A later publication never redirects this exact source to another revision.")
     @ApiResponse(responseCode="200",description="Bounded metadata page.")
     public ResponseEntity<ItemPage> selectLearningQuizItems(@Valid @ParameterObject LearningPlanApi.SourceQuery source,
-            @RequestParam Window window,@RequestParam int limit,@RequestParam(required=false) String after) {
-        return ok(sets.items(new Scope(null,source.domain()),window,limit,after));
+            @RequestParam Window window,@RequestParam int limit,@ParameterObject AfterQuery page) {
+        return ok(sets.items(new Scope(null,source.domain()),window,limit,page.after()));
     }
     private static <T> ResponseEntity<T> ok(T value) { return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(value); }
 }
