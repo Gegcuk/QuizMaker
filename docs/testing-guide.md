@@ -2,6 +2,67 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Private nested Learning sets and selections (#841)
+
+Start with `LearningSetTest`, `LearningSetOpenApiTest` and `LearningSetMySqlIntegrationTest`.
+Then run the existing plan, due-selection and session-contract companions on JDK 17 with the
+disposable MySQL/offline helper. The final backend gate remains the complete four-worker
+`context_benchmark.py verify`; the two new context/database suites are in its existing inventory.
+
+- NESTED_LEARNING-01/03: parent/child/diamond and quiz selection return one unchanged cycle
+  identity. A real internal #649 review changes both views, and replay does not advance it twice.
+  Repeated reads preserve schedule/event/receipt/credit rows. UPCOMING identifies the exact
+  non-due item without granting or executing early review. This is reader/#649 composition,
+  not the #650 nested-session activation proof owned by #667.
+- NESTED_LEARNING-02: different publications with copied question text keep independent cycles.
+  Real current author checks exclude lost ownership/permission, deny foreign sets and exact
+  add replay after access loss, and permit removing an inaccessible member. Inactive/missing
+  identity cannot read private set metadata. Organization membership grants no new authority.
+- NESTED_LEARNING-04: equal due instants page without duplicates; scope/window/graph changes
+  invalidate incompatible cursors. Real custom enrollment/pause/resume and a completed-state
+  consumer fixture preserve the authoritative cycle while excluding inactive custom items.
+  That fixture uses the real custom calculator/state-event writer; it does not claim a #650 session.
+- NESTING-CYCLE: self-links fail; a reached real receipt write holds one edge transaction while
+  the opposite edge is observed in MySQL's lock-wait table. One commits, the other is refused,
+  and fresh reads contain only the permitted edge.
+- Reached faults after member/receipt writes roll back membership, graph/set versions, debit
+  and caught outer-caller writes. Lost commit acknowledgement survives service reconstruction
+  with one set/receipt. Exhausted credit still permits exact replay and changed-input conflict.
+  Supported outer RC rollback and incompatible-caller refusal retain their existing meanings.
+- The MVC suite checks authentication, bounded strict body parsing, named schemas/examples,
+  explicit nullable fields, expected ProblemDetail responses, no-store, unique OpenAPI grouping,
+  API-summary discovery and both opt-in flags. Publication-source version enums must contain
+  JSON numbers, not strings, so real selection responses validate against OpenAPI 3.1.
+  Existing session contracts remain unchanged.
+
+The local Postman child `24 Nested Learning / Private sets and shared due views` independently
+checks structure, deduplication, shared identities, bounded/stale paging, replay, validation,
+ownership, unchanged schedules and guarded cleanup. Its live-schema assertion exposed the
+numeric-enum regression; it remains in the scenario. See `postman/README.md` for Runner setup.
+
+The measured multi-parent fixture uses one then four distinct authorized publications, shared
+descendants and overlapping whole-quiz/question paths. Each item read executes five statements:
+identity, graph guard, set ownership, batched source grants and the recursive candidate query.
+With four source parents and a one-item page it receives nine JDBC rows, including two candidate
+rows for lookahead. It selects no question/document bodies. The graph/slot examination and sort
+still grow with reachable data; this is a bounded fetch plan, not constant work per page size.
+No new JPA relationship path is introduced.
+
+The existing Q114 HTTP regression retains its November 23/24, 22:00-to-next-day-18:00 vector
+in the next calendar year. JWT parsing checks wall time; the former fixed 2026 fixture began
+rejecting expired credentials before the Learning assertion. Real authentication, intervals,
+progression, replay and persisted-due assertions remain in the scenario.
+
+Direct member paging locks only its own source grants, without traversing descendant sources.
+The one-child fixture returns four JDBC rows (identity, graph, set, direct member), with five
+statements including an empty direct-grant query. Schema checks additionally refuse incomplete
+publication references and foreign-owner child edges; the service verifies exact question
+membership independently of those foreign keys.
+
+Publication rows are committed immutable source fixtures, not proof of the #700 publication
+command. Initial empty legacy repetition tables, ordinary training, assessment results and
+allowances remain separate compatibility checks. #667's full nested review gate stays closed.
+
 ## Custom and mixed Learning reviews (#840)
 
 Start with `CustomSchedulingStrategyTest`, then run `LearningCustomMySqlIntegrationTest`,

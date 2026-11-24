@@ -73,6 +73,30 @@ computer's localhost.
 | `21 Quiz revision publication` | OpenAPI coverage for completed feature #935: publication, exact replay and conflicts |
 | `22 Publication ownership` | Independent child scenarios for quiz ownership and question-source authority during publication |
 | `23 Custom Learning` | Issue #840: custom progression, mixed FSRS sessions, replay, timezone confirmation and practice |
+| `24 Nested Learning` | Issue #841: independently runnable private-set structure, shared cycle views, deduplication, paging and ownership |
+
+Run **24 Nested Learning -> Private sets and shared due views** in the local
+desktop Runner, one iteration, without iteration data. Use the same prepared
+authors and unshared `accessFixtureData` as Custom Learning. Disable response
+persistence, retained variable values and cookies; turn off Runner logs. Run the
+whole child again with new UUIDs to verify repeatability; running its parent
+executes the same independent scenario.
+
+The scenario reads live discovery and the learning/quizzes/questions/auth
+contracts first. It publishes a disposable two-question private quiz, enrolls
+existing FSRS cycles, and checks that Biology -> Anatomy and an overlapping quiz
+reference select the same cycles exactly once. It covers bounded continuation,
+graph-stale cursors, exact/changed command replay, stale versions, ancestor-cycle
+rejection, foreign-owner and unauthenticated denial, and unchanged schedules
+after repeated reads. Deleting Biology retains Anatomy and its question cycle.
+Only run-created sets and the guarded run quiz are removed; original prepared
+questions are checked unchanged, both sessions are logged out and transient
+values are cleared. Nested session activation is still gated by #667.
+
+The unrelated draft-create discrepancy **D-001** in
+[tracker #938](https://github.com/Gegcuk/QuizMaker/issues/938) remains a visible
+failed status assertion (documented 200, observed 201). Successful setup may
+continue to issue checks and guarded cleanup; the assertion is not weakened.
 
 Smoke checks `GET /api/v1/health`, `GET /api/v1/api-summary`,
 `GET /v3/api-docs/auth` and unauthenticated `GET /api/v1/auth/me`.

@@ -607,7 +607,11 @@ class LearningCustomMySqlIntegrationTest {
 
     @Test
     void mixedUnitAgainReturnsNextDayEighteenThroughRealApiProgressionAndExactReplay() throws Exception {
-        CLOCK.set(Instant.parse("2026-11-23T21:55:00Z"));
+        // Preserve the ordinary November calendar vector in the future: JWT validation uses
+        // wall time, so a past fixed year would exercise expired credentials before Learning.
+        var reviewDate=java.time.LocalDate.of(now.atZone(ZoneOffset.UTC).getYear()+1,11,23);
+        var firstReview=reviewDate.atTime(21,55).toInstant(ZoneOffset.UTC);
+        CLOCK.set(firstReview);
         var anna=persona("q114","QUIZ_UPDATE");var source=publishedQuiz(anna,"Mixed units");
         var definition=definition("FINITE",1);var intervals=definition.putArray("intervals");
         intervals.addObject().put("value",20).put("unit","HOURS");
@@ -615,15 +619,15 @@ class LearningCustomMySqlIntegrationTest {
         intervals.addObject().put("value",1).put("unit","DAYS");
         custom(anna,source,0,definition);
         review(anna,source,null,"GOOD");
-        CLOCK.set(Instant.parse("2026-11-23T21:56:00Z"));review(anna,source,"EARLY","GOOD");
-        CLOCK.set(Instant.parse("2026-11-23T21:57:00Z"));review(anna,source,"EARLY","GOOD");
+        CLOCK.set(firstReview.plusSeconds(60));review(anna,source,"EARLY","GOOD");
+        CLOCK.set(firstReview.plusSeconds(120));review(anna,source,"EARLY","GOOD");
         assertThat(cycle(anna,source,0).path("stage").asInt()).isEqualTo(2);
-        CLOCK.set(Instant.parse("2026-11-23T22:00:00Z"));
+        CLOCK.set(reviewDate.atTime(22,0).toInstant(ZoneOffset.UTC));
         var form=read(perform(start(anna,source,UUID.randomUUID(),1,"EARLY",source.questions().get(0))).andReturn(),200);
         UUID session=UUID.fromString(form.path("sessionId").asText()),command=UUID.randomUUID();
         String item=form.path("items").get(0).path("sourceItemId").asText();
         var ack=read(perform(respond(anna,session,command,1,item,"AGAIN",true)).andReturn(),200);
-        assertThat(ack.path("nextDueAt").asText()).isEqualTo("2026-11-24T18:00:00Z");
+        assertThat(ack.path("nextDueAt").asText()).isEqualTo(reviewDate.plusDays(1).atTime(18,0).toInstant(ZoneOffset.UTC).toString());
         assertSame(read(perform(respond(anna,session,command,1,item,"AGAIN",true)).andReturn(),200),ack,"Q114 exact API replay");
         var cycle=cycle(anna,source,0);assertThat(cycle.path("stage").asInt()).isZero();
         assertThat(cycle.path("dueAt").asText()).isEqualTo(ack.path("nextDueAt").asText());

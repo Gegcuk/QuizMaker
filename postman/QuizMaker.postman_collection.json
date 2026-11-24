@@ -18673,6 +18673,2062 @@
           }
         }
       ]
+    },
+    {
+      "name": "24 Nested Learning",
+      "description": "Issue #841: private nested structure and shared quiz-local due/upcoming views. The child is independently runnable; setup, checks, cleanup and logout are contained within it.",
+      "item": [
+        {
+          "name": "Private sets and shared due views",
+          "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667. Run every request in order, with one iteration and no data file. Unshared prepared fixture input only. Disable response persistence, retained variable values and cookies; turn off Runner logs. D-001 remains visible without preventing guarded cleanup. All transient credentials are cleared and sessions explicitly logged out.",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const step = pm.info.requestName.split(' ')[1];",
+                  "const get = key => pm.variables.get('l841Run' + key);",
+                  "const set = (key, value) => pm.variables.set('l841Run' + key, value);",
+                  "const uuid = () => pm.variables.replaceIn('{{$guid}}');",
+                  "const body = value => set('Body', JSON.stringify(value));",
+                  "const load = key => JSON.parse(get(key));",
+                  "const command = value => body({commandId: uuid(), ...value});",
+                  "const cleanup = 'L841 80 Inspect parent before deletion';",
+                  "if (step === '01') {",
+                  "    Object.keys(pm.variables.toObject()).filter(k => k.startsWith('l841Run')).forEach(k => pm.variables.unset(k));",
+                  "    try {",
+                  "        let f = JSON.parse(pm.environment.get('accessFixtureData'));",
+                  "        if (Array.isArray(f)) { if (f.length !== 1) throw new Error(); f = f[0]; }",
+                  "        ['author', 'authorB'].forEach((key, i) => {",
+                  "            if (f[key + 'Username'] !== ['qmfx_author_a', 'qmfx_author_b'][i] ||",
+                  "                typeof f[key + 'Password'] !== 'string' || !f[key + 'Password'] ||",
+                  "                !/^[0-9a-f-]{36}$/i.test(f[key + 'UserId'])) throw new Error();",
+                  "            const actor = i === 0 ? 'A' : 'B';",
+                  "            set('UserId' + actor, f[key + 'UserId']);",
+                  "            set('Login' + actor, JSON.stringify({username:f[key + 'Username'],password:f[key + 'Password']}));",
+                  "        });",
+                  "        if (get('UserIdA') === get('UserIdB')) throw new Error();",
+                  "        set('ProtectedId', f.targetQuizId);",
+                  "        set('Title', 'Local nested Learning ' + uuid());",
+                  "        set('ExpectedStep', '01');",
+                  "    } catch (error) {",
+                  "        Object.keys(pm.variables.toObject()).filter(k => k.startsWith('l841Run')).forEach(k => pm.variables.unset(k));",
+                  "        pm.execution.setNextRequest(null); pm.execution.skipRequest();",
+                  "        throw new Error('Set local, unshared accessFixtureData Value with both prepared authors.');",
+                  "    }",
+                  "}",
+                  "if (Number(step) < 80 && get('ExpectedStep') !== step) {",
+                  "    pm.test('Run the complete L841 scenario in order', () => { throw new Error('Missing prerequisite.'); });",
+                  "    pm.execution.setNextRequest(cleanup); pm.execution.skipRequest();",
+                  "}",
+                  "if (step === '06' || step === '08') set('Body', get('Login' + (step === '06' ? 'A' : 'B')));",
+                  "if (step === '12') body({title:get('Title'),description:'Local #841 private nested Learning views',visibility:'PRIVATE',difficulty:'EASY',isRepetitionEnabled:false,timerEnabled:false,estimatedTime:10,timerDuration:10,tagIds:[]});",
+                  "if (step === '15') command({expectedPublicationVersion:0,questionOrder:[get('QuestionTRUE_FALSE'),get('QuestionMCQ_SINGLE')]});",
+                  "if (step === '16') command({source:load('EnrollmentSource'),configuration:{strategy:'fsrs/v1',version:1},questionRevisionIds:load('QuestionIds')});",
+                  "if (step === '17' || step === '19') {",
+                  "    command({name:get('Title') + (step === '17' ? ' Biology' : ' Anatomy')});",
+                  "    if (step === '17') set('CreateBody', get('Body'));",
+                  "}",
+                  "if (step === '18') set('Body',get('CreateBody'));",
+                  "if (step === '20') command({expectedVersion:1,member:{kind:'QUESTION',source:load('Source'),questionRevisionId:load('QuestionIds')[0]},present:true});",
+                  "if (step === '21') {command({expectedVersion:1,member:{kind:'SET',childSetId:get('ChildId')},present:true});set('AddBody',get('Body'));}",
+                  "if (step === '22') command({expectedVersion:2,member:{kind:'QUIZ',source:load('Source')},present:true});",
+                  "if (step === '34') command({expectedVersion:3,member:{kind:'SET'},present:true});",
+                  "if (step === '35') command({expectedVersion:1,member:{kind:'QUIZ',source:load('Source')},present:true});",
+                  "if (step === '36') command({expectedVersion:2,member:{kind:'SET',childSetId:get('ParentId')},present:true});",
+                  "if (step === '38') set('Body',get('AddBody'));",
+                  "if (step === '39') {const b=load('AddBody');b.present=false;body(b);}",
+                  "if (step === '40') command({expectedVersion:3,member:{kind:'QUESTION',source:load('Source'),questionRevisionId:load('QuestionIds')[0]},present:true});",
+                  "if (step === '80' && (!get('ParentId') || !get('TokenA'))) {pm.execution.setNextRequest('L841 83 Inspect child before deletion');pm.execution.skipRequest();}",
+                  "if (step === '81') {",
+                  "    if (get('ParentDeleteAllowed') !== true) {pm.execution.setNextRequest('L841 83 Inspect child before deletion');pm.execution.skipRequest();}",
+                  "    else {command({expectedVersion:get('ParentVersion')});set('DeleteBody',get('Body'));}",
+                  "}",
+                  "if (step === '82') {",
+                  "    if (!get('ParentDeleted')) {pm.execution.setNextRequest('L841 83 Inspect child before deletion');pm.execution.skipRequest();}",
+                  "    else set('Body',get('DeleteBody'));",
+                  "}",
+                  "if (step === '83' && (!get('ChildId') || !get('TokenA'))) {pm.execution.setNextRequest('L841 86 Inspect quiz before deletion');pm.execution.skipRequest();}",
+                  "if (step === '84' && get('ChildDeleteAllowed') !== true) {pm.execution.setNextRequest('L841 86 Inspect quiz before deletion');pm.execution.skipRequest();}",
+                  "if (step === '85') {",
+                  "    if (get('ChildDeleteAllowed') !== true) {pm.execution.setNextRequest('L841 86 Inspect quiz before deletion');pm.execution.skipRequest();}",
+                  "    else command({expectedVersion:get('ChildVersion')});",
+                  "}",
+                  "if (step === '86' && (!get('QuizId') || !get('TokenA'))) {pm.execution.setNextRequest('L841 98 Logout author B');pm.execution.skipRequest();}",
+                  "if (step === '87' && get('QuizDeleteAllowed') !== true) {pm.execution.setNextRequest('L841 89 Verify prepared questions unchanged');pm.execution.skipRequest();}",
+                  "if (step === '88' && !get('QuizDeleted')) {pm.execution.setNextRequest('L841 89 Verify prepared questions unchanged');pm.execution.skipRequest();}",
+                  "if (step === '89' && (!get('SourceId') || !get('TokenA'))) {pm.execution.setNextRequest('L841 98 Logout author B');pm.execution.skipRequest();}",
+                  "if (step === '98' && !get('TokenB')) {pm.execution.setNextRequest('L841 99 Logout author A and clear state');pm.execution.skipRequest();}",
+                  "if (step === '99' && !get('TokenA')) {",
+                  "    Object.keys(pm.variables.toObject()).filter(k => k.startsWith('l841Run')).forEach(k => pm.variables.unset(k));pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const step=pm.info.requestName.split(' ')[1];",
+                  "const get=key=>pm.variables.get('l841Run'+key);",
+                  "const set=(key,value)=>pm.variables.set('l841Run'+key,value);",
+                  "const save=(key,value)=>set(key,JSON.stringify(value));",
+                  "const load=key=>JSON.parse(get(key));",
+                  "let passed=true;",
+                  "function check(name,fn){pm.test(name,()=>{try{fn();}catch(error){passed=false;throw error;}});}",
+                  "function status(code){check('HTTP '+code+' matches public contract',()=>pm.response.to.have.status(code));if(pm.response.code!==code)throw new Error('Unexpected status.');}",
+                  "function schema(name){check('Response matches live '+name,()=>pm.response.to.have.jsonSchema({$ref:'#/definitions/'+name,definitions:load('Schemas')},{formats:{int32:{type:'number',validate:Number.isInteger},int64:{type:'number',validate:Number.isSafeInteger}}}));}",
+                  "function noStore(){check('Private Learning response is not cached',()=>pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store'));}",
+                  "function problem(code){status(code);schema('ProblemDetail');check('ProblemDetail status and media type match',()=>{pm.expect(pm.response.json().status).to.equal(code);pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');});}",
+                  "function transform(v){if(Array.isArray(v))return v.map(transform);if(!v||typeof v!=='object')return v;const o={};Object.keys(v).filter(k=>k!=='nullable').forEach(k=>o[k]=k==='$ref'?v[k].replace('#/components/schemas/','#/definitions/'):transform(v[k]));return v.nullable===true?{anyOf:[o,{type:'null'}]}:o;}",
+                  "function canonical(rows){return rows.map(q=>({...q,quizIds:[...q.quizIds].sort(),tagIds:[...q.tagIds].sort()})).sort((a,b)=>a.id.localeCompare(b.id));}",
+                  "function selection(){status(200);schema('LearningSelectionPage');noStore();return pm.response.json();}",
+                  "function ack(){status(200);schema('LearningSetAcknowledgement');noStore();return pm.response.json();}",
+                  "try{",
+                  "    if(step==='01'){status(200);check('Learning appears exactly once in discovery',()=>pm.expect(pm.response.json().groups.filter(g=>g.group==='learning').map(g=>g.specUrl)).to.deep.equal(['/v3/api-docs/learning']));}",
+                  "    if(step==='02'){",
+                  "        status(200);const s=pm.response.json();save('Schemas',transform(s.components.schemas));",
+                  "        check('All eight set and quiz-view operations are documented with bearer authentication',()=>{",
+                  "            const operations=[['/sets','post','createLearningSet'],['/sets','get','listLearningSets'],['/sets/{setId}','get','readLearningSet'],['/sets/{setId}/members','post','changeLearningSetMember'],['/sets/{setId}/members','get','listLearningSetMembers'],['/sets/{setId}/deletion','post','deleteLearningSet'],['/sets/{setId}/items','get','selectLearningSetItems'],['/quiz-items','get','selectLearningQuizItems']];",
+                  "            operations.forEach(([p,m,id])=>{const o=s.paths['/api/v1/learning'+p][m];pm.expect(o.operationId).to.equal(id);pm.expect(o.security||s.security).to.deep.include({bearerAuth:[]});['200','400','401','404','409','422','429','503'].forEach(code=>pm.expect(o.responses).to.have.property(code));});",
+                  "            pm.expect(s.paths['/api/v1/learning/sets/{setId}/items'].get.description).to.include('#667');",
+                  "        });",
+                  "    }",
+                  "    if(step==='03'){status(200);const s=pm.response.json();save('CreateStatuses',Object.keys(s.paths['/api/v1/quizzes'].post.responses).filter(k=>/^2/.test(k)));check('Publication setup uses its public contract',()=>pm.expect(s.paths['/api/v1/quizzes/{quizId}/publications'].post.operationId).to.equal('publishQuizRevision'));}",
+                  "    if(step==='04'){status(200);check('Question setup is pageable',()=>pm.expect(pm.response.json().paths['/api/v1/questions'].get.operationId).to.equal('getQuestions'));}",
+                  "    if(step==='05'){status(200);check('Login and explicit logout are documented',()=>{const p=pm.response.json().paths;pm.expect(p['/api/v1/auth/login'].post.responses).to.have.property('200');pm.expect(p['/api/v1/auth/logout'].post.responses).to.have.property('204');});}",
+                  "    if(step==='06'||step==='08'){status(200);const a=step==='06'?'A':'B',b=pm.response.json();check('Access credential is present',()=>pm.expect(typeof b.accessToken==='string'&&b.accessToken.length>0).to.equal(true));if(passed)set('Token'+a,b.accessToken);pm.variables.unset('l841RunLogin'+a);pm.variables.unset('l841RunBody');}",
+                  "    if(step==='07'||step==='09'){status(200);const a=step==='07'?'A':'B',b=pm.response.json();check('Prepared active author has the expected identity and roles',()=>{pm.expect(b.id).to.equal(get('UserId'+a));pm.expect(b.username).to.equal(a==='A'?'qmfx_author_a':'qmfx_author_b');pm.expect(b.isActive).to.equal(true);pm.expect([...b.roles].sort()).to.deep.equal(['ROLE_QUIZ_CREATOR','ROLE_USER']);});}",
+                  "    if(step==='10'){status(200);const rows=pm.response.json().content;check('Exact prepared private source belongs to author A',()=>{pm.expect(rows).to.have.lengthOf(1);pm.expect(rows[0].title).to.equal('Local fixtures v1 - Java basics');pm.expect(rows[0].creatorId).to.equal(get('UserIdA'));pm.expect(rows[0].visibility).to.equal('PRIVATE');pm.expect(rows[0].status).to.equal('DRAFT');});if(passed)set('SourceId',rows[0].id);}",
+                  "    if(step==='11'){status(200);const b=pm.response.json();check('Prepared source has all five question families',()=>{pm.expect(b.totalElements).to.equal(5);pm.expect(b.content.map(q=>q.type).sort()).to.deep.equal(['FILL_GAP','MCQ_MULTI','MCQ_SINGLE','ORDERING','TRUE_FALSE']);});save('Originals',canonical(b.content));b.content.forEach(q=>set('Question'+q.type,q.id));}",
+                  "    if(step==='12'){",
+                  "        // D-001 remains a failing contract assertion; safe setup and cleanup continue.",
+                  "        pm.test('Draft creation HTTP status matches live OpenAPI [D-001]',()=>pm.expect(load('CreateStatuses')).to.include(String(pm.response.code)));",
+                  "        check('Disposable draft setup succeeded',()=>pm.expect(pm.response.code>=200&&pm.response.code<300).to.equal(true));if(pm.response.code<200||pm.response.code>=300)throw new Error();",
+                  "        const ids=Object.values(pm.response.json());check('Created UUID is distinct from protected fixtures',()=>{pm.expect(ids).to.have.lengthOf(1);pm.expect(ids[0]).to.match(/^[0-9a-f-]{36}$/i);pm.expect(ids[0]).not.to.equal(get('SourceId'));pm.expect(ids[0]).not.to.equal(get('ProtectedId'));});if(passed){set('QuizId',ids[0]);set('Created',true);}",
+                  "    }",
+                  "    if(step==='13'||step==='14'){status(204);check('Link has no response body',()=>pm.expect(pm.response.text()).to.equal(''));}",
+                  "    if(step==='15'){status(200);const b=pm.response.json();check('Exact publication contains two distinct question revisions',()=>{pm.expect(b.quizId).to.equal(get('QuizId'));pm.expect(b.publicationVersion).to.equal(1);pm.expect(b.questionRevisionIds).to.have.lengthOf(2);pm.expect(new Set(b.questionRevisionIds).size).to.equal(2);});set('RevisionId',b.quizRevisionId);set('SchemaVersion',b.revisionSchemaVersion);save('QuestionIds',b.questionRevisionIds);set('QuestionId',b.questionRevisionIds[0]);save('Source',{version:1,quizId:b.quizId,quizRevisionId:b.quizRevisionId,revisionSchemaVersion:b.revisionSchemaVersion});save('EnrollmentSource',{kind:'QUIZ_REVISION',quizId:b.quizId,quizRevisionId:b.quizRevisionId,revisionSchemaVersion:b.revisionSchemaVersion});}",
+                  "    if(step==='16'){status(200);schema('EnrollLearningItemsResponse');const b=pm.response.json();check('Only the two requested questions are enrolled',()=>pm.expect(b.items.map(i=>i.questionRevisionId)).to.deep.equal(load('QuestionIds')));save('Enrolled',b.items);}",
+                  "    if(step==='17'||step==='19'){const b=ack(),k=step==='17'?'Parent':'Child';check('New private set has the run marker and initial version',()=>{pm.expect(b.set.name).to.equal(get('Title')+(k==='Parent'?' Biology':' Anatomy'));pm.expect(b.set.version).to.equal(1);pm.expect(b.set.deleted).to.equal(false);});if(b.set.name===get('Title')+(k==='Parent'?' Biology':' Anatomy')&&/^[0-9a-f-]{36}$/i.test(b.set.setId))set(k+'Id',b.set.setId);if(step==='17')save('CreateAck',b);}",
+                  "    if(step==='18'){const b=ack();check('Exact create replay retains the whole original acknowledgement',()=>pm.expect(b).to.deep.equal(load('CreateAck')));}",
+                  "    if(['20','21','22','40'].includes(step)){const b=ack();check('Membership command advances only its expected set version',()=>{pm.expect(b.set.setId).to.equal(get(step==='20'?'ChildId':'ParentId'));pm.expect(b.set.version).to.equal({'20':2,'21':2,'22':3,'40':4}[step]);pm.expect(b.set.deleted).to.equal(false);});if(step==='21')save('AddAck',b);}",
+                  "    if(step==='23'){const b=selection();check('Direct quiz returns the two existing cycle identities without new enrollment',()=>{pm.expect(b.window).to.equal('DUE');pm.expect(b.next).to.equal(null);pm.expect(b.items.map(i=>i.questionRevisionId).sort()).to.deep.equal(load('QuestionIds').sort());b.items.forEach(i=>{const e=load('Enrolled').find(e=>e.questionRevisionId===i.questionRevisionId);pm.expect(i.source).to.deep.equal(load('Source'));pm.expect(i.expected).to.deep.equal({cycleId:e.cycleId,cycleVersion:e.cycleVersion,sequence:0});pm.expect(i.strategy).to.equal('FSRS');});});save('DirectItems',b.items);}",
+                  "    if(step==='24'||step==='84'){const b=selection();check('Child selects its existing question cycle, including after parent deletion',()=>{pm.expect(b.items).to.deep.equal(load('DirectItems').filter(i=>i.questionRevisionId===get('QuestionId')));pm.expect(b.next).to.equal(null);});}",
+                  "    if(step==='25'||step==='42'){const b=selection();check('Overlapping parent paths deduplicate to the same authoritative quiz-local cycles',()=>{pm.expect(b.items).to.deep.equal(load('DirectItems'));pm.expect(b.next).to.equal(null);});}",
+                  "    if(step==='26'){const b=selection();check('First bounded page has one item and a continuation',()=>{pm.expect(b.items).to.deep.equal(load('DirectItems').slice(0,1));pm.expect(b.next).to.be.a('string').and.not.empty;});set('Cursor',b.next);}",
+                  "    if(step==='27'){const b=selection();check('Continuation returns the remaining item once',()=>{pm.expect(b.items).to.deep.equal(load('DirectItems').slice(1));pm.expect(b.next).to.equal(null);});}",
+                  "    if(step==='28'){const b=selection();check('Immediately enrolled due cycles are absent from UPCOMING',()=>{pm.expect(b.window).to.equal('UPCOMING');pm.expect(b.items).to.deep.equal([]);pm.expect(b.next).to.equal(null);});}",
+                  "    if(step==='29'||step==='43'){status(200);schema('LearningPlanCycle');const b=pm.response.json();if(step==='29')save('CycleBefore',b);else check('Repeated selection and graph changes do not alter the whole schedule',()=>pm.expect(b).to.deep.equal(load('CycleBefore')));}",
+                  "    if(step==='30'){status(200);schema('LearningSetMemberPage');noStore();const b=pm.response.json();check('Direct member page exposes exactly the child and exact quiz reference',()=>{pm.expect(b.items.map(i=>i.kind).sort()).to.deep.equal(['QUIZ','SET']);pm.expect(b.next).to.equal(null);});}",
+                  "    if(['31','32','33'].includes(step))problem(404);",
+                  "    if(step==='34')problem(400);",
+                  "    if(['35','36','39','41'].includes(step))problem(409);",
+                  "    if(step==='37'){status(200);schema('LearningSetView');noStore();check('Rejected ancestor cycle leaves child version unchanged',()=>pm.expect(pm.response.json().version).to.equal(2));}",
+                  "    if(step==='38'){const b=ack();check('Replay after later edits returns the original member acknowledgement',()=>pm.expect(b).to.deep.equal(load('AddAck')));}",
+                  "    if(step==='44'){status(200);schema('LearningSetPage');noStore();check('Owner set listing includes both run-created sets',()=>pm.expect(pm.response.json().items.map(i=>i.setId)).to.include.members([get('ParentId'),get('ChildId')]));}",
+                  "    if(step==='45'||step==='46')problem(401);",
+                  "    if(step==='80'||step==='83'){status(200);schema('LearningSetView');const b=pm.response.json(),k=step==='80'?'Parent':'Child';check('Set deletion guard verifies run-created ID and unique marker',()=>{pm.expect(b.setId).to.equal(get(k+'Id'));pm.expect(b.name).to.equal(get('Title')+(k==='Parent'?' Biology':' Anatomy'));pm.expect(b.deleted).to.equal(false);});set(k+'DeleteAllowed',passed);if(passed)set(k+'Version',b.version);}",
+                  "    if(step==='81'||step==='85'){const b=ack(),k=step==='81'?'Parent':'Child';check('Deletion marks only the guarded set deleted',()=>{pm.expect(b.set.setId).to.equal(get(k+'Id'));pm.expect(b.set.deleted).to.equal(true);});if(passed)set(k+'Deleted',true);if(step==='81')save('DeleteAck',b);}",
+                  "    if(step==='82'){const b=ack();check('Exact deletion replay retains its durable acknowledgement',()=>pm.expect(b).to.deep.equal(load('DeleteAck')));}",
+                  "    if(step==='86'){status(200);const b=pm.response.json();check('Quiz deletion guard verifies new UUID, owner and unique run marker',()=>{pm.expect(get('Created')).to.equal(true);pm.expect(b.id).to.equal(get('QuizId'));pm.expect(b.creatorId).to.equal(get('UserIdA'));pm.expect(b.title).to.equal(get('Title'));pm.expect(b.id).not.to.equal(get('SourceId'));pm.expect(b.id).not.to.equal(get('ProtectedId'));});set('QuizDeleteAllowed',passed);}",
+                  "    if(step==='87'){status(204);set('QuizDeleted',true);check('Quiz deletion has no body',()=>pm.expect(pm.response.text()).to.equal(''));}",
+                  "    if(step==='88'){status(404);check('Deleted quiz is unavailable',()=>pm.expect(pm.response.json().status).to.equal(404));}",
+                  "    if(step==='89'){status(200);check('Prepared questions and original associations are unchanged',()=>pm.expect(canonical(pm.response.json().content)).to.deep.equal(load('Originals')));}",
+                  "    if(step==='98'||step==='99'){status(204);check('Explicit logout has no body',()=>pm.expect(pm.response.text()).to.equal(''));}",
+                  "}catch(error){check('Response supports safe continuation',()=>{throw new Error('Unexpected response or missing documented prerequisite; inspect failed checks.');});}",
+                  "if(Number(step)<80){if(passed)set('ExpectedStep',String(Number(step)+1).padStart(2,'0'));else pm.execution.setNextRequest('L841 80 Inspect parent before deletion');}",
+                  "if(step==='98')pm.variables.unset('l841RunTokenB');",
+                  "if(step==='99')Object.keys(pm.variables.toObject()).filter(k=>k.startsWith('l841Run')).forEach(k=>pm.variables.unset(k));"
+                ]
+              }
+            }
+          ],
+          "item": [
+            {
+              "name": "L841 01 Read API discovery",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/api-summary",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 02 Read learning OpenAPI",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/v3/api-docs/learning",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 03 Read quizzes OpenAPI",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/v3/api-docs/quizzes",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 04 Read questions OpenAPI",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/v3/api-docs/questions",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 05 Read auth OpenAPI",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/v3/api-docs/auth",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 06 Login author A",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/auth/login",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 07 Confirm author A",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/auth/me",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 08 Login author B",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/auth/login",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 09 Confirm author B",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenB}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/auth/me",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 10 Find prepared source",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/quizzes?scope=me&search=Local%20fixtures%20v1%20-%20Java%20basics&page=0&size=2",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 11 Snapshot prepared questions",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/questions?quizId={{l841RunSourceId}}&pageNumber=0&size=10",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 12 Create disposable private quiz",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/quizzes",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 13 Link prepared TRUE_FALSE",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/quizzes/{{l841RunQuizId}}/questions/{{l841RunQuestionTRUE_FALSE}}",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 14 Link prepared MCQ_SINGLE",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/quizzes/{{l841RunQuizId}}/questions/{{l841RunQuestionMCQ_SINGLE}}",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 15 Publish two immutable questions",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/quizzes/{{l841RunQuizId}}/publications",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 16 Enroll the two existing FSRS cycles",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/enrollments",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 17 Create private Biology parent",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 18 Replay exact parent creation",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 19 Create private Anatomy child",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 20 Add exact question to child",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunChildId}}/members",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 21 Add child to parent",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/members",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 22 Add overlapping quiz to parent",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/members",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 23 Read direct quiz due cycles",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/quiz-items?quizId={{l841RunQuizId}}&quizRevisionId={{l841RunRevisionId}}&revisionSchemaVersion={{l841RunSchemaVersion}}&window=DUE&limit=20",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 24 Read child due cycles",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunChildId}}/items?window=DUE&limit=20",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 25 Read deduplicated parent cycles",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/items?window=DUE&limit=20",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 26 Read first bounded due page",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/items?window=DUE&limit=1",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 27 Continue bounded due page",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/items?window=DUE&limit=1&after={{l841RunCursor}}",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 28 Read upcoming empty window",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/items?window=UPCOMING&limit=20",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 29 Snapshot existing question schedule",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l841RunQuestionId}}?quizId={{l841RunQuizId}}&quizRevisionId={{l841RunRevisionId}}&revisionSchemaVersion={{l841RunSchemaVersion}}",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 30 Read direct parent members",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/members?limit=20",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 31 Deny foreign set metadata",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenB}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 32 Deny foreign nested selection",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenB}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/items?window=DUE&limit=20",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 33 Deny foreign exact quiz selection",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenB}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/quiz-items?quizId={{l841RunQuizId}}&quizRevisionId={{l841RunRevisionId}}&revisionSchemaVersion={{l841RunSchemaVersion}}&window=DUE&limit=20",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 34 Reject missing typed member target",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/members",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 35 Reject stale set version",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/members",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 36 Reject ancestor cycle",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunChildId}}/members",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 37 Verify rejected cycle did not edit child",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunChildId}}",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 38 Replay original member command after edits",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/members",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 39 Reject changed command replay",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/members",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 40 Add another duplicate path",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/members",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 41 Reject graph-stale cursor",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/items?window=DUE&limit=1&after={{l841RunCursor}}",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 42 Verify same cycles after graph edits",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/items?window=DUE&limit=20",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 43 Verify repeated reads leave schedule unchanged",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/plan-cycles/{{l841RunQuestionId}}?quizId={{l841RunQuizId}}&quizRevisionId={{l841RunRevisionId}}&revisionSchemaVersion={{l841RunSchemaVersion}}",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 44 List private owner sets",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets?limit=20",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 45 Deny unauthenticated nested selection",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/items?window=DUE&limit=20",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 46 Deny unauthenticated set listing",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "noauth"
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets?limit=20",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 80 Inspect parent before deletion",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 81 Delete guarded parent only",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/deletion",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 82 Replay exact parent deletion",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunParentId}}/deletion",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 83 Inspect child before deletion",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunChildId}}",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 84 Verify child schedule survives parent deletion",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunChildId}}/items?window=DUE&limit=20",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 85 Delete guarded child only",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/learning/sets/{{l841RunChildId}}/deletion",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{l841RunBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 86 Inspect quiz before deletion",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/quizzes/{{l841RunQuizId}}",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 87 Delete guarded run quiz",
+              "request": {
+                "method": "DELETE",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/quizzes/{{l841RunQuizId}}",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 88 Verify deleted quiz unavailable",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/quizzes/{{l841RunQuizId}}",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 89 Verify prepared questions unchanged",
+              "request": {
+                "method": "GET",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/questions?quizId={{l841RunSourceId}}&pageNumber=0&size=10",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 98 Logout author B",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenB}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/auth/logout",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            },
+            {
+              "name": "L841 99 Logout author A and clear state",
+              "request": {
+                "method": "POST",
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{l841RunTokenA}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/v1/auth/logout",
+                "description": "Issue #841. Live learning group: createLearningSet/listLearningSets/readLearningSet/changeLearningSetMember/listLearningSetMembers/deleteLearningSet/selectLearningSetItems/selectLearningQuizItems. Setup/cleanup follow live quizzes/questions/auth contracts. Current source access is required; a set never grants it. Shared existing cycles, live bounded views and exact replays only; nested session activation remains gated by #667."
+              },
+              "response": [],
+              "protocolProfileBehavior": {
+                "followRedirects": false,
+                "disableCookies": true
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
