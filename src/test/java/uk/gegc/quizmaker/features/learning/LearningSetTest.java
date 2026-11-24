@@ -68,5 +68,24 @@ class LearningSetTest {
         assertThatThrownBy(()->page.items().clear()).isInstanceOf(UnsupportedOperationException.class);
         assertThat(page.items().get(0).toString()).doesNotContain("Private");
     }
+    @Test void everySetCommandResponseAndCursorHasAClosedDiagnosticRepresentation() {
+        var name="PRIVATE_SET_"+UUID.randomUUID(); var token="PRIVATE_CURSOR_"+UUID.randomUUID();
+        var view=new View(id,name,1,false,Instant.EPOCH,Instant.EPOCH);
+        var member=new Member(Kind.QUESTION,null,source,id);
+        var ack=new Acknowledgement(id,view,1);
+        var item=new Item(source,id,new LearningSchedule.Expected(id,1,0),LearningPlan.Strategy.FSRS,Instant.EPOCH);
+        var input=new uk.gegc.quizmaker.features.learning.infra.scheduling.LearningPlanFormat().encode(
+                Arrays.asList("create",null,new LearningSetService.Create(id,name)));
+        var values=List.of(member,view,ack,new Scope(id,null),new SetPage(List.of(view),id),
+                new MemberPage(List.of(member),token),item,new ItemPage(Window.DUE,Instant.EPOCH,List.of(item),token),
+                new Cursor(1,new Scope(id,null),Window.DUE,1,Instant.EPOCH,source.quizId(),source.quizRevisionId(),id,token),
+                new LearningSetService.Create(id,name),new LearningSetService.Change(id,1,member,true),new LearningSetService.Delete(id,1),
+                new LearningSetRepository.Receipt(input,ack),
+                new uk.gegc.quizmaker.features.learning.api.LearningSetController.CreateRequest(id,name),
+                new uk.gegc.quizmaker.features.learning.api.LearningSetController.ChangeRequest(id,1,member,true),
+                new uk.gegc.quizmaker.features.learning.api.LearningSetController.DeleteRequest(id,1));
+        assertThat(values).allSatisfy(value->assertThat(value.toString()).contains("[redacted]")
+                .doesNotContain(id.toString(),source.quizId().toString(),source.quizRevisionId().toString(),name,token,input));
+    }
     static void rejected(Runnable work) { assertThatThrownBy(work::run).isInstanceOfSatisfying(LearningSessionException.class,e->assertThat(e.reason()).isEqualTo(LearningSessionException.Reason.INVALID_INPUT)); }
 }

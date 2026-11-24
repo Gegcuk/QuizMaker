@@ -24,6 +24,7 @@ import static uk.gegc.quizmaker.features.learning.domain.model.LearningSessionEx
 public class JdbcLearningSetRepository implements LearningSetRepository {
     private final NamedParameterJdbcTemplate jdbc;
     private final LearningPlanFormat format=new LearningPlanFormat();
+    private final com.fasterxml.jackson.databind.ObjectMapper grantsJson=new com.fasterxml.jackson.databind.ObjectMapper();
     private final String manifest=new FsrsStateFormat().encodeManifest(FsrsManifest.approved());
     public JdbcLearningSetRepository(NamedParameterJdbcTemplate jdbc) { this.jdbc=jdbc; }
 
@@ -122,11 +123,8 @@ public class JdbcLearningSetRepository implements LearningSetRepository {
     }
     /** Same initial author authority as #692, evaluated for all reachable publications in one query.
      * Retain each positive mutable grant through commit before returning metadata from a later query. */
-    @Override public void lockSources(UUID learner,Scope scope) {
-        lockSources(learner,scope,true);
-    }
-    private void lockSources(UUID learner,Scope scope,boolean recursive) {
-        safe(() -> {
+    private List<Source> lockSources(UUID learner,Scope scope,boolean recursive) {
+        return safe(() -> {
             String selected=recursive?targets(scope):"""
                 WITH targets AS (
                     SELECT DISTINCT quiz_id,quiz_revision_id,revision_schema_version
@@ -134,8 +132,9 @@ public class JdbcLearningSetRepository implements LearningSetRepository {
                         AND set_id=UUID_TO_BIN(:root) AND kind IN ('QUIZ','QUESTION')
                 )
                 """;
-            jdbc.query(selected+"""
-                SELECT u.user_id FROM (SELECT DISTINCT quiz_id,quiz_revision_id,revision_schema_version FROM targets) t
+            return jdbc.query(selected+"""
+                SELECT t.quiz_id,t.quiz_revision_id,t.revision_schema_version
+                FROM (SELECT DISTINCT quiz_id,quiz_revision_id,revision_schema_version FROM targets) t
                 JOIN users u ON u.user_id=UUID_TO_BIN(:learner) AND u.is_active=TRUE AND u.is_deleted=FALSE AND u.username<>'anonymous'
                 JOIN quizzes q ON q.quiz_id=t.quiz_id AND q.creator_id=u.user_id AND q.is_deleted=FALSE
                 JOIN quiz_publications p ON p.quiz_id=q.quiz_id AND p.revision_id=t.quiz_revision_id AND p.canonical_version=1
@@ -145,21 +144,22 @@ public class JdbcLearningSetRepository implements LearningSetRepository {
                 JOIN permissions perm ON perm.permission_id=rp.permission_id
                 WHERE perm.permission_name IN ('QUIZ_UPDATE','QUIZ_MODERATE','QUIZ_ADMIN')
                 FOR SHARE OF u,q,ur,rp,perm
-                """,scope(learner,scope),(org.springframework.jdbc.core.RowCallbackHandler)r -> { });
-            return null;
+                """,scope(learner,scope),(r,n)->new Source(1,uuid(r,"quiz_id"),uuid(r,"quiz_revision_id"),r.getInt("revision_schema_version")))
+                    .stream().distinct().toList();
         });
     }
-    private static String authorized(String alias) {
+    /** Bind the later RC query to exactly the publications whose positive grants we hold.
+     * A newly committed grant must wait for a fresh read. One JSON metadata parameter keeps
+     * the filter batched without a per-publication query or an expanding placeholder list. */
+    private String heldSources(List<Source> held,String alias,MapSqlParameterSource parameters) {
+        try { parameters.addValue("heldSources",grantsJson.writeValueAsString(held)); }
+        catch(com.fasterxml.jackson.core.JsonProcessingException failure) { throw new LearningSessionException(CORRUPT); }
         return """
-            EXISTS(SELECT 1 FROM users u
-                JOIN quizzes q ON q.creator_id=u.user_id AND q.is_deleted=FALSE
-                JOIN quiz_publications p ON p.quiz_id=q.quiz_id AND p.canonical_version=1
-                JOIN quiz_revisions r ON r.id=p.revision_id AND r.quiz_id=q.quiz_id AND r.owner_id=u.user_id
-                JOIN user_roles ur ON ur.user_id=u.user_id JOIN role_permissions rp ON rp.role_id=ur.role_id
-                JOIN permissions perm ON perm.permission_id=rp.permission_id
-                WHERE u.user_id=UUID_TO_BIN(:learner) AND u.is_active=TRUE AND u.is_deleted=FALSE AND u.username<>'anonymous'
-                    AND q.quiz_id=%1$s.quiz_id AND r.id=%1$s.quiz_revision_id AND r.schema_version=%1$s.revision_schema_version
-                    AND perm.permission_name IN ('QUIZ_UPDATE','QUIZ_MODERATE','QUIZ_ADMIN'))
+            EXISTS(SELECT 1 FROM JSON_TABLE(:heldSources,'$[*]' COLUMNS(
+                quiz_id CHAR(36) PATH '$.quizId',quiz_revision_id CHAR(36) PATH '$.quizRevisionId',
+                revision_schema_version INT PATH '$.revisionSchemaVersion')) held
+                WHERE UUID_TO_BIN(held.quiz_id)=%1$s.quiz_id AND UUID_TO_BIN(held.quiz_revision_id)=%1$s.quiz_revision_id
+                    AND held.revision_schema_version=%1$s.revision_schema_version)
             """.formatted(alias);
     }
     @Override public List<View> list(UUID learner,int take,UUID after) {
@@ -170,20 +170,23 @@ public class JdbcLearningSetRepository implements LearningSetRepository {
     @Override public List<Member> members(UUID learner,UUID set,int take,String after) {
         return safe(() -> {
             // Direct folder contents need only their own grants, never the descendant graph.
-            lockSources(learner,new Scope(set,null),false);
+            var held=lockSources(learner,new Scope(set,null),false);
+            var p=owner(learner).addValue("set",set.toString()).addValue("take",take).addValue("after",after);
+            String authorized=heldSources(held,"m",p);
             return jdbc.query("""
             SELECT m.* FROM learning_set_member m
             WHERE m.learner_id=UUID_TO_BIN(:learner) AND m.set_id=UUID_TO_BIN(:set)
                 AND (m.kind='SET' OR %s)
-            """.formatted(authorized("m"))+(after==null?"":" AND m.member_key>:after")+" ORDER BY m.member_key LIMIT :take",
-                owner(learner).addValue("set",set.toString()).addValue("take",take).addValue("after",after),
+            """.formatted(authorized)+(after==null?"":" AND m.member_key>:after")+" ORDER BY m.member_key LIMIT :take",p,
                 (r,n)->new Member(Kind.valueOf(r.getString("kind")),optionalUuid(r,"child_set_id"),
                         r.getBytes("quiz_id")==null?null:new Source(1,uuid(r,"quiz_id"),uuid(r,"quiz_revision_id"),r.getInt("revision_schema_version")),
                         optionalUuid(r,"question_revision_id")));
         });
     }
     @Override public List<Item> items(UUID learner,Scope scope,Window window,Instant now,int take,Cursor after,boolean custom) {
+        var held=lockSources(learner,scope,true);
         var p=scope(learner,scope).addValue("now",time(now)).addValue("take",take).addValue("manifest",manifest).addValue("custom",custom);
+        String authorized=heldSources(held,"t",p);
         String position="";
         if(after!=null) {
             position=" AND (due_at,quiz_id,quiz_revision_id,question_revision_id) > (:afterTime,UUID_TO_BIN(:afterQuiz),UUID_TO_BIN(:afterRevision),UUID_TO_BIN(:afterQuestion))";
@@ -227,7 +230,7 @@ public class JdbcLearningSetRepository implements LearningSetRepository {
             SELECT * FROM checked WHERE invalid OR (due_at %s :now
                 AND (strategy_id='fsrs/v1' OR (completed=FALSE AND paused=FALSE)) %s)
             ORDER BY invalid DESC,due_at,quiz_id,quiz_revision_id,question_revision_id LIMIT :take
-            """.formatted(authorized("t"),window==Window.DUE?"<=":">",position);
+            """.formatted(authorized,window==Window.DUE?"<=":">",position);
         return safe(() -> jdbc.query(query,p,(r,n)->item(r,learner,custom)));
     }
     private Item item(ResultSet r,UUID learner,boolean custom) throws SQLException {

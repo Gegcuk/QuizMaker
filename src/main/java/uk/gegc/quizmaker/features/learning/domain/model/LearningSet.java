@@ -32,6 +32,7 @@ public final class LearningSet {
     }
     public record Scope(UUID setId, Source source) {
         public Scope { require((setId == null) != (source == null), INVALID_INPUT); }
+        @Override public String toString() { return "LearningSetScope[redacted]"; }
     }
     @Schema(name="LearningSetView")
     public record View(@NotNull UUID setId, @NotBlank String name, @Positive long version, boolean deleted,
@@ -42,25 +43,33 @@ public final class LearningSet {
     @Schema(name="LearningSetAcknowledgement", description="Original durable response, including exact replay after later edits or deletion.")
     public record Acknowledgement(@NotNull UUID commandId, @NotNull View set, @Positive long graphVersion) {
         public Acknowledgement { require(commandId!=null && set!=null && graphVersion>0,CORRUPT); }
+        @Override public String toString() { return "LearningSetAcknowledgement[redacted]"; }
     }
     @Schema(name="LearningSetPage")
     public record SetPage(@NotNull List<View> items, UUID next) {
         public SetPage { items=List.copyOf(items); }
+        @Override public String toString() { return "LearningSetPage[redacted]"; }
     }
     @Schema(name="LearningSetMemberPage")
     public record MemberPage(@NotNull List<Member> items, String next) {
         public MemberPage { items=List.copyOf(items); }
+        @Override public String toString() { return "LearningSetMemberPage[redacted]"; }
     }
     @Schema(name="LearningSelectionItem", description="One existing quiz-local cycle, shared across all entry points. Metadata does not start or authorize a review. UPCOMING identifies candidates for the separately supported explicit EARLY command.")
     public record Item(@NotNull Source source, @NotNull UUID questionRevisionId,
                        @NotNull LearningSchedule.Expected expected, @NotNull LearningPlan.Strategy strategy,
-                       @NotNull Instant dueAt) { }
+                       @NotNull Instant dueAt) {
+        @Override public String toString() { return "LearningSelectionItem[redacted]"; }
+    }
     @Schema(name="LearningSelectionPage", description="No total count or mastery. Paused/completed custom cycles and currently inaccessible sources are excluded. Reads never enroll, review, spend command credit or emit notifications.")
     public record ItemPage(@NotNull Window window, @NotNull Instant selectedAt,
                            @NotNull List<Item> items, String next) {
         public ItemPage { items=List.copyOf(items); }
+        @Override public String toString() { return "LearningSelectionPage[redacted]"; }
     }
     /** Cursor is a position in a changing view, not a snapshot or an access grant. */
     public record Cursor(int version, Scope scope, Window window, long graphVersion,
-                         Instant dueAt, UUID quizId, UUID revisionId, UUID questionId, String memberKey) { }
+                         Instant dueAt, UUID quizId, UUID revisionId, UUID questionId, String memberKey) {
+        @Override public String toString() { return "LearningSetCursor[redacted]"; }
+    }
 }

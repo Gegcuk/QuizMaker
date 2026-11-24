@@ -99,7 +99,7 @@ public class LearningSetServiceImpl implements LearningSetService {
             UUID learner=LearningActor.lock(users); long graph=repository.lockGraph(learner,false);
             if(scope.setId()!=null) owned(learner,scope.setId(),false);
             else authorize(learner,new Member(Kind.QUIZ,null,scope.source(),null));
-            checkGraph(cursor,graph); repository.lockSources(learner,scope);
+            checkGraph(cursor,graph);
             Instant now=now(); var found=repository.items(learner,scope,window,now,limit+1,cursor,custom);
             var page=page(found,limit); Item last=page.isEmpty()?null:page.get(page.size()-1);
             String next=found.size()>limit?token(new Cursor(1,scope,window,graph,last.dueAt(),last.source().quizId(),

@@ -2,6 +2,14 @@ package uk.gegc.quizmaker.features.learning.api;
 
 import com.fasterxml.jackson.databind.*;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
+import org.slf4j.LoggerFactory;
 import org.springdoc.core.configuration.SpringDocConfiguration;
 import org.springdoc.core.properties.SpringDocConfigProperties;
 import org.springdoc.webmvc.core.configuration.*;
@@ -118,6 +126,107 @@ class LearningSetOpenApiTest {
         when(sets.create(any())).thenReturn(new uk.gegc.quizmaker.features.learning.domain.model.LearningSet.Acknowledgement(request.commandId(),view,1));
         mvc.perform(post(ROOT+"/sets").contentType("application/json").content(example)).andExpect(status().isOk());
         mvc.perform(get("/api/v1/api-summary")).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString("learning")));
+    }
+    @ParameterizedTest @ValueSource(strings={"DEBUG","TRACE"}) @WithMockUser
+    void mvcBodyDiagnosticsHideCommandsQuestionsAndCursorsWithoutChangingJson(String level) throws Exception {
+        var name="PRIVATE_SET_"+UUID.randomUUID();
+        // An existing version-five set can already contain both a quiz and an overlapping question.
+        // Read it first; the later create command targets a distinct set, then mutate/delete this one.
+        var view=new LearningSet.View(ID,name,5,false,Instant.EPOCH,Instant.EPOCH);
+        var source=new LearningSession.Source(1,UUID.randomUUID(),UUID.randomUUID(),1);
+        var question=UUID.randomUUID(); var expected=new LearningSchedule.Expected(UUID.randomUUID(),1,0);
+        var member=new LearningSet.Member(LearningSet.Kind.QUESTION,null,source,question);
+        var item=new LearningSet.Item(source,question,expected,Strategy.FSRS,Instant.EPOCH);
+        var scope=new LearningSet.Scope(ID,null);
+        var format=new uk.gegc.quizmaker.features.learning.infra.scheduling.LearningPlanFormat();
+        var itemCursor=Base64.getUrlEncoder().withoutPadding().encodeToString(format.encode(new LearningSet.Cursor(
+                1,scope,LearningSet.Window.DUE,42,Instant.EPOCH,source.quizId(),source.quizRevisionId(),question,null))
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        var memberCursor=Base64.getUrlEncoder().withoutPadding().encodeToString(format.encode(new LearningSet.Cursor(
+                1,scope,null,42,null,null,null,null,member.key())).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        var quizScope=new LearningSet.Scope(null,source);
+        var quizCursor=Base64.getUrlEncoder().withoutPadding().encodeToString(format.encode(new LearningSet.Cursor(
+                1,quizScope,LearningSet.Window.DUE,42,Instant.EPOCH,source.quizId(),source.quizRevisionId(),question,null))
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        var create=new LearningSetController.CreateRequest(UUID.randomUUID(),name);
+        var change=new LearningSetController.ChangeRequest(UUID.randomUUID(),5,member,true);
+        var delete=new LearningSetController.DeleteRequest(UUID.randomUUID(),6);
+        var created=new LearningSet.Acknowledgement(create.commandId(),new LearningSet.View(UUID.randomUUID(),name,1,false,Instant.EPOCH,Instant.EPOCH),43);
+        var changed=new LearningSet.Acknowledgement(change.commandId(),new LearningSet.View(ID,name,6,false,Instant.EPOCH,Instant.EPOCH),44);
+        var deleted=new LearningSet.Acknowledgement(delete.commandId(),new LearningSet.View(ID,name,7,true,Instant.EPOCH,Instant.EPOCH),45);
+        when(sets.create(any())).thenReturn(created); when(sets.change(eq(ID),any())).thenReturn(changed);
+        when(sets.delete(eq(ID),any())).thenReturn(deleted); when(sets.read(ID)).thenReturn(view);
+        when(sets.list(1,null)).thenReturn(new LearningSet.SetPage(List.of(view),ID));
+        when(sets.members(ID,1,null)).thenReturn(new LearningSet.MemberPage(List.of(member),memberCursor));
+        var page=new LearningSet.ItemPage(LearningSet.Window.DUE,Instant.EPOCH,List.of(item),itemCursor);
+        var quizPage=new LearningSet.ItemPage(LearningSet.Window.DUE,Instant.EPOCH,List.of(item),quizCursor);
+        when(sets.items(eq(scope),eq(LearningSet.Window.DUE),eq(1),isNull())).thenReturn(page);
+        when(sets.items(eq(quizScope),eq(LearningSet.Window.DUE),eq(1),isNull())).thenReturn(quizPage);
+
+        var loggers=List.of((Logger)LoggerFactory.getLogger("org.springframework.web.servlet.mvc.method.annotation"),
+                (Logger)LoggerFactory.getLogger("org.springframework.web.method"));
+        var levels=loggers.stream().map(Logger::getLevel).toList();
+        var additivity=loggers.stream().map(Logger::isAdditive).toList();
+        var thread=Thread.currentThread();
+        var captured=new ListAppender<ILoggingEvent>() {
+            @Override protected void append(ILoggingEvent event) {
+                if(Thread.currentThread()==thread) { event.prepareForDeferredProcessing(); super.append(event); }
+            }
+        };
+        captured.setContext(loggers.get(0).getLoggerContext()); captured.start();
+        loggers.forEach(logger->{logger.addAppender(captured);logger.setAdditive(false);logger.setLevel(Level.toLevel(level));});
+        try {
+            var acknowledgements=new ArrayList<JsonNode>();
+            var commands=List.of(create,change,delete);
+            var paths=List.of(ROOT+"/sets",ROOT+"/sets/"+ID+"/members",ROOT+"/sets/"+ID+"/deletion");
+            var actualView=json.readTree(mvc.perform(get(ROOT+"/sets/"+ID)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            assertThat(actualView).isEqualTo(wire(view));
+            var actualSets=json.readTree(mvc.perform(get(ROOT+"/sets").param("limit","1")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            assertThat(actualSets.path("next").asText()).isEqualTo(ID.toString());
+            var actualMembers=json.readTree(mvc.perform(get(ROOT+"/sets/"+ID+"/members").param("limit","1"))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            assertThat(actualMembers).isEqualTo(wire(new LearningSet.MemberPage(List.of(member),memberCursor)));
+            var actualItems=json.readTree(mvc.perform(get(ROOT+"/sets/"+ID+"/items").param("window","DUE").param("limit","1"))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            var actualQuizItems=json.readTree(mvc.perform(get(ROOT+"/quiz-items").param("quizId",source.quizId().toString())
+                    .param("quizRevisionId",source.quizRevisionId().toString()).param("revisionSchemaVersion","1").param("window","DUE").param("limit","1"))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            assertThat(actualItems).isEqualTo(wire(page)); assertThat(actualQuizItems).isEqualTo(wire(quizPage));
+            assertThat(actualQuizItems.path("items")).isEqualTo(actualItems.path("items"));
+
+            for(int i=0;i<commands.size();i++) acknowledgements.add(json.readTree(mvc.perform(post(paths.get(i))
+                    .contentType("application/json").content(json.writeValueAsString(commands.get(i))))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()));
+            assertThat(acknowledgements).containsExactly(wire(created),wire(changed),wire(deleted));
+
+            var bodyEvents=captured.list.stream().filter(event->event.getLoggerName().endsWith(".HttpEntityMethodProcessor")
+                    || event.getLoggerName().endsWith(".RequestResponseBodyMethodProcessor")).toList();
+            assertThat(bodyEvents.stream().filter(event->event.getFormattedMessage().startsWith("Read ")).count())
+                    .as("MVC actually logged all three command body reads").isEqualTo(3);
+            assertThat(bodyEvents.stream().filter(event->event.getFormattedMessage().startsWith("Writing [")).count())
+                    .as("MVC actually logged all eight response body writes").isEqualTo(8);
+            var forbidden=new ArrayList<String>(List.of(actualView.path("name").asText(),actualSets.path("next").asText(),
+                    actualMembers.path("next").asText(),actualItems.path("next").asText(),
+                    actualQuizItems.path("next").asText(),
+                    actualItems.at("/items/0/questionRevisionId").asText(),actualItems.at("/items/0/expected/cycleId").asText(),
+                    actualItems.at("/items/0/source/quizId").asText(),actualItems.at("/items/0/source/quizRevisionId").asText()));
+            acknowledgements.forEach(ack->{forbidden.add(ack.path("commandId").asText());forbidden.add(ack.at("/set/setId").asText());});
+            assertThat(forbidden).allSatisfy(value->assertThat(value).isNotBlank());
+            var diagnostics=bodyEvents.stream().map(event->event.getFormattedMessage()+
+                    (event.getThrowableProxy()==null?"":ThrowableProxyUtil.asString(event.getThrowableProxy()))).toList();
+            assertThat(diagnostics).allSatisfy(message->assertThat(message).doesNotContain(forbidden.toArray(String[]::new)));
+            // The set ID is also an HTTP path argument; the private payload values are not.
+            var privateValues=forbidden.stream().filter(value->!value.equals(ID.toString())).toArray(String[]::new);
+            assertThat(captured.list).allSatisfy(event->assertThat(event.getFormattedMessage()+
+                    (event.getThrowableProxy()==null?"":ThrowableProxyUtil.asString(event.getThrowableProxy())))
+                    .doesNotContain(privateValues));
+        } finally {
+            for(int i=0;i<loggers.size();i++) {var logger=loggers.get(i);logger.detachAppender(captured);logger.setLevel(levels.get(i));logger.setAdditive(additivity.get(i));}
+            captured.stop();
+        }
+    }
+    private JsonNode wire(Object value) throws com.fasterxml.jackson.core.JsonProcessingException {
+        return json.readTree(json.writeValueAsString(value));
     }
     @Test void publicSetRoutesRequireBothExplicitCapabilityFlags() {
         var runner=new org.springframework.boot.test.context.runner.ApplicationContextRunner()

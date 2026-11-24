@@ -6133,7 +6133,11 @@ window and graph version. Structural changes return 409 and require restarting t
 Cursors describe positions in a live schedule view, not snapshots or access grants.
 
 Authorization is batched over distinct reachable publications and retains positive mutable
-grants through commit. Selection loads bounded schedule/configuration evidence, not source
+grants through commit. Each member/item query is restricted to the exact publication identities
+returned by that locking read, passed as one JSON metadata parameter. It cannot expand its
+authority through a grant committed between the two RC reads; a fresh request may acquire that
+new grant. No per-publication query or expanding SQL placeholder list is needed.
+Selection loads bounded schedule/configuration evidence, not source
 bodies or complete history. A page limit bounds returned rows; recursive graph traversal and
 sorting still examine the reachable graph and authorized slots. Database recursion/resource
 failure returns an explicit unavailable outcome without a partial page or silent truncation.
@@ -6143,6 +6147,9 @@ The multi-parent SQL evidence is recorded in the testing guide.
 records the transaction's actual completion; an uncertain commit is `unknown`, preserving the
 distinction from rollback. Private names, identifiers, questions and command bodies are absent
 from metric labels and operation diagnostics.
+Set commands, acknowledgements, selection items/pages and cursors have closed diagnostic
+representations; MVC DEBUG/TRACE body diagnostics do not render their private values. Their
+JSON fields and opaque continuation tokens remain available to authorized clients.
 
 ### User-defined repetition intervals — Q94–Q114 APPROVED
 

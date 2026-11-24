@@ -50,6 +50,7 @@ class LearningSetMySqlIntegrationTest {
     static QuizRevision revision;
     static LearningSession.Source ref;
     static boolean created;
+    static final AtomicReference<Runnable> afterSourceGrantRead=new AtomicReference<>();
     final SimpleMeterRegistry metrics=new SimpleMeterRegistry();
     final AtomicReference<Instant> instant=new AtomicReference<>(TIME);
     final Clock clock=new Clock() {
@@ -75,7 +76,15 @@ class LearningSetMySqlIntegrationTest {
         String user=System.getenv().getOrDefault("TEST_MYSQL_ADMIN_USERNAME","root"),password=System.getenv().getOrDefault("TEST_MYSQL_ADMIN_PASSWORD","root");
         admin=new JdbcTemplate(new DriverManagerDataSource(base+options,user,password));
         admin.execute("CREATE DATABASE "+SCHEMA+" CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"); created=true;
-        source=new LearningScheduleMySqlIntegrationTest.ObservedSource(new DriverManagerDataSource(base+SCHEMA+options,user,password));
+        source=new LearningScheduleMySqlIntegrationTest.ObservedSource(new DriverManagerDataSource(base+SCHEMA+options,user,password)) {
+            @Override void checkpoint(String query) throws java.sql.SQLException {
+                super.checkpoint(query);
+                if(query.contains("FROM targets") && query.contains("FOR SHARE OF u,q,ur,rp,perm")) {
+                    var checkpoint=afterSourceGrantRead.getAndSet(null);
+                    if(checkpoint!=null) checkpoint.run();
+                }
+            }
+        };
         sql=new JdbcTemplate(source); manager=new DataSourceTransactionManager(source); Flyway.configure().dataSource(source).load().migrate();
         for(var entry:Map.of(ANNA,"anna",BOB,"bob").entrySet()) sql.update("""
             INSERT INTO users(user_id,username,email,password,is_active,is_deleted,email_verified,created_at,password_changed_at,version)
@@ -119,6 +128,7 @@ class LearningSetMySqlIntegrationTest {
         setRepository=new JdbcLearningSetRepository(new NamedParameterJdbcTemplate(sql)); sets=setService(setRepository);
     }
     @AfterEach void clear() {
+        afterSourceGrantRead.set(null);
         source.reset(); SecurityContextHolder.clearContext();
         for(String t:List.of("learning_set_command","learning_set_member","learning_set","learning_set_graph")) sql.update("DELETE FROM "+t);
         for(String t:List.of("learning_custom_change","learning_custom_stage")) sql.update("DELETE FROM "+t);
@@ -355,6 +365,92 @@ class LearningSetMySqlIntegrationTest {
         assertThat(due(root).items()).hasSize(1);
         sql.update("UPDATE users SET is_active=FALSE WHERE user_id=UUID_TO_BIN(?)",ANNA.toString());
         rejected(()->sets.read(root.setId()),UNAVAILABLE);
+    }
+    @ParameterizedTest @ValueSource(booleans={false,true})
+    void grantCommittedBetweenReadsCannotExpandThePublicationsWhoseRightsAreHeld(boolean members) throws Exception {
+        var root=add(root("Grant between reads"),whole()); fsrs(0);
+        sql.update("DELETE FROM user_roles WHERE user_id=UUID_TO_BIN(?)",ANNA.toString());
+        var locked=new CountDownLatch(1); var continueRead=new CountDownLatch(1);
+        var selected=new CountDownLatch(1); var finish=new CountDownLatch(1);
+        var selectedRows=new AtomicReference<List<?>>(); var readerConnection=new AtomicLong();
+        var pool=Executors.newFixedThreadPool(2);
+        afterSourceGrantRead.set(()->{locked.countDown();await(continueRead);});
+        try {
+            var reader=pool.submit(()->asAnna(()->readOnlyTransaction().execute(status->{
+                readerConnection.set(sql.queryForObject("SELECT CONNECTION_ID()",Long.class));
+                var result=selectionRows(members,root); selectedRows.set(result); selected.countDown(); await(finish); return result;
+            })));
+            await(locked);
+            long writerConnection=tx(TransactionDefinition.ISOLATION_READ_COMMITTED).execute(status->{
+                long connection=sql.queryForObject("SELECT CONNECTION_ID()",Long.class);
+                restoreAuthorRole(); return connection;
+            });
+            assertThat(writerConnection).isNotEqualTo(readerConnection.get());
+            continueRead.countDown(); await(selected);
+            // Revocation of the new, unheld grant must complete while this GET transaction is open.
+            var revoke=pool.submit(()->sql.update("DELETE FROM user_roles WHERE user_id=UUID_TO_BIN(?)",ANNA.toString()));
+            assertThat(revoke.get(60,TimeUnit.SECONDS)).isOne();
+            assertThat(reader.isDone()).isFalse();
+            assertThat(selectedRows.get()).as("a later grant is excluded from the current read").isEmpty();
+            finish.countDown(); assertThat(reader.get(60,TimeUnit.SECONDS)).isEmpty();
+            restoreAuthorRole();
+            assertThat(selectionRows(members,root)).as("a fresh read can lock the newly granted source").hasSize(1);
+        } finally {
+            continueRead.countDown(); finish.countDown(); afterSourceGrantRead.set(null);
+            pool.shutdownNow(); assertThat(pool.awaitTermination(30,TimeUnit.SECONDS)).isTrue(); restoreAuthorRole();
+        }
+    }
+    @ParameterizedTest @ValueSource(booleans={false,true})
+    void returnedPublicationGrantCannotBeRevokedBeforeTheOuterReadTransactionCompletes(boolean members) throws Exception {
+        var root=add(root("Held source grant"),whole()); fsrs(0);
+        var locked=new CountDownLatch(1); var continueRead=new CountDownLatch(1);
+        var selected=new CountDownLatch(1); var finish=new CountDownLatch(1); var revokerReady=new CountDownLatch(1);
+        var selectedRows=new AtomicReference<List<?>>(); var readerConnection=new AtomicLong(); var revokerConnection=new AtomicLong();
+        var pool=Executors.newFixedThreadPool(2);
+        afterSourceGrantRead.set(()->{locked.countDown();await(continueRead);});
+        try {
+            var reader=pool.submit(()->asAnna(()->readOnlyTransaction().execute(status->{
+                readerConnection.set(sql.queryForObject("SELECT CONNECTION_ID()",Long.class));
+                var result=selectionRows(members,root); selectedRows.set(result); selected.countDown(); await(finish); return result;
+            })));
+            await(locked);
+            var revoke=pool.submit(()->tx(TransactionDefinition.ISOLATION_READ_COMMITTED).execute(status->{
+                revokerConnection.set(sql.queryForObject("SELECT CONNECTION_ID()",Long.class)); revokerReady.countDown();
+                return sql.update("DELETE FROM user_roles WHERE user_id=UUID_TO_BIN(?)",ANNA.toString());
+            }));
+            await(revokerReady); assertThat(revokerConnection.get()).isNotEqualTo(readerConnection.get());
+            awaitGrantRevocationWait(revokerConnection.get(),revoke);
+            continueRead.countDown(); await(selected);
+            assertThat(selectedRows.get()).hasSize(1);
+            // The candidate query has finished, but the enclosing RC read-only transaction still owns the grant.
+            awaitGrantRevocationWait(revokerConnection.get(),revoke); assertThat(revoke.isDone()).isFalse();
+            finish.countDown(); assertThat(reader.get(60,TimeUnit.SECONDS)).hasSize(1);
+            assertThat(revoke.get(60,TimeUnit.SECONDS)).isOne();
+            assertThat(selectionRows(members,root)).as("a fresh read observes the committed revocation").isEmpty();
+        } finally {
+            continueRead.countDown(); finish.countDown(); afterSourceGrantRead.set(null);
+            pool.shutdownNow(); assertThat(pool.awaitTermination(30,TimeUnit.SECONDS)).isTrue(); restoreAuthorRole();
+        }
+    }
+    static TransactionTemplate readOnlyTransaction() {
+        var transaction=tx(TransactionDefinition.ISOLATION_READ_COMMITTED); transaction.setReadOnly(true); return transaction;
+    }
+    List<?> selectionRows(boolean members,LearningSet.View root) {
+        return members?sets.members(root.setId(),10,null).items():sets.items(scope(root),LearningSet.Window.DUE,10,null).items();
+    }
+    static void restoreAuthorRole() {
+        sql.update("INSERT IGNORE INTO user_roles(user_id,role_id) SELECT UUID_TO_BIN(?),role_id FROM roles WHERE role_name='plan-author'",ANNA.toString());
+    }
+    static void awaitGrantRevocationWait(long connection,Future<?> writer) throws Exception {
+        long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(60);
+        while(sql.queryForObject("""
+            SELECT COUNT(*) FROM performance_schema.data_lock_waits w
+            JOIN performance_schema.threads t ON t.THREAD_ID=w.REQUESTING_THREAD_ID WHERE t.PROCESSLIST_ID=?
+            """,Integer.class,connection)==0) {
+            if(writer.isDone()) { writer.get(); throw new AssertionError("Grant revocation completed before the reader transaction"); }
+            if(System.nanoTime()>deadline) throw new AssertionError("Grant revocation did not reach its MySQL lock wait");
+            Thread.onSpinWait();
+        }
     }
     @Test void unknownAndCorruptEvidenceAndReachedSqlFailureKeepTheirExplicitErrorSemantics() {
         var root=add(root("Evidence"),whole()); var initial=fsrs(0);

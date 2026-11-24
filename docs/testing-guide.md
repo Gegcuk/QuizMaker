@@ -59,6 +59,20 @@ statements including an empty direct-grant query. Schema checks additionally ref
 publication references and foreign-owner child edges; the service verifies exact question
 membership independently of those foreign keys.
 
+Review regressions additionally pause the real JDBC grant query before the candidate read and
+use a second MySQL connection to commit a grant in that gap. Both direct-member and nested-item
+reads exclude this unheld publication; revocation of the new grant completes while the outer
+GET transaction remains open. A fresh read is the positive control. The complementary scenario
+observes the revoker's specific connection in `performance_schema.data_lock_waits` both before
+and after selection, proving returned publications retain their grants until the enclosing
+read-only READ_COMMITTED transaction completes. Revocation then commits and a fresh read denies.
+
+The DEBUG/TRACE MVC regression captures the real body processors, requires three request-read
+and eight response-write diagnostics, and compares the JSON responses with the complete expected
+wire objects. Command IDs, question/source/cycle IDs, private names and cursors extracted from
+those actual responses must be absent from body diagnostics. A separate unit check covers every
+set command, response, retained receipt and cursor's diagnostic representation.
+
 Publication rows are committed immutable source fixtures, not proof of the #700 publication
 command. Initial empty legacy repetition tables, ordinary training, assessment results and
 allowances remain separate compatibility checks. #667's full nested review gate stays closed.

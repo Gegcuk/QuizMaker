@@ -37,9 +37,13 @@ public class LearningSetController {
     }
     @Schema(name="ChangeLearningSetMemberRequest")
     public record ChangeRequest(@NotNull UUID commandId,@Positive long expectedVersion,
-                                @NotNull @Valid Member member,@NotNull Boolean present) { }
+                                @NotNull @Valid Member member,@NotNull Boolean present) {
+        @Override public String toString() { return "ChangeLearningSetMemberRequest[redacted]"; }
+    }
     @Schema(name="DeleteLearningSetRequest")
-    public record DeleteRequest(@NotNull UUID commandId,@Positive long expectedVersion) { }
+    public record DeleteRequest(@NotNull UUID commandId,@Positive long expectedVersion) {
+        @Override public String toString() { return "DeleteLearningSetRequest[redacted]"; }
+    }
 
     @PostMapping(value="/sets",consumes=MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary="Create a private Learning set",description="Active account only. Name has 1–255 characters with no leading/trailing whitespace or control characters. Membership never grants source access. Retry the same commandId and complete input after response loss; all set mutations share one per-learner command namespace.")
