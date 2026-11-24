@@ -353,10 +353,14 @@ uk/gegc/quizmaker/features/learning/LearningSessionSpringMySqlIntegrationTest.ja
 uk/gegc/quizmaker/features/learning/LearningSessionSpringMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/learning/LearningSessionSpringTest.java
 uk/gegc/quizmaker/features/learning/LearningSessionSpringTest$*.java
+uk/gegc/quizmaker/features/learning/LearningSetMySqlIntegrationTest.java
+uk/gegc/quizmaker/features/learning/LearningSetMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/learning/api/LearningPlanOpenApiTest.java
 uk/gegc/quizmaker/features/learning/api/LearningPlanOpenApiTest$*.java
 uk/gegc/quizmaker/features/learning/api/LearningSessionOpenApiTest.java
 uk/gegc/quizmaker/features/learning/api/LearningSessionOpenApiTest$*.java
+uk/gegc/quizmaker/features/learning/api/LearningSetOpenApiTest.java
+uk/gegc/quizmaker/features/learning/api/LearningSetOpenApiTest$*.java
 uk/gegc/quizmaker/features/media/api/MediaControllerTest.java
 uk/gegc/quizmaker/features/media/api/MediaControllerTest$*.java
 uk/gegc/quizmaker/features/media/api/MediaRestoreContractTest.java

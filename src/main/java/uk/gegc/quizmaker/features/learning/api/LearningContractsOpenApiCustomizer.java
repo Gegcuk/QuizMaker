@@ -16,6 +16,10 @@ public final class LearningContractsOpenApiCustomizer implements OpenApiCustomiz
         if (api.getComponents() == null || api.getComponents().getSchemas() == null) return;
         Map<String, Schema> schemas = api.getComponents().getSchemas();
         Map.ofEntries(
+                Map.entry("LearningSetMember", List.of("childSetId", "source", "questionRevisionId")),
+                Map.entry("LearningSetPage", List.of("next")),
+                Map.entry("LearningSetMemberPage", List.of("next")),
+                Map.entry("LearningSelectionPage", List.of("next")),
                 Map.entry("LearningPlanAcknowledgement", List.of("plan", "binding", "cycle")),
                 Map.entry("LearningPlanDefinition", List.of("timeZone", "localTime")),
                 Map.entry("LearningPlanBinding", List.of("planId", "planVersion")),
@@ -26,6 +30,16 @@ public final class LearningContractsOpenApiCustomizer implements OpenApiCustomiz
                 Map.entry("LearningResponseAcknowledgement", List.of("nextItemId", "nextDueAt")),
                 Map.entry("LearningSessionView", List.of("nextItemId")))
                 .forEach((name, fields) -> fields.forEach(field -> nullable(schemas.get(name), field)));
+
+        // OpenAPI 3.1 annotation resolution retains allowableValues as strings,
+        // even for an integer record component. Keep the wire enum numeric.
+        Schema publicationSource = schemas.get("LearningPublicationSource");
+        if (publicationSource != null && publicationSource.getProperties() != null) {
+            for (var entry : Map.of("version", List.of(1), "revisionSchemaVersion", List.of(1, 2, 3)).entrySet()) {
+                Schema value = (Schema) publicationSource.getProperties().get(entry.getKey());
+                if (value != null) value.setEnum(entry.getValue());
+            }
+        }
 
         // RFC 7807 uses URI references, including a relative request path.
         Schema<?> problem = schemas.get("ProblemDetail");

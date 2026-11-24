@@ -6082,6 +6082,81 @@ release and overlapping-session supersession without charging or refilling a rea
 balances are untouched. If the idle-row recycler removed the balance, inspection seeds the same
 full metadata that the next mutation already initializes, without changing immutable evidence.
 
+### Private nested Learning sets and selections (#841)
+
+`quizmaker.learning.sets-enabled=true`, together with `sessions-enabled`, exposes private set
+organization and schedule metadata. Both remain opt-in; the dedicated local Docker profile
+enables synthetic checks. This does not enable a nested session source. The existing session
+start still accepts only `QUIZ_REVISION`; #667 owns `NESTED-REVIEW-INTEGRATION` with real #650
+commands before nested review activation.
+
+A set belongs to the authenticated active account. A member is another set owned by that
+account, an exact published quiz revision, or one question revision in that publication.
+Publication references never move to a newer head. Membership grants no content access:
+the initial #692 current-author and publication-history rules are checked independently.
+Unavailable source members are omitted from nested member/item pages, with no private counts.
+Direct requests for an unavailable set/publication return a non-enumerating 404.
+
+The set and quiz entry points select the same existing learner/quiz/revision/question slot.
+Recursive `UNION DISTINCT` visits each reachable set once; slot identity is deduplicated before
+joining FSRS/custom state. Neither a set nor an entry point owns a schedule. Reads do not
+enroll, advance, spend/refill command credit, grant an early review or emit notifications.
+`UPCOMING` returns exact non-due cycle provenance that a later explicit review must revalidate.
+Custom selection uses the existing captured plan and requires both custom capability flags;
+paused/completed custom cycles are excluded. Unsupported evidence fails explicitly.
+
+One durable learner graph row coordinates shared reads and exclusive structural mutations.
+The existing Learning command budget admits mutations. Membership writes, set/graph counters,
+command receipts and the debit commit or roll back together in READ_COMMITTED. An identical
+retry returns its original acknowledgement, including after deletion or response loss;
+changed input conflicts. Adding a source, including replay, rechecks current authority.
+Removal remains available to the set owner after source access is lost. Opposite concurrent
+edges are serialized and an edge that would close a cycle is refused before membership writes.
+
+Deletion marks the set deleted and detaches incoming/outgoing links. It advances affected
+parents' counters and preserves child sets, every question cycle, sessions and review history.
+Tombstones and command receipts retain original acknowledgements under the personal Learning
+data family; account/retention executors must include these records. No historical backfill,
+age cleanup, destructive downgrade or new retention period is introduced. Disable the opt-in
+before rollout recovery; persisted target writes require forward-fix.
+
+The HTTP operations are `POST /api/v1/learning/sets`, `GET /sets`, `GET /sets/{setId}`,
+`POST /sets/{setId}/members`, `GET /sets/{setId}/members`,
+`POST /sets/{setId}/deletion`, `GET /sets/{setId}/items` and `GET /quiz-items`, with the
+same `/api/v1/learning` prefix. They belong only to the `learning` OpenAPI group and API summary.
+Responses are named metadata envelopes with `no-store`; expected errors use `ProblemDetail`.
+
+Required page sizes reuse configured Learning `maxBatchSize`, without a daily quota.
+Item order is UTC due instant followed by unsigned quiz/revision/question UUIDs; DUE includes
+the current instant and UPCOMING is strictly later. Opaque member/item cursors bind scope,
+window and graph version. Structural changes return 409 and require restarting the page.
+Cursors describe positions in a live schedule view, not snapshots or access grants.
+
+Authorization is batched over distinct reachable publications and retains positive mutable
+grants through commit. Each member/item query is restricted to the exact publication identities
+returned by that locking read, passed as one JSON metadata parameter. It cannot expand its
+authority through a grant committed between the two RC reads; a fresh request may acquire that
+new grant. No per-publication query or expanding SQL placeholder list is needed.
+Selection loads bounded schedule/configuration evidence, not source
+bodies or complete history. A page limit bounds returned rows; recursive graph traversal and
+sorting still examine the reachable graph and authorized slots. Database recursion/resource
+failure returns an explicit unavailable outcome without a partial page or silent truncation.
+The multi-parent SQL evidence is recorded in the testing guide.
+
+`quizmaker.learning.sets` uses only bounded operation/version/outcome labels. Successful work
+records the transaction's actual completion; an uncertain commit is `unknown`, preserving the
+distinction from rollback. Private names, identifiers, questions and command bodies are absent
+from metric labels and operation diagnostics.
+Set commands, acknowledgements, selection items/pages and cursors have closed diagnostic
+representations; MVC DEBUG/TRACE body diagnostics do not render their private values. Their
+JSON fields and opaque continuation tokens remain available to authorized clients.
+Paged set/selection routes also bind incoming `after` through closed diagnostic query objects
+and mask raw query strings before MVC request logging. Parsed query parameters and pagination
+contracts remain unchanged. The filter matches Spring's decoded path segments, including
+equivalent percent-encoded letters and context/servlet prefixes, without decoding separators into
+new path boundaries or replacing an existing MVC path cache. This applies with Spring request-detail logging disabled (the
+application default); explicitly enabling raw parameter/header logging is outside this boundary.
+
 ### User-defined repetition intervals — Q94–Q114 APPROVED
 
 **Approved on 22 October 2026:** a learner may use a personal interval sequence, review both questions and quizzes, and organize review through nested Learning sets. The [Q94–Q114 decisions](./decision-register.md#custom-interval-decisions) include unit-preserving duration/calendar scheduling and DST resolution, a two-interval rollback, coefficient-based indefinite continuation and nondecreasing entered sequences. All Q108–Q113 answers are A, including the explicitly accepted DST rules. [Q114 A](./decision-register.md#custom-interval-decisions) also approves nominal mixed-unit ordering with unchanged due calculation. No product question remains open within this selected scope; implementation evidence is still required.

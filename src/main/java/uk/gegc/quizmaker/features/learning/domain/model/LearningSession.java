@@ -21,7 +21,11 @@ public record LearningSession(UUID id, int schemaVersion, UUID learnerId, UUID c
 
     /** Immutable source metadata only; never a mutable quiz, question text or access grant. */
     @io.swagger.v3.oas.annotations.media.Schema(name="LearningPublicationSource")
-    public record Source(int version, UUID quizId, UUID quizRevisionId, int revisionSchemaVersion) {
+    public record Source(
+            @io.swagger.v3.oas.annotations.media.Schema(requiredMode=io.swagger.v3.oas.annotations.media.Schema.RequiredMode.REQUIRED,allowableValues={"1"}) int version,
+            @jakarta.validation.constraints.NotNull UUID quizId,
+            @jakarta.validation.constraints.NotNull UUID quizRevisionId,
+            @io.swagger.v3.oas.annotations.media.Schema(requiredMode=io.swagger.v3.oas.annotations.media.Schema.RequiredMode.REQUIRED,allowableValues={"1","2","3"}) int revisionSchemaVersion) {
         public Source {
             require(version == 1, UNSUPPORTED_VERSION);
             require(quizId != null && quizRevisionId != null, INVALID_INPUT);
