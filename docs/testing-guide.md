@@ -70,6 +70,9 @@ read-only READ_COMMITTED transaction completes. Revocation then commits and a fr
 The DEBUG/TRACE MVC regression captures the real body processors, DispatcherServlet and handler
 argument diagnostics. It follows `next` from actual JSON on all four paged routes, including
 quiz-source query parameters, and verifies that the service receives each unchanged `after`.
+Each level runs with both literal paths and equivalent percent-encoded segments on the second
+page. The encoded case also requires four actual encoded request-path diagnostics, so a builder
+that double-encodes `%` or silently uses the literal route cannot satisfy the regression.
 It requires three request-read, twelve response-write and nine GET diagnostics; TRACE must also
 record twelve resolved argument lists. All eight query-bearing GET diagnostics must retain a
 redaction marker. Complete expected wire objects are compared on both pages. Command IDs,
@@ -80,6 +83,10 @@ turning it on deliberately logs raw parameter maps and headers and is outside th
 The route-scoped filter changes only raw query-string presentation, preserving parsed parameter
 values, repeated parameters and unrelated routes. Separate unit checks cover that boundary and
 every set command, response, retained receipt and cursor's diagnostic representation.
+Path matching uses Spring's parsed request path and `PathPattern`, including context and servlet
+prefix handling. Tests preserve the previous MVC path cache, exclude encoded separators and
+double-encoded letters from unrelated paths, and leave malformed-path rejection to the existing
+chain while masking its query string.
 
 Publication rows are committed immutable source fixtures, not proof of the #700 publication
 command. Initial empty legacy repetition tables, ordinary training, assessment results and

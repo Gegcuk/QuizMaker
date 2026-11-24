@@ -3,7 +3,7 @@ package uk.gegc.quizmaker.features.learning.api;
 import com.fasterxml.jackson.databind.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -136,8 +136,8 @@ class LearningSetOpenApiTest {
         mvc.perform(post(ROOT+"/sets").contentType("application/json").content(example)).andExpect(status().isOk());
         mvc.perform(get("/api/v1/api-summary")).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString("learning")));
     }
-    @ParameterizedTest @ValueSource(strings={"DEBUG","TRACE"}) @WithMockUser
-    void mvcDiagnosticsHideCommandsQuestionsAndReturnedCursorsOnNextPage(String level) throws Exception {
+    @ParameterizedTest @CsvSource({"DEBUG,false","TRACE,false","DEBUG,true","TRACE,true"}) @WithMockUser
+    void mvcDiagnosticsHideCommandsQuestionsAndReturnedCursorsOnNextPage(String level,boolean encodedPath) throws Exception {
         var name="PRIVATE_SET_"+UUID.randomUUID();
         // An existing version-five set can already contain both a quiz and an overlapping question.
         // Read it first; the later create command targets a distinct set, then mutate/delete this one.
@@ -215,14 +215,17 @@ class LearningSetOpenApiTest {
             assertThat(actualItems).isEqualTo(wire(page)); assertThat(actualQuizItems).isEqualTo(wire(quizPage));
             assertThat(actualQuizItems.path("items")).isEqualTo(actualItems.path("items"));
 
-            var nextSets=json.readTree(mvc.perform(get(ROOT+"/sets").queryParam("limit","1").queryParam("after",actualSets.path("next").asText()))
+            // URI overload preserves percent escapes instead of encoding '%' a second time.
+            String continuationRoot=encodedPath?"/%61pi/%76%31/%6cearning":ROOT;
+            String setPath=continuationRoot+(encodedPath?"/%73ets":"/sets");
+            var nextSets=json.readTree(mvc.perform(get(java.net.URI.create(setPath)).queryParam("limit","1").queryParam("after",actualSets.path("next").asText()))
                     .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-            var nextMembers=json.readTree(mvc.perform(get(ROOT+"/sets/"+ID+"/members").queryParam("limit","1").queryParam("after",actualMembers.path("next").asText()))
+            var nextMembers=json.readTree(mvc.perform(get(java.net.URI.create(setPath+"/"+ID+(encodedPath?"/%6dembers":"/members"))).queryParam("limit","1").queryParam("after",actualMembers.path("next").asText()))
                     .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-            var nextItems=json.readTree(mvc.perform(get(ROOT+"/sets/"+ID+"/items").queryParam("window","DUE").queryParam("limit","1")
+            var nextItems=json.readTree(mvc.perform(get(java.net.URI.create(setPath+"/"+ID+(encodedPath?"/%69tems":"/items"))).queryParam("window","DUE").queryParam("limit","1")
                     .queryParam("after",actualItems.path("next").asText()))
                     .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-            var nextQuizItems=json.readTree(mvc.perform(get(ROOT+"/quiz-items").queryParam("quizId",source.quizId().toString())
+            var nextQuizItems=json.readTree(mvc.perform(get(java.net.URI.create(continuationRoot+(encodedPath?"/%71uiz-items":"/quiz-items"))).queryParam("quizId",source.quizId().toString())
                     .queryParam("quizRevisionId",source.quizRevisionId().toString()).queryParam("revisionSchemaVersion","1")
                     .queryParam("window","DUE").queryParam("limit","1").queryParam("after",actualQuizItems.path("next").asText()))
                     .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
@@ -247,6 +250,8 @@ class LearningSetOpenApiTest {
             var requestEvents=captured.list.stream().filter(event->event.getLoggerName().equals(loggers.get(2).getName())
                     && event.getFormattedMessage().startsWith("GET ")).toList();
             assertThat(requestEvents).as("DispatcherServlet actually logged all nine GET requests").hasSize(9);
+            if(encodedPath) assertThat(requestEvents.stream().map(ILoggingEvent::getFormattedMessage).filter(message->message.contains("/%61pi/")))
+                    .as("DispatcherServlet actually logged all four percent-encoded continuation paths").hasSize(4);
             assertThat(requestEvents.stream().map(ILoggingEvent::getFormattedMessage).filter(message->message.contains("?")))
                     .as("Every real query string was logged in redacted form").hasSize(8)
                     .allSatisfy(message->assertThat(message).contains("?[redacted]"));

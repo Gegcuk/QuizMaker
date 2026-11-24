@@ -6152,7 +6152,9 @@ representations; MVC DEBUG/TRACE body diagnostics do not render their private va
 JSON fields and opaque continuation tokens remain available to authorized clients.
 Paged set/selection routes also bind incoming `after` through closed diagnostic query objects
 and mask raw query strings before MVC request logging. Parsed query parameters and pagination
-contracts remain unchanged. This applies with Spring request-detail logging disabled (the
+contracts remain unchanged. The filter matches Spring's decoded path segments, including
+equivalent percent-encoded letters and context/servlet prefixes, without decoding separators into
+new path boundaries or replacing an existing MVC path cache. This applies with Spring request-detail logging disabled (the
 application default); explicitly enabling raw parameter/header logging is outside this boundary.
 
 ### User-defined repetition intervals — Q94–Q114 APPROVED
