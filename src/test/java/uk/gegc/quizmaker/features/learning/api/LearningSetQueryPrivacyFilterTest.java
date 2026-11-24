@@ -40,16 +40,26 @@ class LearningSetQueryPrivacyFilterTest {
     }
 
     @Test
-    void leavesMissingQueriesAndUnrelatedRoutesUnchanged() throws Exception {
-        for (String path : List.of("/api/v1/learning/sets", "/api/v1/learning/quiz-items",
-                "/api/v1/learning/sets-other", "/api/v1/learning/due", "/api/v1/auth/verify",
+    void leavesMissingQueriesUnchanged() throws Exception {
+        for (String path : List.of("/api/v1/learning/sets", "/api/v1/learning/quiz-items")) {
+            var request = new MockHttpServletRequest("GET", path);
+            new LearningSetQueryPrivacyFilter().doFilter(request, new MockHttpServletResponse(), (filtered, response) -> {
+                assertThat(((HttpServletRequest) filtered).getQueryString()).isNull();
+            });
+        }
+    }
+
+    @Test
+    void passesUnrelatedRoutesThroughWithTheOriginalRequestAndNonEmptyQuery() throws Exception {
+        for (String path : List.of("/api/v1/learning/sets-other", "/api/v1/learning/due", "/api/v1/auth/verify",
                 "/api%2Fv1/learning/sets", "/%2561pi/v1/learning/sets")) {
             var request = new MockHttpServletRequest("GET", path);
-            boolean unrelated = !path.endsWith("/sets") && !path.endsWith("/quiz-items");
-            if (unrelated) request.setQueryString("value=original");
+            request.setQueryString("after=original-cursor&limit=1");
+            request.addParameter("after", "original-cursor");
+            request.addParameter("limit", "1");
             new LearningSetQueryPrivacyFilter().doFilter(request, new MockHttpServletResponse(), (filtered, response) -> {
-                assertThat(((HttpServletRequest) filtered).getQueryString()).isEqualTo(request.getQueryString());
-                if (unrelated) assertThat(filtered).isSameAs(request);
+                assertThat(filtered).as("Unrelated route %s",path).isSameAs(request);
+                assertThat(((HttpServletRequest) filtered).getQueryString()).isEqualTo("after=original-cursor&limit=1");
             });
         }
     }
