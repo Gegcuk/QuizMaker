@@ -3290,6 +3290,55 @@ Suitable for:
 - section-based assessments;
 - offline-eligible full forms.
 
+### Neutral progressive append contract (#661)
+
+`ProgressiveFormAppend` and its pure `ProgressiveFormAppendPlanner` define append/v1 metadata
+shared by Adaptive and Branching. `ProgressiveFormAppendPort` is the Form-owned application
+contract for future storage integrations; this increment supplies no adapter, Spring bean,
+progressive start, participant projection or HTTP operation. Existing fixed-form storage,
+fingerprints, policies, transactions and delivery remain unchanged.
+
+An append names the exact form/revision/schema, expected form version, decision kind and stable
+decision/evidence references, and a nonempty ordered suffix of stable form-item/source-item IDs.
+The source IDs identify immutable revision occurrences, not mutable questions. Trusted complete
+revision membership bounds the form without adding a numerical product quota. Revision formats
+1–3 can be referenced as metadata; accepting their references does not activate structured delivery.
+No question/document payload, answer, candidate content, raw evidence or content digest is accepted.
+The strategy integration owns resolution and validation of the actual decision/evidence contents.
+
+An empty progressive form starts at version zero. Every fresh nonempty append advances the version
+once and extends contiguous zero-based presentation positions without changing the prefix or
+reusing an item/source occurrence. Supplied order is never repaired by sorting. A stop or terminal
+decision is not an empty append; its semantics remain with the consuming strategy/lifecycle owner.
+Fixed-form append is explicitly rejected; supported gaps in existing fixed positions remain valid.
+Unknown contract/revision versions, wrong references, missing inputs and invalid metadata fail with
+bounded typed errors. Diagnostic strings omit resource, decision, evidence and item identifiers.
+
+The adapter must look up the exact `(formId, decisionId)` receipt, not only its latest receipt.
+An identical request returns the original acknowledgement even after later appends; changing the
+expected version, kind, evidence reference or selected suffix under the same decision conflicts.
+Replay also checks the retained positions against the supplied current prefix. Fresh stale/future
+versions reject. A pure plan never writes or repairs state and is not evidence of commit.
+Validation is linear in supplied revision/prefix/suffix metadata; this contract makes no constant
+read-cost or database concurrency claim.
+
+For example, an internal Adaptive decision proposes items C then A at positions 0 and 1 against
+form version zero. The plan describes version one and that suffix. A later trusted observation
+may contain C, A, D at version two; replay of the first decision still returns version one and
+performs no append. Constructing that observation in a contract test proves neither persistence
+nor that a participant could receive any of those items.
+
+#571 and #574 must implement the real writer in the caller's existing writable READ_COMMITTED
+transaction under #905, with current authority checked even on replay. Decision, evidence, append,
+expected-version guard and receipt commit or roll back together. They must serialize by form,
+enforce one expected-version winner and unique form/decision identity, and preserve independent-form
+progress. A returned receipt is provisional until its enclosing transaction commits; no caller-set
+boolean or in-memory value certifies that commit. Delivery/resume reads the authorized committed
+form and its real decision/evidence. Lost acknowledgement is reconciled with the original complete
+request. Each adapter must prove actual MySQL races, reached-write rollback, restart/replay and
+commit-before-delivery; pure contract fixtures cannot satisfy those integration gates. Adaptive
+#694 and Branching #670 retain their independent public conformance/activation ownership.
+
 ### Progressive form
 
 The form grows during execution.

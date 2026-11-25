@@ -1,0 +1,189 @@
+package uk.gegc.quizmaker.features.attempt.form;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import uk.gegc.quizmaker.features.attempt.domain.model.form.ProgressiveFormAppend.*;
+import uk.gegc.quizmaker.features.attempt.domain.model.form.ProgressiveFormAppendException;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Stream;
+
+import static org.assertj.core.api.Assertions.*;
+import static uk.gegc.quizmaker.features.attempt.domain.model.form.ProgressiveFormAppendException.Reason.*;
+import static uk.gegc.quizmaker.features.attempt.form.ProgressiveFormAppendFixtures.*;
+
+class ProgressiveFormAppendTest {
+    @ParameterizedTest
+    @EnumSource(DecisionKind.class)
+    void metadataUsesTheSameImmutableContractForEitherDecisionKind(DecisionKind kind) {
+        var selected = new Decision(1, kind, id("decision"), id("evidence"));
+        var mutable = new ArrayList<>(List.of(item(2, 0), item(0, 1)));
+        var request = new Request(1, REFERENCE, 0, selected, mutable);
+        var state = new State(1, FormKind.PROGRESSIVE, REFERENCE, 1, mutable);
+        var sources = new HashSet<>(REVISION.sourceItemIds());
+        var revision = new RevisionScope(1, REFERENCE.quizRevisionId(), 1, sources);
+        mutable.clear();
+        sources.clear();
+
+        assertThat(request.items()).containsExactly(item(2, 0), item(0, 1));
+        assertThat(state.items()).isEqualTo(request.items());
+        assertThat(revision.sourceItemIds()).isEqualTo(REVISION.sourceItemIds());
+        assertThatThrownBy(() -> request.items().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> state.items().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> revision.sourceItemIds().clear()).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {Integer.MIN_VALUE, -1, 0, 2, Integer.MAX_VALUE})
+    void unknownAppendVersionsFailInEveryEnvelope(int version) {
+        var request = request("decision", 0, item(0, 0));
+        for (Runnable action : List.<Runnable>of(
+                () -> new RevisionScope(version, REFERENCE.quizRevisionId(), 1, Set.of()),
+                () -> new State(version, FormKind.PROGRESSIVE, REFERENCE, 0, List.of()),
+                () -> new Decision(version, DecisionKind.ADAPTIVE, id("d"), id("e")),
+                () -> new Request(version, REFERENCE, 0, decision("d"), request.items()),
+                () -> new Receipt(version, request, 1))) {
+            rejected(action, UNSUPPORTED_VERSION);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {Integer.MIN_VALUE, -1, 0, 4, Integer.MAX_VALUE})
+    void unknownRevisionFormatsAreNotReinterpreted(int version) {
+        rejected(() -> new Reference(id("form"), id("revision"), version), UNSUPPORTED_REVISION_VERSION);
+        rejected(() -> scope(version), UNSUPPORTED_REVISION_VERSION);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 3})
+    void deliveredRevisionFormatsAreReferencesWithoutActivatingTheirRuntime(int version) {
+        var reference = new Reference(id("form"), id("revision"), version);
+        assertThat(reference.revisionSchemaVersion()).isEqualTo(version);
+        assertThat(scope(version).revisionSchemaVersion()).isEqualTo(version);
+    }
+
+    @Test
+    void absentIdentityOrEvidenceNeverEstablishesAnAppend() {
+        for (Runnable action : List.<Runnable>of(
+                () -> new Reference(null, id("revision"), 1),
+                () -> new Reference(id("form"), null, 1),
+                () -> new RevisionScope(1, null, 1, Set.of()),
+                () -> new RevisionScope(1, id("revision"), 1, null),
+                () -> new RevisionScope(1, id("revision"), 1, new HashSet<>(Arrays.asList(id("source"), null))),
+                () -> new Decision(1, null, id("decision"), id("evidence")),
+                () -> new Decision(1, DecisionKind.ADAPTIVE, null, id("evidence")),
+                () -> new Decision(1, DecisionKind.ADAPTIVE, id("decision"), null),
+                () -> new Request(1, null, 0, decision("d"), List.of(item(0, 0))),
+                () -> new Request(1, REFERENCE, 0, null, List.of(item(0, 0))),
+                () -> new Request(1, REFERENCE, 0, decision("d"), null),
+                () -> new Request(1, REFERENCE, 0, decision("d"), List.of()),
+                () -> new Request(1, REFERENCE, -1, decision("d"), List.of(item(0, 0))),
+                () -> new Request(1, REFERENCE, Long.MAX_VALUE, decision("d"), List.of(item(0, 0))))) {
+            rejected(action, INVALID_INPUT);
+        }
+        for (Runnable action : List.<Runnable>of(
+                () -> new Item(null, id("source"), 0),
+                () -> new Item(id("item"), null, 0),
+                () -> new Item(id("item"), id("source"), -1),
+                () -> new Request(1, REFERENCE, 0, decision("d"), Arrays.asList((Item) null)),
+                () -> new State(1, FormKind.PROGRESSIVE, REFERENCE, 1, Arrays.asList((Item) null)))) {
+            rejected(action, INVALID_ITEM);
+        }
+    }
+
+    @Test
+    void stateVersionsDescribeNonemptyAppendsRatherThanUnrelatedLifecycleUpdates() {
+        assertThat(state(0).items()).isEmpty();
+        assertThat(state(1, item(0, 0), item(1, 1)).formVersion()).isEqualTo(1);
+        for (Runnable action : List.<Runnable>of(
+                () -> new State(1, null, REFERENCE, 0, List.of()),
+                () -> new State(1, FormKind.PROGRESSIVE, null, 0, List.of()),
+                () -> new State(1, FormKind.PROGRESSIVE, REFERENCE, 0, null),
+                () -> state(-1), () -> state(1), () -> state(0, item(0, 0)),
+                () -> state(2, item(0, 0)), () -> state(Long.MAX_VALUE, item(0, 0)))) {
+            rejected(action, INVALID_STATE);
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("duplicateItems")
+    void identitiesSourcesAndPositionsAreIndependentUniquenessConstraints(List<Item> items) {
+        rejected(() -> new Request(1, REFERENCE, 0, decision("d"), items), DUPLICATE_ITEM);
+        rejected(() -> new State(1, FormKind.PROGRESSIVE, REFERENCE, 1, items), DUPLICATE_ITEM);
+    }
+
+    static Stream<List<Item>> duplicateItems() {
+        var first = item(0, 0);
+        return Stream.of(
+                List.of(first, new Item(first.id(), id("source-1"), 1)),
+                List.of(first, new Item(id("other-item"), first.sourceItemId(), 1)),
+                List.of(first, item(1, 0)));
+    }
+
+    @Test
+    void progressiveOrderIsExplicitAndNeverRepairedBySorting() {
+        rejected(() -> state(1, item(0, 1)), INVALID_ORDER);
+        rejected(() -> state(1, item(0, 0), item(1, 2)), INVALID_ORDER);
+        rejected(() -> state(1, item(1, 1), item(0, 0)), INVALID_ORDER);
+        rejected(() -> request("d", 0, item(0, 0), item(1, 2)), INVALID_ORDER);
+        rejected(() -> request("d", 0, item(1, 1), item(0, 0)), INVALID_ORDER);
+        rejected(() -> request("d", 0, item(0, Integer.MAX_VALUE), item(1, 0)), INVALID_ORDER);
+        var fixed = new State(1, FormKind.FIXED, REFERENCE, 0, List.of(item(0, 0), item(1, 2)));
+        assertThat(fixed.items()).extracting(Item::position).containsExactly(0, 2);
+    }
+
+    @Test
+    void receiptsRetainTheOriginalRequestAndOneVersionAdvance() {
+        var request = request("d", 0, item(0, 0), item(1, 1));
+        var receipt = new Receipt(1, request, 1);
+        assertThat(receipt.request()).isSameAs(request);
+        assertThat(receipt.resultingFormVersion()).isEqualTo(1);
+        rejected(() -> new Receipt(1, null, 1), INVALID_RECEIPT);
+        rejected(() -> new Receipt(1, request, 0), INVALID_RECEIPT);
+        rejected(() -> new Receipt(1, request, 2), INVALID_RECEIPT);
+        rejected(() -> new Receipt(1, request("d", 0, item(0, 1)), 1), INVALID_RECEIPT);
+        rejected(() -> new Receipt(1, request("d", 2, item(0, 1)), 3), INVALID_RECEIPT);
+    }
+
+    @Test
+    void plansSeparateAppendWorkFromReplayWithoutCertifyingCommit() {
+        var receipt = new Receipt(1, request("d", 0, item(0, 0)), 1);
+        var append = new Plan(Outcome.APPEND, receipt);
+        var replay = new Plan(Outcome.REPLAY, receipt);
+        assertThat(append.itemsToAppend()).containsExactly(item(0, 0));
+        assertThat(replay.itemsToAppend()).isEmpty();
+        assertThat(replay.receipt()).isSameAs(append.receipt());
+        rejected(() -> new Plan(null, receipt), INVALID_INPUT);
+        rejected(() -> new Plan(Outcome.APPEND, null), INVALID_INPUT);
+    }
+
+    @Test
+    void diagnosticsExposeOnlyBoundedCategoriesAndCounts() {
+        var request = request("private-decision", 0, item(0, 0));
+        var receipt = new Receipt(1, request, 1);
+        var diagnostics = List.of(REFERENCE.toString(), REVISION.toString(), item(0, 0).toString(),
+                state(1, item(0, 0)).toString(), request.decision().toString(), request.toString(),
+                receipt.toString(), new Plan(Outcome.APPEND, receipt).toString());
+        assertThat(diagnostics).allSatisfy(text -> assertThat(text).doesNotContain(
+                REFERENCE.formId().toString(), REFERENCE.quizRevisionId().toString(), item(0, 0).id().toString(),
+                item(0, 0).sourceItemId().toString(), request.decision().id().toString(), request.decision().evidenceId().toString()));
+        for (var reason : ProgressiveFormAppendException.Reason.values()) {
+            var failure = new ProgressiveFormAppendException(reason);
+            assertThat(failure.reason()).isEqualTo(reason);
+            assertThat(failure).hasMessage("Progressive form append rejected: " + reason).hasNoCause();
+        }
+    }
+
+    static void rejected(Runnable action, ProgressiveFormAppendException.Reason reason) {
+        assertThatThrownBy(action::run).isInstanceOfSatisfying(ProgressiveFormAppendException.class,
+                failure -> assertThat(failure.reason()).isEqualTo(reason))
+                .hasMessage("Progressive form append rejected: " + reason).hasNoCause();
+    }
+}
