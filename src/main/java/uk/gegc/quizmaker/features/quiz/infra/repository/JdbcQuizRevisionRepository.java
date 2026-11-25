@@ -57,10 +57,33 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
     public void insert(QuizRevision revision) {
         Objects.requireNonNull(revision, "revision must not be null");
         try {
-            insertAggregate(revision);
+            if (revision.scenarioGraph() == null) {
+                insertAggregate(revision);
+            } else if (publishScenario(revision).replayed()) {
+                throw new RevisionIntegrityException(RevisionIntegrityException.Reason.IDENTITY_CONFLICT);
+            }
         } catch (DataAccessException failure) {
-            if (revision.schemaVersion() == 3 || revision.scenarioGraph() != null) throw SafeDataAccess.sanitize(failure);
+            if (revision.schemaVersion() == 3) throw SafeDataAccess.sanitize(failure);
             throw failure;
+        }
+    }
+
+    @Override
+    public ScenarioPublication publishScenario(QuizRevision revision) {
+        if (revision == null || revision.scenarioGraph() == null)
+            throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_CONTENT);
+        try {
+            if (scenarioGraphs.lockPublication(revision.id())) {
+                var saved = read(revision.ownerId(), List.of(revision.id()), true).stream().findFirst();
+                if (saved.isEmpty() || !saved.get().equals(revision))
+                    throw new RevisionIntegrityException(RevisionIntegrityException.Reason.IDENTITY_CONFLICT);
+                return new ScenarioPublication(saved.get(), true);
+            }
+            insertAggregate(revision);
+            scenarioGraphs.recordPublication(revision.id());
+            return new ScenarioPublication(revision, false);
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
         }
     }
 
@@ -311,9 +334,11 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
         return new MapSqlParameterSource().addValue("id", bytes(question.id()))
                 .addValue("questionId", bytes(question.questionId())).addValue("version", question.schemaVersion())
                 .addValue("type", question.type().name()).addValue("difficulty", question.difficulty().name())
-                .addValue("text", question.questionText()).addValue("content", question.content())
-                .addValue("hint", question.hint()).addValue("explanation", question.explanation())
-                .addValue("url", question.attachmentUrl()).addValue("assetId", bytes(question.attachmentAssetId()))
+                .addValue("text", PrivateSqlText.of(question.questionText()))
+                .addValue("content", PrivateSqlText.of(question.content()))
+                .addValue("hint", PrivateSqlText.of(question.hint()))
+                .addValue("explanation", PrivateSqlText.of(question.explanation()))
+                .addValue("url", PrivateSqlText.of(question.attachmentUrl())).addValue("assetId", bytes(question.attachmentAssetId()))
                 .addValue("created", Timestamp.from(question.createdAt()));
     }
 

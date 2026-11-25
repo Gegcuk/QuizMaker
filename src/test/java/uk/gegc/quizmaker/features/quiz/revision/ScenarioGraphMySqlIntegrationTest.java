@@ -27,7 +27,9 @@ import org.springframework.transaction.annotation.AnnotationTransactionAttribute
 import org.springframework.transaction.interceptor.TransactionInterceptor;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.attempt.application.impl.FixedFormMaterializerImpl;
+import uk.gegc.quizmaker.features.attempt.application.impl.FixedFormServiceImpl;
 import uk.gegc.quizmaker.features.attempt.application.impl.FormOptionOrderServiceImpl;
+import uk.gegc.quizmaker.features.attempt.domain.model.form.FixedFormException;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.FormMaterializationException;
 import uk.gegc.quizmaker.features.attempt.infra.repository.JdbcFixedFormRepository;
 import uk.gegc.quizmaker.features.attempt.infra.repository.JdbcFormOptionOrderRepository;
@@ -49,6 +51,7 @@ import uk.gegc.quizmaker.features.quiz.infra.repository.JdbcQuizRevisionReposito
 
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -68,6 +71,7 @@ class ScenarioGraphMySqlIntegrationTest {
     private static final String CATALOG = "revision_scenario_" + UUID.randomUUID().toString().replace("-", "");
     private static final String WHERE_REVISION = " WHERE quiz_revision_id=UUID_TO_BIN(?)";
     private static final List<String> GRAPH_TABLES = List.of("quiz_scenario_graphs", "quiz_scenario_nodes", "quiz_scenario_edges");
+    private static final String PUBLICATION_KEYS = "quiz_scenario_publication_keys";
     private static final List<QuizRevision> PREVIOUS_FORMATS = List.of(
             quiz("scenario-upgrade", question("scenario-upgrade")),
             QuizRevisionSectionsTest.structured("scenario-upgrade-sections"),
@@ -77,6 +81,7 @@ class ScenarioGraphMySqlIntegrationTest {
     private static SectionTestDataSource source;
     private static DataSourceTransactionManager manager;
     private static List<Map<String, Object>> beforeUpgrade;
+    private static QuizRevision retainedV128;
     private static boolean created;
     private QuizRevisionRepository repository;
     private QuizScenarioRevisionService publisher;
@@ -100,6 +105,15 @@ class ScenarioGraphMySqlIntegrationTest {
         PREVIOUS_FORMATS.forEach(baseline::insert);
         beforeUpgrade = rootRows();
         migrate("128");
+        var legacyEntry = id("scenario-v128-entry");
+        retainedV128 = new QuizRevision(id("scenario-v128"), id("scenario-v128-quiz"), OWNER, QuizRevision.SCENARIO_FORMAT,
+                "Previously sealed graph", null, CREATED, List.of(), List.of(), List.of(),
+                new ScenarioGraph(1, legacyEntry,
+                        List.of(new ScenarioGraph.Node(legacyEntry, 0, ScenarioGraph.NodeType.TERMINAL, null)), List.of()));
+        insertUnsealed(retainedV128.id(), retainedV128.quizId(), retainedV128.title());
+        insertNode(retainedV128.id(), legacyEntry, 0, "TERMINAL", null);
+        seal(retainedV128.id(), legacyEntry);
+        migrate("129");
     }
 
     @BeforeEach void start() {
@@ -118,14 +132,20 @@ class ScenarioGraphMySqlIntegrationTest {
     }
 
     @Test void migrationPreservesOldFormatsAndOldReadsDoNotLoadGraphTables() {
-        migrate("128");
+        migrate("129");
         assertThat(rootRows()).usingRecursiveComparison().isEqualTo(beforeUpgrade);
         List<UUID> ids = PREVIOUS_FORMATS.stream().map(QuizRevision::id).toList();
         assertThat(repository.findByIds(OWNER, ids)).containsExactlyElementsOf(PREVIOUS_FORMATS);
-        for (UUID id : ids) for (String table : GRAPH_TABLES) assertThat(count(table, id)).isZero();
+        for (UUID id : ids) {
+            for (String table : GRAPH_TABLES) assertThat(count(table, id)).isZero();
+            assertThat(count(PUBLICATION_KEYS, id)).isZero();
+        }
         source.selects.set(0);
         assertThat(repository.findById(OWNER, ids.get(0))).contains(PREVIOUS_FORMATS.get(0));
         assertThat(source.selects).hasValue(3);
+        assertThat(repository.findById(OWNER, retainedV128.id())).contains(retainedV128);
+        assertThat(publisher.publish(OWNER, retainedV128)).isEqualTo(retainedV128);
+        assertThat(count(PUBLICATION_KEYS, retainedV128.id())).isOne();
     }
 
     @Test void publishesOneGraphOnExactReplayAndRetainsOriginalAfterEditAndRestart() {
@@ -166,6 +186,7 @@ class ScenarioGraphMySqlIntegrationTest {
         fresh().executeWithoutResult(status -> {
             assertThat(repository.findById(OWNER, revision.id())).isEmpty();
             assertThat(count("quiz_revision_items", revision.id())).isZero();
+            assertThat(count(PUBLICATION_KEYS, revision.id())).isZero();
             for (String graphTable : GRAPH_TABLES) assertThat(count(graphTable, revision.id())).isZero();
             for (var item : revision.items()) {
                 assertThat(sql.queryForObject("SELECT COUNT(*) FROM question_revisions WHERE id=UUID_TO_BIN(?)",
@@ -176,17 +197,16 @@ class ScenarioGraphMySqlIntegrationTest {
         assertThat(repository.findById(OWNER, revision.id())).contains(revision);
     }
 
-    @Test void concurrentDifferentPutsHaveOneCompleteWinnerAndExactReplay() throws Exception {
-        var a = scenario("racing", 3, CONDITION);
-        var b = changedCondition(a);
-        // Both contenders reach the root insert without competing to create a shared question row first.
-        repository.insert(quiz("scenario-race-source", a.items().stream()
-                .map(QuizRevision.Item::question).toArray(QuestionRevision[]::new)));
-        var atInsert = new CountDownLatch(2);
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void concurrentPutsCompareAgainstOneCompleteWinner(boolean identical) throws Exception {
+        var a = scenario("racing-" + identical, 3, CONDITION);
+        var b = identical ? a : changedCondition(a);
+        var atKey = new CountDownLatch(2);
         var release = new CountDownLatch(1);
         source.before = (statement, connection) -> {
-            if (!statement.startsWith("INSERT INTO quiz_revisions")) return;
-            atInsert.countDown();
+            if (!statement.startsWith("INSERT INTO " + PUBLICATION_KEYS)) return;
+            atKey.countDown();
             try {
                 if (!release.await(30, TimeUnit.SECONDS)) throw new SQLException("Test insert gate was not released");
             } catch (InterruptedException failure) {
@@ -198,20 +218,49 @@ class ScenarioGraphMySqlIntegrationTest {
         try {
             var left = workers.submit(() -> racePut(a));
             var right = workers.submit(() -> racePut(b));
-            assertThat(atInsert.await(30, TimeUnit.SECONDS)).isTrue();
+            assertThat(atKey.await(30, TimeUnit.SECONDS)).isTrue();
             release.countDown();
             var outcomes = List.of(left.get(30, TimeUnit.SECONDS), right.get(30, TimeUnit.SECONDS));
             var winner = outcomes.stream().filter(QuizRevision.class::isInstance).map(QuizRevision.class::cast).toList();
-            assertThat(winner).hasSize(1);
-            assertThat(outcomes).contains(RevisionIntegrityException.Reason.IDENTITY_CONFLICT);
+            if (identical) assertThat(outcomes).containsExactly(a, a);
+            else {
+                assertThat(winner).hasSize(1);
+                assertThat(outcomes).contains(RevisionIntegrityException.Reason.IDENTITY_CONFLICT);
+            }
             restart();
             assertThat(repository.findById(OWNER, a.id())).contains(winner.get(0));
             assertThat(publisher.publish(OWNER, winner.get(0))).isEqualTo(winner.get(0));
             assertThat(count("quiz_scenario_graphs", a.id())).isEqualTo(1);
+            assertThat(count(PUBLICATION_KEYS, a.id())).isOne();
         } finally {
             release.countDown();
             workers.shutdownNow();
             assertThat(workers.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test void exactReplayUsesTheCommittedGraphEvenInAnOlderCallerSnapshot() throws Exception {
+        var revision = scenario("scenario-stale-snapshot", 2, CONDITION);
+        var caller = new TransactionTemplate(manager);
+        caller.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        var worker = Executors.newSingleThreadExecutor();
+        try {
+            caller.executeWithoutResult(status -> {
+                assertThat(repository.findById(OWNER, revision.id())).isEmpty();
+                try {
+                    assertThat(worker.submit(() -> publisher.publish(OWNER, revision)).get(30, TimeUnit.SECONDS))
+                            .isEqualTo(revision);
+                } catch (Exception failure) {
+                    throw new AssertionError("Publication must commit in a separate transaction", failure);
+                }
+                assertThat(repository.findById(OWNER, revision.id())).isEmpty();
+                assertThat(publisher.publish(OWNER, revision)).isEqualTo(revision);
+                assertThat(repository.findById(OWNER, revision.id())).isEmpty();
+            });
+            assertThat(repository.findById(OWNER, revision.id())).contains(revision);
+        } finally {
+            worker.shutdownNow();
+            assertThat(worker.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
         }
     }
 
@@ -252,6 +301,7 @@ class ScenarioGraphMySqlIntegrationTest {
         fresh().executeWithoutResult(status -> {
             assertThat(repository.findById(OWNER, first.id())).isEmpty();
             for (String table : GRAPH_TABLES) assertThat(count(table, first.id())).isZero();
+            assertThat(count(PUBLICATION_KEYS, first.id())).isZero();
             assertThat(repository.findById(OWNER, peer.id())).contains(peer);
         });
     }
@@ -272,11 +322,7 @@ class ScenarioGraphMySqlIntegrationTest {
 
         var partial = id("unsealed-scenario");
         var localNode = id("unsealed-node");
-        sql.update("INSERT INTO quiz_revisions(id,quiz_id,owner_id,schema_version,title,created_at) "
-                + "VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),4,'Partial fixture',?)",
-                partial.toString(), revision.quizId().toString(), OWNER.toString(), Timestamp.from(CREATED));
-        sql.update("INSERT INTO quiz_scenario_graphs (quiz_revision_id,schema_version,item_count,node_count,edge_count) "
-                + "VALUES(UUID_TO_BIN(?),1,0,1,0)", partial.toString());
+        insertUnsealed(partial, revision.quizId(), "Partial fixture");
         sqlRejected(() -> seal(partial, localNode));
         sqlRejected(() -> insertNode(partial, localNode, 0, "ITEM", revision.items().get(0).id()));
         sqlRejected(() -> insertNode(partial, localNode, 0, "TERMINAL ", null));
@@ -331,14 +377,62 @@ class ScenarioGraphMySqlIntegrationTest {
         assertThat(repository.findById(OWNER, graph.id())).contains(graph);
     }
 
-    @Test void jdbcParameterTraceOmitsStoredCondition() {
+    @Test void sharedFormWriterRejectsScenarioThroughBothServicesAndPreservesFormatsOneToThree() {
+        var named = new NamedParameterJdbcTemplate(source);
+        var registry = new QuestionContractRegistryImpl(List.of(new FamilyResponseContractV1(QuestionType.MCQ_SINGLE)),
+                List.of(new FamilyScoringContractV1(QuestionType.MCQ_SINGLE)), metrics);
+        var contracts = new QuestionRevisionContractServiceImpl(proxy(new JdbcQuestionContractBindingRepository(named)), registry, manager);
+        var forms = proxy(new JdbcFixedFormRepository(named));
+        var fixed = new FixedFormServiceImpl(forms, manager, metrics);
+        var orders = proxy(new JdbcFormOptionOrderRepository(named));
+        var ordering = new FormOptionOrderServiceImpl(repository, contracts, forms, orders, manager, metrics);
+        var graph = scenario("scenario-shared-form-denial", 2, CONDITION);
+        publisher.publish(OWNER, graph);
+        var revisions = new ArrayList<>(PREVIOUS_FORMATS);
+        revisions.add(graph);
+        for (var revision : revisions) {
+            contracts.bind(OWNER, revision.id(), revision.items().stream()
+                    .map(item -> BaselineQuestionContracts.binding(item.question())).toList());
+        }
+        for (var revision : PREVIOUS_FORMATS) {
+            var command = QuizRevisionCasesMySqlIntegrationTest.flatCommand(revision);
+            assertThat(fixed.createOrReplay(OWNER, command.form())).isEqualTo(command.form());
+            assertThat(ordering.createOrReplay(OWNER, command.form(), command.answerOrdering()).items())
+                    .hasSize(command.form().items().size());
+        }
+        var command = QuizRevisionCasesMySqlIntegrationTest.flatCommand(graph);
+        assertThatThrownBy(() -> fixed.createOrReplay(OWNER, command.form()))
+                .isInstanceOf(FixedFormException.class).hasMessageContaining("REVISION_UNAVAILABLE");
+        assertThatThrownBy(() -> ordering.createOrReplay(OWNER, command.form(), command.answerOrdering()))
+                .isInstanceOf(FixedFormException.class).hasMessageContaining("REVISION_UNAVAILABLE");
+        fresh().executeWithoutResult(status -> {
+            assertThat(forms.findByIds(OWNER, List.of(command.form().id()))).isEmpty();
+            assertThat(count("attempt_form", graph.id())).isZero();
+        });
+    }
+
+    @Test void jdbcParameterTraceOmitsNewQuestionAndConditionContent() {
+        String questionMarker = "private-question-marker";
+        String answerMarker = "private-answer-marker";
+        String explanationMarker = "private-explanation-marker";
+        String conditionMarker = "scenario-condition-marker";
+        var base = scenario("scenario-private-parameter", 2, CONDITION);
+        var first = base.items().get(0);
+        var question = first.question();
+        var privateQuestion = new QuestionRevision(question.id(), question.questionId(), question.schemaVersion(),
+                question.type(), question.difficulty(), questionMarker,
+                question.content().replace("Paris", answerMarker), question.hint(), explanationMarker,
+                question.attachmentUrl(), question.attachmentAssetId(), question.createdAt(), question.options());
+        var revision = new QuizRevision(base.id(), base.quizId(), base.ownerId(), base.schemaVersion(),
+                base.title(), base.description(), base.createdAt(),
+                List.of(new QuizRevision.Item(first.id(), first.authoredPosition(), privateQuestion), base.items().get(1)),
+                List.of(), List.of(), base.scenarioGraph());
         var logger = (Logger) LoggerFactory.getLogger(StatementCreatorUtils.class);
         var prior = logger.getLevel();
         var capture = new ListAppender<ILoggingEvent>();
         capture.start();
         logger.addAppender(capture);
         logger.setLevel(Level.TRACE);
-        var revision = scenario("scenario-private-parameter", 2, CONDITION);
         try {
             assertThat(publisher.publish(OWNER, revision)).isEqualTo(revision);
         } finally {
@@ -347,9 +441,11 @@ class ScenarioGraphMySqlIntegrationTest {
             capture.stop();
         }
         assertThat(capture.list).extracting(ILoggingEvent::getFormattedMessage)
-                .anyMatch(message -> message.contains("[scenario condition]"))
-                .noneMatch(message -> message.contains(CONDITION));
+                .anyMatch(message -> message.contains("[private revision text]"))
+                .noneMatch(message -> message.contains(questionMarker) || message.contains(answerMarker)
+                        || message.contains(explanationMarker) || message.contains(conditionMarker));
         assertThat(repository.findById(OWNER, revision.id())).contains(revision);
+        assertThat(publisher.publish(OWNER, revision)).isEqualTo(revision);
     }
 
     private Object racePut(QuizRevision revision) {
@@ -408,6 +504,14 @@ class ScenarioGraphMySqlIntegrationTest {
     private static void seal(UUID root, UUID node) {
         sql.update("UPDATE quiz_scenario_graphs SET entry_node_id=UUID_TO_BIN(?)" + WHERE_REVISION,
                 node.toString(), root.toString());
+    }
+
+    private static void insertUnsealed(UUID revisionId, UUID quizId, String title) {
+        sql.update("INSERT INTO quiz_revisions(id,quiz_id,owner_id,schema_version,title,created_at) "
+                        + "VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),4,?,?)",
+                revisionId.toString(), quizId.toString(), OWNER.toString(), title, Timestamp.from(CREATED));
+        sql.update("INSERT INTO quiz_scenario_graphs (quiz_revision_id,schema_version,item_count,node_count,edge_count) "
+                + "VALUES(UUID_TO_BIN(?),1,0,1,0)", revisionId.toString());
     }
 
     private static void rejected(Runnable action, String reason) {

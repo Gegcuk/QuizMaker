@@ -30,6 +30,8 @@ public record ScenarioGraph(int schemaVersion, UUID entryNodeId, List<Node> node
             require(id != null && fromNodeId != null && toNodeId != null && authoredPosition >= 0 && type != null);
             require(type == EdgeType.CONDITIONAL
                     ? conditionVersion != null && conditionVersion > 0 && condition != null && !condition.isEmpty()
+                        && condition.codePoints().noneMatch(value -> value >= Character.MIN_SURROGATE
+                                && value <= Character.MAX_SURROGATE)
                     : conditionVersion == null && condition == null);
         }
 

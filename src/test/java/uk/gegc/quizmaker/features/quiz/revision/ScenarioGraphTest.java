@@ -21,7 +21,7 @@ import static uk.gegc.quizmaker.features.quiz.domain.model.revision.ScenarioGrap
 import static uk.gegc.quizmaker.features.quiz.revision.RevisionFixtures.*;
 
 class ScenarioGraphTest {
-    static final String CONDITION = "  { \"private\": \"Приватный переход\" } \n";
+    static final String CONDITION = "  { \"private\": \"scenario-condition-marker 🧭\" } \n";
 
     @Test void graphOwnsStableIdentitiesOrderAndConditionEvidence() {
         var original = scenario("ordered", 2, CONDITION).scenarioGraph();
@@ -58,6 +58,8 @@ class ScenarioGraphTest {
         bad(() -> new Node(end.id(), 2, TERMINAL, node.itemId()));
         bad(() -> new Edge(edge.id(), node.id(), end.id(), 0, CONDITIONAL, null, CONDITION));
         bad(() -> new Edge(edge.id(), node.id(), end.id(), 0, DEFAULT, 1, CONDITION));
+        bad(() -> new Edge(edge.id(), node.id(), end.id(), 0, CONDITIONAL, 1, "high-" + (char) 0xD800));
+        bad(() -> new Edge(edge.id(), node.id(), end.id(), 0, CONDITIONAL, 1, "low-" + (char) 0xDC00));
         assertThatThrownBy(() -> new ScenarioGraph(9, graph.entryNodeId(), graph.nodes(), graph.edges()))
                 .isInstanceOf(RevisionIntegrityException.class).hasMessageContaining("UNSUPPORTED_VERSION");
     }

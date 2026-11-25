@@ -2,12 +2,10 @@ package uk.gegc.quizmaker.features.quiz.infra.repository;
 
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.jdbc.support.SqlValue;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.ScenarioGraph;
 
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -26,6 +24,25 @@ final class JdbcScenarioGraphs {
 
     JdbcScenarioGraphs(NamedParameterJdbcTemplate jdbc) {
         this.jdbc = jdbc;
+    }
+
+    boolean lockPublication(UUID revisionId) {
+        var parameters = parameters(revisionId);
+        jdbc.update("""
+                INSERT INTO quiz_scenario_publication_keys (quiz_revision_id) VALUES (:revision)
+                ON DUPLICATE KEY UPDATE quiz_revision_id=quiz_scenario_publication_keys.quiz_revision_id
+                """, parameters);
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT published_revision_id IS NOT NULL FROM quiz_scenario_publication_keys
+                WHERE quiz_revision_id=:revision FOR UPDATE
+                """, parameters, Boolean.class));
+    }
+
+    void recordPublication(UUID revisionId) {
+        jdbc.update("""
+                UPDATE quiz_scenario_publication_keys SET published_revision_id=quiz_revision_id
+                WHERE quiz_revision_id=:revision
+                """, parameters(revisionId));
     }
 
     void begin(QuizRevision revision) {
@@ -60,7 +77,7 @@ final class JdbcScenarioGraphs {
                 .addValue("source", bytes(edge.fromNodeId())).addValue("target", bytes(edge.toNodeId()))
                 .addValue("position", edge.authoredPosition()).addValue("type", edge.type().name())
                 .addValue("conditionVersion", edge.conditionVersion())
-                .addValue("condition", edge.condition() == null ? null : new PrivateCondition(edge.condition()))).toList());
+                .addValue("condition", PrivateSqlText.of(edge.condition()))).toList());
 
         jdbc.update("UPDATE quiz_scenario_graphs SET entry_node_id=:entry WHERE quiz_revision_id=:revision",
                 parameters(root).addValue("entry", bytes(graph.entryNodeId())));
@@ -122,13 +139,4 @@ final class JdbcScenarioGraphs {
     }
 
     private record Header(UUID root, int version, UUID entry, int items, int nodes, int edges) { }
-
-    /** JDBC TRACE logging may describe a parameter before the driver binds it. */
-    private record PrivateCondition(String value) implements SqlValue {
-        @Override public void setValue(PreparedStatement statement, int index) throws SQLException {
-            statement.setString(index, value);
-        }
-        @Override public void cleanup() { }
-        @Override public String toString() { return "[scenario condition]"; }
-    }
 }

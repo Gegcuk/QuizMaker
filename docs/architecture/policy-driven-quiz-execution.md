@@ -5592,15 +5592,19 @@ opaque payload for the future validator. A default edge has neither.
 already authorized the quiz and its source content. It joins the caller's transaction. Revision,
 items, nodes, edges and sealing the graph at its entry node commit together. Database constraints require
 same-revision references, including the entry point, and seal the published graph and its item
-membership. Exact replay returns the saved revision. Changed content under the same revision ID
-conflicts. An edit uses a new revision ID, so a retained reference still resolves the original graph.
+membership. Publication takes a transactional key scoped to the revision ID before writing
+questions or graph rows. An exact replay reads the committed winner, including from an older
+caller snapshot, and returns the saved revision. Different content under the same ID conflicts.
+The key and graph commit or roll back together. An edit uses a new revision ID, so a retained
+reference still resolves the original graph.
 An incomplete or corrupt graph fails closed on read. Formats 1–3 keep their existing meanings
 and require no graph rows or backfill.
 
 Format 4 is available through the internal revision boundary. The existing public publication and
-participant APIs keep their current contracts. Fixed-form consumers reject format 4. The graph
-writer preserves structural identity and references. #573 owns executable topology and condition
-validation. #574 owns real execution and needs format 4 support in its composition with the
+participant APIs keep their current contracts. The shared fixed-form writer rejects format 4.
+The graph writer preserves structural identity and references, rejects malformed Unicode in
+conditions, and keeps question and condition text out of JDBC parameter diagnostics. #573 owns
+executable topology and condition validation. #574 owns real execution and needs format 4 support in its composition with the
 existing #661 append contract. Authoring transport, participant path disclosure and public
 conformance are later boundaries. Scenario revisions inherit the quiz revision retention class
 under #664. Recovery after graph writes uses forward fixes.
