@@ -5846,7 +5846,10 @@ schedule, form, receipt, rate debit, assessment mutation or schema migration is 
 The [owner-approved selection rules](decision-register.md#learning-history-selection) use
 the latest accepted answer in a completed target attempt for `INCORRECT_ONLY`. Ordering by
 acceptance time and unsigned response UUID is independent of result-worker completion time.
-Missing answers never become incorrect answers. `UNSEEN_ONLY` instead excludes any accepted
+Missing answers never become incorrect answers. Rank accepted answers before joining optional
+grades: a submitted attempt with no accepted answers does not block history while its result is
+pending, and a superseded pending answer cannot replace the latest accepted evidence. A pending
+result for the latest accepted answer remains unavailable. `UNSEEN_ONLY` instead excludes any accepted
 target answer, including active attempts, and actual Learning responses. It does not infer
 answers from enrollment, a self-rating event alone, a displayed form or mutable legacy data.
 Each question revision appears once, at its first authored occurrence. Selection has bounded
@@ -5857,7 +5860,12 @@ and one statement snapshot for compatibility, latest evidence and candidate sele
 answers or unexpected old repetition in that source yield `LEGACY_UNKNOWN`. Unknown/corrupt
 stored contract headers yield `UNSUPPORTED`; missing source adapters or unavailable result
 evidence yield `SOURCE_UNAVAILABLE`. These are explicit empty selections, distinct from an
-exhausted `COMPLETE` history. Persistence failures remain sanitized typed failures. No alternate
+exhausted `COMPLETE` history. Before incorrect-answer filtering or pagination, the same statement
+validates all grades of each result referenced by the latest accepted answers: count and position
+bounds must match its possible points, and earned-point sums must match its total. Contradictory
+aggregates or a missing grade in an existing result raise sanitized `CORRUPT` without source
+repair. Persistence failures remain sanitized typed failures. Bounded metrics classify validation,
+access, integrity and storage failures by their actual reason. No alternate
 mode is tried. Future consumers must revalidate and persist their own fixed form; a cursor is
 not a durable history snapshot or an access grant.
 

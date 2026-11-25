@@ -134,4 +134,34 @@ class LearningHistorySelectionTest {
         assertThat(result.toString()+value+request(Mode.UNSEEN_ONLY,1,result.next()))
                 .doesNotContain(value.questionRevisionId().toString(),SOURCE.quizId().toString());
     }
+
+    @Test void failureMetricsDistinguishValidationAccessAndPersistence() {
+        rejected(() -> service.select(request(Mode.INCORRECT_ONLY,0,null)),INVALID_INPUT);
+        assertThat(metric("invalid_input")).isOne(); assertThat(metric("persistence_unavailable")).isZero();
+        verifyNoInteractions(users,access,mistakes,unseen);
+
+        when(access.allows(ANNA,SOURCE)).thenReturn(false);
+        rejected(() -> service.select(request(Mode.INCORRECT_ONLY,1,null)),SOURCE_UNAVAILABLE);
+        assertThat(metric("source_unavailable")).isOne(); assertThat(metric("persistence_unavailable")).isZero();
+        when(access.allows(ANNA,SOURCE)).thenReturn(true);
+        when(mistakes.mistakes(ANNA,SOURCE,-1,2)).thenThrow(new org.springframework.dao.DataAccessResourceFailureException("private-storage-diagnostic"));
+        rejected(() -> service.select(request(Mode.INCORRECT_ONLY,1,null)),PERSISTENCE_UNAVAILABLE);
+        assertThat(metric("persistence_unavailable")).isOne();
+    }
+
+    @Test void lockConflictsKeepTheirBoundedMetricCategory() {
+        for(int code:List.of(1213,1205)) {
+            doThrow(new IllegalStateException(new java.sql.SQLException("private-driver-diagnostic","HY000",code)))
+                    .when(mistakes).mistakes(ANNA,SOURCE,-1,2);
+            assertThatThrownBy(() -> service.select(request(Mode.INCORRECT_ONLY,1,null)))
+                    .isInstanceOf(uk.gegc.quizmaker.shared.exception.DatabaseConflictException.class);
+        }
+        assertThat(metric("retryable")).isOne(); assertThat(metric("in_progress")).isOne();
+        assertThat(metric("persistence_unavailable")).isZero();
+    }
+
+    double metric(String outcome) {
+        var counter=metrics.find("quizmaker.learning.history.selection").tags("version","1","outcome",outcome).counter();
+        return counter==null ? 0 : counter.count();
+    }
 }

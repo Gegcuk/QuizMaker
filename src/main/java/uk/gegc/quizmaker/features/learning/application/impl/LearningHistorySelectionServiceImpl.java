@@ -55,7 +55,10 @@ public class LearningHistorySelectionServiceImpl implements LearningHistorySelec
                     : result.availability().name().toLowerCase(Locale.ROOT);
             return result;
         } catch (RuntimeException failure) {
-            throw sanitized(failure);
+            var safe = sanitized(failure);
+            outcome = safe instanceof LearningSessionException known ? known.reason().name().toLowerCase(Locale.ROOT)
+                    : safe instanceof DatabaseConflictException conflict ? conflict.outcome() : "persistence_unavailable";
+            throw safe;
         } finally {
             try { metrics.counter("quizmaker.learning.history.selection", "version", "1", "outcome", outcome).increment(); }
             catch (RuntimeException ignored) { /* Optional telemetry cannot change the read outcome. */ }

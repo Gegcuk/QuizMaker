@@ -11,7 +11,15 @@ The conformance class already belongs to the existing context inventory.
 
 - The real publication binder, canonical assessment start/accept/submit, #603 result and #556
   release writers supply mistake history. A later correct answer removes a mistake; a later
-  unanswered submission does not. Reads preserve assessment and Learning table checksums.
+  unanswered submission does not, including the interval before its result worker runs. Only a
+  pending result for the latest accepted answer blocks selection; a superseded pending answer
+  and later completion of its worker do not change the selected evidence.
+- Result integrity is checked before incorrect-answer filtering and pagination: changed earned
+  points, missing grades and noncontiguous positions produce `CORRUPT`, including an exhausted
+  cursor. All grades of a referenced result contribute to validation, even when some answers
+  have since been superseded. The real #603 reader independently rejects corrupted fixtures;
+  restoring them restores selection. Reads preserve assessment and Learning table checksums
+  and never repair source history.
 - Real Learning enrollment/delivery leaves questions unanswered. An actual HTTP response removes
   only that exact question revision; a later publication has separate state and old reads retain
   their captured identity. No assessment facts are repurposed as Learning grades.
@@ -21,9 +29,13 @@ The conformance class already belongs to the existing context inventory.
 - Self/current-source authority, anonymous/foreign denial, RC participation and incompatible
   outer isolation are checked alongside successful controls. Unit tests cover configuration,
   unknown versions, bounded continuation, unavailable adapters, sanitized failures and diagnostics.
+  Invalid input, denied source access, lock conflicts and reached storage faults retain separate
+  bounded metric outcomes; invalid input executes no SQL and does not count as storage failure.
 - The measured JDBC adapter reads one then four real assessment parents on the same publication.
   Its permission probe and history query return bounded candidate metadata, without per-question
-  statements or normalized response/content reads. MySQL still examines/sorts source history;
+  statements or normalized response/content reads. The same query batches grade count, point sum
+  and position bounds for referenced result roots. A real `EXPLAIN FORMAT=JSON` plan is retained
+  in the test report. MySQL still examines/sorts source history;
   statement counts alone do not establish constant work. No JPA relationship read is added.
 
 The implementation is internal only. It changes no public HTTP operation, so no new Postman

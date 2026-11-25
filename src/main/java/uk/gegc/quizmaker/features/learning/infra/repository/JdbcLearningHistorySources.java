@@ -56,7 +56,9 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
             // Compatibility, latest answers, absence checks and selection share ONE RC statement snapshot.
             // Window scans/sorts can grow with this source's history; LIMIT bounds returned metadata only.
             var rows = jdbc.query(QUERY, p, (row,n) -> {
-                var availability = Availability.valueOf(row.getString("availability"));
+                String classification = row.getString("availability");
+                require(!"CORRUPT".equals(classification), CORRUPT);
+                var availability = Availability.valueOf(classification);
                 if (row.getString("source_item") == null) return new Batch(availability, List.of());
                 require(availability == Availability.COMPLETE, CORRUPT);
                 Evidence evidence = null;
@@ -102,6 +104,7 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
                     l.answer_collection_state, r.id result_id, r.schema_version result_version,
                     r.scoring_contract, r.quiz_revision_id result_revision, r.form_id result_form,
                     r.policy_snapshot_id result_policy, r.policy_hash result_hash, r.created_at result_at,
+                    r.earned_points result_earned, r.possible_points result_possible,
                     p.schema_version policy_version, p.resolver_version, p.canonical_version, p.hash_algorithm,
                     p.quiz_revision_id policy_revision, p.policy_hash,
                     p.policy_hash=SHA2(p.canonical_json,256) policy_integrity,
@@ -116,13 +119,24 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
                 LEFT JOIN attempt_automatic_result r ON r.attempt_id=s.attempt_id
                 WHERE s.user_id=UUID_TO_BIN(:learner) AND f.quiz_revision_id=UUID_TO_BIN(:revision)
             ), history AS (
-                SELECT a.question_revision_id, a.id response_id, a.accepted_at, g.earned_points, o.*,
+                SELECT a.question_revision_id, a.id response_id, a.accepted_at, g.earned_points,
+                    g.response_id graded_response_id, o.*,
                     ROW_NUMBER() OVER (PARTITION BY a.question_revision_id ORDER BY a.accepted_at DESC,a.id DESC) rn
                 FROM own_attempts o JOIN attempt_accepted_response a ON a.attempt_id=o.attempt_id AND a.form_id=o.form_id
-                JOIN attempt_automatic_grade g ON g.result_id=o.result_id AND g.response_id=a.id
+                LEFT JOIN attempt_automatic_grade g ON g.result_id=o.result_id AND g.response_id=a.id
                     AND g.question_revision_id=a.question_revision_id AND g.form_id=a.form_id AND g.form_item_id=a.form_item_id
                 WHERE o.execution_state='SUBMITTED'
-            ), latest AS (SELECT * FROM history WHERE rn=1), availability AS (
+            ), latest AS (SELECT * FROM history WHERE rn=1), result_integrity AS (
+                -- Validate whole referenced results before correctness, cursor or limit can hide corruption.
+                -- Unique result/position and result/item keys make count + endpoints prove contiguous positions.
+                SELECT roots.result_id, (COUNT(g.form_item_id)=roots.result_possible
+                    AND COALESCE(SUM(g.earned_points),0)=roots.result_earned
+                    AND MIN(g.position)=0 AND MAX(g.position)=roots.result_possible-1) valid
+                FROM (SELECT DISTINCT result_id,result_earned,result_possible FROM latest
+                    WHERE :mistakes AND :resultAccess AND result_id IS NOT NULL) roots
+                LEFT JOIN attempt_automatic_grade g ON g.result_id=roots.result_id
+                GROUP BY roots.result_id,roots.result_earned,roots.result_possible
+            ), availability AS (
                 SELECT CASE
                   WHEN EXISTS(SELECT 1 FROM attempts a JOIN answers answer_row ON answer_row.attempt_id=a.id
                       WHERE a.user_id=UUID_TO_BIN(:learner) AND a.quiz_id=UUID_TO_BIN(:quiz))
@@ -140,11 +154,12 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
                         AND o.result_revision=UUID_TO_BIN(:revision) AND o.result_form=o.form_id
                         AND o.result_policy=o.policy_snapshot_id AND o.result_hash=o.policy_hash))) IS TRUE)
                     THEN 'UNSUPPORTED'
+                  WHEN :mistakes AND :resultAccess AND (
+                      EXISTS(SELECT 1 FROM result_integrity WHERE valid IS NOT TRUE)
+                      OR EXISTS(SELECT 1 FROM latest WHERE result_id IS NOT NULL AND graded_response_id IS NULL))
+                    THEN 'CORRUPT'
                   WHEN (NOT :resultAccess AND EXISTS(SELECT 1 FROM own_attempts)) OR (:mistakes AND (
-                      EXISTS(SELECT 1 FROM own_attempts o WHERE o.execution_state='SUBMITTED' AND o.result_id IS NULL)
-                      OR EXISTS(SELECT 1 FROM own_attempts o JOIN attempt_accepted_response a ON a.attempt_id=o.attempt_id
-                          LEFT JOIN attempt_automatic_grade g ON g.result_id=o.result_id AND g.response_id=a.id
-                          WHERE o.execution_state='SUBMITTED' AND g.response_id IS NULL)
+                      EXISTS(SELECT 1 FROM latest WHERE result_id IS NULL OR graded_response_id IS NULL)
                       OR EXISTS(SELECT 1 FROM latest h LEFT JOIN attempt_result_release published ON published.result_id=h.result_id
                           LEFT JOIN attempt_trace_event release_trace ON release_trace.event_id=published.id
                           WHERE published.id IS NULL OR published.schema_version<>1 OR published.released_at<h.result_at

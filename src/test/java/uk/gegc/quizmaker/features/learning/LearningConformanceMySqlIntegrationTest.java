@@ -870,6 +870,15 @@ class LearningConformanceMySqlIntegrationTest {
             reporter.publishEntry("history-parents-"+parents,"statements=2; selectedRows=3; candidates=2");
             assertThat(String.join(" ",observed.statements.get())).doesNotContain("normalized_response","response_json","question_text","SELECT * FROM question");
         }
+        // Retain the actual metadata-query plan for inspection; CTE scans are not a constant-work claim.
+        String historyQuery=(String)org.springframework.test.util.ReflectionTestUtils.getField(adapter,"QUERY");
+        var planParameters=new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("learner",anna.id().toString())
+                .addValue("quiz",source.quizId().toString()).addValue("revision",source.revisionId().toString())
+                .addValue("after",-1).addValue("take",2).addValue("mistakes",true).addValue("resultAccess",true);
+        String plan=new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(sql)
+                .queryForObject("EXPLAIN FORMAT=JSON "+historyQuery,planParameters,String.class);
+        assertThat(plan).contains("query_block");
+        System.out.println("history-query-plan: "+plan);
         observed.reset(); observed.failAfter.set("WITH own_attempts");
         assertThatThrownBy(() -> measuredTx.execute(s -> adapter.mistakes(anna.id(),historySource(source),-1,2)))
                 .isInstanceOf(org.springframework.dao.DataAccessException.class).hasMessageNotContaining("private-answer-driver");
@@ -879,6 +888,143 @@ class LearningConformanceMySqlIntegrationTest {
         sql.update("UPDATE quizzes SET creator_id=UUID_TO_BIN(?) WHERE quiz_id=UUID_TO_BIN(?)",bob.id().toString(),source.quizId().toString());
         assertThatThrownBy(() -> history(anna,source,mode,1,null))
                 .isInstanceOf(LearningSessionException.class);
+    }
+
+    @Test
+    void historyPendingResultsOnlyBlockTheLatestAcceptedAnswers() {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First");
+        historyAttempt(anna,source,List.of(false),true);
+        var before=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+        assertThat(before.availability()).isEqualTo(Availability.COMPLETE); assertThat(before.items()).hasSize(1);
+        CLOCK.set(now.plusSeconds(1));
+        UUID empty=historySubmittedAttempt(anna,source,List.of());
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_accepted_response WHERE attempt_id=UUID_TO_BIN(?)",Integer.class,empty.toString())).isZero();
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_automatic_result WHERE attempt_id=UUID_TO_BIN(?)",Integer.class,empty.toString())).isZero();
+        var pendingEmpty=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+        assertThat(pendingEmpty.availability()).isEqualTo(Availability.COMPLETE);
+        assertThat(pendingEmpty.items()).containsExactlyElementsOf(before.items());
+        finishHistoryAttempt(empty,true);
+        assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(before.items());
+
+        CLOCK.set(now.plusSeconds(2));
+        UUID pendingAnswer=historySubmittedAttempt(anna,source,List.of(true));
+        var pending=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+        assertThat(pending.availability()).isEqualTo(Availability.SOURCE_UNAVAILABLE); assertThat(pending.items()).isEmpty();
+        CLOCK.set(now.plusSeconds(3));
+        UUID later=historyAttempt(anna,source,List.of(false),true);
+        var superseding=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+        assertThat(superseding.availability()).isEqualTo(Availability.COMPLETE);
+        assertThat(superseding.items()).hasSize(1); assertThat(superseding.items().get(0).evidence().attemptId()).isEqualTo(later);
+        // Completing an older worker later cannot replace the later accepted answer.
+        CLOCK.set(now.plusSeconds(4)); finishHistoryAttempt(pendingAnswer,true);
+        assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(superseding.items());
+    }
+
+    @Test
+    void historyContradictoryGradesFailBeforeFilteringAndRecoverWithoutRepair() {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First"); UUID attempt=historyAttempt(anna,source,List.of(false),true);
+        var baseline=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+        assertThat(baseline.items()).hasSize(1);
+        UUID submission=historySubmissionId(attempt);
+        UUID result=baseline.items().get(0).evidence().resultId();
+        var original=sql.queryForMap("SELECT * FROM attempt_automatic_grade WHERE result_id=UUID_TO_BIN(?)",result.toString());
+        for(String fault:List.of("points","position","missing")) {
+            try {
+                switch(fault) {
+                    case "points" -> sql.update("UPDATE attempt_automatic_grade SET earned_points=1 WHERE result_id=UUID_TO_BIN(?)",result.toString());
+                    case "position" -> sql.update("UPDATE attempt_automatic_grade SET position=2 WHERE result_id=UUID_TO_BIN(?)",result.toString());
+                    case "missing" -> sql.update("DELETE FROM attempt_automatic_grade WHERE result_id=UUID_TO_BIN(?)",result.toString());
+                    default -> throw new AssertionError(fault);
+                }
+                assertThatThrownBy(() -> automaticResults.finalizeSubmission(submission))
+                        .isInstanceOfSatisfying(uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.class,
+                            e -> assertThat(e.reason()).isEqualTo(uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.Reason.CORRUPT));
+                var outside=checksumsOutsideLearning(); var learning=learningChecksums();
+                for(Cursor after:java.util.Arrays.asList(null,new Cursor(1,historySource(source),Mode.INCORRECT_ONLY,Integer.MAX_VALUE)))
+                    assertThatThrownBy(() -> history(anna,source,Mode.INCORRECT_ONLY,1,after))
+                            .isInstanceOfSatisfying(LearningSessionException.class,
+                                e -> assertThat(e.reason()).isEqualTo(LearningSessionException.Reason.CORRUPT));
+                assertThat(checksumsOutsideLearning()).isEqualTo(outside); assertThat(learningChecksums()).isEqualTo(learning);
+            } finally {
+                sql.update("DELETE FROM attempt_automatic_grade WHERE result_id=UUID_TO_BIN(?)",result.toString());
+                restoreHistoryGrade(original);
+            }
+            assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(baseline.items());
+            assertThat(automaticResults.finalizeSubmission(submission).score().earned()).isZero();
+        }
+    }
+
+    @Test
+    void historyAggregateValidationIncludesNonLatestGradesOfAReferencedResult() {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First","Second"); UUID first=historyAttempt(anna,source,List.of(false,false),true);
+        CLOCK.set(now.plusSeconds(1)); historyAttempt(anna,source,List.of(true),true);
+        var baseline=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+        assertThat(baseline.items()).extracting(i -> i.questionRevisionId()).containsExactly(source.questions().get(1));
+        try {
+            assertThat(sql.update("""
+                    UPDATE attempt_automatic_grade g JOIN attempt_automatic_result r ON r.id=g.result_id
+                    SET g.earned_points=1 WHERE r.attempt_id=UUID_TO_BIN(?) AND g.position=0
+                    """,first.toString())).isOne();
+            assertThatThrownBy(() -> history(anna,source,Mode.INCORRECT_ONLY,20,null))
+                    .isInstanceOfSatisfying(LearningSessionException.class,
+                        e -> assertThat(e.reason()).isEqualTo(LearningSessionException.Reason.CORRUPT));
+        } finally {
+            sql.update("""
+                    UPDATE attempt_automatic_grade g JOIN attempt_automatic_result r ON r.id=g.result_id
+                    SET g.earned_points=0 WHERE r.attempt_id=UUID_TO_BIN(?) AND g.position=0
+                    """,first.toString());
+        }
+        assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(baseline.items());
+    }
+
+    @Test
+    void historyMetricsSeparateInputAccessAndReachedDatabaseFailure() {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ");
+        Persona bob=persona("foreign", "QUIZ_UPDATE"); Source source=publishedQuiz(anna,"First");
+        var observed=new LearningFormMySqlIntegrationTest.ObservedSource(new DriverManagerDataSource(serverUrl()+CATALOG+OPTIONS,ADMIN_USER,ADMIN_PASSWORD));
+        var jdbc=new JdbcTemplate(observed);
+        var adapter=new uk.gegc.quizmaker.features.learning.infra.repository.JdbcLearningHistorySources(
+                new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc),historyDisclosure);
+        var lookup=new uk.gegc.quizmaker.features.user.application.AuthenticatedUserLookup() {
+            @Override public java.util.Optional<UUID> findActiveUserId(String name) { throw new AssertionError("Expected locking identity lookup"); }
+            @Override public java.util.Optional<UUID> lockActiveUserId(String name) {
+                return jdbc.query("SELECT BIN_TO_UUID(user_id) FROM users WHERE username=? AND is_active=TRUE AND is_deleted=FALSE FOR SHARE",
+                        (r,n) -> UUID.fromString(r.getString(1)),name).stream().findFirst();
+            }
+        };
+        var config=new uk.gegc.quizmaker.features.learning.config.LearningDueSelectionConfig(); config.setMaxBatchSize(20);
+        var meter=new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        try {
+            var measured=new uk.gegc.quizmaker.features.learning.application.impl.LearningHistorySelectionServiceImpl(lookup,
+                    List.of(new uk.gegc.quizmaker.features.learning.infra.repository.JdbcPublishedLearningSourceVerifier(jdbc)),
+                    List.of(adapter),List.of(adapter),config,applicationClock,meter,new org.springframework.jdbc.datasource.DataSourceTransactionManager(observed));
+            assertThatThrownBy(() -> asPrincipal(anna,() -> measured.select(historyRequest(source,Mode.UNSEEN_ONLY,0,null))))
+                    .isInstanceOf(LearningSessionException.class);
+            assertThat(observed.statements.get()).isEmpty();
+            assertThat(meter.get("quizmaker.learning.history.selection").tag("outcome","invalid_input").counter().count()).isOne();
+            assertThatThrownBy(() -> asPrincipal(bob,() -> measured.select(historyRequest(source,Mode.UNSEEN_ONLY,1,null))))
+                    .isInstanceOf(LearningSessionException.class);
+            assertThat(meter.get("quizmaker.learning.history.selection").tag("outcome","source_unavailable").counter().count()).isOne();
+            assertThat(meter.find("quizmaker.learning.history.selection").tag("outcome","persistence_unavailable").counter()).isNull();
+            observed.reset(); observed.failAfter.set("WITH own_attempts");
+            assertThatThrownBy(() -> asPrincipal(anna,() -> measured.select(historyRequest(source,Mode.UNSEEN_ONLY,1,null))))
+                    .isInstanceOfSatisfying(LearningSessionException.class,
+                        e -> assertThat(e.reason()).isEqualTo(LearningSessionException.Reason.PERSISTENCE_UNAVAILABLE));
+            assertThat(observed.failures).hasValue(1);
+            assertThat(meter.get("quizmaker.learning.history.selection").tag("outcome","persistence_unavailable").counter().count()).isOne();
+        } finally {
+            meter.close();
+        }
+    }
+
+    private void restoreHistoryGrade(Map<String,Object> row) {
+        String[] columns={"result_id","form_id","form_item_id","question_revision_id","response_id","position",
+                "response_contract_id","response_contract_version","scoring_contract_id","scoring_contract_version","earned_points"};
+        sql.update("INSERT INTO attempt_automatic_grade ("+String.join(",",columns)+") VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                java.util.Arrays.stream(columns).map(row::get).toArray());
     }
 
     private LearningHistorySelection history(Persona persona,Source source,
@@ -896,6 +1042,19 @@ class LearningConformanceMySqlIntegrationTest {
     }
     /** Actual publication binder, canonical start/accept/submit/result/release; no history fixtures invent grades. */
     private UUID historyAttempt(Persona author,Source source,List<Boolean> answers,boolean release) {
+        UUID attempt=historySubmittedAttempt(author,source,answers);
+        finishHistoryAttempt(attempt,release);
+        return attempt;
+    }
+    private void finishHistoryAttempt(UUID attempt,boolean release) {
+        UUID submission=historySubmissionId(attempt);
+        automaticResults.finalizeSubmission(submission); if(release) resultReleases.release(submission);
+    }
+    private UUID historySubmissionId(UUID attempt) {
+        return UUID.fromString(sql.queryForObject("SELECT BIN_TO_UUID(id) FROM attempt_submission WHERE attempt_id=UUID_TO_BIN(?)",
+                String.class,attempt.toString()));
+    }
+    private UUID historySubmittedAttempt(Persona author,Source source,List<Boolean> answers) {
         return asPrincipal(author,() -> {
             historyBindings.bind(source.quizId(),source.revisionId());
             var content=new ResolvedAttemptPolicy.ContentPolicy(source.revisionId(),source.schemaVersion(),
@@ -906,8 +1065,7 @@ class LearningConformanceMySqlIntegrationTest {
             var items=attemptDelivery.read(start.attemptId()).form().items(); long version=start.stateVersion();
             for(int i=0;i<answers.size();i++) version=attemptResponses.accept(new ResponseAcceptanceService.Command(start.attemptId(),items.get(i).id(),version,
                     CommandReceipt.Key.from("history-answer-"+UUID.randomUUID()),items.get(i).type(),json.createObjectNode().put("answer",answers.get(i)))).stateVersion();
-            var submitted=attemptSubmissions.submit(new AttemptSubmissionService.Command(start.attemptId(),version,true,CommandReceipt.Key.from("history-submit-"+UUID.randomUUID())));
-            automaticResults.finalizeSubmission(submitted.submissionId()); if(release) resultReleases.release(submitted.submissionId());
+            attemptSubmissions.submit(new AttemptSubmissionService.Command(start.attemptId(),version,true,CommandReceipt.Key.from("history-submit-"+UUID.randomUUID())));
             return start.attemptId();
         });
     }
