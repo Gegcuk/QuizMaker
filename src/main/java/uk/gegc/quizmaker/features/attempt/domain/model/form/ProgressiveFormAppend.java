@@ -41,9 +41,10 @@ public final class ProgressiveFormAppend {
         public RevisionScope {
             ProgressiveFormAppend.version(version);
             revisionVersion(revisionSchemaVersion);
-            require(quizRevisionId != null && sourceItemIds != null
-                    && sourceItemIds.stream().allMatch(id -> id != null), INVALID_INPUT);
-            sourceItemIds = Set.copyOf(sourceItemIds);
+            require(quizRevisionId != null && sourceItemIds != null, INVALID_INPUT);
+            var snapshot = new HashSet<>(sourceItemIds);
+            require(!snapshot.contains(null), INVALID_INPUT);
+            sourceItemIds = Set.copyOf(snapshot);
         }
         @Override public String toString() { return "AppendRevisionScope[itemCount=" + sourceItemIds.size() + "]"; }
     }

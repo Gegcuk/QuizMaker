@@ -25,6 +25,9 @@ compatibility tests, using the existing offline provider environment:
   completion exercises both state and request capture. Validation and retention must use the same
   owned snapshot; later planning sees distinct identities, not a newly substituted duplicate.
   Reached barriers and worker completion prove the mutation without sleep-based timing assumptions.
+- A controlled `CopyOnWriteArraySet` null insertion before/after membership capture verifies the
+  same rule for `RevisionScope`: a captured null gives `INVALID_INPUT`, while a later insertion
+  cannot alter the retained non-null snapshot or cause `Set.copyOf` to throw `NullPointerException`.
 - A real try-with-resources close failure during an `INVALID_INPUT` planner rejection cannot attach
   suppressed diagnostics. The close checkpoint is reached; the safe exception retains its reason
   and useful stack while its cause/suppressed collection and printed trace exclude the private marker.

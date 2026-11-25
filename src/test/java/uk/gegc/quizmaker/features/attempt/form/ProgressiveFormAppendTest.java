@@ -17,11 +17,15 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.Spliterator;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.*;
@@ -108,6 +112,63 @@ class ProgressiveFormAppendTest {
             assertThat(retained).extracting(Item::id).doesNotHaveDuplicates();
             assertThat(retained).extracting(Item::sourceItemId).doesNotHaveDuplicates();
             assertThat(next.outcome()).isEqualTo(Outcome.APPEND);
+        } finally {
+            captured.countDown();
+            changed.countDown();
+            worker.shutdownNow();
+            assertThat(worker.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void revisionMembershipValidatesItsOwnSnapshotDuringConcurrentNullInsertion(boolean changeBeforeSnapshot) throws Exception {
+        var captured = new CountDownLatch(1);
+        var changed = new CountDownLatch(1);
+        var firstObservation = new AtomicBoolean(true);
+        var initial = Set.of(item(0, 0).sourceItemId(), item(1, 1).sourceItemId());
+        var live = new CopyOnWriteArraySet<UUID>(initial) {
+            @Override public Iterator<UUID> iterator() { return observe(super::iterator); }
+            @Override public Spliterator<UUID> spliterator() { return observe(super::spliterator); }
+
+            private <T> T observe(Supplier<T> capture) {
+                if (!firstObservation.getAndSet(false)) return capture.get();
+                if (changeBeforeSnapshot) awaitMutation();
+                T snapshot = capture.get();
+                if (!changeBeforeSnapshot) awaitMutation();
+                return snapshot;
+            }
+
+            private void awaitMutation() {
+                captured.countDown();
+                await(changed);
+            }
+        };
+        var worker = Executors.newSingleThreadExecutor();
+        try {
+            var mutation = worker.submit(() -> {
+                try {
+                    await(captured);
+                    live.add(null);
+                } finally {
+                    changed.countDown();
+                }
+            });
+
+            if (changeBeforeSnapshot) {
+                rejected(() -> new RevisionScope(1, REFERENCE.quizRevisionId(), 1, live), INVALID_INPUT);
+            } else {
+                var scope = new RevisionScope(1, REFERENCE.quizRevisionId(), 1, live);
+                assertThat(scope.sourceItemIds()).containsExactlyInAnyOrderElementsOf(initial).doesNotContainNull();
+                assertThatThrownBy(() -> scope.sourceItemIds().clear()).isInstanceOf(UnsupportedOperationException.class);
+                var current = state(0);
+                assertThat(plan(current, scope, request("scope-capture", 0, item(0, 0)), Optional.empty()).outcome())
+                        .isEqualTo(Outcome.APPEND);
+                assertThat(current.items()).isEmpty();
+            }
+            mutation.get(10, TimeUnit.SECONDS);
+            assertThat(captured.getCount()).isZero();
+            assertThat(live).containsNull();
         } finally {
             captured.countDown();
             changed.countDown();
