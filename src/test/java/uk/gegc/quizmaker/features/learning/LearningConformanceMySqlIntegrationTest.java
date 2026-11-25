@@ -957,27 +957,95 @@ class LearningConformanceMySqlIntegrationTest {
     }
 
     @Test
+    void historyResultCreationEvidenceMustMatchBeforeSelection() {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First"); UUID attempt=historyAttempt(anna,source,List.of(false),true);
+        var baseline=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+        assertThat(baseline.items()).hasSize(1);
+        UUID result=baseline.items().get(0).evidence().resultId(); UUID submission=historySubmissionId(attempt);
+        var created=sql.queryForMap("SELECT * FROM attempt_result_created WHERE result_id=UUID_TO_BIN(?)",result.toString());
+        var event=sql.queryForMap("SELECT * FROM attempt_trace_event WHERE event_id=UUID_TO_BIN(?)",result.toString());
+        Source other=publishedQuiz(anna,"Other"); UUID peer=historyAttempt(anna,other,List.of(false),true);
+        var peerStream=sql.queryForMap("SELECT form_id,last_sequence FROM attempt_trace_stream WHERE attempt_id=UUID_TO_BIN(?)",peer.toString());
+        for(String fault:List.of("missing-created","created-time","trace-type","trace-actor","trace-reason","trace-scope")) {
+            try {
+                switch(fault) {
+                    case "missing-created" -> sql.update("DELETE FROM attempt_result_created WHERE result_id=UUID_TO_BIN(?)",result.toString());
+                    case "created-time" -> sql.update("UPDATE attempt_result_created SET created_at=DATE_ADD(created_at,INTERVAL 1 SECOND) WHERE result_id=UUID_TO_BIN(?)",result.toString());
+                    case "trace-type" -> sql.update("UPDATE attempt_trace_event SET event_type='RESULT_RELEASED' WHERE event_id=UUID_TO_BIN(?)",result.toString());
+                    case "trace-actor" -> sql.update("UPDATE attempt_trace_event SET actor_type='PARTICIPANT' WHERE event_id=UUID_TO_BIN(?)",result.toString());
+                    case "trace-reason" -> sql.update("UPDATE attempt_trace_event SET reason_code='ACCEPTED' WHERE event_id=UUID_TO_BIN(?)",result.toString());
+                    case "trace-scope" -> sql.update("UPDATE attempt_trace_event SET attempt_id=UUID_TO_BIN(?),form_id=?,sequence_number=? WHERE event_id=UUID_TO_BIN(?)",
+                            peer.toString(),peerStream.get("form_id"),((Number)peerStream.get("last_sequence")).longValue()+1,result.toString());
+                    default -> throw new AssertionError(fault);
+                }
+                assertCorruptHistoryWithoutRepair(anna,source,submission);
+            } finally {
+                sql.update("DELETE FROM attempt_result_created WHERE result_id=UUID_TO_BIN(?)",result.toString());
+                sql.update("INSERT INTO attempt_result_created(result_id,schema_version,created_at) VALUES(?,?,?)",
+                        created.get("result_id"),created.get("schema_version"),created.get("created_at"));
+                sql.update("UPDATE attempt_trace_event SET attempt_id=?,form_id=?,sequence_number=?,event_type=?,actor_type=?,reason_code=? WHERE event_id=UUID_TO_BIN(?)",
+                        event.get("attempt_id"),event.get("form_id"),event.get("sequence_number"),event.get("event_type"),event.get("actor_type"),event.get("reason_code"),result.toString());
+            }
+            assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(baseline.items());
+            assertThat(automaticResults.finalizeSubmission(submission).id()).isEqualTo(result);
+        }
+    }
+
+    @Test
+    void historyGradeContractsMustMatchQuestionRevisionBindings() {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First"); UUID attempt=historyAttempt(anna,source,List.of(false),true);
+        var baseline=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+        assertThat(baseline.items()).hasSize(1);
+        UUID result=baseline.items().get(0).evidence().resultId(); UUID submission=historySubmissionId(attempt);
+        var original=sql.queryForMap("SELECT * FROM attempt_automatic_grade WHERE result_id=UUID_TO_BIN(?)",result.toString());
+        for(String column:List.of("response_contract_id","response_contract_version","scoring_contract_id","scoring_contract_version")) {
+            try {
+                Object value=column.endsWith("_version") ? 2 : "synthetic-other-contract";
+                assertThat(sql.update("UPDATE attempt_automatic_grade SET "+column+"=? WHERE result_id=UUID_TO_BIN(?)",value,result.toString())).isOne();
+                assertCorruptHistoryWithoutRepair(anna,source,submission);
+            } finally {
+                sql.update("DELETE FROM attempt_automatic_grade WHERE result_id=UUID_TO_BIN(?)",result.toString());
+                restoreHistoryGrade(original);
+            }
+            assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(baseline.items());
+            assertThat(automaticResults.finalizeSubmission(submission).id()).isEqualTo(result);
+        }
+    }
+
+    private void assertCorruptHistoryWithoutRepair(Persona learner,Source source,UUID submission) {
+        assertThatThrownBy(() -> automaticResults.finalizeSubmission(submission))
+                .isInstanceOfSatisfying(uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.class,
+                    e -> assertThat(e.reason()).isEqualTo(uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.Reason.CORRUPT));
+        var outside=checksumsOutsideLearning(); var learning=learningChecksums();
+        for(Cursor after:java.util.Arrays.asList(null,new Cursor(1,historySource(source),Mode.INCORRECT_ONLY,Integer.MAX_VALUE)))
+            assertThatThrownBy(() -> history(learner,source,Mode.INCORRECT_ONLY,1,after))
+                    .isInstanceOfSatisfying(LearningSessionException.class,
+                        e -> assertThat(e.reason()).isEqualTo(LearningSessionException.Reason.CORRUPT));
+        assertThat(checksumsOutsideLearning()).isEqualTo(outside); assertThat(learningChecksums()).isEqualTo(learning);
+    }
+
+    @Test
     void historyAggregateValidationIncludesNonLatestGradesOfAReferencedResult() {
         Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
         Source source=publishedQuiz(anna,"First","Second"); UUID first=historyAttempt(anna,source,List.of(false,false),true);
         CLOCK.set(now.plusSeconds(1)); historyAttempt(anna,source,List.of(true),true);
         var baseline=history(anna,source,Mode.INCORRECT_ONLY,20,null);
         assertThat(baseline.items()).extracting(i -> i.questionRevisionId()).containsExactly(source.questions().get(1));
-        try {
-            assertThat(sql.update("""
-                    UPDATE attempt_automatic_grade g JOIN attempt_automatic_result r ON r.id=g.result_id
-                    SET g.earned_points=1 WHERE r.attempt_id=UUID_TO_BIN(?) AND g.position=0
-                    """,first.toString())).isOne();
-            assertThatThrownBy(() -> history(anna,source,Mode.INCORRECT_ONLY,20,null))
-                    .isInstanceOfSatisfying(LearningSessionException.class,
-                        e -> assertThat(e.reason()).isEqualTo(LearningSessionException.Reason.CORRUPT));
-        } finally {
-            sql.update("""
-                    UPDATE attempt_automatic_grade g JOIN attempt_automatic_result r ON r.id=g.result_id
-                    SET g.earned_points=0 WHERE r.attempt_id=UUID_TO_BIN(?) AND g.position=0
-                    """,first.toString());
+        for(String assignment:List.of("g.earned_points=1","g.scoring_contract_version=2")) {
+            try {
+                assertThat(sql.update("UPDATE attempt_automatic_grade g JOIN attempt_automatic_result r ON r.id=g.result_id SET "+assignment+
+                        " WHERE r.attempt_id=UUID_TO_BIN(?) AND g.position=0",first.toString())).isOne();
+                assertCorruptHistoryWithoutRepair(anna,source,historySubmissionId(first));
+            } finally {
+                sql.update("""
+                        UPDATE attempt_automatic_grade g JOIN attempt_automatic_result r ON r.id=g.result_id
+                        SET g.earned_points=0,g.scoring_contract_version=1 WHERE r.attempt_id=UUID_TO_BIN(?) AND g.position=0
+                        """,first.toString());
+            }
+            assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(baseline.items());
         }
-        assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(baseline.items());
     }
 
     @Test

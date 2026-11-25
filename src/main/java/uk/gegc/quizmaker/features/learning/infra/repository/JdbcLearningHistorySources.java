@@ -131,11 +131,21 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
                 -- Unique result/position and result/item keys make count + endpoints prove contiguous positions.
                 SELECT roots.result_id, (COUNT(g.form_item_id)=roots.result_possible
                     AND COALESCE(SUM(g.earned_points),0)=roots.result_earned
-                    AND MIN(g.position)=0 AND MAX(g.position)=roots.result_possible-1) valid
-                FROM (SELECT DISTINCT result_id,result_earned,result_possible FROM latest
+                    AND MIN(g.position)=0 AND MAX(g.position)=roots.result_possible-1
+                    AND MIN((g.response_contract_id=b.response_contract_id
+                        AND g.response_contract_version=b.response_contract_version
+                        AND g.scoring_contract_id=b.scoring_contract_id
+                        AND g.scoring_contract_version=b.scoring_contract_version) IS TRUE)=1
+                    AND EXISTS(SELECT 1 FROM attempt_result_created e
+                        JOIN attempt_trace_event t ON t.event_id=e.result_id
+                        WHERE e.result_id=roots.result_id AND e.schema_version=1 AND e.created_at=roots.result_at
+                          AND t.event_type='AUTOMATIC_GRADE_PRODUCED' AND t.actor_type='SYSTEM' AND t.reason_code='GRADED'
+                          AND t.attempt_id=roots.attempt_id AND t.form_id=roots.form_id)) valid
+                FROM (SELECT DISTINCT result_id,result_earned,result_possible,result_at,attempt_id,form_id FROM latest
                     WHERE :mistakes AND :resultAccess AND result_id IS NOT NULL) roots
                 LEFT JOIN attempt_automatic_grade g ON g.result_id=roots.result_id
-                GROUP BY roots.result_id,roots.result_earned,roots.result_possible
+                LEFT JOIN question_revision_contract_bindings b ON b.question_revision_id=g.question_revision_id
+                GROUP BY roots.result_id,roots.result_earned,roots.result_possible,roots.result_at,roots.attempt_id,roots.form_id
             ), availability AS (
                 SELECT CASE
                   WHEN EXISTS(SELECT 1 FROM attempts a JOIN answers answer_row ON answer_row.attempt_id=a.id

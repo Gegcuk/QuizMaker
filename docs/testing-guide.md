@@ -20,6 +20,12 @@ The conformance class already belongs to the existing context inventory.
   have since been superseded. The real #603 reader independently rejects corrupted fixtures;
   restoring them restores selection. Reads preserve assessment and Learning table checksums
   and never repair source history.
+- Result provenance follows #603's retained creation evidence: missing `attempt_result_created`,
+  a mismatched creation time, or the wrong trace type, actor, reason or attempt/form scope yields
+  `CORRUPT`. Grade response/scoring contract IDs and versions must match the saved question
+  revision binding. Tests change each dimension independently, compare #603's rejection, check
+  refusal before pagination and prove recovery after restoration. Contract validation includes
+  superseded grades when their result still supplies another latest answer.
 - Real Learning enrollment/delivery leaves questions unanswered. An actual HTTP response removes
   only that exact question revision; a later publication has separate state and old reads retain
   their captured identity. No assessment facts are repurposed as Learning grades.
@@ -34,7 +40,8 @@ The conformance class already belongs to the existing context inventory.
 - The measured JDBC adapter reads one then four real assessment parents on the same publication.
   Its permission probe and history query return bounded candidate metadata, without per-question
   statements or normalized response/content reads. The same query batches grade count, point sum
-  and position bounds for referenced result roots. A real `EXPLAIN FORMAT=JSON` plan is retained
+  and position bounds, creation evidence and contract bindings for referenced result roots.
+  A real `EXPLAIN FORMAT=JSON` plan is retained
   in the test report. MySQL still examines/sorts source history;
   statement counts alone do not establish constant work. No JPA relationship read is added.
 

@@ -5864,7 +5864,11 @@ exhausted `COMPLETE` history. Before incorrect-answer filtering or pagination, t
 validates all grades of each result referenced by the latest accepted answers: count and position
 bounds must match its possible points, and earned-point sums must match its total. Contradictory
 aggregates or a missing grade in an existing result raise sanitized `CORRUPT` without source
-repair. Persistence failures remain sanitized typed failures. Bounded metrics classify validation,
+repair. The result must also retain #603's creation record with the same creation timestamp
+and a matching `AUTOMATIC_GRADE_PRODUCED` system trace for its attempt and form. Every grade's response
+and scoring contract IDs/versions must match its question revision binding. These metadata-only
+checks share the same statement and precede pagination; they do not read responses or rescore
+answers. Persistence failures remain sanitized typed failures. Bounded metrics classify validation,
 access, integrity and storage failures by their actual reason. No alternate
 mode is tried. Future consumers must revalidate and persist their own fixed form; a cursor is
 not a durable history snapshot or an access grant.
