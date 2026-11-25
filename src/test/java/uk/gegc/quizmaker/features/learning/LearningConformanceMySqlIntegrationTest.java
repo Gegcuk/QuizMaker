@@ -186,6 +186,7 @@ class LearningConformanceMySqlIntegrationTest {
     @Autowired AttemptDeliveryService attemptDelivery;
     @Autowired ResponseAcceptanceService attemptResponses;
     @Autowired AttemptSubmissionService attemptSubmissions;
+    @Autowired uk.gegc.quizmaker.features.attempt.application.AttemptExpiryService attemptExpiry;
     @Autowired AutomaticResultService automaticResults;
     @Autowired ImmediateResultReleaseService resultReleases;
     @Autowired LearningHistorySelectionService historySelection;
@@ -1152,6 +1153,125 @@ class LearningConformanceMySqlIntegrationTest {
         }
     }
 
+    @Test
+    void historyAcceptedTimeCannotReviveACorrectedMistake() {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First"); UUID wrong=historyAttempt(anna,source,List.of(false),true);
+        var original=sql.queryForMap("SELECT id,accepted_at FROM attempt_accepted_response WHERE attempt_id=UUID_TO_BIN(?)",wrong.toString());
+        CLOCK.set(now.plusSeconds(1)); historyAttempt(anna,source,List.of(true),true);
+        var baseline=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+        assertThat(baseline.availability()).isEqualTo(Availability.COMPLETE); assertThat(baseline.items()).isEmpty();
+        // Reject invalid chronology even when the damaged answer would not win the ordering.
+        for(Instant invalid:List.of(now.plusSeconds(2),now.plusNanos(1000))) {
+            try {
+                sql.update("UPDATE attempt_accepted_response SET accepted_at=? WHERE id=?",java.sql.Timestamp.from(invalid),original.get("id"));
+                assertCorruptHistoryWithoutRepair(anna,source,historySubmissionId(wrong));
+            } finally {
+                sql.update("UPDATE attempt_accepted_response SET accepted_at=? WHERE id=?",original.get("accepted_at"),original.get("id"));
+            }
+            var restored=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+            assertThat(restored.availability()).isEqualTo(Availability.COMPLETE); assertThat(restored.items()).isEmpty();
+            assertThat(automaticResults.finalizeSubmission(historySubmissionId(wrong)).score().earned()).isZero();
+        }
+    }
+
+    @Test
+    void historySubmissionMetadataMatchesTerminalFacts() {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First","Second"); UUID attempt=historyAttempt(anna,source,List.of(false),true);
+        UUID submission=historySubmissionId(attempt); var result=automaticResults.finalizeSubmission(submission);
+        var original=sql.queryForMap("SELECT accepted_count,unanswered_count,state_version,submitted_at FROM attempt_submission WHERE id=UUID_TO_BIN(?)",submission.toString());
+        var baseline=history(anna,source,Mode.INCORRECT_ONLY,20,null); assertThat(baseline.items()).hasSize(1);
+        for(String fault:List.of("accepted_count","unanswered_count","state_version","submitted_at","balanced-counts")) {
+            try {
+                switch(fault) {
+                    case "accepted_count","unanswered_count","state_version" -> sql.update("UPDATE attempt_submission SET "+fault+"="+fault+"+1 WHERE id=UUID_TO_BIN(?)",submission.toString());
+                    case "submitted_at" -> sql.update("UPDATE attempt_submission SET submitted_at=DATE_ADD(submitted_at,INTERVAL 1 MICROSECOND) WHERE id=UUID_TO_BIN(?)",submission.toString());
+                    case "balanced-counts" -> sql.update("UPDATE attempt_submission SET accepted_count=accepted_count+1,unanswered_count=unanswered_count-1 WHERE id=UUID_TO_BIN(?)",submission.toString());
+                    default -> throw new AssertionError(fault);
+                }
+                assertCorruptHistoryWithoutRepair(anna,source,submission);
+            } finally {
+                sql.update("UPDATE attempt_submission SET accepted_count=?,unanswered_count=?,state_version=?,submitted_at=? WHERE id=UUID_TO_BIN(?)",
+                        original.get("accepted_count"),original.get("unanswered_count"),original.get("state_version"),original.get("submitted_at"),submission.toString());
+            }
+            assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(baseline.items());
+            assertThat(automaticResults.finalizeSubmission(submission)).isEqualTo(result);
+        }
+    }
+
+    @Test
+    void historyExpiryKeepsAnOnTimeResponsePersistedAfterDeadline() throws Exception {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First","Second");
+        var start=historyStartedAttempt(anna,source,new ResolvedAttemptPolicy.TimingPolicy(
+                ResolvedAttemptPolicy.TimingMode.TOTAL_ATTEMPT,Duration.ofSeconds(10),null));
+        var item=asPrincipal(anna,() -> attemptDelivery.read(start.attemptId()).form().items().get(0));
+        Instant deadline=now.plusSeconds(10),processing=deadline.plusSeconds(1);
+        CLOCK.set(deadline.minusNanos(1000));
+        var pool=Executors.newSingleThreadExecutor();
+        try(Connection blocker=catalogConnection()) {
+            blocker.setAutoCommit(false);
+            try {
+                try(var lock=blocker.prepareStatement("SELECT attempt_id FROM attempt_lifecycle_state WHERE attempt_id=UUID_TO_BIN(?) FOR UPDATE")) {
+                    lock.setString(1,start.attemptId().toString()); try(var rows=lock.executeQuery()) { assertThat(rows.next()).isTrue(); }
+                }
+                var answer=pool.submit(() -> asPrincipal(anna,() -> attemptResponses.accept(new ResponseAcceptanceService.Command(
+                        start.attemptId(),item.id(),start.stateVersion(),CommandReceipt.Key.from("history-expiry-"+UUID.randomUUID()),
+                        item.type(),json.createObjectNode().put("answer",false)))));
+                awaitHistoryLifecycleWait(answer);
+                CLOCK.set(processing); blocker.rollback();
+                assertThat(answer.get(30,TimeUnit.SECONDS).replayed()).isFalse();
+            } finally { blocker.rollback(); }
+        } finally { pool.shutdownNow(); assertThat(pool.awaitTermination(30,TimeUnit.SECONDS)).isTrue(); }
+        var accepted=sql.queryForMap("SELECT id,accepted_at FROM attempt_accepted_response WHERE attempt_id=UUID_TO_BIN(?)",start.attemptId().toString());
+        assertThat(((java.time.LocalDateTime)accepted.get("accepted_at")).toInstant(ZoneOffset.UTC)).isEqualTo(processing).isAfter(deadline);
+        assertThat(attemptExpiry.expire(start.attemptId()).outcome())
+                .isEqualTo(uk.gegc.quizmaker.features.attempt.application.AttemptExpiryService.Outcome.EXPIRED);
+        UUID submission=historySubmissionId(start.attemptId()); finishHistoryAttempt(start.attemptId(),true);
+        var terminal=sql.queryForMap("SELECT submitted_at,updated_at FROM attempt_lifecycle_state WHERE attempt_id=UUID_TO_BIN(?)",start.attemptId().toString());
+        assertThat(((java.time.LocalDateTime)terminal.get("submitted_at")).toInstant(ZoneOffset.UTC)).isEqualTo(deadline);
+        assertThat(((java.time.LocalDateTime)terminal.get("updated_at")).toInstant(ZoneOffset.UTC)).isEqualTo(processing);
+        var result=automaticResults.finalizeSubmission(submission);
+        var baseline=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+        assertThat(baseline.availability()).isEqualTo(Availability.COMPLETE); assertThat(baseline.items()).hasSize(1);
+        assertThat(baseline.items().get(0).evidence().acceptedAt()).isEqualTo(processing);
+        for(String fault:List.of("after-processing","voluntary-cause","expiry-receipt")) {
+            try {
+                switch(fault) {
+                    case "after-processing" -> sql.update("UPDATE attempt_accepted_response SET accepted_at=? WHERE id=?",java.sql.Timestamp.from(processing.plusNanos(1000)),accepted.get("id"));
+                    case "voluntary-cause" -> sql.update("UPDATE attempt_submission SET completion_cause='VOLUNTARY' WHERE id=UUID_TO_BIN(?)",submission.toString());
+                    case "expiry-receipt" -> sql.update("UPDATE attempt_expiry_receipt SET effective_deadline=DATE_ADD(effective_deadline,INTERVAL 1 MICROSECOND) WHERE submission_id=UUID_TO_BIN(?)",submission.toString());
+                    default -> throw new AssertionError(fault);
+                }
+                assertCorruptHistoryWithoutRepair(anna,source,submission);
+            } finally {
+                sql.update("UPDATE attempt_accepted_response SET accepted_at=? WHERE id=?",accepted.get("accepted_at"),accepted.get("id"));
+                sql.update("UPDATE attempt_submission SET completion_cause='EXPIRY' WHERE id=UUID_TO_BIN(?)",submission.toString());
+                sql.update("UPDATE attempt_expiry_receipt SET effective_deadline=? WHERE submission_id=UUID_TO_BIN(?)",java.sql.Timestamp.from(deadline),submission.toString());
+            }
+            assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(baseline.items());
+            assertThat(automaticResults.finalizeSubmission(submission)).isEqualTo(result);
+        }
+    }
+
+    private void awaitHistoryLifecycleWait(Future<?> response) throws Exception {
+        long deadline=System.nanoTime()+Duration.ofSeconds(20).toNanos();
+        while(true) {
+            Integer waits=admin().queryForObject("""
+                    SELECT COUNT(*) FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks l
+                    ON l.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID WHERE l.OBJECT_SCHEMA=? AND l.OBJECT_NAME='attempt_lifecycle_state'
+                    """,Integer.class,CATALOG);
+            if(waits!=null && waits>0) return;
+            if(response.isDone()) {
+                response.get();
+                throw new AssertionError("Response finished before the held lifecycle lock was released");
+            }
+            if(System.nanoTime()>deadline) throw new AssertionError("Response did not wait on the lifecycle lock");
+            Thread.sleep(25);
+        }
+    }
+
     private void assertCorruptHistoryWithoutRepair(Persona learner,Source source,UUID submission) {
         assertRejectedHistoryWithoutRepair(learner,source,submission,
                 uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.Reason.CORRUPT);
@@ -1267,18 +1387,26 @@ class LearningConformanceMySqlIntegrationTest {
                 String.class,attempt.toString()));
     }
     private UUID historySubmittedAttempt(Persona author,Source source,List<Boolean> answers) {
+        var start=historyStartedAttempt(author,source,new ResolvedAttemptPolicy.TimingPolicy(ResolvedAttemptPolicy.TimingMode.NONE));
         return asPrincipal(author,() -> {
-            historyBindings.bind(source.quizId(),source.revisionId());
-            var content=new ResolvedAttemptPolicy.ContentPolicy(source.revisionId(),source.schemaVersion(),
-                    ResolvedAttemptPolicy.FormMode.PRECOMPUTED,ResolvedAttemptPolicy.SectionMode.IMPLICIT_FLAT,ResolvedAttemptPolicy.CaseMode.NOT_CONFIGURED);
-            var start=attemptStarts.start(new AttemptStartService.Command(1,source.quizId(),content,1,
-                    CommandReceipt.Key.from("history-"+UUID.randomUUID()),BuiltInPracticePreset.REFERENCE,
-                    LegacyPracticeRequest.LaunchContext.ORDINARY,"ALL_AT_ONCE",ResolvedAttemptPolicy.AnswerOrder.AUTHORED,false));
             var items=attemptDelivery.read(start.attemptId()).form().items(); long version=start.stateVersion();
             for(int i=0;i<answers.size();i++) version=attemptResponses.accept(new ResponseAcceptanceService.Command(start.attemptId(),items.get(i).id(),version,
                     CommandReceipt.Key.from("history-answer-"+UUID.randomUUID()),items.get(i).type(),json.createObjectNode().put("answer",answers.get(i)))).stateVersion();
             attemptSubmissions.submit(new AttemptSubmissionService.Command(start.attemptId(),version,true,CommandReceipt.Key.from("history-submit-"+UUID.randomUUID())));
             return start.attemptId();
+        });
+    }
+    private AttemptStartService.Result historyStartedAttempt(Persona author,Source source,ResolvedAttemptPolicy.TimingPolicy timing) {
+        return asPrincipal(author,() -> {
+            historyBindings.bind(source.quizId(),source.revisionId());
+            var content=new ResolvedAttemptPolicy.ContentPolicy(source.revisionId(),source.schemaVersion(),
+                    ResolvedAttemptPolicy.FormMode.PRECOMPUTED,ResolvedAttemptPolicy.SectionMode.IMPLICIT_FLAT,ResolvedAttemptPolicy.CaseMode.NOT_CONFIGURED);
+            var command=new AttemptStartService.Command(1,source.quizId(),content,1,
+                    CommandReceipt.Key.from("history-"+UUID.randomUUID()),BuiltInPracticePreset.REFERENCE,
+                    LegacyPracticeRequest.LaunchContext.ORDINARY,"ALL_AT_ONCE",ResolvedAttemptPolicy.AnswerOrder.AUTHORED,false);
+            return attemptStarts.start(new AttemptStartService.Command(command.version(),command.quizId(),command.content(),command.publicationVersion(),
+                    command.key(),command.preset(),command.context(),command.legacyMode(),command.answerOrder(),command.draftsEnabled(),
+                    command.navigation(),command.delivery(),command.selection(),command.attemptLimit(),timing));
         });
     }
 

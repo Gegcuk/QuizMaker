@@ -110,6 +110,19 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
                     p.schema_version policy_version, p.resolver_version, p.canonical_version, p.hash_algorithm,
                     p.quiz_revision_id policy_revision, p.policy_hash,
                     p.policy_hash=SHA2(p.canonical_json,256) policy_integrity,
+                    (submission.schema_version=1 AND submission.form_id=f.id
+                      AND submission.policy_snapshot_id=t.policy_snapshot_id AND submission.quiz_revision_id=f.quiz_revision_id
+                      AND submission.state_version=l.row_version AND submission.submitted_at=l.submitted_at
+                      AND submission.accepted_count=(SELECT COUNT(*) FROM attempt_accepted_response accepted_count
+                        WHERE accepted_count.attempt_id=s.attempt_id)
+                      AND submission.accepted_count+submission.unanswered_count=f.item_count
+                      AND (submission.completion_cause='EXPIRY' OR submission.unanswered_count=0
+                        OR JSON_CONTAINS(p.canonical_json,'false','$.policy.submission.requireAllAnswers'))
+                      AND (submission.completion_cause<>'EXPIRY' OR EXISTS(SELECT 1 FROM attempt_expiry_receipt expiry
+                        WHERE expiry.submission_id=submission.id AND expiry.attempt_id=s.attempt_id AND expiry.schema_version=1
+                          AND expiry.state_version=submission.state_version AND expiry.command_id=submission.command_id
+                          AND expiry.effective_deadline=submission.submitted_at))) submission_integrity,
+                    CASE WHEN submission.completion_cause='EXPIRY' THEN l.updated_at ELSE submission.submitted_at END accepted_until,
                     (JSON_CONTAINS(p.canonical_json,'"CORRECTNESS"','$.policy.review.content')
                       AND (JSON_CONTAINS(p.canonical_json,'{"category":"CORRECTNESS","when":"AFTER_ACCEPTANCE"}','$.policy.disclosure.rules')
                         OR JSON_CONTAINS(p.canonical_json,'{"category":"CORRECTNESS","when":"AFTER_COMPLETION"}','$.policy.disclosure.rules'))) correctness_permitted
@@ -117,6 +130,7 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
                 JOIN attempt_trace_stream t ON t.attempt_id=s.attempt_id
                 JOIN attempt_form f ON f.id=t.form_id
                 LEFT JOIN attempt_lifecycle_state l ON l.attempt_id=s.attempt_id
+                LEFT JOIN attempt_submission submission ON submission.attempt_id=s.attempt_id
                 LEFT JOIN attempt_policy_snapshot p ON p.id=t.policy_snapshot_id
                 LEFT JOIN attempt_automatic_result r ON r.attempt_id=s.attempt_id
                 WHERE s.user_id=UUID_TO_BIN(:learner) AND f.quiz_revision_id=UUID_TO_BIN(:revision)
@@ -181,7 +195,10 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
                         AND o.result_policy=o.policy_snapshot_id AND CAST(o.result_hash AS BINARY)=CAST(o.policy_hash AS BINARY)))) IS TRUE)
                     THEN 'UNSUPPORTED'
                   WHEN :mistakes AND :resultAccess AND (
-                      EXISTS(SELECT 1 FROM result_integrity WHERE valid IS NOT TRUE)
+                      -- Validate every completed answer's ordering inputs, not just whichever timestamp wins.
+                      EXISTS(SELECT 1 FROM history h WHERE h.submission_integrity IS NOT TRUE
+                        OR h.accepted_until IS NULL OR h.accepted_at>h.accepted_until)
+                      OR EXISTS(SELECT 1 FROM result_integrity WHERE valid IS NOT TRUE)
                       OR EXISTS(SELECT 1 FROM latest WHERE result_id IS NOT NULL AND graded_response_id IS NULL))
                     THEN 'CORRUPT'
                   WHEN (NOT :resultAccess AND EXISTS(SELECT 1 FROM own_attempts)) OR (:mistakes AND (

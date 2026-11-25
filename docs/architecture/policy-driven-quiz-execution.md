@@ -5878,6 +5878,15 @@ access, integrity and storage failures by their actual reason. No alternate
 mode is tried. Future consumers must revalidate and persist their own fixed form; a cursor is
 not a durable history snapshot or an access grant.
 
+Before the latest-answer ordering can supply candidates, all completed accepted answers must
+have consistent submission facts: accepted count matches retained responses, accepted plus
+unanswered count matches the form, and state version/submission time match the terminal lifecycle.
+Invalid chronology yields `CORRUPT` even when the damaged answer would not win the ordering.
+The inclusive acceptance-time upper bound is the submission time for voluntary completion and
+the lifecycle's actual processing time (`updated_at`) for expiry. Matching expiry receipt facts
+remain required. This preserves an on-time response that waited for a lock and persisted after
+the deadline; it does not reinterpret the effective deadline as the persistence-time limit.
+
 Mistake selection requires current ATTEMPT_READ and released per-question correctness. The
 existing scheduled-result participant reader withholds review; those histories cannot supply
 mistake selection here. Selected practice policy metadata is verified with the canonical

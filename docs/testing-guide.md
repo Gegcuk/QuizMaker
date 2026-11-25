@@ -36,6 +36,16 @@ The conformance class already belongs to the existing context inventory.
   successful controls. A padded unsupported root contract remains explicitly `UNSUPPORTED`.
   The extra corrupted form-count control currently maps to #603 `UNAVAILABLE`; selection
   still refuses that inconsistent metadata as `CORRUPT`.
+- Completed-answer chronology is checked across history before consuming its latest-answer
+  ordering. A damaged old timestamp cannot revive a mistake after a later correct response,
+  or silently pass merely because it does not win the ordering. Independent submission
+  accepted/unanswered counts, balanced count changes, terminal version and submission time
+  are compared with real retained answers and lifecycle facts; restoration recovers selection.
+  Voluntary acceptance is bounded inclusively by `submission.submitted_at`; expiry acceptance
+  is bounded by `lifecycle.updated_at` and requires matching expiry receipt metadata. The real
+  response writer waits on an observed MySQL lifecycle lock across the deadline, then the real
+  expiry/result/release writers preserve that answer at the inclusive processing-time boundary.
+  Later acceptance, a contradictory voluntary cause and a mismatched expiry receipt are refused.
 - Real Learning enrollment/delivery leaves questions unanswered. An actual HTTP response removes
   only that exact question revision; a later publication has separate state and old reads retain
   their captured identity. No assessment facts are repurposed as Learning grades.
