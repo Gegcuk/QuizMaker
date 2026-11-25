@@ -21,6 +21,13 @@ compatibility tests, using the existing offline provider environment:
   versions, missing inputs, invalid state/order, duplicate identity/source and cross-revision inputs
   fail closed. Successful controls accompany denial cases. Defensive copies and redacted diagnostics
   preserve the metadata/privacy boundary.
+- A controlled `CopyOnWriteArrayList` mutation between the first input observation and constructor
+  completion exercises both state and request capture. Validation and retention must use the same
+  owned snapshot; later planning sees distinct identities, not a newly substituted duplicate.
+  Reached barriers and worker completion prove the mutation without sleep-based timing assumptions.
+- A real try-with-resources close failure during an `INVALID_INPUT` planner rejection cannot attach
+  suppressed diagnostics. The close checkpoint is reached; the safe exception retains its reason
+  and useful stack while its cause/suppressed collection and printed trace exclude the private marker.
 - Seeded permutations with varied batch sizes validate contiguous suffixes and replay of every
   earlier request against the final metadata observation. The competing-plan fixture explicitly
   permits two valid proposals against the same observation, then rejects the stale request on

@@ -1,5 +1,6 @@
 package uk.gegc.quizmaker.features.attempt.domain.model.form;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -130,14 +131,15 @@ public final class ProgressiveFormAppend {
 
     private static List<Item> immutableItems(List<Item> items, ProgressiveFormAppendException.Reason missing) {
         require(items != null, missing);
+        var snapshot = new ArrayList<>(items);
         var ids = new HashSet<UUID>();
         var sources = new HashSet<UUID>();
         var positions = new HashSet<Integer>();
-        for (var item : items) {
+        for (var item : snapshot) {
             require(item != null, INVALID_ITEM);
             require(ids.add(item.id()) && sources.add(item.sourceItemId()) && positions.add(item.position()), DUPLICATE_ITEM);
         }
-        return List.copyOf(items);
+        return List.copyOf(snapshot);
     }
 
     private static void version(int value) { require(value == VERSION, UNSUPPORTED_VERSION); }

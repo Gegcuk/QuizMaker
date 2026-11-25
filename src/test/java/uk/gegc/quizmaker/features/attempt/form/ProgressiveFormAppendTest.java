@@ -8,15 +8,25 @@ import org.junit.jupiter.params.provider.ValueSource;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.ProgressiveFormAppend.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.ProgressiveFormAppendException;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.*;
 import static uk.gegc.quizmaker.features.attempt.domain.model.form.ProgressiveFormAppendException.Reason.*;
+import static uk.gegc.quizmaker.features.attempt.domain.model.form.ProgressiveFormAppendPlanner.plan;
 import static uk.gegc.quizmaker.features.attempt.form.ProgressiveFormAppendFixtures.*;
 
 class ProgressiveFormAppendTest {
@@ -38,6 +48,106 @@ class ProgressiveFormAppendTest {
         assertThatThrownBy(() -> request.items().clear()).isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> state.items().clear()).isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> revision.sourceItemIds().clear()).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void concurrentMutationCannotReplaceTheValidatedItems(boolean requestInput) throws Exception {
+        // Capture through the real COW iterator or array snapshot, then change the live list
+        // before the constructor continues. Both observations retain ordinary COW semantics.
+        var captured = new CountDownLatch(1);
+        var changed = new CountDownLatch(1);
+        var firstObservation = new AtomicBoolean(true);
+        var a = item(0, 0);
+        var b = item(1, 1);
+        var duplicate = new Item(a.id(), a.sourceItemId(), 1);
+        var live = new CopyOnWriteArrayList<Item>(List.of(a, b)) {
+            @Override public Iterator<Item> iterator() {
+                var snapshot = super.iterator();
+                awaitMutation();
+                return snapshot;
+            }
+            @Override public Object[] toArray() {
+                var snapshot = super.toArray();
+                awaitMutation();
+                return snapshot;
+            }
+            private void awaitMutation() {
+                if (firstObservation.getAndSet(false)) {
+                    captured.countDown();
+                    await(changed);
+                }
+            }
+        };
+        var worker = Executors.newSingleThreadExecutor();
+        try {
+            var mutation = worker.submit(() -> {
+                try {
+                    await(captured);
+                    live.set(1, duplicate);
+                } finally {
+                    changed.countDown();
+                }
+            });
+            List<Item> retained;
+            Plan next;
+            if (requestInput) {
+                var request = new Request(1, REFERENCE, 0, decision("captured-request"), live);
+                retained = request.items();
+                next = plan(state(0), REVISION, request, Optional.empty());
+            } else {
+                var current = new State(1, FormKind.PROGRESSIVE, REFERENCE, 2, live);
+                retained = current.items();
+                next = plan(current, REVISION, request("next", 2, item(2, 2)), Optional.empty());
+            }
+            mutation.get(10, TimeUnit.SECONDS);
+
+            assertThat(captured.getCount()).isZero();
+            assertThat(live.get(1)).isEqualTo(duplicate);
+            assertThat(retained).containsExactly(a, b);
+            assertThat(retained).extracting(Item::id).doesNotHaveDuplicates();
+            assertThat(retained).extracting(Item::sourceItemId).doesNotHaveDuplicates();
+            assertThat(next.outcome()).isEqualTo(Outcome.APPEND);
+        } finally {
+            captured.countDown();
+            changed.countDown();
+            worker.shutdownNow();
+            assertThat(worker.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void resourceCloseFailureCannotAttachPrivateDiagnosticsToAPlannerRejection() throws Exception {
+        var marker = "SYNTHETIC-CLOSE-MARKER";
+        var closed = new AtomicBoolean();
+        var request = request("private-decision", 0, item(0, 0));
+        ProgressiveFormAppendException rejection = null;
+        try (AutoCloseable resource = () -> {
+            closed.set(true);
+            throw new Exception(marker);
+        }) {
+            plan(null, REVISION, request, Optional.empty());
+        } catch (ProgressiveFormAppendException failure) {
+            rejection = failure;
+        }
+
+        assertThat(closed).isTrue();
+        assertThat(rejection).isNotNull().hasMessage("Progressive form append rejected: INVALID_INPUT").hasNoCause();
+        assertThat(rejection.reason()).isEqualTo(INVALID_INPUT);
+        assertThat(rejection.getSuppressed()).isEmpty();
+        assertThat(rejection.getStackTrace()).isNotEmpty();
+        var trace = new StringWriter();
+        rejection.printStackTrace(new PrintWriter(trace));
+        assertThat(trace.toString()).contains("INVALID_INPUT").doesNotContain(marker);
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            assertThat(latch.await(10, TimeUnit.SECONDS)).as("Controlled snapshot/mutation checkpoint reached").isTrue();
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Snapshot/mutation wait interrupted", failure);
+        }
     }
 
     @ParameterizedTest

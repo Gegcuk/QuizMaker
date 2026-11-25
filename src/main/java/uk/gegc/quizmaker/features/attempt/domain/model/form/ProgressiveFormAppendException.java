@@ -14,7 +14,7 @@ public final class ProgressiveFormAppendException extends RuntimeException {
     private final Reason reason;
 
     public ProgressiveFormAppendException(Reason reason) {
-        super("Progressive form append rejected: " + Objects.requireNonNull(reason));
+        super("Progressive form append rejected: " + Objects.requireNonNull(reason), null, false, true);
         this.reason = reason;
     }
 
