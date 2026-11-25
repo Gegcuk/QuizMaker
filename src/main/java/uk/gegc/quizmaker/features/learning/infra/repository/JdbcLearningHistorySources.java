@@ -99,12 +99,14 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
     private static final String QUERY = """
             WITH own_attempts AS (
                 SELECT s.attempt_id, s.schema_version subject_version, s.subject_type,
-                    f.id form_id, f.schema_version form_version, t.policy_snapshot_id,
+                    f.id form_id, f.schema_version form_version, f.item_count form_item_count, t.policy_snapshot_id,
                     t.schema_version trace_version, l.lifecycle_version, l.execution_state,
                     l.answer_collection_state, r.id result_id, r.schema_version result_version,
                     r.scoring_contract, r.quiz_revision_id result_revision, r.form_id result_form,
                     r.policy_snapshot_id result_policy, r.policy_hash result_hash, r.created_at result_at,
-                    r.earned_points result_earned, r.possible_points result_possible,
+                    r.submission_id result_submission, r.earned_points result_earned, r.possible_points result_possible,
+                    (JSON_TYPE(JSON_EXTRACT(p.canonical_json,'$.policy.results.passThresholdBasisPoints'))='INTEGER'
+                      AND r.pass_threshold=CAST(JSON_UNQUOTE(JSON_EXTRACT(p.canonical_json,'$.policy.results.passThresholdBasisPoints')) AS UNSIGNED)) result_threshold_valid,
                     p.schema_version policy_version, p.resolver_version, p.canonical_version, p.hash_algorithm,
                     p.quiz_revision_id policy_revision, p.policy_hash,
                     p.policy_hash=SHA2(p.canonical_json,256) policy_integrity,
@@ -128,24 +130,38 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
                 WHERE o.execution_state='SUBMITTED'
             ), latest AS (SELECT * FROM history WHERE rn=1), result_integrity AS (
                 -- Validate whole referenced results before correctness, cursor or limit can hide corruption.
-                -- Unique result/position and result/item keys make count + endpoints prove contiguous positions.
+                -- Exact form membership/order and response identity match #603's replay metadata checks.
                 SELECT roots.result_id, (COUNT(g.form_item_id)=roots.result_possible
+                    AND roots.result_possible=roots.form_item_count AND roots.result_threshold_valid
+                    AND (SELECT COUNT(*) FROM attempt_form_item f WHERE f.form_id=roots.form_id)=roots.result_possible
                     AND COALESCE(SUM(g.earned_points),0)=roots.result_earned
                     AND MIN(g.position)=0 AND MAX(g.position)=roots.result_possible-1
-                    AND MIN((g.response_contract_id=b.response_contract_id
+                    AND MIN((g.position=fi.position AND (g.response_id <=> accepted.id)
+                        AND (accepted.id IS NULL OR (accepted.schema_version=1
+                          AND CAST(accepted.response_contract_id AS BINARY)=CAST(b.response_contract_id AS BINARY)
+                          AND accepted.response_contract_version=b.response_contract_version))
+                        AND CAST(g.response_contract_id AS BINARY)=CAST(b.response_contract_id AS BINARY)
                         AND g.response_contract_version=b.response_contract_version
-                        AND g.scoring_contract_id=b.scoring_contract_id
+                        AND CAST(g.scoring_contract_id AS BINARY)=CAST(b.scoring_contract_id AS BINARY)
                         AND g.scoring_contract_version=b.scoring_contract_version) IS TRUE)=1
+                    AND EXISTS(SELECT 1 FROM attempt_submission s WHERE s.id=roots.result_submission
+                        AND s.schema_version=1 AND s.attempt_id=roots.attempt_id AND s.form_id=roots.form_id
+                        AND s.policy_snapshot_id=roots.policy_snapshot_id AND s.quiz_revision_id=UUID_TO_BIN(:revision))
                     AND EXISTS(SELECT 1 FROM attempt_result_created e
                         JOIN attempt_trace_event t ON t.event_id=e.result_id
                         WHERE e.result_id=roots.result_id AND e.schema_version=1 AND e.created_at=roots.result_at
                           AND t.event_type='AUTOMATIC_GRADE_PRODUCED' AND t.actor_type='SYSTEM' AND t.reason_code='GRADED'
                           AND t.attempt_id=roots.attempt_id AND t.form_id=roots.form_id)) valid
-                FROM (SELECT DISTINCT result_id,result_earned,result_possible,result_at,attempt_id,form_id FROM latest
+                FROM (SELECT DISTINCT result_id,result_earned,result_possible,result_at,attempt_id,form_id,
+                        result_submission,policy_snapshot_id,form_item_count,result_threshold_valid FROM latest
                     WHERE :mistakes AND :resultAccess AND result_id IS NOT NULL) roots
                 LEFT JOIN attempt_automatic_grade g ON g.result_id=roots.result_id
+                LEFT JOIN attempt_form_item fi ON fi.form_id=g.form_id AND fi.id=g.form_item_id
+                LEFT JOIN attempt_accepted_response accepted ON accepted.attempt_id=roots.attempt_id
+                    AND accepted.form_id=roots.form_id AND accepted.form_item_id=g.form_item_id
                 LEFT JOIN question_revision_contract_bindings b ON b.question_revision_id=g.question_revision_id
-                GROUP BY roots.result_id,roots.result_earned,roots.result_possible,roots.result_at,roots.attempt_id,roots.form_id
+                GROUP BY roots.result_id,roots.result_earned,roots.result_possible,roots.result_at,roots.attempt_id,roots.form_id,
+                    roots.result_submission,roots.policy_snapshot_id,roots.form_item_count,roots.result_threshold_valid
             ), availability AS (
                 SELECT CASE
                   WHEN EXISTS(SELECT 1 FROM attempts a JOIN answers answer_row ON answer_row.attempt_id=a.id
@@ -156,13 +172,13 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
                     OR EXISTS(SELECT 1 FROM quizzes q WHERE q.quiz_id=UUID_TO_BIN(:quiz) AND q.is_repetition_enabled=TRUE)
                     THEN 'LEGACY_UNKNOWN'
                   WHEN EXISTS(SELECT 1 FROM own_attempts o WHERE NOT (
-                      o.subject_version=1 AND o.subject_type='AUTHENTICATED_USER' AND o.form_version=1 AND o.trace_version=1
+                      o.subject_version=1 AND CAST(o.subject_type AS BINARY)='AUTHENTICATED_USER' AND o.form_version=1 AND o.trace_version=1
                       AND o.lifecycle_version=1 AND o.policy_version=1 AND o.resolver_version=1 AND o.canonical_version=1
-                      AND o.hash_algorithm='SHA-256' AND o.policy_revision=UUID_TO_BIN(:revision)
+                      AND CAST(o.hash_algorithm AS BINARY)='SHA-256' AND o.policy_revision=UUID_TO_BIN(:revision)
                       AND o.policy_integrity=TRUE
-                      AND (o.result_id IS NULL OR (o.result_version=1 AND o.scoring_contract='binary-result/v1'
+                      AND (o.result_id IS NULL OR (o.result_version=1 AND CAST(o.scoring_contract AS BINARY)='binary-result/v1'
                         AND o.result_revision=UUID_TO_BIN(:revision) AND o.result_form=o.form_id
-                        AND o.result_policy=o.policy_snapshot_id AND o.result_hash=o.policy_hash))) IS TRUE)
+                        AND o.result_policy=o.policy_snapshot_id AND CAST(o.result_hash AS BINARY)=CAST(o.policy_hash AS BINARY)))) IS TRUE)
                     THEN 'UNSUPPORTED'
                   WHEN :mistakes AND :resultAccess AND (
                       EXISTS(SELECT 1 FROM result_integrity WHERE valid IS NOT TRUE)

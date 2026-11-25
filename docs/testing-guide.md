@@ -26,6 +26,16 @@ The conformance class already belongs to the existing context inventory.
   revision binding. Tests change each dimension independently, compare #603's rejection, check
   refusal before pagination and prove recovery after restoration. Contract validation includes
   superseded grades when their result still supplies another latest answer.
+- #603 replay metadata checks also require each grade's position to match its captured form item,
+  exact response identity for every item, matching accepted-response contract metadata, and
+  complete form membership/counts. Swapping positions without changing their bounds is rejected.
+  Contract IDs use byte equality: trailing spaces are not discarded by MySQL's PAD SPACE
+  collation. The result's pass threshold must match the captured policy, and its header must
+  retain the submission's form/policy/revision binding. Regressions independently corrupt these
+  facts, including superseded responses, compare #603, preserve source checksums and restore
+  successful controls. A padded unsupported root contract remains explicitly `UNSUPPORTED`.
+  The extra corrupted form-count control currently maps to #603 `UNAVAILABLE`; selection
+  still refuses that inconsistent metadata as `CORRUPT`.
 - Real Learning enrollment/delivery leaves questions unanswered. An actual HTTP response removes
   only that exact question revision; a later publication has separate state and old reads retain
   their captured identity. No assessment facts are repurposed as Learning grades.
@@ -40,7 +50,8 @@ The conformance class already belongs to the existing context inventory.
 - The measured JDBC adapter reads one then four real assessment parents on the same publication.
   Its permission probe and history query return bounded candidate metadata, without per-question
   statements or normalized response/content reads. The same query batches grade count, point sum
-  and position bounds, creation evidence and contract bindings for referenced result roots.
+  and exact form positions/membership, creation evidence, submission/policy and contract bindings
+  for referenced result roots. Accepted responses contribute identity/contract metadata only.
   A real `EXPLAIN FORMAT=JSON` plan is retained
   in the test report. MySQL still examines/sorts source history;
   statement counts alone do not establish constant work. No JPA relationship read is added.

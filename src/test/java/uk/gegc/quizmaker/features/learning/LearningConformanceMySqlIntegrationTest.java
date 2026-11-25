@@ -1014,10 +1014,154 @@ class LearningConformanceMySqlIntegrationTest {
         }
     }
 
+    @Test
+    void historyGradesMustKeepTheirCapturedFormPositions() {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First","Second"); UUID attempt=historyAttempt(anna,source,List.of(false,true),true);
+        var baseline=history(anna,source,Mode.INCORRECT_ONLY,20,null); assertThat(baseline.items()).hasSize(1);
+        UUID result=baseline.items().get(0).evidence().resultId(); UUID submission=historySubmissionId(attempt);
+        var grades=sql.queryForList("SELECT * FROM attempt_automatic_grade WHERE result_id=UUID_TO_BIN(?) ORDER BY position",result.toString());
+        try {
+            assertThat(sql.update("UPDATE attempt_automatic_grade SET position=position+2 WHERE result_id=UUID_TO_BIN(?)",result.toString())).isEqualTo(2);
+            sql.update("UPDATE attempt_automatic_grade SET position=3-position WHERE result_id=UUID_TO_BIN(?)",result.toString());
+            assertCorruptHistoryWithoutRepair(anna,source,submission);
+        } finally {
+            sql.update("DELETE FROM attempt_automatic_grade WHERE result_id=UUID_TO_BIN(?)",result.toString());
+            grades.forEach(this::restoreHistoryGrade);
+        }
+        assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(baseline.items());
+        assertThat(automaticResults.finalizeSubmission(submission).id()).isEqualTo(result);
+    }
+
+    @Test
+    void historyContractIdentifiersCompareAllBytes() {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First"); UUID attempt=historyAttempt(anna,source,List.of(false),true);
+        var baseline=history(anna,source,Mode.INCORRECT_ONLY,20,null); assertThat(baseline.items()).hasSize(1);
+        UUID result=baseline.items().get(0).evidence().resultId(); UUID submission=historySubmissionId(attempt);
+        var original=sql.queryForMap("SELECT * FROM attempt_automatic_grade WHERE result_id=UUID_TO_BIN(?)",result.toString());
+        for(String column:List.of("response_contract_id","scoring_contract_id")) for(String suffix:List.of(" ","  ","\t")) {
+            try {
+                assertThat(sql.update("UPDATE attempt_automatic_grade SET "+column+"=? WHERE result_id=UUID_TO_BIN(?)",
+                        original.get(column).toString()+suffix,result.toString())).isOne();
+                assertCorruptHistoryWithoutRepair(anna,source,submission);
+            } finally {
+                sql.update("DELETE FROM attempt_automatic_grade WHERE result_id=UUID_TO_BIN(?)",result.toString());
+                restoreHistoryGrade(original);
+            }
+            assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(baseline.items());
+            assertThat(automaticResults.finalizeSubmission(submission).id()).isEqualTo(result);
+        }
+        try {
+            sql.update("UPDATE attempt_automatic_result SET scoring_contract=CONCAT(scoring_contract,' ') WHERE id=UUID_TO_BIN(?)",result.toString());
+            assertThatThrownBy(() -> automaticResults.finalizeSubmission(submission))
+                    .isInstanceOfSatisfying(uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.class,
+                        e -> assertThat(e.reason()).isEqualTo(uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.Reason.UNSUPPORTED));
+            var refused=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+            assertThat(refused.availability()).isEqualTo(Availability.UNSUPPORTED); assertThat(refused.items()).isEmpty();
+        } finally {
+            sql.update("UPDATE attempt_automatic_result SET scoring_contract=? WHERE id=UUID_TO_BIN(?)",
+                    uk.gegc.quizmaker.features.result.domain.model.AutomaticResult.CONTRACT,result.toString());
+        }
+        assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(baseline.items());
+        assertThat(automaticResults.finalizeSubmission(submission).id()).isEqualTo(result);
+    }
+
+    @Test
+    void historyResultThresholdMustMatchCapturedPolicy() {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First"); UUID attempt=historyAttempt(anna,source,List.of(false),true);
+        var baseline=history(anna,source,Mode.INCORRECT_ONLY,20,null); assertThat(baseline.items()).hasSize(1);
+        UUID result=baseline.items().get(0).evidence().resultId(); UUID submission=historySubmissionId(attempt);
+        var original=automaticResults.finalizeSubmission(submission);
+        for(int threshold:List.of(0,5000,10000)) {
+            if(threshold==original.score().thresholdBasisPoints()) continue;
+            try {
+                var changed=uk.gegc.quizmaker.features.result.domain.model.AutomaticResult.Score.calculate(
+                        original.score().earned(),original.score().possible(),threshold);
+                sql.update("UPDATE attempt_automatic_result SET pass_threshold=?,passed=? WHERE id=UUID_TO_BIN(?)",threshold,changed.passed(),result.toString());
+                assertCorruptHistoryWithoutRepair(anna,source,submission);
+            } finally {
+                sql.update("UPDATE attempt_automatic_result SET pass_threshold=?,passed=? WHERE id=UUID_TO_BIN(?)",
+                        original.score().thresholdBasisPoints(),original.score().passed(),result.toString());
+            }
+            assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(baseline.items());
+            assertThat(automaticResults.finalizeSubmission(submission)).isEqualTo(original);
+        }
+    }
+
+    @Test
+    void historyResultHeaderKeepsRetainedSubmissionAndFormBinding() {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First"); UUID attempt=historyAttempt(anna,source,List.of(false),true);
+        UUID submission=historySubmissionId(attempt); var original=automaticResults.finalizeSubmission(submission);
+        var baseline=history(anna,source,Mode.INCORRECT_ONLY,20,null); assertThat(baseline.items()).hasSize(1);
+        Source other=publishedQuiz(anna,"Other"); UUID peer=historyAttempt(anna,other,List.of(false),true);
+        var otherResult=automaticResults.finalizeSubmission(historySubmissionId(peer));
+        for(String fault:List.of("submission-policy","submission-revision","form-count")) {
+            try {
+                switch(fault) {
+                    case "submission-policy" -> sql.update("UPDATE attempt_submission SET policy_snapshot_id=UUID_TO_BIN(?) WHERE id=UUID_TO_BIN(?)",
+                            otherResult.policySnapshotId().toString(),submission.toString());
+                    case "submission-revision" -> sql.update("UPDATE attempt_submission SET quiz_revision_id=UUID_TO_BIN(?) WHERE id=UUID_TO_BIN(?)",
+                            other.revisionId().toString(),submission.toString());
+                    case "form-count" -> sql.update("UPDATE attempt_form SET item_count=item_count+1 WHERE id=UUID_TO_BIN(?)",original.formId().toString());
+                    default -> throw new AssertionError(fault);
+                }
+                var expected=fault.equals("form-count")
+                        ? uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.Reason.UNAVAILABLE
+                        : uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.Reason.CORRUPT;
+                assertRejectedHistoryWithoutRepair(anna,source,submission,expected);
+            } finally {
+                sql.update("UPDATE attempt_submission SET policy_snapshot_id=UUID_TO_BIN(?),quiz_revision_id=UUID_TO_BIN(?) WHERE id=UUID_TO_BIN(?)",
+                        original.policySnapshotId().toString(),source.revisionId().toString(),submission.toString());
+                sql.update("UPDATE attempt_form SET item_count=? WHERE id=UUID_TO_BIN(?)",original.score().possible(),original.formId().toString());
+            }
+            assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(baseline.items());
+            assertThat(automaticResults.finalizeSubmission(submission)).isEqualTo(original);
+        }
+    }
+
+    @Test
+    void historyAllGradesKeepTheirAcceptedResponseBinding() {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First","Second"); UUID first=historyAttempt(anna,source,List.of(false,false),true);
+        UUID submission=historySubmissionId(first); var result=automaticResults.finalizeSubmission(submission);
+        CLOCK.set(now.plusSeconds(1)); historyAttempt(anna,source,List.of(true),true);
+        var baseline=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+        assertThat(baseline.items()).extracting(i -> i.questionRevisionId()).containsExactly(source.questions().get(1));
+        var grade=sql.queryForMap("SELECT * FROM attempt_automatic_grade WHERE result_id=UUID_TO_BIN(?) AND position=0",result.id().toString());
+        var response=sql.queryForMap("SELECT id,response_contract_id,response_contract_version FROM attempt_accepted_response WHERE id=?",grade.get("response_id"));
+        for(String fault:List.of("missing-grade-response","accepted-contract-id","accepted-contract-version")) {
+            try {
+                switch(fault) {
+                    case "missing-grade-response" -> sql.update("UPDATE attempt_automatic_grade SET response_id=NULL WHERE result_id=UUID_TO_BIN(?) AND position=0",result.id().toString());
+                    case "accepted-contract-id" -> sql.update("UPDATE attempt_accepted_response SET response_contract_id=CONCAT(response_contract_id,' ') WHERE id=?",response.get("id"));
+                    case "accepted-contract-version" -> sql.update("UPDATE attempt_accepted_response SET response_contract_version=2 WHERE id=?",response.get("id"));
+                    default -> throw new AssertionError(fault);
+                }
+                assertCorruptHistoryWithoutRepair(anna,source,submission);
+            } finally {
+                sql.update("UPDATE attempt_accepted_response SET response_contract_id=?,response_contract_version=? WHERE id=?",
+                        response.get("response_contract_id"),response.get("response_contract_version"),response.get("id"));
+                sql.update("DELETE FROM attempt_automatic_grade WHERE result_id=UUID_TO_BIN(?) AND position=0",result.id().toString());
+                restoreHistoryGrade(grade);
+            }
+            assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).containsExactlyElementsOf(baseline.items());
+            assertThat(automaticResults.finalizeSubmission(submission)).isEqualTo(result);
+        }
+    }
+
     private void assertCorruptHistoryWithoutRepair(Persona learner,Source source,UUID submission) {
+        assertRejectedHistoryWithoutRepair(learner,source,submission,
+                uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.Reason.CORRUPT);
+    }
+
+    private void assertRejectedHistoryWithoutRepair(Persona learner,Source source,UUID submission,
+            uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.Reason expectedResultReason) {
         assertThatThrownBy(() -> automaticResults.finalizeSubmission(submission))
                 .isInstanceOfSatisfying(uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.class,
-                    e -> assertThat(e.reason()).isEqualTo(uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.Reason.CORRUPT));
+                    e -> assertThat(e.reason()).isEqualTo(expectedResultReason));
         var outside=checksumsOutsideLearning(); var learning=learningChecksums();
         for(Cursor after:java.util.Arrays.asList(null,new Cursor(1,historySource(source),Mode.INCORRECT_ONLY,Integer.MAX_VALUE)))
             assertThatThrownBy(() -> history(learner,source,Mode.INCORRECT_ONLY,1,after))

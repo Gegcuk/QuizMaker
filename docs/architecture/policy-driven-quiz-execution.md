@@ -5867,8 +5867,13 @@ aggregates or a missing grade in an existing result raise sanitized `CORRUPT` wi
 repair. The result must also retain #603's creation record with the same creation timestamp
 and a matching `AUTOMATIC_GRADE_PRODUCED` system trace for its attempt and form. Every grade's response
 and scoring contract IDs/versions must match its question revision binding. These metadata-only
-checks share the same statement and precede pagination; they do not read responses or rescore
-answers. Persistence failures remain sanitized typed failures. Bounded metrics classify validation,
+checks also match each grade to its captured form position and accepted-response identity, with
+complete form membership/counts and matching accepted-response contracts. Contract identifiers
+use byte equality, preserving whitespace significance despite MySQL PAD SPACE collations.
+Result headers must match the retained submission's form/policy/revision and the captured policy's
+integer pass threshold. These checks share the same statement and precede pagination; they read
+no response payloads and do not rescore answers. Persistence failures remain sanitized typed
+failures. Bounded metrics classify validation,
 access, integrity and storage failures by their actual reason. No alternate
 mode is tried. Future consumers must revalidate and persist their own fixed form; a cursor is
 not a durable history snapshot or an access grant.
