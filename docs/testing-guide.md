@@ -2,6 +2,58 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Neutral progressive-form append contract (#661)
+
+On JDK 17, start with the pure contract/planner/boundary suites and existing identity/fingerprint
+compatibility tests, using the existing offline provider environment:
+
+```bash
+./mvnw test -Dtest=ProgressiveFormAppendTest,ProgressiveFormAppendPlannerTest,ProgressiveFormAppendBoundaryTest,FixedFormTest,QuizRevisionTest,FormFingerprintTest
+```
+
+- Both decision kinds use the same reference-only contract. First/later suffixes retain selected
+  order, stable identities and the unchanged prefix. Complete immutable revision membership bounds
+  selection; no new numerical quota, content loading, document hashing or strategy algorithm exists.
+- Exact replay returns the original receipt before the stale-version check, including after later
+  progress and after reconstructing all metadata values. Changed kind/evidence/expected version/items
+  conflict; a receipt for another form/decision, future version or missing/changed prefix is refused.
+- Fixed forms retain supported position gaps and explicitly reject append. Unknown append/revision
+  versions, missing inputs, invalid state/order, duplicate identity/source and cross-revision inputs
+  fail closed. Successful controls accompany denial cases. Defensive copies and redacted diagnostics
+  preserve the metadata/privacy boundary.
+- A controlled `CopyOnWriteArrayList` mutation between the first input observation and constructor
+  completion exercises both state and request capture. Validation and retention must use the same
+  owned snapshot; later planning sees distinct identities, not a newly substituted duplicate.
+  Reached barriers and worker completion prove the mutation without sleep-based timing assumptions.
+- A controlled `CopyOnWriteArraySet` null insertion before/after membership capture verifies the
+  same rule for `RevisionScope`: a captured null gives `INVALID_INPUT`, while a later insertion
+  cannot alter the retained non-null snapshot or cause `Set.copyOf` to throw `NullPointerException`.
+- A real try-with-resources close failure during an `INVALID_INPUT` planner rejection cannot attach
+  suppressed diagnostics. The close checkpoint is reached; the safe exception retains its reason
+  and useful stack while its cause/suppressed collection and printed trace exclude the private marker.
+- Seeded permutations with varied batch sizes validate contiguous suffixes and replay of every
+  earlier request against the final metadata observation. The competing-plan fixture explicitly
+  permits two valid proposals against the same observation, then rejects the stale request on
+  reread. It does not claim a database race winner, durable restart, rollback or delivery integration.
+- The compiled-boundary test excludes Spring, persistence, content, provider, clock, random and
+  delivery dependencies from the pure model/planner/port. No context/database suite is added, so
+  the context inventory remains unchanged; the new ordinary unit tests are discovered automatically.
+
+After stable implementation inputs, run the existing full four-worker clean-verify launcher and
+compare its source fingerprint with the candidate tree before commit:
+
+```bash
+python3 tools/testing/context_benchmark.py verify --workers 4 --output /private/tmp/quizmaker-661-verify-<unique-run>
+```
+
+`ProgressiveFormAppendPort` deliberately has no storage implementation. #571/#574 must use real
+writers and committed fixtures to prove same-form CAS/receipt uniqueness, independent-form progress,
+decision/evidence/form atomicity, reached failure rollback through fresh transactions, restart/lost
+acknowledgement and commit-before-delivery. Current authorization must be checked even for replay.
+Only later adapters can provide those proofs; a pure plan or caller-constructed receipt/state cannot.
+Neither algorithm nor progressive HTTP behavior is activated here. No new Postman scenario is needed
+because public operations remain unchanged. No JPA/persistence read is added; N+1 is not applicable.
+
 ## Read-only mistake and unanswered Learning selection (#648)
 
 Start with `LearningHistorySelectionTest`, then run the `history*` methods in
