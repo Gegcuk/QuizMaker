@@ -279,6 +279,7 @@
     "uk.gegc.quizmaker.features.quiz.revision.QuizRevisionCasesMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.quiz.revision.QuizRevisionMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.quiz.revision.QuizRevisionSectionsMySqlIntegrationTest",
+    "uk.gegc.quizmaker.features.quiz.revision.ScenarioGraphMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.result.release.ReleaseConfigurationMySqlIntegrationTest"
   ],
   "excluded": [

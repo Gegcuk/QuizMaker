@@ -435,7 +435,7 @@ class QuizRevisionCasesMySqlIntegrationTest {
         var tx = new TransactionTemplate(manager); tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         tx.setIsolationLevel(isolation.equals("REPEATABLE_READ") ? TransactionDefinition.ISOLATION_REPEATABLE_READ : TransactionDefinition.ISOLATION_READ_COMMITTED); return tx;
     }
-    private static FixedFormMaterializer.Command flatCommand(QuizRevision revision) {
+    static FixedFormMaterializer.Command flatCommand(QuizRevision revision) {
         var selected = new QuestionSelectionServiceImpl(request -> { throw new AssertionError("ALL needs no seed"); }).select(
                 new QuestionSelection.Input(1, revision.id(), 1, QuestionSelection.Configuration.all(), revision.items().stream()
                         .map(i -> new QuestionSelection.Item(i.id(), i.authoredPosition())).toList(), List.of()));

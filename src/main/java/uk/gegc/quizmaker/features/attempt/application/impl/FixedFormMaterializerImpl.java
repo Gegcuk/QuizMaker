@@ -130,7 +130,7 @@ public class FixedFormMaterializerImpl implements FixedFormMaterializer {
     }
 
     private static void validate(Command command, QuizRevision revision) {
-        require(!revision.structured(), INPUT_MISMATCH); // Never silently flatten a sectioned revision.
+        require(revision.flat(), INPUT_MISMATCH);
         var selection = command.selection();
         var evidence = selection.evidence();
         var supplied = command.questionOrder();

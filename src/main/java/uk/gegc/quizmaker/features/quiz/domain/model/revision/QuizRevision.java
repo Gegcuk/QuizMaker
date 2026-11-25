@@ -10,8 +10,17 @@ import java.util.UUID;
 /** Stored delivery content. Publication, current pointers and attempt binding are separate use cases. */
 public record QuizRevision(
         UUID id, UUID quizId, UUID ownerId, int schemaVersion, String title, String description,
-        Instant createdAt, List<Item> items, List<RevisionSection> sections, List<RevisionCaseBlock> caseBlocks
+        Instant createdAt, List<Item> items, List<RevisionSection> sections, List<RevisionCaseBlock> caseBlocks,
+        ScenarioGraph scenarioGraph
 ) {
+    public static final int SCENARIO_FORMAT = 4;
+
+    public QuizRevision(UUID id, UUID quizId, UUID ownerId, int schemaVersion, String title, String description,
+                        Instant createdAt, List<Item> items, List<RevisionSection> sections,
+                        List<RevisionCaseBlock> caseBlocks) {
+        this(id, quizId, ownerId, linearVersion(schemaVersion), title, description, createdAt, items, sections, caseBlocks, null);
+    }
+
     /** The section-only format remains unchanged; cases require explicit format 3. */
     public QuizRevision(UUID id, UUID quizId, UUID ownerId, int schemaVersion, String title, String description,
                         Instant createdAt, List<Item> items, List<RevisionSection> sections) {
@@ -25,8 +34,10 @@ public record QuizRevision(
 
     public QuizRevision {
         RevisionValues.require(id != null && quizId != null && ownerId != null);
-        if (schemaVersion != 1 && schemaVersion != 2 && schemaVersion != 3)
+        if (schemaVersion != 1 && schemaVersion != 2 && schemaVersion != 3 && schemaVersion != SCENARIO_FORMAT)
             throw new RevisionIntegrityException(RevisionIntegrityException.Reason.UNSUPPORTED_VERSION);
+        boolean sectioned = schemaVersion == 2 || schemaVersion == 3;
+        RevisionValues.require((schemaVersion == SCENARIO_FORMAT) == (scenarioGraph != null));
         title = RevisionValues.text(title, 100, true);
         description = RevisionValues.text(description, 1000, false);
         createdAt = RevisionValues.timestamp(createdAt);
@@ -41,14 +52,14 @@ public record QuizRevision(
         });
         items = items.stream().sorted(Comparator.comparingInt(Item::authoredPosition)).toList();
         RevisionValues.require(sections != null && sections.stream().allMatch(section -> section != null)
-                && (schemaVersion == 1 ? sections.isEmpty() : !sections.isEmpty()));
+                && (sectioned == !sections.isEmpty()));
         var sectionIds = new HashSet<UUID>();
         var sectionPositions = new HashSet<Integer>();
         sections.forEach(section -> RevisionValues.require(sectionIds.add(section.id())
                 && sectionPositions.add(section.authoredPosition())));
         sections = sections.stream().sorted(Comparator.comparingInt(RevisionSection::authoredPosition)).toList();
         // Exactly one binding per item, in the same total order. No hidden reordering or partial partition.
-        if (schemaVersion >= 2) RevisionValues.require(sections.stream().flatMap(section -> section.itemIds().stream())
+        if (sectioned) RevisionValues.require(sections.stream().flatMap(section -> section.itemIds().stream())
                 .toList().equals(items.stream().map(Item::id).toList()));
         RevisionValues.require(caseBlocks != null && caseBlocks.stream().allMatch(block -> block != null)
                 && (schemaVersion == 3 ? !caseBlocks.isEmpty() : caseBlocks.isEmpty()));
@@ -69,9 +80,22 @@ public record QuizRevision(
         caseBlocks = caseBlocks.stream().sorted(Comparator
                 .comparingInt((RevisionCaseBlock block) -> bySection.get(block.sectionId()).authoredPosition())
                 .thenComparingInt(RevisionCaseBlock::authoredPosition)).toList();
+        if (scenarioGraph != null) {
+            RevisionValues.require(scenarioGraph.nodes().stream()
+                    .filter(node -> node.type() == ScenarioGraph.NodeType.ITEM)
+                    .allMatch(node -> ids.contains(node.itemId())));
+        }
     }
 
-    public boolean structured() { return schemaVersion >= 2; }
+    public boolean structured() { return schemaVersion == 2 || schemaVersion == 3; }
+
+    public boolean flat() { return schemaVersion == 1; }
+
+    private static int linearVersion(int schemaVersion) {
+        if (schemaVersion == SCENARIO_FORMAT)
+            throw new RevisionIntegrityException(RevisionIntegrityException.Reason.UNSUPPORTED_VERSION);
+        return schemaVersion;
+    }
 
     private static int flatVersion(int version) { RevisionValues.version(version); return version; }
 

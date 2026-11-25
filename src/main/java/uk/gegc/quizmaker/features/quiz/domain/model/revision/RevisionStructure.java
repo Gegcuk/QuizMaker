@@ -27,7 +27,9 @@ public record RevisionStructure(Provenance provenance, UUID revisionId, List<Sec
     public static RevisionStructure legacy() { return new RevisionStructure(Provenance.LEGACY, null, List.of()); }
 
     public static RevisionStructure from(QuizRevision revision) {
-        if (!revision.structured()) {
+        if (revision.scenarioGraph() != null)
+            throw new RevisionIntegrityException(RevisionIntegrityException.Reason.UNSUPPORTED_VERSION);
+        if (revision.flat()) {
             // Bounded identity metadata only; never read/hash document or question content.
             UUID implicitId = UUID.nameUUIDFromBytes(("quizmaker:implicit-section:v1:" + revision.id())
                     .getBytes(StandardCharsets.UTF_8));

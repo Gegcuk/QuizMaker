@@ -12,7 +12,7 @@ import java.util.UUID;
  * server context, never request authorization. There is deliberately no update/delete operation.
  */
 public interface QuizRevisionRepository {
-    /** Inserts the complete aggregate atomically; sections/cases cannot be attached to an existing revision. */
+    /** Inserts the complete aggregate atomically, including the chosen layout and its immutable evidence. */
     void insert(QuizRevision revision);
 
     List<QuizRevision> findByIds(UUID ownerId, Collection<UUID> revisionIds);

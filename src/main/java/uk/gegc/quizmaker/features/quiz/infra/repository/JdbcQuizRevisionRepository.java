@@ -44,11 +44,13 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
     private final NamedParameterJdbcTemplate jdbc;
     private final JdbcRevisionSections sections;
     private final JdbcRevisionCases cases;
+    private final JdbcScenarioGraphs scenarioGraphs;
 
     public JdbcQuizRevisionRepository(NamedParameterJdbcTemplate jdbc) {
         this.jdbc = jdbc;
         this.sections = new JdbcRevisionSections(jdbc);
         this.cases = new JdbcRevisionCases(jdbc);
+        this.scenarioGraphs = new JdbcScenarioGraphs(jdbc);
     }
 
     @Override
@@ -57,7 +59,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
         try {
             insertAggregate(revision);
         } catch (DataAccessException failure) {
-            if (revision.schemaVersion() == 3) throw SafeDataAccess.sanitize(failure);
+            if (revision.schemaVersion() == 3 || revision.scenarioGraph() != null) throw SafeDataAccess.sanitize(failure);
             throw failure;
         }
     }
@@ -101,6 +103,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
                 .addValue("description", revision.description())
                 .addValue("created", Timestamp.from(revision.createdAt())).addValue("sectionCount", revision.sections().size())
                 .addValue("caseCount", revision.caseBlocks().size()));
+        scenarioGraphs.begin(revision);
         batch("""
                 INSERT INTO quiz_revision_items (id, quiz_revision_id, question_revision_id, authored_position)
                 VALUES (:id, :quizId, :questionId, :position)
@@ -110,6 +113,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
                 .addValue("position", item.authoredPosition())).toList());
         sections.insert(revision);
         cases.insert(revision);
+        scenarioGraphs.insertAndSeal(revision);
     }
 
     @Override
@@ -149,7 +153,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
                         """ + lock, parameters, (rs, row) -> new Root(uuid(rs, "id"), uuid(rs, "quiz_id"),
                         uuid(rs, "owner_id"), rs.getInt("schema_version"), rs.getString("title"), rs.getString("description"),
                         rs.getTimestamp("created_at").toInstant(),
-                        rs.getInt("schema_version") >= 2 ? rs.getInt("section_count") : 0,
+                        rs.getInt("schema_version") == 2 || rs.getInt("schema_version") == 3 ? rs.getInt("section_count") : 0,
                         rs.getInt("schema_version") == 3 ? rs.getInt("case_count") : 0));
                 if (roots.isEmpty()) continue;
                 Map<String, Object> scoped = Map.of("ids", binaryIds(roots.stream().map(Root::id).toList()));
@@ -170,16 +174,19 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
                         .add(new QuizRevision.Item(item.id(), item.position(),
                                 withOptions(item.question(), options.getOrDefault(item.question().id(), List.of())))));
                 Map<UUID, Integer> structured = new LinkedHashMap<>();
-                roots.stream().filter(root -> root.schemaVersion() >= 2).forEach(root -> structured.put(root.id(), root.sectionCount()));
+                roots.stream().filter(root -> root.schemaVersion() == 2 || root.schemaVersion() == 3)
+                        .forEach(root -> structured.put(root.id(), root.sectionCount()));
                 var layouts = sections.read(structured, current);
                 Map<UUID, Integer> cased = new LinkedHashMap<>();
                 roots.stream().filter(root -> root.schemaVersion() == 3).forEach(root -> cased.put(root.id(), root.caseCount()));
                 var blocks = cases.read(cased, current);
+                var graphs = scenarioGraphs.read(roots.stream().filter(root -> root.schemaVersion() == QuizRevision.SCENARIO_FORMAT)
+                        .map(Root::id).toList(), byRoot, current);
                 roots.forEach(root -> {
                     var storedCases = blocks.getOrDefault(root.id(), List.of());
                     var revision = new QuizRevision(root.id(), root.quizId(), root.ownerId(),
                         root.schemaVersion(), root.title(), root.description(), root.createdAt(), byRoot.getOrDefault(root.id(), List.of()),
-                        layouts.getOrDefault(root.id(), List.of()), storedCases);
+                        layouts.getOrDefault(root.id(), List.of()), storedCases, graphs.get(root.id()));
                     if (!revision.caseBlocks().equals(storedCases))
                         throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
                     result.put(root.id(), revision);
@@ -311,21 +318,25 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
     }
 
     private void batch(String sql, List<MapSqlParameterSource> rows) {
+        batch(jdbc, sql, rows);
+    }
+
+    static void batch(NamedParameterJdbcTemplate jdbc, String sql, List<MapSqlParameterSource> rows) {
         for (int start = 0; start < rows.size(); start += SQL_BATCH) {
             jdbc.batchUpdate(sql, rows.subList(start, Math.min(start + SQL_BATCH, rows.size()))
                     .toArray(MapSqlParameterSource[]::new));
         }
     }
 
-    private static List<byte[]> binaryIds(List<UUID> ids) {
+    static List<byte[]> binaryIds(List<UUID> ids) {
         return ids.stream().map(JdbcQuizRevisionRepository::bytes).toList();
     }
 
-    private static byte[] bytes(UUID id) {
+    static byte[] bytes(UUID id) {
         return id == null ? null : ByteBuffer.allocate(16).putLong(id.getMostSignificantBits()).putLong(id.getLeastSignificantBits()).array();
     }
 
-    private static UUID uuid(ResultSet rs, String column) throws SQLException {
+    static UUID uuid(ResultSet rs, String column) throws SQLException {
         byte[] value = rs.getBytes(column);
         if (value == null) return null;
         if (value.length != 16) throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);

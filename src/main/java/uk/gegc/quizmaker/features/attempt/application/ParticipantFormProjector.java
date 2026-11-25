@@ -43,7 +43,7 @@ public final class ParticipantFormProjector {
     private static ParticipantForm project(FixedForm form, QuizRevision revision, FormOptionOrder order,
                                           Map<UUID, ResolvedQuestionContracts> contracts, java.util.Set<UUID> mediaItems) {
         require(form != null && revision != null && order != null && contracts != null, INVALID_INPUT);
-        require(!revision.structured(), INPUT_MISMATCH); // #554 owns section-aware participant forms.
+        require(revision.flat(), INPUT_MISMATCH);
         require(form.quizRevisionId().equals(revision.id()) && form.id().equals(order.formId()), INPUT_MISMATCH);
         require(form.items().size() == order.items().size(), INPUT_MISMATCH);
         var sources = new HashMap<UUID, QuizRevision.Item>();
