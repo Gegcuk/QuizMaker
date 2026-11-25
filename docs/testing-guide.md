@@ -2,6 +2,81 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Read-only mistake and unanswered Learning selection (#648)
+
+Start with `LearningHistorySelectionTest`, then run the `history*` methods in
+`LearningConformanceMySqlIntegrationTest` using JDK 17 and the existing disposable MySQL/offline
+helper. The complete four-worker `context_benchmark.py verify` remains the final backend gate.
+The conformance class already belongs to the existing context inventory.
+
+- The real publication binder, canonical assessment start/accept/submit, #603 result and #556
+  release writers supply mistake history. A later correct answer removes a mistake; a later
+  unanswered submission does not, including the interval before its result worker runs. Only a
+  pending result for the latest accepted answer blocks selection; a superseded pending answer
+  and later completion of its worker do not change the selected evidence.
+- Result integrity is checked before incorrect-answer filtering and pagination: changed earned
+  points, missing grades and noncontiguous positions produce `CORRUPT`, including an exhausted
+  cursor. All grades of a referenced result contribute to validation, even when some answers
+  have since been superseded. The real #603 reader independently rejects corrupted fixtures;
+  restoring them restores selection. Reads preserve assessment and Learning table checksums
+  and never repair source history.
+- Result provenance follows #603's retained creation evidence: missing `attempt_result_created`,
+  a mismatched creation time, or the wrong trace type, actor, reason or attempt/form scope yields
+  `CORRUPT`. Grade response/scoring contract IDs and versions must match the saved question
+  revision binding. Tests change each dimension independently, compare #603's rejection, check
+  refusal before pagination and prove recovery after restoration. Contract validation includes
+  superseded grades when their result still supplies another latest answer.
+- #603 replay metadata checks also require each grade's position to match its captured form item,
+  exact response identity for every item, matching accepted-response contract metadata, and
+  complete form membership/counts. Swapping positions without changing their bounds is rejected.
+  Contract IDs use byte equality: trailing spaces are not discarded by MySQL's PAD SPACE
+  collation. The result's pass threshold must match the captured policy, and its header must
+  retain the submission's form/policy/revision binding. Regressions independently corrupt these
+  facts, including superseded responses, compare #603, preserve source checksums and restore
+  successful controls. A padded unsupported root contract remains explicitly `UNSUPPORTED`.
+  The extra corrupted form-count control currently maps to #603 `UNAVAILABLE`; selection
+  still refuses that inconsistent metadata as `CORRUPT`.
+- Completed-answer chronology is checked across history before consuming its latest-answer
+  ordering. A damaged old timestamp cannot revive a mistake after a later correct response,
+  or silently pass merely because it does not win the ordering. Independent submission
+  accepted/unanswered counts, balanced count changes, terminal version and submission time
+  are compared with real retained answers and lifecycle facts; restoration recovers selection.
+  Voluntary acceptance is bounded inclusively by `submission.submitted_at`; expiry acceptance
+  is bounded by `lifecycle.updated_at` and requires matching expiry receipt metadata. The real
+  response writer waits on an observed MySQL lifecycle lock across the deadline, then the real
+  expiry/result/release writers preserve that answer at the inclusive processing-time boundary.
+  Later acceptance, a contradictory voluntary cause and a mismatched expiry receipt are refused.
+- Both modes check accepted-response counts from every completed attempt root, before an answer
+  join can drop a root with no surviving rows. Real pending submissions lose one or all response
+  rows in separate regressions; #603 and both selectors refuse the incomplete history, including
+  an exhausted cursor, without modifying storage. Restoring the rows restores pending/answered
+  classifications; real grading then leaves only the remaining mistake. Genuine empty submissions
+  (`0 == 0`) preserve both views before and after grading, and active attempts without a submission
+  do not trigger the completed-attempt check.
+- Real Learning enrollment/delivery leaves questions unanswered. An actual HTTP response removes
+  only that exact question revision; a later publication has separate state and old reads retain
+  their captured identity. No assessment facts are repurposed as Learning grades.
+- Unreleased correctness yields an explicit unavailable empty selection. A real legacy answer
+  yields `LEGACY_UNKNOWN`, without manufacturing a revision mapping or falling back to another
+  selection mode. Empty complete history remains a different result.
+- Self/current-source authority, anonymous/foreign denial, RC participation and incompatible
+  outer isolation are checked alongside successful controls. Unit tests cover configuration,
+  unknown versions, bounded continuation, unavailable adapters, sanitized failures and diagnostics.
+  Invalid input, denied source access, lock conflicts and reached storage faults retain separate
+  bounded metric outcomes; invalid input executes no SQL and does not count as storage failure.
+- The measured JDBC adapter reads one then four real assessment parents on the same publication.
+  Its permission probe and history query return bounded candidate metadata, without per-question
+  statements or normalized response/content reads. The same query batches grade count, point sum
+  and exact form positions/membership, creation evidence, submission/policy and contract bindings
+  for referenced result roots. Accepted responses contribute identity/contract metadata only.
+  A real `EXPLAIN FORMAT=JSON` plan is retained
+  in the test report. MySQL still examines/sorts source history;
+  statement counts alone do not establish constant work. No JPA relationship read is added.
+
+The implementation is internal only. It changes no public HTTP operation, so no new Postman
+scenario is required. Existing session OpenAPI/HTTP conformance remains relevant; public
+mistake/unseen session modes require their own integration before activation.
+
 ## Private nested Learning sets and selections (#841)
 
 Start with `LearningSetTest`, `LearningSetOpenApiTest` and `LearningSetMySqlIntegrationTest`.
@@ -1290,13 +1365,11 @@ The release-quality command is `./mvnw verify`. It runs the bounded parallel lan
 
 ### CI runner interruption diagnostics
 
-Resource diagnostics are off for ordinary push, pull request and manual runs. To collect
-them for one run, open **Actions → CI → Run workflow**, select the branch and worker count,
-and enable **Collect runner and test JVM resource diagnostics** (`resource_diagnostics`).
-This enables the runner monitor, JVM recorder, timing and resource summaries, and
-`ci-resource-diagnostics` upload.
+Every CI run that reaches the offline verification step collects runner metrics. For
+per-class JVM measurements and timing summaries, select **Collect detailed test JVM
+diagnostics and timing summaries** (`resource_diagnostics`) under **Actions → CI → Run workflow**.
 
-During diagnostic verification, a separate stdlib-only Python process emits a compact
+During verification, a separate stdlib-only Python process emits a compact
 `[ci-resources]` JSON record at startup, once every 60 seconds, and when stopped. It runs
 outside the test network namespace, reads Linux counters without elevated privileges, and
 does not inspect command arguments, environments, test payloads, or arbitrary process names.
@@ -1326,7 +1399,7 @@ python3 -B -m unittest discover -s .github/scripts -p 'test_*.py' -v
 python3 -B -m unittest discover -s tools/testing -p 'test_*.py' -v
 ```
 
-With diagnostics enabled, each Surefire lane also emits `[test-resources]` JSONL from an automatically registered
+With detailed JVM diagnostics enabled, each Surefire lane also emits `[test-resources]` JSONL from an automatically registered
 JUnit extension. Records join by `jvm_id`, PID, lane, fork and `class_id`; class names are
 the only test identifiers recorded. `class_start` precedes class setup, and `class_end`
 follows class cleanup, including Spring's callbacks. Nested containers get separate windows;

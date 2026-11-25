@@ -233,9 +233,10 @@ class MavenVerificationContractTest {
         assertThat(workflow)
                 .containsPattern("(?s)resource_diagnostics:\\s+description:[^\\n]+\\s+type: boolean\\s+default: false")
                 .contains("RESOURCE_DIAGNOSTICS: ${{ inputs.resource_diagnostics && 'true' || 'false' }}");
-        for (String step : List.of("Summarize test resource evidence", "Upload CI resource diagnostics")) {
-            assertThat(workflow).contains("- name: " + step + "\n        if: always() && env.RESOURCE_DIAGNOSTICS == 'true'");
-        }
+        assertThat(workflow)
+                .contains("- name: Summarize test resource evidence\n        if: always() && env.RESOURCE_DIAGNOSTICS == 'true'")
+                .contains("- name: Upload CI resource diagnostics\n        if: always()\n")
+                .contains("${{ runner.temp }}/quizmaker-resources.jsonl");
     }
 
     @Test

@@ -194,10 +194,12 @@ class ResourceMonitorTest(unittest.TestCase):
         end = script.index('sudo ip netns delete "$NETNS" 2>/dev/null || true',
                            script.index("RESOURCE_MONITOR_PID=$!"))
         lifecycle = script[start:end]
-        for mode, exit_code in (("off", 0), ("off", 23), ("real", 0), ("real", 23),
-                                ("failed", 0), ("failed", 23), ("hung", 23)):
-            with self.subTest(mode=mode, exit_code=exit_code):
-                fixture = self.root / f"{mode}-{exit_code}"
+        for mode, exit_code, jvm_diagnostics in (
+            ("real", 0, "false"), ("real", 23, "false"), ("real", 0, "true"), ("real", 23, "true"),
+            ("failed", 0, "false"), ("failed", 23, "false"), ("hung", 23, "false"),
+        ):
+            with self.subTest(mode=mode, exit_code=exit_code, jvm_diagnostics=jvm_diagnostics):
+                fixture = self.root / f"{mode}-{exit_code}-{jvm_diagnostics}"
                 helper = fixture / ".github/scripts/ci_resource_monitor.py"
                 if mode == "real":
                     contents = HELPER.read_text()
@@ -212,13 +214,12 @@ class ResourceMonitorTest(unittest.TestCase):
                 self.write(sudo, "#!/bin/sh\nexit 0\n")
                 sudo.chmod(0o700)
                 environment = dict(os.environ, RUNNER_TEMP=str(fixture), GITHUB_WORKSPACE=str(fixture),
-                                   RESOURCE_DIAGNOSTICS="false" if mode == "off" else "true",
+                                   RESOURCE_DIAGNOSTICS=jvm_diagnostics,
                                    PATH=str(sudo.parent) + os.pathsep + os.environ["PATH"])
                 command = 'set -Eeuo pipefail\n' + lifecycle + '\n'
                 command += 'printf "fixture-monitor-pid=%s\\n" "$RESOURCE_MONITOR_PID"\n'
-                if mode != "off":
-                    command += 'for ATTEMPT in {1..100}; do\n'
-                    command += '  [ -s "$RUNNER_TEMP/quizmaker-resources.jsonl" ] && break\n  sleep 0.02\ndone\n'
+                command += 'for ATTEMPT in {1..100}; do\n'
+                command += '  [ -s "$RUNNER_TEMP/quizmaker-resources.jsonl" ] && break\n  sleep 0.02\ndone\n'
                 command += f'exit {exit_code}\n'
                 process = subprocess.Popen(["bash", "-c", command], cwd=fixture, env=environment,
                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -234,15 +235,12 @@ class ResourceMonitorTest(unittest.TestCase):
                 self.assertEqual(exit_code, process.returncode, error)
                 recorded_pid = next(line.split("=", 1)[1] for line in live.splitlines()
                                     if line.startswith("fixture-monitor-pid="))
-                if mode == "off":
-                    self.assertEqual("", recorded_pid)
-                    self.assertFalse((fixture / "quizmaker-resources.jsonl").exists())
-                    continue
                 pid = int(recorded_pid)
                 with self.assertRaises(ProcessLookupError):
                     os.kill(pid, 0)
                 if mode == "real":
                     records = [json.loads(line) for line in (fixture / "quizmaker-resources.jsonl").read_text().splitlines()]
+                    self.assertEqual("start", records[0]["event"])
                     self.assertEqual("stop", records[-1]["event"])
 
 

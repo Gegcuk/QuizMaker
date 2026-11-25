@@ -5835,6 +5835,76 @@ header checks may examine the authorized source's active slots. This does not pr
 work as a quiz grows or production capacity. Real MySQL SQL/row counts, EXPLAIN and Spring
 transaction/error-proxy evidence are described in the [testing guide](../testing-guide.md#read-only-due-selection-576).
 
+### Read-only mistake and unanswered selection (#648)
+
+`LearningHistorySelectionService` is an internal self-scoped read with separate
+`MistakeHistorySource` and `UnseenContentSource` ports. It owns read-only READ_COMMITTED or
+joins an explicitly RC caller. It reuses current author-source authority, the explicit
+`quizmaker.learning.due.max-batch-size` bound and injected clock. No public session mode,
+schedule, form, receipt, rate debit, assessment mutation or schema migration is introduced.
+
+The [owner-approved selection rules](decision-register.md#learning-history-selection) use
+the latest accepted answer in a completed target attempt for `INCORRECT_ONLY`. Ordering by
+acceptance time and unsigned response UUID is independent of result-worker completion time.
+Missing answers never become incorrect answers. Rank accepted answers before joining optional
+grades: a submitted attempt with no accepted answers does not block history while its result is
+pending, and a superseded pending answer cannot replace the latest accepted evidence. A pending
+result for the latest accepted answer remains unavailable. `UNSEEN_ONLY` instead excludes any accepted
+target answer, including active attempts, and actual Learning responses. It does not infer
+answers from enrollment, a self-rating event alone, a displayed form or mutable legacy data.
+Each question revision appears once, at its first authored occurrence. Selection has bounded
+lookahead and a source/mode-bound authored-position continuation.
+
+The adapters query exact learner/publication metadata with one current result-permission read
+and one statement snapshot for compatibility, latest evidence and candidate selection. Legacy
+answers or unexpected old repetition in that source yield `LEGACY_UNKNOWN`. Unknown/corrupt
+stored contract headers yield `UNSUPPORTED`; missing source adapters or unavailable result
+evidence yield `SOURCE_UNAVAILABLE`. These are explicit empty selections, distinct from an
+exhausted `COMPLETE` history. Before incorrect-answer filtering or pagination, the same statement
+validates all grades of each result referenced by the latest accepted answers: count and position
+bounds must match its possible points, and earned-point sums must match its total. Contradictory
+aggregates or a missing grade in an existing result raise sanitized `CORRUPT` without source
+repair. The result must also retain #603's creation record with the same creation timestamp
+and a matching `AUTOMATIC_GRADE_PRODUCED` system trace for its attempt and form. Every grade's response
+and scoring contract IDs/versions must match its question revision binding. These metadata-only
+checks also match each grade to its captured form position and accepted-response identity, with
+complete form membership/counts and matching accepted-response contracts. Contract identifiers
+use byte equality, preserving whitespace significance despite MySQL PAD SPACE collations.
+Result headers must match the retained submission's form/policy/revision and the captured policy's
+integer pass threshold. These checks share the same statement and precede pagination; they read
+no response payloads and do not rescore answers. Persistence failures remain sanitized typed
+failures. Bounded metrics classify validation,
+access, integrity and storage failures by their actual reason. No alternate
+mode is tried. Future consumers must revalidate and persist their own fixed form; a cursor is
+not a durable history snapshot or an access grant.
+
+Both modes validate accepted-response completeness from every completed attempt root, before
+joining answers or requiring a result. Recorded accepted count must match retained response rows,
+including attempts with zero surviving rows. A mismatch yields `CORRUPT`; a genuine empty
+submission (`0 == 0`) remains valid. Active attempts without a submission are outside this check.
+Before the latest-answer ordering can supply mistake candidates, completed accepted answers must
+also have consistent submission facts: accepted plus unanswered count matches the form, and
+state version/submission time match the terminal lifecycle.
+Invalid chronology yields `CORRUPT` even when the damaged answer would not win the ordering.
+The inclusive acceptance-time upper bound is the submission time for voluntary completion and
+the lifecycle's actual processing time (`updated_at`) for expiry. Matching expiry receipt facts
+remain required. This preserves an on-time response that waited for a lock and persisted after
+the deadline; it does not reinterpret the effective deadline as the persistence-time limit.
+
+Mistake selection requires current ATTEMPT_READ and released per-question correctness. The
+existing scheduled-result participant reader withholds review; those histories cannot supply
+mistake selection here. Selected practice policy metadata is verified with the canonical
+decoder and the existing disclosure decision service. The SQL integrity check hashes retained
+policy metadata only, never document/question/answer content. No new disclosure permission,
+release trigger, age window or retry policy is selected.
+
+The query scans/sorts source-local history in MySQL, but returns only bounded identity,
+provenance and selected policy metadata. It does not fetch normalized answers, document bodies
+or question content. This is not a constant-work or production-capacity claim. Real-writer,
+compatibility and multiple-parent SQL evidence belongs in the existing testing guide. Public
+mistake/unseen session integration and its additional conformance remain separate from the
+existing due, early and extra-practice routes.
+
 ### Single-quiz Learning sessions (#578)
 
 The online Learning API uses the authenticated learner and their own accessible published

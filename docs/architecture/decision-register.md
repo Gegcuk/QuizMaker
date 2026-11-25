@@ -6,6 +6,27 @@ Synchronized: **23 October 2026**. This register summarizes approved issue claus
 
 Use [open questions](open-questions.md) for unresolved choices, conflicting clauses, engineering preparation, and ownership gaps. The [target architecture](policy-driven-quiz-execution.md) explains the model.
 
+<a id="learning-history-selection"></a>
+## Mistake and unanswered Learning selection (#648) — DECIDED
+
+On 24 November 2026 the owner confirmed the #648 proposal with options 1A, 2A and 3A.
+For the exact learner/quiz/publication/question revision, a mistake is the last accepted
+assessment answer from a completed target attempt when that answer is incorrect. A later
+correct accepted answer removes the mistake. An omission is not an answer and neither creates
+nor clears an earlier mistake. Equal acceptance times use the unsigned response UUID as a
+stable tie-breaker; result-worker completion order does not decide which answer is last.
+
+Unseen means not yet answered: no accepted target assessment answer (including an active
+attempt) and no committed Learning session response for that exact identity. Enrollment,
+delivery and opening a question do not count as answering it. Both modes preserve publication
+authored order and select one occurrence per question revision. The existing explicit batch
+bound applies; this adds no default batch size, daily quota or implicit source fallback.
+
+This approval covers internal read-only adapters and selection provenance, not new HTTP start
+modes, schedule transitions or public activation. Current source authority and result disclosure
+remain required; hidden correctness cannot be recovered through a mistake list. Ambiguous
+legacy history is explicitly unavailable rather than mapped onto current question revisions.
+
 <a id="learning-session-presentation"></a>
 ## First Learning enrollment and question order (#578) — DECIDED
 
