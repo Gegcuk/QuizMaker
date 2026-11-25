@@ -13,7 +13,7 @@ on:
         default: '0'
         options: ['0', '1', '2', '4']
       resource_diagnostics:
-        description: 'Collect runner and test JVM resource diagnostics'
+        description: 'Collect detailed test JVM diagnostics and timing summaries'
         type: boolean
         default: false
 
@@ -465,12 +465,10 @@ jobs:
 
           # One small sample per minute, outside the test namespace and target/clean.
           # Live output survives runner shutdowns that prevent artifact upload.
-          if [ "$RESOURCE_DIAGNOSTICS" = true ]; then
-            python3 -u .github/scripts/ci_resource_monitor.py \
-              --output "${RUNNER_TEMP}/quizmaker-resources.jsonl" \
-              --workspace "$GITHUB_WORKSPACE" &
-            RESOURCE_MONITOR_PID=$!
-          fi
+          python3 -u .github/scripts/ci_resource_monitor.py \
+            --output "${RUNNER_TEMP}/quizmaker-resources.jsonl" \
+            --workspace "$GITHUB_WORKSPACE" &
+          RESOURCE_MONITOR_PID=$!
 
           sudo ip netns delete "$NETNS" 2>/dev/null || true
           sudo ip link delete "$HOST_VETH" 2>/dev/null || true
@@ -644,7 +642,7 @@ jobs:
             --output "${RUNNER_TEMP}/quizmaker-test-resources/summary.json"
 
       - name: Upload CI resource diagnostics
-        if: always() && env.RESOURCE_DIAGNOSTICS == 'true'
+        if: always()
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:

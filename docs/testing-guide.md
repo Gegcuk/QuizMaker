@@ -1365,13 +1365,11 @@ The release-quality command is `./mvnw verify`. It runs the bounded parallel lan
 
 ### CI runner interruption diagnostics
 
-Resource diagnostics are off for ordinary push, pull request and manual runs. To collect
-them for one run, open **Actions → CI → Run workflow**, select the branch and worker count,
-and enable **Collect runner and test JVM resource diagnostics** (`resource_diagnostics`).
-This enables the runner monitor, JVM recorder, timing and resource summaries, and
-`ci-resource-diagnostics` upload.
+Every CI run that reaches the offline verification step collects runner metrics. For
+per-class JVM measurements and timing summaries, select **Collect detailed test JVM
+diagnostics and timing summaries** (`resource_diagnostics`) under **Actions → CI → Run workflow**.
 
-During diagnostic verification, a separate stdlib-only Python process emits a compact
+During verification, a separate stdlib-only Python process emits a compact
 `[ci-resources]` JSON record at startup, once every 60 seconds, and when stopped. It runs
 outside the test network namespace, reads Linux counters without elevated privileges, and
 does not inspect command arguments, environments, test payloads, or arbitrary process names.
@@ -1401,7 +1399,7 @@ python3 -B -m unittest discover -s .github/scripts -p 'test_*.py' -v
 python3 -B -m unittest discover -s tools/testing -p 'test_*.py' -v
 ```
 
-With diagnostics enabled, each Surefire lane also emits `[test-resources]` JSONL from an automatically registered
+With detailed JVM diagnostics enabled, each Surefire lane also emits `[test-resources]` JSONL from an automatically registered
 JUnit extension. Records join by `jvm_id`, PID, lane, fork and `class_id`; class names are
 the only test identifiers recorded. `class_start` precedes class setup, and `class_end`
 follows class cleanup, including Spring's callbacks. Nested containers get separate windows;
