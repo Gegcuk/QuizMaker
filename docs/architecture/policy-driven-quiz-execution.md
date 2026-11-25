@@ -5835,6 +5835,46 @@ header checks may examine the authorized source's active slots. This does not pr
 work as a quiz grows or production capacity. Real MySQL SQL/row counts, EXPLAIN and Spring
 transaction/error-proxy evidence are described in the [testing guide](../testing-guide.md#read-only-due-selection-576).
 
+### Read-only mistake and unanswered selection (#648)
+
+`LearningHistorySelectionService` is an internal self-scoped read with separate
+`MistakeHistorySource` and `UnseenContentSource` ports. It owns read-only READ_COMMITTED or
+joins an explicitly RC caller. It reuses current author-source authority, the explicit
+`quizmaker.learning.due.max-batch-size` bound and injected clock. No public session mode,
+schedule, form, receipt, rate debit, assessment mutation or schema migration is introduced.
+
+The [owner-approved selection rules](decision-register.md#learning-history-selection) use
+the latest accepted answer in a completed target attempt for `INCORRECT_ONLY`. Ordering by
+acceptance time and unsigned response UUID is independent of result-worker completion time.
+Missing answers never become incorrect answers. `UNSEEN_ONLY` instead excludes any accepted
+target answer, including active attempts, and actual Learning responses. It does not infer
+answers from enrollment, a self-rating event alone, a displayed form or mutable legacy data.
+Each question revision appears once, at its first authored occurrence. Selection has bounded
+lookahead and a source/mode-bound authored-position continuation.
+
+The adapters query exact learner/publication metadata with one current result-permission read
+and one statement snapshot for compatibility, latest evidence and candidate selection. Legacy
+answers or unexpected old repetition in that source yield `LEGACY_UNKNOWN`. Unknown/corrupt
+stored contract headers yield `UNSUPPORTED`; missing source adapters or unavailable result
+evidence yield `SOURCE_UNAVAILABLE`. These are explicit empty selections, distinct from an
+exhausted `COMPLETE` history. Persistence failures remain sanitized typed failures. No alternate
+mode is tried. Future consumers must revalidate and persist their own fixed form; a cursor is
+not a durable history snapshot or an access grant.
+
+Mistake selection requires current ATTEMPT_READ and released per-question correctness. The
+existing scheduled-result participant reader withholds review; those histories cannot supply
+mistake selection here. Selected practice policy metadata is verified with the canonical
+decoder and the existing disclosure decision service. The SQL integrity check hashes retained
+policy metadata only, never document/question/answer content. No new disclosure permission,
+release trigger, age window or retry policy is selected.
+
+The query scans/sorts source-local history in MySQL, but returns only bounded identity,
+provenance and selected policy metadata. It does not fetch normalized answers, document bodies
+or question content. This is not a constant-work or production-capacity claim. Real-writer,
+compatibility and multiple-parent SQL evidence belongs in the existing testing guide. Public
+mistake/unseen session integration and its additional conformance remain separate from the
+existing due, early and extra-practice routes.
+
 ### Single-quiz Learning sessions (#578)
 
 The online Learning API uses the authenticated learner and their own accessible published

@@ -44,6 +44,12 @@ import uk.gegc.quizmaker.features.attempt.domain.model.selection.QuestionSelecti
 import uk.gegc.quizmaker.features.auth.application.AuthSessionService;
 import uk.gegc.quizmaker.features.result.application.AutomaticResultService;
 import uk.gegc.quizmaker.features.result.application.ImmediateResultReleaseService;
+import uk.gegc.quizmaker.features.learning.application.LearningHistorySelectionService;
+import uk.gegc.quizmaker.features.learning.domain.model.LearningHistorySelection;
+import uk.gegc.quizmaker.features.learning.domain.model.LearningHistorySelection.Mode;
+import uk.gegc.quizmaker.features.learning.domain.model.LearningHistorySelection.Availability;
+import uk.gegc.quizmaker.features.learning.domain.model.LearningHistorySelection.Cursor;
+import uk.gegc.quizmaker.features.learning.domain.model.LearningSessionException;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.question.api.dto.CreateQuestionRequest;
@@ -90,6 +96,7 @@ import java.util.regex.Pattern;
 
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
@@ -181,6 +188,9 @@ class LearningConformanceMySqlIntegrationTest {
     @Autowired AttemptSubmissionService attemptSubmissions;
     @Autowired AutomaticResultService automaticResults;
     @Autowired ImmediateResultReleaseService resultReleases;
+    @Autowired LearningHistorySelectionService historySelection;
+    @Autowired uk.gegc.quizmaker.features.question.application.PublishedQuestionContractService historyBindings;
+    @Autowired uk.gegc.quizmaker.features.result.application.ResultDisclosureService historyDisclosure;
     TransactionTemplate tx;
     Instant now;
 
@@ -697,6 +707,209 @@ class LearningConformanceMySqlIntegrationTest {
         assertSameElements(textValues(formB.path("items"), "questionRevisionId"), strings(revisionB.questions()), "revision B session uses B questions");
         assertThat(textValues(formB.path("items"), "questionText").contains("Edited after publication A")).as("revision B shows the edited text").isTrue();
         assertThat(count("learning_review_event")).isEqualTo(2);
+    }
+
+    @Test
+    void historySelectionsUseRealFinalizedAnswersAndForgetAnActuallyCorrectedMistake() throws Exception {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First", "Second", "Third");
+        var initial=history(anna,source,Mode.UNSEEN_ONLY,20,null);
+        assertThat(initial.items()).extracting(i -> i.questionRevisionId()).containsExactlyElementsOf(source.questions());
+        UUID first=historyAttempt(anna,source,List.of(false,true),true);
+        var wrong=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+        assertThat(wrong.availability()).isEqualTo(Availability.COMPLETE);
+        assertThat(wrong.items()).extracting(i -> i.questionRevisionId()).containsExactly(source.questions().get(0));
+        assertThat(wrong.items().get(0).evidence().attemptId()).isEqualTo(first);
+        assertThat(history(anna,source,Mode.UNSEEN_ONLY,20,null).items())
+                .extracting(i -> i.questionRevisionId()).containsExactly(source.questions().get(2));
+        Map<String,Long> outside=checksumsOutsideLearning(); Map<String,Long> learning=learningChecksums();
+        assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null)).isEqualTo(wrong);
+        assertThat(checksumsOutsideLearning()).isEqualTo(outside); assertThat(learningChecksums()).isEqualTo(learning);
+
+        CLOCK.set(now.plusSeconds(1));
+        historyAttempt(anna,source,List.of(),true); // A later unanswered result neither fabricates nor clears an accepted mistake.
+        assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items())
+                .extracting(i -> i.questionRevisionId()).containsExactly(source.questions().get(0));
+        CLOCK.set(now.plusSeconds(2));
+        historyAttempt(anna,source,List.of(true),true);
+        assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).isEmpty();
+        assertThat(history(anna,source,Mode.UNSEEN_ONLY,20,null).items())
+                .extracting(i -> i.questionRevisionId()).containsExactly(source.questions().get(2));
+    }
+
+    @Test
+    void historyUnseenCountsRealLearningAnswersButNotEnrollmentOrDeliveryAndKeepsRevisionIdentity() throws Exception {
+        Persona anna=persona("history", "QUIZ_UPDATE"); Source source=publishedQuiz(anna,"First", "Second");
+        body(perform(enroll(anna,source,UUID.randomUUID(),source.questions())).andReturn(),200);
+        JsonNode form=json.readTree(body(perform(start(anna,source,UUID.randomUUID(),20,null,null)).andReturn(),200));
+        UUID answered=UUID.fromString(form.path("items").get(0).path("questionRevisionId").asText());
+        assertThat(source.questions()).contains(answered);
+        var unanswered=source.questions().stream().filter(question -> !question.equals(answered)).toList();
+        assertThat(history(anna,source,Mode.UNSEEN_ONLY,20,null).items()).hasSize(2);
+        body(perform(respond(anna,UUID.fromString(form.path("sessionId").asText()),UUID.randomUUID(),1,
+                form.path("items").get(0).path("sourceItemId").asText(),"GOOD",true)).andReturn(),200);
+        assertThat(history(anna,source,Mode.UNSEEN_ONLY,20,null).items())
+                .extracting(i -> i.questionRevisionId()).containsExactlyElementsOf(unanswered);
+        edit(anna,source.authored().get(0),"New exact revision");
+        Source later=publish(anna,source.quizId(),1,source.authored());
+        assertThat(history(anna,later,Mode.UNSEEN_ONLY,20,null).items()).hasSize(2);
+        assertThat(history(anna,source,Mode.UNSEEN_ONLY,20,null).items())
+                .extracting(i -> i.questionRevisionId()).containsExactlyElementsOf(unanswered);
+    }
+
+    @Test
+    void historyAvailabilityCannotLeakAnUnreleasedGradeAndLegacyIsNotInventedAsUnseen() throws Exception {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First", "Second");
+        UUID attempt=historyAttempt(anna,source,List.of(false),false);
+        var hidden=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+        assertThat(hidden.availability()).isEqualTo(Availability.SOURCE_UNAVAILABLE);
+        assertThat(hidden.items()).isEmpty();
+        UUID submission=UUID.fromString(sql.queryForObject("SELECT BIN_TO_UUID(id) FROM attempt_submission WHERE attempt_id=UUID_TO_BIN(?)",String.class,attempt.toString()));
+        resultReleases.release(submission);
+        assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).hasSize(1);
+        // A real legacy answer has no trustworthy immutable revision binding.
+        JsonNode legacy=json.readTree(body(perform(authorized(post("/api/v1/attempts/quizzes/{quiz}",source.quizId()),anna)
+                .contentType("application/json").content("{\"mode\":\"ALL_AT_ONCE\"}")).andReturn(),201));
+        ObjectNode answer=json.createObjectNode().put("questionId",source.authored().get(0).toString());
+        answer.set("response",json.createObjectNode().put("answer",true));
+        body(perform(authorized(post("/api/v1/attempts/{attempt}/answers",legacy.path("attemptId").asText()),anna)
+                .contentType("application/json").content(answer.toString())).andReturn(),200);
+        for(var mode:Mode.values()) {
+            var classified=history(anna,source,mode,20,null);
+            assertThat(classified.availability()).isEqualTo(Availability.LEGACY_UNKNOWN);
+            assertThat(classified.items()).isEmpty();
+        }
+    }
+
+    @Test
+    void historyEqualTimeTiesAndPermissionLossNeverReorderOrRevealOtherResults() {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First");
+        historyAttempt(anna,source,List.of(false),true);
+        historyAttempt(anna,source,List.of(true),true); // Same real acceptance instant; UUID is the stable tie-breaker.
+        var latest=sql.queryForMap("""
+                SELECT BIN_TO_UUID(a.id) response,g.earned_points FROM attempt_accepted_response a
+                JOIN attempt_participant_subject s ON s.attempt_id=a.attempt_id
+                JOIN attempt_automatic_grade g ON g.response_id=a.id
+                JOIN attempt_automatic_result r ON r.id=g.result_id
+                WHERE s.user_id=UUID_TO_BIN(?) AND r.quiz_revision_id=UUID_TO_BIN(?)
+                ORDER BY a.accepted_at DESC,a.id DESC LIMIT 1
+                """,anna.id().toString(),source.revisionId().toString());
+        var mode=Mode.INCORRECT_ONLY;
+        var selected=history(anna,source,mode,20,null);
+        assertThat(selected.availability()).isEqualTo(Availability.COMPLETE);
+        if(((Number)latest.get("earned_points")).intValue()==0)
+            assertThat(selected.items().get(0).evidence().responseId().toString()).isEqualTo(latest.get("response"));
+        else assertThat(selected.items()).isEmpty();
+        assertThat(history(anna,source,mode,20,null)).isEqualTo(selected);
+
+        String snapshot=sql.queryForObject("""
+                SELECT BIN_TO_UUID(t.policy_snapshot_id) FROM attempt_participant_subject s
+                JOIN attempt_trace_stream t ON t.attempt_id=s.attempt_id
+                JOIN attempt_form f ON f.id=t.form_id
+                WHERE s.user_id=UUID_TO_BIN(?) AND f.quiz_revision_id=UUID_TO_BIN(?) LIMIT 1
+                """,String.class,anna.id().toString(),source.revisionId().toString());
+        String canonical=sql.queryForObject("SELECT canonical_json FROM attempt_policy_snapshot WHERE id=UUID_TO_BIN(?)",String.class,snapshot);
+        sql.update("UPDATE attempt_policy_snapshot SET canonical_json=CONCAT(' ',canonical_json) WHERE id=UUID_TO_BIN(?)",snapshot);
+        assertThat(history(anna,source,Mode.UNSEEN_ONLY,20,null).availability()).isEqualTo(Availability.UNSUPPORTED);
+        sql.update("UPDATE attempt_policy_snapshot SET canonical_json=? WHERE id=UUID_TO_BIN(?)",canonical,snapshot);
+        assertThat(history(anna,source,mode,20,null)).isEqualTo(selected);
+
+        sql.update("""
+                DELETE ur FROM user_roles ur JOIN role_permissions rp ON rp.role_id=ur.role_id
+                JOIN permissions p ON p.permission_id=rp.permission_id
+                WHERE ur.user_id=UUID_TO_BIN(?) AND p.permission_name='ATTEMPT_READ'
+                """,anna.id().toString());
+        var denied=history(anna,source,mode,20,null);
+        assertThat(denied.availability()).isEqualTo(Availability.SOURCE_UNAVAILABLE); assertThat(denied.items()).isEmpty();
+        grant(anna.id(),"ATTEMPT_READ");
+        assertThat(history(anna,source,mode,20,null)).isEqualTo(selected);
+    }
+
+    @Test
+    void historyCurrentAccessOuterTransactionsAndMetadataReadsHaveRealControls(org.junit.jupiter.api.TestReporter reporter) throws Exception {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Persona bob=persona("foreign", "QUIZ_UPDATE", "ATTEMPT_READ"); Source source=publishedQuiz(anna,"First","Second","Third");
+        var mode=Mode.UNSEEN_ONLY;
+        var first=history(anna,source,mode,1,null);
+        var second=history(anna,source,mode,1,first.next());
+        assertThat(first.items().get(0).questionRevisionId()).isEqualTo(source.questions().get(0));
+        assertThat(second.items().get(0).questionRevisionId()).isEqualTo(source.questions().get(1));
+        assertThatThrownBy(() -> history(bob,source,mode,1,null))
+                .isInstanceOf(LearningSessionException.class);
+        assertThatThrownBy(() -> historySelection.select(historyRequest(source,mode,1,null)))
+                .isInstanceOf(org.springframework.security.authentication.AuthenticationCredentialsNotFoundException.class);
+        var rr=new TransactionTemplate(transactions); rr.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        assertThatThrownBy(() -> asPrincipal(anna,() -> rr.execute(s -> historySelection.select(historyRequest(source,mode,1,null)))))
+                .isInstanceOfSatisfying(LearningSessionException.class,
+                    e -> assertThat(e.reason()).isEqualTo(LearningSessionException.Reason.UNSUPPORTED_TRANSACTION));
+        var rc=new TransactionTemplate(transactions); rc.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED);
+        var before=learningChecksums();
+        String description=sql.queryForObject("SELECT description FROM quizzes WHERE quiz_id=UUID_TO_BIN(?)",String.class,source.quizId().toString());
+        asPrincipal(anna,() -> rc.execute(s -> {
+            sql.update("UPDATE quizzes SET description='caller-rollback-probe' WHERE quiz_id=UUID_TO_BIN(?)",source.quizId().toString());
+            assertThat(historySelection.select(historyRequest(source,mode,1,null)).items()).hasSize(1);
+            s.setRollbackOnly(); return null;
+        }));
+        assertThat(sql.queryForObject("SELECT description FROM quizzes WHERE quiz_id=UUID_TO_BIN(?)",String.class,source.quizId().toString())).isEqualTo(description);
+        assertThat(learningChecksums()).isEqualTo(before);
+        // Measure the actual two-query adapter across one and four assessment parents, using one-item lookahead.
+        var observed=new LearningFormMySqlIntegrationTest.ObservedSource(new DriverManagerDataSource(serverUrl()+CATALOG+OPTIONS,ADMIN_USER,ADMIN_PASSWORD));
+        var measuredJdbc=new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(observed);
+        var adapter=new uk.gegc.quizmaker.features.learning.infra.repository.JdbcLearningHistorySources(measuredJdbc,historyDisclosure);
+        var measuredTx=new TransactionTemplate(new org.springframework.jdbc.datasource.DataSourceTransactionManager(observed));
+        measuredTx.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED); measuredTx.setReadOnly(true);
+        for(int parents=1;parents<=4;parents++) {
+            CLOCK.set(now.plusSeconds(parents)); historyAttempt(anna,source,List.of(false,false),true);
+            observed.reset();
+            var rows=measuredTx.execute(s -> adapter.mistakes(anna.id(),historySource(source),-1,2));
+            assertThat(rows.items()).hasSize(2);
+            assertThat(observed.statements.get()).hasSize(2);
+            assertThat(observed.selectedRows.get()).isEqualTo(3); // One permission row and two bounded candidate rows.
+            reporter.publishEntry("history-parents-"+parents,"statements=2; selectedRows=3; candidates=2");
+            assertThat(String.join(" ",observed.statements.get())).doesNotContain("normalized_response","response_json","question_text","SELECT * FROM question");
+        }
+        observed.reset(); observed.failAfter.set("WITH own_attempts");
+        assertThatThrownBy(() -> measuredTx.execute(s -> adapter.mistakes(anna.id(),historySource(source),-1,2)))
+                .isInstanceOf(org.springframework.dao.DataAccessException.class).hasMessageNotContaining("private-answer-driver");
+        assertThat(observed.failures).hasValue(1);
+        observed.reset();
+        assertThat(measuredTx.execute(s -> adapter.mistakes(anna.id(),historySource(source),-1,2)).items()).hasSize(2);
+        sql.update("UPDATE quizzes SET creator_id=UUID_TO_BIN(?) WHERE quiz_id=UUID_TO_BIN(?)",bob.id().toString(),source.quizId().toString());
+        assertThatThrownBy(() -> history(anna,source,mode,1,null))
+                .isInstanceOf(LearningSessionException.class);
+    }
+
+    private LearningHistorySelection history(Persona persona,Source source,
+            Mode mode,int limit,
+            Cursor after) {
+        return asPrincipal(persona,() -> historySelection.select(historyRequest(source,mode,limit,after)));
+    }
+    private LearningHistorySelectionService.Select historyRequest(Source source,
+            Mode mode,int limit,
+            Cursor after) {
+        return new LearningHistorySelectionService.Select(1,historySource(source),mode,limit,after);
+    }
+    private uk.gegc.quizmaker.features.learning.domain.model.LearningSession.Source historySource(Source source) {
+        return new uk.gegc.quizmaker.features.learning.domain.model.LearningSession.Source(1,source.quizId(),source.revisionId(),source.schemaVersion());
+    }
+    /** Actual publication binder, canonical start/accept/submit/result/release; no history fixtures invent grades. */
+    private UUID historyAttempt(Persona author,Source source,List<Boolean> answers,boolean release) {
+        return asPrincipal(author,() -> {
+            historyBindings.bind(source.quizId(),source.revisionId());
+            var content=new ResolvedAttemptPolicy.ContentPolicy(source.revisionId(),source.schemaVersion(),
+                    ResolvedAttemptPolicy.FormMode.PRECOMPUTED,ResolvedAttemptPolicy.SectionMode.IMPLICIT_FLAT,ResolvedAttemptPolicy.CaseMode.NOT_CONFIGURED);
+            var start=attemptStarts.start(new AttemptStartService.Command(1,source.quizId(),content,1,
+                    CommandReceipt.Key.from("history-"+UUID.randomUUID()),BuiltInPracticePreset.REFERENCE,
+                    LegacyPracticeRequest.LaunchContext.ORDINARY,"ALL_AT_ONCE",ResolvedAttemptPolicy.AnswerOrder.AUTHORED,false));
+            var items=attemptDelivery.read(start.attemptId()).form().items(); long version=start.stateVersion();
+            for(int i=0;i<answers.size();i++) version=attemptResponses.accept(new ResponseAcceptanceService.Command(start.attemptId(),items.get(i).id(),version,
+                    CommandReceipt.Key.from("history-answer-"+UUID.randomUUID()),items.get(i).type(),json.createObjectNode().put("answer",answers.get(i)))).stateVersion();
+            var submitted=attemptSubmissions.submit(new AttemptSubmissionService.Command(start.attemptId(),version,true,CommandReceipt.Key.from("history-submit-"+UUID.randomUUID())));
+            automaticResults.finalizeSubmission(submitted.submissionId()); if(release) resultReleases.release(submitted.submissionId());
+            return start.attemptId();
+        });
     }
 
     private void assertBoundedLearningSignals() {

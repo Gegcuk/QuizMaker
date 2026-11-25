@@ -2,6 +2,34 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Read-only mistake and unanswered Learning selection (#648)
+
+Start with `LearningHistorySelectionTest`, then run the `history*` methods in
+`LearningConformanceMySqlIntegrationTest` using JDK 17 and the existing disposable MySQL/offline
+helper. The complete four-worker `context_benchmark.py verify` remains the final backend gate.
+The conformance class already belongs to the existing context inventory.
+
+- The real publication binder, canonical assessment start/accept/submit, #603 result and #556
+  release writers supply mistake history. A later correct answer removes a mistake; a later
+  unanswered submission does not. Reads preserve assessment and Learning table checksums.
+- Real Learning enrollment/delivery leaves questions unanswered. An actual HTTP response removes
+  only that exact question revision; a later publication has separate state and old reads retain
+  their captured identity. No assessment facts are repurposed as Learning grades.
+- Unreleased correctness yields an explicit unavailable empty selection. A real legacy answer
+  yields `LEGACY_UNKNOWN`, without manufacturing a revision mapping or falling back to another
+  selection mode. Empty complete history remains a different result.
+- Self/current-source authority, anonymous/foreign denial, RC participation and incompatible
+  outer isolation are checked alongside successful controls. Unit tests cover configuration,
+  unknown versions, bounded continuation, unavailable adapters, sanitized failures and diagnostics.
+- The measured JDBC adapter reads one then four real assessment parents on the same publication.
+  Its permission probe and history query return bounded candidate metadata, without per-question
+  statements or normalized response/content reads. MySQL still examines/sorts source history;
+  statement counts alone do not establish constant work. No JPA relationship read is added.
+
+The implementation is internal only. It changes no public HTTP operation, so no new Postman
+scenario is required. Existing session OpenAPI/HTTP conformance remains relevant; public
+mistake/unseen session modes require their own integration before activation.
+
 ## Private nested Learning sets and selections (#841)
 
 Start with `LearningSetTest`, `LearningSetOpenApiTest` and `LearningSetMySqlIntegrationTest`.
