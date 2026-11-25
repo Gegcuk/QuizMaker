@@ -110,11 +110,11 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
                     p.schema_version policy_version, p.resolver_version, p.canonical_version, p.hash_algorithm,
                     p.quiz_revision_id policy_revision, p.policy_hash,
                     p.policy_hash=SHA2(p.canonical_json,256) policy_integrity,
+                    submission.accepted_count=(SELECT COUNT(*) FROM attempt_accepted_response accepted_count
+                        WHERE accepted_count.attempt_id=s.attempt_id) accepted_count_integrity,
                     (submission.schema_version=1 AND submission.form_id=f.id
                       AND submission.policy_snapshot_id=t.policy_snapshot_id AND submission.quiz_revision_id=f.quiz_revision_id
                       AND submission.state_version=l.row_version AND submission.submitted_at=l.submitted_at
-                      AND submission.accepted_count=(SELECT COUNT(*) FROM attempt_accepted_response accepted_count
-                        WHERE accepted_count.attempt_id=s.attempt_id)
                       AND submission.accepted_count+submission.unanswered_count=f.item_count
                       AND (submission.completion_cause='EXPIRY' OR submission.unanswered_count=0
                         OR JSON_CONTAINS(p.canonical_json,'false','$.policy.submission.requireAllAnswers'))
@@ -194,6 +194,9 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
                         AND o.result_revision=UUID_TO_BIN(:revision) AND o.result_form=o.form_id
                         AND o.result_policy=o.policy_snapshot_id AND CAST(o.result_hash AS BINARY)=CAST(o.policy_hash AS BINARY)))) IS TRUE)
                     THEN 'UNSUPPORTED'
+                  WHEN :resultAccess AND EXISTS(SELECT 1 FROM own_attempts o
+                      WHERE o.execution_state='SUBMITTED' AND o.accepted_count_integrity IS NOT TRUE)
+                    THEN 'CORRUPT'
                   WHEN :mistakes AND :resultAccess AND (
                       -- Validate every completed answer's ordering inputs, not just whichever timestamp wins.
                       EXISTS(SELECT 1 FROM history h WHERE h.submission_integrity IS NOT TRUE

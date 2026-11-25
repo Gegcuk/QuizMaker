@@ -1272,6 +1272,95 @@ class LearningConformanceMySqlIntegrationTest {
         }
     }
 
+    @Test
+    void historyBothModesRejectOneMissingAcceptedResponse() {
+        assertMissingHistoryResponsesRejected(1);
+    }
+
+    @Test
+    void historyBothModesRejectAllMissingAcceptedResponses() {
+        assertMissingHistoryResponsesRejected(2);
+    }
+
+    private void assertMissingHistoryResponsesRejected(int removed) {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First","Second"); historyAttempt(anna,source,List.of(false),true);
+        CLOCK.set(now.plusSeconds(1)); UUID pending=historySubmittedAttempt(anna,source,List.of(true,false));
+        UUID submission=historySubmissionId(pending);
+        var responses=sql.queryForList("""
+                SELECT a.* FROM attempt_accepted_response a JOIN attempt_form_item i ON i.form_id=a.form_id AND i.id=a.form_item_id
+                WHERE a.attempt_id=UUID_TO_BIN(?) ORDER BY i.position
+                """,pending.toString());
+        assertThat(responses).hasSize(2);
+        assertThat(sql.queryForObject("SELECT accepted_count FROM attempt_submission WHERE id=UUID_TO_BIN(?)",Integer.class,submission.toString())).isEqualTo(2);
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_automatic_result WHERE attempt_id=UUID_TO_BIN(?)",Integer.class,pending.toString())).isZero();
+        assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).availability()).isEqualTo(Availability.SOURCE_UNAVAILABLE);
+        var unseen=history(anna,source,Mode.UNSEEN_ONLY,20,null);
+        assertThat(unseen.availability()).isEqualTo(Availability.COMPLETE); assertThat(unseen.items()).isEmpty();
+        try {
+            for(int i=0;i<removed;i++)
+                assertThat(sql.update("DELETE FROM attempt_accepted_response WHERE id=?",responses.get(responses.size()-1-i).get("id"))).isOne();
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_accepted_response WHERE attempt_id=UUID_TO_BIN(?)",Integer.class,pending.toString())).isEqualTo(2-removed);
+            assertThatThrownBy(() -> automaticResults.finalizeSubmission(submission))
+                    .isInstanceOfSatisfying(uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.class,
+                        e -> assertThat(e.reason()).isEqualTo(uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.Reason.CORRUPT));
+            var outside=checksumsOutsideLearning(); var learning=learningChecksums();
+            for(Mode mode:Mode.values()) for(Cursor after:java.util.Arrays.asList(null,new Cursor(1,historySource(source),mode,Integer.MAX_VALUE)))
+                assertThatThrownBy(() -> history(anna,source,mode,1,after)).as("missing responses=%s, mode=%s",removed,mode)
+                        .isInstanceOfSatisfying(LearningSessionException.class,
+                            e -> assertThat(e.reason()).isEqualTo(LearningSessionException.Reason.CORRUPT));
+            assertThat(checksumsOutsideLearning()).isEqualTo(outside); assertThat(learningChecksums()).isEqualTo(learning);
+        } finally {
+            sql.update("DELETE FROM attempt_accepted_response WHERE attempt_id=UUID_TO_BIN(?)",pending.toString());
+            responses.forEach(this::restoreHistoryResponse);
+        }
+        assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).availability()).isEqualTo(Availability.SOURCE_UNAVAILABLE);
+        var restoredUnseen=history(anna,source,Mode.UNSEEN_ONLY,20,null);
+        assertThat(restoredUnseen.availability()).isEqualTo(Availability.COMPLETE); assertThat(restoredUnseen.items()).isEmpty();
+        finishHistoryAttempt(pending,true);
+        var mistakes=history(anna,source,Mode.INCORRECT_ONLY,20,null);
+        assertThat(mistakes.availability()).isEqualTo(Availability.COMPLETE);
+        assertThat(mistakes.items()).extracting(i -> i.questionRevisionId()).containsExactly(source.questions().get(1));
+        assertThat(mistakes.items().get(0).evidence().attemptId()).isEqualTo(pending);
+        var completedUnseen=history(anna,source,Mode.UNSEEN_ONLY,20,null);
+        assertThat(completedUnseen.availability()).isEqualTo(Availability.COMPLETE); assertThat(completedUnseen.items()).isEmpty();
+    }
+
+    @Test
+    void historyGenuineEmptySubmissionPreservesBothModes() {
+        Persona anna=persona("history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source=publishedQuiz(anna,"First","Second"); historyAttempt(anna,source,List.of(false),true);
+        var before=new java.util.EnumMap<Mode,LearningHistorySelection>(Mode.class);
+        for(Mode mode:Mode.values()) {
+            var selected=history(anna,source,mode,20,null);
+            assertThat(selected.availability()).isEqualTo(Availability.COMPLETE); assertThat(selected.items()).hasSize(1);
+            before.put(mode,selected);
+        }
+        CLOCK.set(now.plusSeconds(1)); UUID empty=historySubmittedAttempt(anna,source,List.of());
+        assertThat(sql.queryForObject("SELECT accepted_count FROM attempt_submission WHERE attempt_id=UUID_TO_BIN(?)",Integer.class,empty.toString())).isZero();
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_accepted_response WHERE attempt_id=UUID_TO_BIN(?)",Integer.class,empty.toString())).isZero();
+        for(Mode mode:Mode.values()) {
+            var selected=history(anna,source,mode,20,null);
+            assertThat(selected.availability()).isEqualTo(Availability.COMPLETE);
+            assertThat(selected.items()).containsExactlyElementsOf(before.get(mode).items());
+        }
+        // An active attempt has no submission yet; it must not be mistaken for lost terminal history.
+        CLOCK.set(now.plusSeconds(2)); historyStartedAttempt(anna,source,new ResolvedAttemptPolicy.TimingPolicy(ResolvedAttemptPolicy.TimingMode.NONE));
+        finishHistoryAttempt(empty,true);
+        for(Mode mode:Mode.values()) {
+            var selected=history(anna,source,mode,20,null);
+            assertThat(selected.availability()).isEqualTo(Availability.COMPLETE);
+            assertThat(selected.items()).containsExactlyElementsOf(before.get(mode).items());
+        }
+    }
+
+    private void restoreHistoryResponse(Map<String,Object> row) {
+        String[] columns={"id","schema_version","attempt_id","form_id","form_item_id","question_revision_id",
+                "response_contract_id","response_contract_version","normalized_response","command_id","accepted_at"};
+        sql.update("INSERT INTO attempt_accepted_response ("+String.join(",",columns)+") VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                java.util.Arrays.stream(columns).map(row::get).toArray());
+    }
+
     private void assertCorruptHistoryWithoutRepair(Persona learner,Source source,UUID submission) {
         assertRejectedHistoryWithoutRepair(learner,source,submission,
                 uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException.Reason.CORRUPT);

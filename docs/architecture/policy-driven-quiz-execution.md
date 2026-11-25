@@ -5878,9 +5878,13 @@ access, integrity and storage failures by their actual reason. No alternate
 mode is tried. Future consumers must revalidate and persist their own fixed form; a cursor is
 not a durable history snapshot or an access grant.
 
-Before the latest-answer ordering can supply candidates, all completed accepted answers must
-have consistent submission facts: accepted count matches retained responses, accepted plus
-unanswered count matches the form, and state version/submission time match the terminal lifecycle.
+Both modes validate accepted-response completeness from every completed attempt root, before
+joining answers or requiring a result. Recorded accepted count must match retained response rows,
+including attempts with zero surviving rows. A mismatch yields `CORRUPT`; a genuine empty
+submission (`0 == 0`) remains valid. Active attempts without a submission are outside this check.
+Before the latest-answer ordering can supply mistake candidates, completed accepted answers must
+also have consistent submission facts: accepted plus unanswered count matches the form, and
+state version/submission time match the terminal lifecycle.
 Invalid chronology yields `CORRUPT` even when the damaged answer would not win the ordering.
 The inclusive acceptance-time upper bound is the submission time for voluntary completion and
 the lifecycle's actual processing time (`updated_at`) for expiry. Matching expiry receipt facts
