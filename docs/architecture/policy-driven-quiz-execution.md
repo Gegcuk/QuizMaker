@@ -5579,6 +5579,75 @@ ScenarioGraph
 └── graph version
 ```
 
+### Internal graph revision storage (#572)
+
+Quiz revision format 4 stores one scenario graph with an independent graph format version.
+The revision identifies the exact graph. Node and edge IDs are scoped to that revision and can
+remain stable across edits. Nodes have authored positions. Edges have authored positions within
+their source node. An item node references an occurrence in the same immutable quiz revision.
+Routing and terminal nodes carry no item. A conditional edge retains its condition version and
+opaque payload for the future validator. A default edge has neither.
+
+`QuizScenarioRevisionService` accepts a complete revision from a server-side caller that has
+already authorized the quiz and its source content. It joins the caller's transaction. Revision,
+items, nodes, edges and sealing the graph at its entry node commit together. Database constraints require
+same-revision references, including the entry point, and seal the published graph and its item
+membership. Publication takes a transactional key scoped to the revision ID before writing
+questions or graph rows. V133 tracks successful item, node and edge inserts on one row per
+graph. The seal compares its declared counts with that current row while holding the header
+exclusively. This keeps first publication independent of ranges in the child indexes.
+Open headers that predate V133 retain their row-count check. V132 stores a SHA-256 fingerprint
+of the canonical format-4 command on that key in the same transaction. An exact replay compares the fingerprint on the current
+key row, including from an older caller snapshot. The replay never locks graph or question
+rows. For an earlier sealed graph, the first exact replay establishes its fingerprint after
+checking the immutable graph and question seals with nonlocking reads. Different content under
+the same ID, including an ID occupied by an ordinary revision, conflicts. The key and graph
+commit or roll back together. An edit uses a new revision ID, so a retained reference still
+resolves the original graph.
+
+The rollout from V127 runs alongside ordinary publication. A pre-fingerprint scenario writer
+from an intermediate revision can commit a graph outside an already open caller snapshot.
+Replaying that graph for the first time requires a transaction that can see it.
+
+Scenario publication checks which questions are visible before submitting the remaining
+candidates in UUID order. Each batch uses one database procedure call. The procedure
+tolerates only duplicate keys and returns the IDs it inserted, whose options still need
+to be written. Item insertion checks the current evidence for questions another writer saved.
+V134 stores a SHA-256 fingerprint of the question and a fixed-size digest of its options in
+authored order. Each ordinary option insert extends the digest with one fixed-size update.
+New questions enter the fingerprint index after their option set has been written. The digest
+leads that index, so neighboring question UUIDs do not determine where their proofs are stored.
+Direct edits or out-of-order inserts rebuild the digest for that question. A new scenario item references the metadata by question ID
+and the fingerprint of its complete current content. The foreign key both verifies the expected
+content at insertion and prevents later changes to the referenced content. Ordinary and retained
+items continue to reference their question directly. Equivalent legacy JSON encodings can be
+compared in batches from the caller's snapshot, with its recorded fingerprint still checked
+against the current foreign key. The update trigger preserves the existing fingerprint
+when a JSON edit changes only structural whitespace or object member order. Its comparison
+retains array order, scalar types, and exact number spellings. Object-order comparison
+requires both documents to fit MySQL's JSON nesting limit. The existing whitespace
+comparison still applies to more deeply nested documents.
+V134 fills fingerprints after installing the tracking triggers. The backfill acquires the
+question metadata lock before opening the options snapshot in READ COMMITTED, so it includes
+changes committed by an option writer it had to wait for.
+The database rejects mutations to sealed question content and options. V132 reconciles
+missing or stale unsealed counts after V131 has installed all tracking triggers, including
+for ordinary questions published while the old application is still serving requests.
+Existing seals are retained so that prior inconsistencies fail closed.
+An incomplete or corrupt graph fails closed on read. Formats 1–3 keep their existing meanings
+and require no graph rows or backfill.
+
+Format 4 is available through the internal revision boundary. The existing public publication and
+participant APIs keep their current contracts. The shared fixed-form writer rejects format 4.
+The graph writer preserves structural identity and references, rejects malformed Unicode in
+the scenario snapshot, and keeps author text and option keys out of JDBC parameter diagnostics. #573 owns
+executable topology and condition validation. #574 owns real execution and needs format 4
+support in its composition with the existing #661 append contract. Authoring transport, participant path disclosure and public
+conformance are later boundaries. Scenario revisions inherit the quiz revision retention class
+under #664. Recovery after graph writes uses forward fixes.
+
+### Executable graph validation and delivery
+
 Publication validation must detect:
 
 - missing entry node;

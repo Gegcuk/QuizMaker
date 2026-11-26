@@ -6,8 +6,8 @@ import javax.sql.DataSource;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /** Counts physical statement executions and injects faults after real JDBC writes. */
@@ -26,18 +26,22 @@ final class SectionTestDataSource extends DelegatingDataSource {
         return (Connection) Proxy.newProxyInstance(getClass().getClassLoader(), new Class[]{Connection.class}, (proxy, method, args) -> {
             try {
                 Object result = method.invoke(actual, args);
-                if (!method.getName().equals("prepareStatement")) return result;
-                var statement = (PreparedStatement) result;
-                var sql = (String) args[0];
-                return Proxy.newProxyInstance(getClass().getClassLoader(), new Class[]{PreparedStatement.class}, (p, m, a) -> {
+                if (!(result instanceof Statement statement)) return result;
+                String preparedSql = method.getName().equals("prepareStatement") ? (String) args[0] : null;
+                return Proxy.newProxyInstance(getClass().getClassLoader(), new Class[]{method.getReturnType()}, (p, m, a) -> {
                     try {
-                        boolean execute = m.getName().startsWith("execute");
-                        if (execute) {
+                        String sql = preparedSql != null ? preparedSql : a != null && a.length > 0
+                                && a[0] instanceof String argument ? argument : null;
+                        boolean inspect = sql != null && m.getName().startsWith("execute");
+                        if (inspect) {
                             before.accept(sql, actual);
-                            if (sql.stripLeading().startsWith("SELECT")) selects.incrementAndGet();
+                            var sqlWithoutLeadingSpace = sql.stripLeading();
+                            if (preparedSql != null
+                                    && (sqlWithoutLeadingSpace.startsWith("SELECT") || sqlWithoutLeadingSpace.startsWith("(SELECT")))
+                                selects.incrementAndGet();
                         }
                         Object returned = m.invoke(statement, a);
-                        if (execute) after.accept(sql, actual);
+                        if (inspect) after.accept(sql, actual);
                         return returned;
                     } catch (InvocationTargetException failure) { throw failure.getCause(); }
                 });

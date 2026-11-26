@@ -46,7 +46,7 @@ public class JdbcFixedFormRepository implements FixedFormRepository {
         var parameters = new MapSqlParameterSource("owner", bytes(ownerId))
                 .addValue("id", bytes(form.id())).addValue("revision", bytes(form.quizRevisionId()))
                 .addValue("version", form.schemaVersion()).addValue("count", form.items().size());
-        if (!currentOwner(parameters)) throw new FixedFormException(REVISION_UNAVAILABLE);
+        if (!currentFixedRevisionOwner(parameters)) throw new FixedFormException(REVISION_UNAVAILABLE);
         var sources = form.items().stream().map(FixedForm.Item::sourceItemId).toList();
         for (int start = 0; start < sources.size(); start += SQL_BATCH) {
             var part = sources.subList(start, Math.min(start + SQL_BATCH, sources.size()));
@@ -66,7 +66,7 @@ public class JdbcFixedFormRepository implements FixedFormRepository {
         var root = jdbc.query("SELECT id,schema_version,quiz_revision_id,item_count FROM attempt_form WHERE id=:id FOR UPDATE",
                 parameters, (row, index) -> root(row)).get(0);
         if (!root.revision().equals(form.quizRevisionId())) {
-            if (!currentOwner(new MapSqlParameterSource("revision", bytes(root.revision())).addValue("owner", bytes(ownerId))))
+            if (!currentFixedRevisionOwner(new MapSqlParameterSource("revision", bytes(root.revision())).addValue("owner", bytes(ownerId))))
                 throw new FixedFormException(FORM_UNAVAILABLE);
             throw new FixedFormException(FORM_CONFLICT);
         }
@@ -177,9 +177,11 @@ public class JdbcFixedFormRepository implements FixedFormRepository {
         return ids.stream().filter(result::containsKey).map(result::get).toList();
     }
 
-    private boolean currentOwner(MapSqlParameterSource parameters) {
-        return !jdbc.queryForList("SELECT id FROM quiz_revisions WHERE id=:revision AND owner_id=:owner FOR SHARE",
-                parameters).isEmpty();
+    private boolean currentFixedRevisionOwner(MapSqlParameterSource parameters) {
+        return !jdbc.queryForList("""
+                SELECT id FROM quiz_revisions
+                WHERE id=:revision AND owner_id=:owner AND schema_version IN (1,2,3) FOR SHARE
+                """, parameters).isEmpty();
     }
 
     private static Root root(ResultSet row) throws SQLException {

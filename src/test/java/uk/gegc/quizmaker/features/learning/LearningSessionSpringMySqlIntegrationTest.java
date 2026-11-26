@@ -636,7 +636,10 @@ class LearningSessionSpringMySqlIntegrationTest {
         UUID question = UUID.randomUUID(), item = UUID.randomUUID(), optionA = UUID.randomUUID(), optionB = UUID.randomUUID();
         sql.update("INSERT INTO question_revisions(id,question_id,schema_version,question_type,difficulty,question_text,content,created_at) VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),1,'MCQ_SINGLE','EASY','Saved question',?,?)",
                 question.toString(), UUID.randomUUID().toString(), "{\"options\":[{\"id\":\"a\",\"text\":\"Option\",\"correct\":true},{\"id\":\"b\",\"text\":\"Option\",\"correct\":false}]}", java.sql.Timestamp.from(TIME));
-        sql.update("INSERT INTO quiz_revision_items VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),?)", item.toString(), REVISION.toString(), question.toString(),
+        sql.update("""
+                INSERT INTO quiz_revision_items (id,quiz_revision_id,question_revision_id,authored_position)
+                VALUES (UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),?)
+                """, item.toString(), REVISION.toString(), question.toString(),
                 sql.queryForObject("SELECT COUNT(*) FROM quiz_revision_items WHERE quiz_revision_id=UUID_TO_BIN(?)", Integer.class, REVISION.toString()));
         sql.update("INSERT INTO question_option_revisions VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),'a',0),(UUID_TO_BIN(?),UUID_TO_BIN(?),'b',1)",
                 optionA.toString(), question.toString(), optionB.toString(), question.toString());

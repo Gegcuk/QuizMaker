@@ -471,6 +471,8 @@ uk/gegc/quizmaker/features/quiz/revision/QuizRevisionMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/quiz/revision/QuizRevisionMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/quiz/revision/QuizRevisionSectionsMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/quiz/revision/QuizRevisionSectionsMySqlIntegrationTest$*.java
+uk/gegc/quizmaker/features/quiz/revision/ScenarioGraphMySqlIntegrationTest.java
+uk/gegc/quizmaker/features/quiz/revision/ScenarioGraphMySqlIntegrationTest$*.java
 uk/gegc/quizmaker/features/quizgroup/QuizGroupIntegrationTest.java
 uk/gegc/quizmaker/features/quizgroup/QuizGroupIntegrationTest$*.java
 uk/gegc/quizmaker/features/quizgroup/api/QuizGroupControllerTest.java

@@ -2,6 +2,68 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Immutable scenario graph revisions (#572)
+
+With JDK 17, the offline test environment and a disposable MySQL server, start with:
+
+```bash
+./mvnw test -Dtest=ScenarioGraphTest,ScenarioGraphMySqlIntegrationTest,QuizRevisionCasesMySqlIntegrationTest,FixedFormMaterializerMySqlIntegrationTest
+```
+
+- Structural tests cover stable graph identity and authored order, exact condition retention,
+  missing and duplicate identities, unknown format, and an item reference from another revision.
+- The MySQL suite upgrades real format 1–3 rows from V127, verifies replay of a graph sealed
+  in V128, and seals an open V132 graph after V133. The scenario writer and reads exercise exact
+  replay, a conflicting replay, caller ownership, new revisions after edits and reading the original after rebuilding the
+  service and repository. An older outer repeatable-read snapshot can replay the committed winner.
+- Faults are injected after actual node, edge and graph header writes. Fresh transactions confirm
+  rollback of the whole aggregate and then a successful retry. Two separate publication
+  transactions meet at the real publication-key insert. Equal requests both succeed with one
+  stored graph, and different requests have one complete winner. A separate revision commits
+  while another caller holds an uncommitted sealed graph, then the first caller rolls it back.
+  This includes neighboring revision UUIDs with a single terminal node and no questions.
+  An open `REPEATABLE READ` caller also refuses to seal a graph when another transaction
+  commits an extra node outside its snapshot.
+  Two other authors publish neighboring revisions while a repeatable-read exact replay remains
+  open. Distinct scenario revisions contend for the same question with equal or changed options.
+  The former both commit and the latter leave one complete winner. Older repeatable-read
+  snapshots can reuse a question already committed by either supported writer.
+- A replay of a 512-question scenario stays open in repeatable read while other authors
+  commit graphs with one new question apiece, using UUIDs inside and above the original key
+  range. MySQL reports record locks only on the publication key. The first scenario use of
+  one or 512 ordinary questions also allows another author to commit a neighboring question.
+  MySQL reports shared locks on the question metadata, with record-only locks in the
+  single-question fixture, and no question or option-index locks for these visible existing
+  questions. Bulk foreign-key validation can also take shared metadata gap locks.
+  Adoption compares current question and option fingerprints even when a reused question
+  or a change to its content was committed after the caller's repeatable-read snapshot.
+  The V134 upgrade backfills fingerprints for questions published while its tracking triggers
+  are being installed. A same-ID, same-count option replacement holds the metadata lock before
+  the backfill and commits while the migration waits. The original content then conflicts and
+  the current content can publish, read back and replay. Equivalent legacy JSON fixtures verify
+  whitespace and reordered object keys under a stale snapshot, plus bounded retries for
+  one or 128 questions with legacy fingerprints. The question-creation regression opens a
+  repeatable-read snapshot before another transaction commits 32 or 128 questions. The
+  disposable MySQL server's general log records one additional call for either batch size.
+  Direct changes to sealed questions, their options and recorded replay fingerprints fail.
+  First publication of 128 new questions uses one question-creation procedure call.
+  The upgrade exercises ordinary question publications on separate connections before and
+  between V131 trigger installations. V132 reconciles a missing key and a zero count,
+  and the scenario writer successfully adopts both questions.
+  SQL constraints and guards cover cross-revision references, invalid entry, incomplete graphs,
+  and late mutation.
+- A multi-revision read measures six JDBC statements per batch with both two small graphs and
+  six larger graphs, with indexed graph table lookups. A flat-only read uses three statements.
+  Exact replay with a recorded fingerprint uses one select regardless of graph size.
+  The real fixed materializer succeeds for a flat revision. Both direct fixed-form and option
+  order services reject scenarios and continue to support formats 1–3. Actual JDBC TRACE events
+  exclude distinct title, description, option key, question, answer, explanation and condition
+  markers. A supplementary Unicode
+  character is preserved through publication, reload and replay. Lone surrogates are rejected.
+- The suite uses a generated catalog and belongs to the context manifest as a database companion.
+  The full four-worker verify remains the final backend gate. Scenario graph storage adds no
+  public HTTP behavior for Postman.
+
 ## Neutral progressive-form append contract (#661)
 
 On JDK 17, start with the pure contract/planner/boundary suites and existing identity/fingerprint
