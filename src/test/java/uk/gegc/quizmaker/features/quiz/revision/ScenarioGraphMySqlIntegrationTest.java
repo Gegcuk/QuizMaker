@@ -76,6 +76,8 @@ class ScenarioGraphMySqlIntegrationTest {
     private static final List<String> GRAPH_TABLES = List.of("quiz_scenario_graphs", "quiz_scenario_nodes", "quiz_scenario_edges");
     private static final String PUBLICATION_KEYS = "quiz_scenario_publication_keys";
     private static final String QUESTION_KEYS = "quiz_scenario_question_keys";
+    private static final String GRAPH_COUNTS = "quiz_scenario_graph_counts";
+    private static final UUID OPEN_V132 = id("open-graph-v132");
     private static final List<QuizRevision> PREVIOUS_FORMATS = List.of(
             quiz("scenario-upgrade", question("scenario-upgrade")),
             QuizRevisionSectionsTest.structured("scenario-upgrade-sections"),
@@ -141,6 +143,8 @@ class ScenarioGraphMySqlIntegrationTest {
         assertThat(trackedOptionCounts(DURING_V131.get(1))).containsExactly(0);
         assertThat(trackedOptionCounts(DURING_V131.get(2))).containsExactly(2);
         migrate("132");
+        insertUnsealed(OPEN_V132, retainedV128.quizId(), "Previously open graph", 0);
+        migrate("133");
     }
 
     @BeforeEach void start() {
@@ -159,7 +163,7 @@ class ScenarioGraphMySqlIntegrationTest {
     }
 
     @Test void migrationPreservesOldFormatsAndOldReadsDoNotLoadGraphTables() {
-        migrate("132");
+        migrate("133");
         assertThat(rootRows()).usingRecursiveComparison().isEqualTo(beforeUpgrade);
         List<UUID> ids = PREVIOUS_FORMATS.stream().map(QuizRevision::id).toList();
         assertThat(repository.findByIds(OWNER, ids)).containsExactlyElementsOf(PREVIOUS_FORMATS);
@@ -179,6 +183,11 @@ class ScenarioGraphMySqlIntegrationTest {
         assertThat(hasReplayFingerprint(retainedV128.id())).isTrue();
         assertThat(count(PUBLICATION_KEYS, retainedV128.id())).isOne();
         assertThat(questionOptionCount(legacyQuestion(retainedV128).id())).isEqualTo(2);
+
+        var node = id("open-graph-v132-node");
+        insertNode(OPEN_V132, node, 0, "TERMINAL", null);
+        seal(OPEN_V132, node);
+        assertThat(repository.findById(OWNER, OPEN_V132).orElseThrow().scenarioGraph().entryNodeId()).isEqualTo(node);
     }
 
     @Test void migrationReconcilesQuestionPublicationsBetweenV131TriggerInstalls() {
@@ -233,6 +242,7 @@ class ScenarioGraphMySqlIntegrationTest {
             assertThat(repository.findById(OWNER, revision.id())).isEmpty();
             assertThat(count("quiz_revision_items", revision.id())).isZero();
             assertThat(count(PUBLICATION_KEYS, revision.id())).isZero();
+            assertThat(count(GRAPH_COUNTS, revision.id())).isZero();
             for (String graphTable : GRAPH_TABLES) assertThat(count(graphTable, revision.id())).isZero();
             for (var item : revision.items()) {
                 assertThat(sql.queryForObject("SELECT COUNT(*) FROM " + QUESTION_KEYS + " WHERE question_revision_id=UUID_TO_BIN(?)",
@@ -578,6 +588,72 @@ class ScenarioGraphMySqlIntegrationTest {
         });
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void neighboringTerminalGraphCommitsWhileFirstSealIsHeldOpen(boolean holderRepeatableRead) throws Exception {
+        String key = holderRepeatableRead ? "terminal-rr" : "terminal-rc";
+        long position = holderRepeatableRead ? -8L : -4L;
+        var first = terminalScenario(key + "-first", new UUID(-1L, position), OWNER);
+        var peer = terminalScenario(key + "-peer", new UUID(-1L, position + 1), id("other-terminal-author"));
+        var ready = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var connection = new AtomicLong();
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var held = workers.submit(() -> (holderRepeatableRead ? repeatableRead() : fresh()).executeWithoutResult(status -> {
+                connection.set(sql.queryForObject("SELECT CONNECTION_ID()", Long.class));
+                assertThat(publisher.publish(first.ownerId(), first)).isEqualTo(first);
+                ready.countDown();
+                awaitGate(release, "release the first seal");
+                status.setRollbackOnly();
+            }));
+            awaitGate(ready, "the first seal");
+
+            var other = workers.submit(() -> fresh().execute(status -> {
+                sql.execute("SET SESSION innodb_lock_wait_timeout=2");
+                return publisher.publish(peer.ownerId(), peer);
+            }));
+            assertThat(other.get(10, TimeUnit.SECONDS)).isEqualTo(peer);
+            assertThat(held.isDone()).isFalse();
+            assertThat(repository.findById(peer.ownerId(), peer.id())).contains(peer);
+            assertThat(repository.findById(first.ownerId(), first.id())).isEmpty();
+            assertThat(admin.queryForList("""
+                    SELECT l.OBJECT_NAME FROM performance_schema.data_locks l
+                    JOIN performance_schema.threads t ON t.THREAD_ID=l.THREAD_ID
+                    WHERE t.PROCESSLIST_ID=? AND l.OBJECT_SCHEMA=?
+                      AND l.OBJECT_NAME IN ('quiz_revision_items','quiz_scenario_nodes','quiz_scenario_edges')
+                      AND l.LOCK_DATA='supremum pseudo-record'
+                    """, connection.get(), CATALOG)).isEmpty();
+
+            release.countDown();
+            held.get(30, TimeUnit.SECONDS);
+            assertThat(count(PUBLICATION_KEYS, first.id())).isZero();
+            assertThat(count(GRAPH_COUNTS, first.id())).isZero();
+            for (String table : GRAPH_TABLES) assertThat(count(table, first.id())).isZero();
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+            assertThat(workers.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test void sealDetectsAnExtraNodeCommittedAfterTheCallerSnapshot() {
+        var root = id("seal-after-node-insert");
+        var entry = id("seal-after-node-entry");
+        insertUnsealed(root, id("seal-after-node-quiz"), "Open graph", 0);
+        insertNode(root, entry, 0, "TERMINAL", null);
+
+        repeatableRead().executeWithoutResult(status -> {
+            assertThat(count("quiz_scenario_nodes", root)).isOne();
+            fresh().executeWithoutResult(writer -> insertNode(root, id("seal-after-node-extra"), 1, "TERMINAL", null));
+            assertThat(count("quiz_scenario_nodes", root)).isOne();
+            sqlRejected(() -> seal(root, entry));
+        });
+        assertThat(count("quiz_scenario_nodes", root)).isEqualTo(2);
+        assertThat(sql.queryForObject("SELECT entry_node_id IS NULL FROM quiz_scenario_graphs" + WHERE_REVISION,
+                Boolean.class, root.toString())).isTrue();
+    }
+
     @Test void schemaRejectsLateWritesCrossRevisionReferencesAndPartialReads() {
         var revision = scenario("sealed-scenario", 2, CONDITION);
         publisher.publish(OWNER, revision);
@@ -738,6 +814,13 @@ class ScenarioGraphMySqlIntegrationTest {
         return new QuizRevision(new UUID(0, revisionId), id(key + "-quiz"), owner, source.schemaVersion(),
                 source.title(), source.description(), source.createdAt(), source.items(), List.of(), List.of(),
                 new ScenarioGraph(old.schemaVersion(), id(key + old.entryNodeId()), nodes, edges));
+    }
+
+    private static QuizRevision terminalScenario(String key, UUID revisionId, UUID owner) {
+        var terminal = new ScenarioGraph.Node(id(key + "-terminal"), 0, ScenarioGraph.NodeType.TERMINAL, null);
+        return new QuizRevision(revisionId, id(key + "-quiz"), owner, QuizRevision.SCENARIO_FORMAT,
+                "Terminal graph", null, CREATED, List.of(), List.of(), List.of(),
+                new ScenarioGraph(1, terminal.id(), List.of(terminal), List.of()));
     }
 
     private static QuizRevision publicationWithOneQuestion(String key, UUID owner, UUID questionId) {

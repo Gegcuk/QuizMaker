@@ -5593,14 +5593,21 @@ already authorized the quiz and its source content. It joins the caller's transa
 items, nodes, edges and sealing the graph at its entry node commit together. Database constraints require
 same-revision references, including the entry point, and seal the published graph and its item
 membership. Publication takes a transactional key scoped to the revision ID before writing
-questions or graph rows. V132 stores a SHA-256 fingerprint of the canonical format-4 command
-on that key in the same transaction. An exact replay compares the fingerprint on the current
+questions or graph rows. V133 tracks successful item, node and edge inserts on one row per
+graph. The seal compares its declared counts with that current row while holding the header
+exclusively. This keeps first publication independent of ranges in the child indexes.
+Open headers that predate V133 retain their row-count check. V132 stores a SHA-256 fingerprint
+of the canonical format-4 command on that key in the same transaction. An exact replay compares the fingerprint on the current
 key row, including from an older caller snapshot. The replay never locks graph or question
 rows. For an earlier sealed graph, the first exact replay establishes its fingerprint after
 checking the immutable graph and question seals with nonlocking reads. Different content under
 the same ID, including an ID occupied by an ordinary revision, conflicts. The key and graph
 commit or roll back together. An edit uses a new revision ID, so a retained reference still
 resolves the original graph.
+
+The rollout from V127 runs alongside ordinary publication. A pre-fingerprint scenario writer
+from an intermediate revision can commit a graph outside an already open caller snapshot.
+Replaying that graph for the first time requires a transaction that can see it.
 
 V131 coordinates scenario writers sharing a question revision with a batched no-op upsert in
 UUID order. The originating scenario identifies which questions were inserted by that batch.
