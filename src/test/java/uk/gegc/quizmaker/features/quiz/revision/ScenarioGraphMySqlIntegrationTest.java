@@ -322,6 +322,56 @@ class ScenarioGraphMySqlIntegrationTest {
                 .isEqualTo("{\"n\":1 2}");
     }
 
+    @Test void jsonObjectOrderChangedAfterAnOlderSnapshotKeepsQuestionIdentity() {
+        var graph = scenario("json-object-order", 1, CONDITION);
+        var question = legacyQuestion(graph);
+        var ordinary = quiz("ordinary-before-json-order", question);
+        repository.insert(ordinary);
+        var reordered = question.content().replace("\"correct\":true,\"id\":\"a\"", "\"id\":\"a\",\"correct\":true");
+        assertThat(reordered).isNotEqualTo(question.content());
+        repeatableRead().executeWithoutResult(status -> {
+            assertThat(repository.findById(OWNER, ordinary.id())).contains(ordinary);
+            fresh().executeWithoutResult(writer -> assertThat(sql.update(
+                    "UPDATE question_revisions SET content=? WHERE id=UUID_TO_BIN(?)",
+                    reordered, question.id().toString())).isOne());
+            assertThat(publisher.publish(OWNER, graph)).isEqualTo(graph);
+        });
+        assertThat(sql.queryForObject("SELECT content FROM question_revisions WHERE id=UUID_TO_BIN(?)",
+                String.class, question.id().toString())).isEqualTo(reordered);
+        assertThat(repository.findById(OWNER, graph.id())).contains(graph);
+    }
+
+    @Test void unorderedJsonComparisonPreservesArrayOrderNumericPrecisionAndUniqueKeys() {
+        String original = """
+                {"label":"🧪 42: \\"quote\\"","data":{"big":9007199254740993,"scale":1.00,"order":[true,false]}}
+                """;
+        String reordered = """
+                {"data":{"order":[true,false],"scale":1.00,"big":9007199254740993},"label":"🧪 42: \\"quote\\""}
+                """;
+        String same = "SELECT scenario_same_question_json(?,?)";
+        assertThat(sql.queryForObject(same, Boolean.class, original, reordered)).isTrue();
+        assertThat(sql.queryForObject(same, Boolean.class, original,
+                reordered.replace("9007199254740993", "9007199254740992"))).isFalse();
+        assertThat(sql.queryForObject(same, Boolean.class, original, reordered.replace("1.00", "1.0"))).isFalse();
+        assertThat(sql.queryForObject(same, Boolean.class, original, reordered.replace("1.00", "\"n1.00\""))).isFalse();
+        assertThat(sql.queryForObject(same, Boolean.class, original,
+                reordered.replace("[true,false]", "[false,true]"))).isFalse();
+        assertThat(sql.queryForObject(same, Boolean.class, original,
+                reordered.replace("\"big\":", "\"big\":0,\"big\":"))).isFalse();
+        assertThat(sql.queryForObject(same, Boolean.class, "{\"n\":1e999,\"b\":true}",
+                "{\"b\":true,\"n\":1e999}")).isTrue();
+    }
+
+    @Test void questionsBeyondTheNativeJsonNestingLimitKeepTheWhitespaceComparison() {
+        String values = "[".repeat(105) + "0" + "]".repeat(105);
+        String original = "{\"values\":" + values + ",\"ready\":true}";
+        String formatted = original.replace("\"values\":", "\"values\" \t:\n");
+        String changed = original.replace("\"ready\":true", "\"ready\":false");
+        String same = "SELECT scenario_same_question_json(?,?)";
+        assertThat(sql.queryForObject(same, Boolean.class, original, formatted)).isTrue();
+        assertThat(sql.queryForObject(same, Boolean.class, original, changed)).isFalse();
+    }
+
     @ParameterizedTest
     @ValueSource(ints = {0, 1, 128})
     void legacyJsonRetriesKeepScenarioItemWritesBatched(int legacyCount) {
@@ -329,10 +379,15 @@ class ScenarioGraphMySqlIntegrationTest {
         var questions = graph.items().stream().map(QuizRevision.Item::question).toArray(QuestionRevision[]::new);
         repository.insert(quiz("ordinary-batched-legacy-json-" + legacyCount, questions));
         for (int index = 0; index < legacyCount; index++) {
-            assertThat(sql.update("""
-                    UPDATE question_revisions SET content=REPLACE(content,'"correct":true,"id":"a"','"id":"a","correct":true')
-                    WHERE id=UUID_TO_BIN(?)
-                    """, questions[index].id().toString())).isOne();
+            var question = questions[index];
+            var reordered = question.content().replace("\"correct\":true,\"id\":\"a\"", "\"id\":\"a\",\"correct\":true");
+            assertThat(reordered).isNotEqualTo(question.content());
+            // Emulate a legacy import whose original proof used noncanonical JSON.
+            fresh().executeWithoutResult(status -> {
+                String update = "UPDATE question_revisions SET content=? WHERE id=UUID_TO_BIN(?)";
+                sql.update(update, "{}", question.id().toString());
+                sql.update(update, reordered, question.id().toString());
+            });
         }
         var statements = new AtomicInteger();
         source.before = (statement, connection) -> statements.incrementAndGet();
@@ -612,11 +667,11 @@ class ScenarioGraphMySqlIntegrationTest {
         assertThat(repository.findById(OWNER, updated.id())).contains(updated);
     }
 
-    @Test void publishes128NewQuestionsWithOneJdbcQuestionInsertBatch() {
+    @Test void publishes128NewQuestionsWithOneQuestionBatchCall() {
         var revision = scenario("question-insert-batch", 128, CONDITION);
         var writes = new AtomicInteger();
         source.before = (statement, connection) -> {
-            if (statement.startsWith("INSERT INTO question_revisions")) writes.incrementAndGet();
+            if (statement.startsWith("CALL scenario_insert_questions")) writes.incrementAndGet();
         };
         assertThat(publisher.publish(OWNER, revision)).isEqualTo(revision);
         assertThat(writes).hasValue(1);
@@ -659,7 +714,7 @@ class ScenarioGraphMySqlIntegrationTest {
         var atKey = new CountDownLatch(2);
         var release = new CountDownLatch(1);
         source.before = (statement, connection) -> {
-            if (!statement.startsWith("INSERT INTO question_revisions")) return;
+            if (!statement.startsWith("CALL scenario_insert_questions")) return;
             atKey.countDown();
             awaitGate(release, "release shared question writers");
         };
@@ -722,25 +777,72 @@ class ScenarioGraphMySqlIntegrationTest {
         }
     }
 
-    @ParameterizedTest
-    @ValueSource(ints = {64, 128})
-    void insertsAndReusesQuestionsInBatchesAfterAnOlderSnapshot(int concurrentQuestions) {
-        var graph = scenario("batched-stale-questions-" + concurrentQuestions, 128, CONDITION);
-        var concurrent = graph.items().stream().limit(concurrentQuestions).map(QuizRevision.Item::question)
+    @Test void insertsMissingQuestionsAndReusesCommittedQuestionsInTheSameOldSnapshotBatch() {
+        var graph = scenario("batched-stale-questions-mixed", 128, CONDITION);
+        var concurrent = graph.items().stream().limit(64).map(QuizRevision.Item::question)
                 .toArray(QuestionRevision[]::new);
-        var ordinary = quiz("ordinary-batched-stale-questions-" + concurrentQuestions, concurrent);
-        var calls = new AtomicInteger();
+        var ordinary = quiz("ordinary-batched-stale-questions-mixed", concurrent);
         repeatableRead().executeWithoutResult(status -> {
             assertThat(repository.findById(OWNER, ordinary.id())).isEmpty();
             fresh().executeWithoutResult(writer -> repository.insert(ordinary));
             assertThat(repository.findById(OWNER, ordinary.id())).isEmpty();
-            source.before = (statement, connection) -> calls.incrementAndGet();
             assertThat(publisher.publish(OWNER, graph)).isEqualTo(graph);
-            source.reset();
         });
-        assertThat(calls.get()).isLessThanOrEqualTo(concurrentQuestions == 128 ? 13 : 15);
         assertThat(repository.findById(OWNER, graph.id())).contains(graph);
         assertThat(repository.findById(OWNER, ordinary.id())).contains(ordinary);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {32, 128})
+    void questionsCommittedAfterSnapshotAddOneCommandAtTheMySqlServer(int questionCount) {
+        boolean wasEnabled = Boolean.TRUE.equals(admin.queryForObject("SELECT @@GLOBAL.general_log", Boolean.class));
+        String oldOutput = admin.queryForObject("SELECT @@GLOBAL.log_output", String.class);
+        try {
+            admin.execute("SET GLOBAL log_output='TABLE'");
+            admin.execute("SET GLOBAL general_log=ON");
+            long visible = wireCommandsForPublication(questionCount, false);
+            long stale = wireCommandsForPublication(questionCount, true);
+            assertThat(stale).isEqualTo(visible + 1);
+        } finally {
+            admin.update("SET GLOBAL log_output=?", oldOutput);
+            admin.update("SET GLOBAL general_log=?", wasEnabled ? 1 : 0);
+        }
+    }
+
+    private long wireCommandsForPublication(int questionCount, boolean late) {
+        var key = questionCount + "-" + late;
+        var graph = scenario("wire-scenario-" + key, questionCount, CONDITION);
+        var questions = graph.items().stream().map(QuizRevision.Item::question).toArray(QuestionRevision[]::new);
+        var flat = quiz("wire-ordinary-" + key, questions);
+        if (!late) repository.insert(flat);
+        String startMarker = "SET @scenario_wire_boundary='start-" + key + "'";
+        String endMarker = "SET @scenario_wire_boundary='end-" + key + "'";
+        long connectionId = repeatableRead().execute(status -> {
+            assertThat(repository.findById(OWNER, flat.id()).isPresent()).isEqualTo(!late);
+            if (late) {
+                fresh().executeWithoutResult(writer -> repository.insert(flat));
+                assertThat(repository.findById(OWNER, flat.id())).isEmpty();
+            }
+            long connection = sql.queryForObject("SELECT CONNECTION_ID()", Long.class);
+            sql.execute(startMarker);
+            assertThat(publisher.publish(OWNER, graph)).isEqualTo(graph);
+            sql.execute(endMarker);
+            return connection;
+        });
+        assertThat(repository.findById(OWNER, graph.id())).contains(graph);
+        var commands = admin.queryForMap("""
+                SELECT COUNT(*) AS commands,
+                    COALESCE(SUM(argument LIKE 'CALL scenario_insert_questions(%'),0) AS creation_calls,
+                    COALESCE(SUM(argument LIKE 'INSERT INTO question_revisions%'),0) AS individual_inserts
+                FROM mysql.general_log WHERE thread_id=? AND command_type IN ('Query','Execute')
+                    AND event_time>(SELECT MAX(event_time) FROM mysql.general_log WHERE thread_id=? AND argument=?)
+                    AND event_time<(SELECT MAX(event_time) FROM mysql.general_log WHERE thread_id=? AND argument=?)
+                """, connectionId, connectionId, startMarker, connectionId, endMarker);
+        assertThat(((Number) commands.get("creation_calls")).intValue()).isEqualTo(late ? 1 : 0);
+        assertThat(((Number) commands.get("individual_inserts")).intValue()).isZero();
+        long count = ((Number) commands.get("commands")).longValue();
+        assertThat(count).isPositive();
+        return count;
     }
 
     @Test void scenarioOverAnExistingFlatIdentityHasAStableConflict() {

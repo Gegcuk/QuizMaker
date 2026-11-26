@@ -27,6 +27,63 @@ BEGIN
         '$1$2', 1, 0, 'cn');
 END;
 
+-- Compare object members without relying on the native JSON numeric range.
+-- Tag scalar strings and numbers before parsing so types and number spellings
+-- remain distinct. Counting members detects keys discarded by the JSON parser.
+CREATE FUNCTION scenario_ordered_question_json(payload LONGTEXT CHARACTER SET utf8mb4)
+RETURNS LONGTEXT CHARACTER SET utf8mb4 DETERMINISTIC NO SQL
+BEGIN
+    DECLARE slash CHAR(1) CHARACTER SET utf8mb4 DEFAULT CHAR(92 USING utf8mb4);
+    DECLARE quoted VARCHAR(80) CHARACTER SET utf8mb4 DEFAULT CONCAT('"(?:[^"', slash, slash, ']++|', slash, slash, '.)*+"');
+    DECLARE tokens VARCHAR(160) CHARACTER SET utf8mb4 DEFAULT CONCAT(quoted, '|-?(?:0|[1-9][0-9]*)(?:[.][0-9]+)?(?:[eE][+-]?[0-9]+)?');
+    DECLARE offset_chars INT DEFAULT 1;
+    DECLARE token_start INT;
+    DECLARE token_text LONGTEXT CHARACTER SET utf8mb4;
+    DECLARE tagged LONGTEXT CHARACTER SET utf8mb4 DEFAULT '';
+    DECLARE punctuation LONGTEXT CHARACTER SET utf8mb4;
+    DECLARE member_count INT;
+    DECLARE normalized LONGTEXT CHARACTER SET utf8mb4;
+    -- LONGTEXT questions may exceed native JSON's size, key or nesting limits.
+    DECLARE EXIT HANDLER FOR 3150,3151,3157 RETURN NULL;
+
+    WHILE offset_chars<=CHAR_LENGTH(payload) DO
+        SET token_start=REGEXP_INSTR(payload, tokens, offset_chars, 1, 0, 'cn');
+        IF token_start=0 THEN
+            SET tagged=CONCAT(tagged,SUBSTRING(payload,offset_chars));
+            SET offset_chars=CHAR_LENGTH(payload)+1;
+        ELSE
+            SET token_text=REGEXP_SUBSTR(payload,tokens,token_start,1,'cn');
+            SET tagged=CONCAT(tagged,SUBSTRING(payload,offset_chars,token_start-offset_chars));
+            SET offset_chars=token_start+CHAR_LENGTH(token_text);
+            IF LEFT(token_text,1)='"' THEN
+                SET tagged=CONCAT(tagged,'"s',SUBSTRING(token_text,2));
+            ELSEIF SUBSTRING(payload,offset_chars,1)=':' THEN
+                RETURN NULL;
+            ELSE
+                SET tagged=CONCAT(tagged,'"n',token_text,'"');
+            END IF;
+        END IF;
+    END WHILE;
+    IF NOT JSON_VALID(tagged) THEN RETURN NULL; END IF;
+    SET punctuation=REGEXP_REPLACE(tagged,quoted,'',1,0,'cn');
+    SET member_count=CHAR_LENGTH(punctuation)-CHAR_LENGTH(REPLACE(punctuation,':',''));
+    SET normalized=CAST(CAST(tagged AS JSON) AS CHAR CHARACTER SET utf8mb4);
+    SET punctuation=REGEXP_REPLACE(normalized,quoted,'',1,0,'cn');
+    IF member_count<>CHAR_LENGTH(punctuation)-CHAR_LENGTH(REPLACE(punctuation,':','')) THEN RETURN NULL; END IF;
+    RETURN normalized;
+END;
+
+CREATE FUNCTION scenario_same_question_json(
+    old_payload LONGTEXT CHARACTER SET utf8mb4, new_payload LONGTEXT CHARACTER SET utf8mb4
+) RETURNS BOOLEAN DETERMINISTIC NO SQL
+BEGIN
+    SET old_payload=scenario_compact_question_json(old_payload),
+        new_payload=scenario_compact_question_json(new_payload);
+    IF CAST(old_payload AS BINARY)=CAST(new_payload AS BINARY) THEN RETURN TRUE; END IF;
+    RETURN (CAST(scenario_ordered_question_json(old_payload) AS BINARY)
+        = CAST(scenario_ordered_question_json(new_payload) AS BINARY)) IS TRUE;
+END;
+
 CREATE FUNCTION scenario_question_evidence(
     source_id BINARY(16), format_version SMALLINT, kind VARCHAR(50) CHARACTER SET utf8mb4,
     difficulty_name VARCHAR(20) CHARACTER SET utf8mb4, prompt VARCHAR(1000) CHARACTER SET utf8mb4,
@@ -41,23 +98,35 @@ RETURN UNHEX(SHA2(CONCAT_WS(':', HEX(source_id), format_version,
     DATE_FORMAT(created, '%Y-%m-%d %H:%i:%s.%f')
 ), 256));
 
--- Ordinary inserts remain strict. The scenario writer can race another publisher
--- on an existing identity, so allow only a duplicate and verify content on item insert.
-CREATE PROCEDURE scenario_insert_question_if_absent(
-    IN revision_id BINARY(16), IN source_id BINARY(16), IN format_version SMALLINT,
-    IN kind VARCHAR(50) CHARACTER SET utf8mb4, IN difficulty_name VARCHAR(20) CHARACTER SET utf8mb4,
-    IN prompt VARCHAR(1000) CHARACTER SET utf8mb4, IN payload LONGTEXT CHARACTER SET utf8mb4,
-    IN hint_text VARCHAR(500) CHARACTER SET utf8mb4, IN explanation_text VARCHAR(2000) CHARACTER SET utf8mb4,
-    IN asset_url VARCHAR(2048) CHARACTER SET utf8mb4, IN asset_id BINARY(16),
-    IN created DATETIME(6), IN scenario_id BINARY(16)
-)
+-- Claim sorted candidates inside the caller's transaction. A duplicate belongs
+-- to another writer and will be checked against current evidence on item insert.
+CREATE PROCEDURE scenario_insert_questions(IN scenario_id BINARY(16), IN candidates JSON)
 MODIFIES SQL DATA
 BEGIN
-    DECLARE CONTINUE HANDLER FOR 1062 BEGIN END;
-    INSERT INTO question_revisions (id,question_id,schema_version,question_type,difficulty,
-        question_text,content,hint,explanation,attachment_url,attachment_asset_id,created_at,creating_scenario_revision_id)
-    VALUES (revision_id,source_id,format_version,kind,difficulty_name,prompt,payload,
-        hint_text,explanation_text,asset_url,asset_id,created,scenario_id);
+    DECLARE candidate_index INT DEFAULT 0;
+    DECLARE candidate JSON;
+    DECLARE inserted_ids JSON DEFAULT (JSON_ARRAY());
+    DECLARE inserted BOOLEAN;
+    DECLARE CONTINUE HANDLER FOR 1062 SET inserted=FALSE;
+
+    WHILE candidate_index<JSON_LENGTH(candidates) DO
+        SET candidate=JSON_EXTRACT(candidates, CONCAT('$[',candidate_index,']')), inserted=TRUE;
+        INSERT INTO question_revisions (id,question_id,schema_version,question_type,difficulty,
+            question_text,content,hint,explanation,attachment_url,attachment_asset_id,created_at,creating_scenario_revision_id)
+        SELECT UNHEX(revision_hex),UNHEX(source_hex),format_version,kind,difficulty_name,prompt,payload,
+            hint_text,explanation_text,asset_url,UNHEX(asset_hex),created,scenario_id
+        FROM JSON_TABLE(candidate, '$' COLUMNS (
+            revision_hex CHAR(32) PATH '$[0]', source_hex CHAR(32) PATH '$[1]', format_version SMALLINT PATH '$[2]',
+            kind VARCHAR(50) PATH '$[3]', difficulty_name VARCHAR(20) PATH '$[4]', prompt VARCHAR(1000) PATH '$[5]',
+            payload LONGTEXT PATH '$[6]', hint_text VARCHAR(500) PATH '$[7]', explanation_text VARCHAR(2000) PATH '$[8]',
+            asset_url VARCHAR(2048) PATH '$[9]', asset_hex CHAR(32) PATH '$[10]', created DATETIME(6) PATH '$[11]'
+        )) AS fields;
+        IF inserted THEN
+            SET inserted_ids=JSON_ARRAY_APPEND(inserted_ids,'$',JSON_UNQUOTE(JSON_EXTRACT(candidate,'$[0]')));
+        END IF;
+        SET candidate_index=candidate_index+1;
+    END WHILE;
+    SELECT UNHEX(id_hex) AS id FROM JSON_TABLE(inserted_ids, '$[*]' COLUMNS (id_hex CHAR(32) PATH '$')) AS written;
 END;
 
 -- Hash one option as its hex ID, decimal position, and exact UTF-8 key.
@@ -148,13 +217,12 @@ END;
 CREATE TRIGGER scenario_question_evidence_update AFTER UPDATE ON question_revisions
 FOR EACH ROW
 BEGIN
-    -- Preserve the recorded proof across formatting-only edits, including
-    -- when the original stored JSON already used legacy formatting.
+    -- Preserve the recorded proof across whitespace and object-order edits.
     IF scenario_question_evidence(OLD.question_id, OLD.schema_version, OLD.question_type, OLD.difficulty,
-            OLD.question_text, scenario_compact_question_json(OLD.content), OLD.hint,
-            OLD.explanation, OLD.attachment_url, OLD.attachment_asset_id, OLD.created_at)
+            OLD.question_text, OLD.content, OLD.hint, OLD.explanation, OLD.attachment_url,
+            OLD.attachment_asset_id, OLD.created_at)
         <> scenario_question_evidence(NEW.question_id, NEW.schema_version, NEW.question_type, NEW.difficulty,
-            NEW.question_text, scenario_compact_question_json(NEW.content), NEW.hint,
+            NEW.question_text, IF(scenario_same_question_json(OLD.content, NEW.content), OLD.content, NEW.content), NEW.hint,
             NEW.explanation, NEW.attachment_url, NEW.attachment_asset_id, NEW.created_at) THEN
         UPDATE quiz_scenario_question_keys
         SET question_evidence=scenario_question_evidence(NEW.question_id, NEW.schema_version,

@@ -5609,10 +5609,10 @@ The rollout from V127 runs alongside ordinary publication. A pre-fingerprint sce
 from an intermediate revision can commit a graph outside an already open caller snapshot.
 Replaying that graph for the first time requires a transaction that can see it.
 
-Scenario publication checks which questions are visible before a strict insert batch for
-missing IDs in UUID order. After a duplicate from a racing writer or an older snapshot,
-the retry batches a database procedure that tolerates only duplicate keys. One query per
-retried batch identifies rows created by this scenario, whose options still need to be written.
+Scenario publication checks which questions are visible before submitting the remaining
+candidates in UUID order. Each batch uses one database procedure call. The procedure
+tolerates only duplicate keys and returns the IDs it inserted, whose options still need
+to be written. Item insertion checks the current evidence for questions another writer saved.
 V134 stores a SHA-256 fingerprint of the question and a fixed-size digest of its options in
 authored order. Each ordinary option insert extends the digest with one fixed-size update.
 New questions enter the fingerprint index after their option set has been written. The digest
@@ -5622,9 +5622,11 @@ and the fingerprint of its complete current content. The foreign key both verifi
 content at insertion and prevents later changes to the referenced content. Ordinary and retained
 items continue to reference their question directly. Equivalent legacy JSON encodings can be
 compared in batches from the caller's snapshot, with its recorded fingerprint still checked
-against the current foreign key. A formatting-only edit preserves the existing fingerprint.
-The update trigger ignores JSON whitespace at structural boundaries when comparing old and
-new content, and retains quoted text and exact number spellings.
+against the current foreign key. The update trigger preserves the existing fingerprint
+when a JSON edit changes only structural whitespace or object member order. Its comparison
+retains array order, scalar types, and exact number spellings. Object-order comparison
+requires both documents to fit MySQL's JSON nesting limit. The existing whitespace
+comparison still applies to more deeply nested documents.
 V134 fills fingerprints after installing the tracking triggers. The backfill acquires the
 question metadata lock before opening the options snapshot in READ COMMITTED, so it includes
 changes committed by an option writer it had to wait for.

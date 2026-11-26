@@ -42,8 +42,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.stream.Stream;
 
 import static uk.gegc.quizmaker.features.quiz.infra.repository.JdbcScenarioGraphs.requireIdentical;
 
@@ -55,13 +57,15 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
     private static final String INSERT_QUESTION = """
             INSERT INTO question_revisions
             (id, question_id, schema_version, question_type, difficulty, question_text, content,
-             hint, explanation, attachment_url, attachment_asset_id, created_at%s)
+             hint, explanation, attachment_url, attachment_asset_id, created_at)
             VALUES (:id, :questionId, :version, :type, :difficulty, :text, :content,
-                    :hint, :explanation, :url, :assetId, :created%s)
+                    :hint, :explanation, :url, :assetId, :created)
             """;
-    private static final String INSERT_SCENARIO_QUESTION = """
-            CALL scenario_insert_question_if_absent(:id,:questionId,:version,:type,:difficulty,:text,:content,
-                :hint,:explanation,:url,:assetId,:created,:scenarioId)
+    // Leave room for JDBC escaping and large question payloads in the wire packet.
+    private static final long SCENARIO_QUESTION_BATCH_BYTES = 1024L * 1024;
+    private static final String SCENARIO_QUESTION_ROW = """
+            JSON_ARRAY(HEX(:id%1$d), HEX(:questionId%1$d), :version%1$d, :type%1$d, :difficulty%1$d,
+                :text%1$d, :content%1$d, :hint%1$d, :explanation%1$d, :url%1$d, HEX(:assetId%1$d), :created%1$d)
             """;
     private static final String INSERT_SCENARIO_ITEM = """
             INSERT INTO quiz_revision_items
@@ -143,7 +147,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
             else if (!existing.get(id).equals(question))
                 throw new RevisionIntegrityException(RevisionIntegrityException.Reason.IDENTITY_CONFLICT);
         });
-        batch(INSERT_QUESTION.formatted("", ""), additions.stream().map(this::questionParameters).toList());
+        batch(INSERT_QUESTION, additions.stream().map(this::questionParameters).toList());
         insertOptions(additions);
         insertRoot(revision);
         insertMembership(revision);
@@ -241,7 +245,6 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
     }
 
     private ScenarioQuestionWrites insertMissingScenarioQuestions(UUID revisionId, List<QuestionRevision> ordered) {
-        var insert = INSERT_QUESTION.formatted(", creating_scenario_revision_id", ", :scenarioId");
         var inserted = new HashSet<UUID>();
         var pendingEvidence = new HashSet<UUID>();
         for (int start = 0; start < ordered.size(); start += SQL_BATCH) {
@@ -259,25 +262,43 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
                 if (Boolean.FALSE.equals(row.getObject("evidence_ready", Boolean.class))) pendingEvidence.add(id);
             });
             var candidates = part.stream().filter(question -> !visible.contains(question.id())).toList();
-            if (candidates.isEmpty()) continue;
-            var rows = candidates.stream().map(question ->
-                    questionParameters(question).addValue("scenarioId", bytes(revisionId))).toList();
-            try {
-                batch(insert, rows);
-                candidates.forEach(question -> inserted.add(question.id()));
-            } catch (DuplicateKeyException collision) {
-                // Replay the batch because a driver can stop at a duplicate or roll
-                // back an entire rewritten statement. The procedure ignores only duplicates.
-                batch(INSERT_SCENARIO_QUESTION, rows);
-                // An older snapshot still sees all rows written by this transaction.
-                inserted.addAll(jdbc.query("""
-                        SELECT id FROM question_revisions WHERE id IN (:ids) AND creating_scenario_revision_id=:scenario
-                        """, Map.of("ids", binaryIds(candidates.stream().map(QuestionRevision::id).toList()),
-                        "scenario", bytes(revisionId)), (row, index) -> uuid(row, "id")));
-            }
+            insertScenarioQuestionBatches(revisionId, candidates, inserted);
         }
         pendingEvidence.addAll(inserted);
         return new ScenarioQuestionWrites(inserted, pendingEvidence);
+    }
+
+    private void insertScenarioQuestionBatches(UUID revisionId, List<QuestionRevision> candidates, Set<UUID> inserted) {
+        int start = 0;
+        long bytesInBatch = 0;
+        for (int index = 0; index < candidates.size(); index++) {
+            var question = candidates.get(index);
+            long rowBytes = 512 + 4 * Stream.of(question.questionText(), question.content(), question.hint(),
+                    question.explanation(), question.attachmentUrl()).filter(Objects::nonNull).mapToLong(String::length).sum();
+            if (index > start && bytesInBatch + rowBytes > SCENARIO_QUESTION_BATCH_BYTES) {
+                inserted.addAll(insertScenarioQuestionBatch(revisionId, candidates.subList(start, index)));
+                start = index;
+                bytesInBatch = 0;
+            }
+            bytesInBatch += rowBytes;
+        }
+        if (start < candidates.size()) {
+            inserted.addAll(insertScenarioQuestionBatch(revisionId, candidates.subList(start, candidates.size())));
+        }
+    }
+
+    private List<UUID> insertScenarioQuestionBatch(UUID revisionId, List<QuestionRevision> candidates) {
+        var statement = new StringJoiner(", ", "CALL scenario_insert_questions(:scenario, JSON_ARRAY(", "))");
+        var parameters = new MapSqlParameterSource("scenario", bytes(revisionId));
+        // Keep the normal bindings for timestamps and private text. MySQL packages
+        // the rows and reports which inserts it actually made in this transaction.
+        for (int index = 0; index < candidates.size(); index++) {
+            int suffix = index;
+            statement.add(SCENARIO_QUESTION_ROW.formatted(suffix));
+            questionParameters(candidates.get(index)).getValues()
+                    .forEach((name, value) -> parameters.addValue(name + suffix, value));
+        }
+        return jdbc.query(statement.toString(), parameters, (row, index) -> uuid(row, "id"));
     }
 
     private void insertScenarioItems(QuizRevision revision) {
