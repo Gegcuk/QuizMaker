@@ -49,9 +49,9 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
     private static final String INSERT_QUESTION = """
             INSERT INTO question_revisions
             (id, question_id, schema_version, question_type, difficulty, question_text, content,
-             hint, explanation, attachment_url, attachment_asset_id, created_at)
+             hint, explanation, attachment_url, attachment_asset_id, created_at%s)
             VALUES (:id, :questionId, :version, :type, :difficulty, :text, :content,
-                    :hint, :explanation, :url, :assetId, :created)
+                    :hint, :explanation, :url, :assetId, :created%s)
             """;
     private final NamedParameterJdbcTemplate jdbc;
     private final JdbcRevisionSections sections;
@@ -98,7 +98,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
             } catch (DuplicateKeyException failure) {
                 throw new RevisionIntegrityException(RevisionIntegrityException.Reason.IDENTITY_CONFLICT);
             }
-            storeScenarioQuestions(questions(revision).values());
+            storeScenarioQuestions(revision);
             insertMembership(revision);
             scenarioGraphs.recordPublication(revision.id());
             return new ScenarioPublication(revision, false);
@@ -120,7 +120,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
             else if (!existing.get(id).equals(question))
                 throw new RevisionIntegrityException(RevisionIntegrityException.Reason.IDENTITY_CONFLICT);
         });
-        batch(INSERT_QUESTION, additions.stream().map(this::questionParameters).toList());
+        batch(INSERT_QUESTION.formatted("", ""), additions.stream().map(this::questionParameters).toList());
         insertOptions(additions);
         insertRoot(revision);
         insertMembership(revision);
@@ -187,126 +187,97 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
         scenarioGraphs.compareSealedGraph(revision);
 
         var items = pointReads.readIds("""
-                SELECT i.id,i.question_revision_id,i.authored_position FROM
-                """ + JdbcRevisionPointReads.IDS + """
-                 STRAIGHT_JOIN quiz_revision_items i FORCE INDEX (PRIMARY)
-                  ON i.quiz_revision_id=:revision AND i.id=UUID_TO_BIN(k.id) FOR SHARE OF i
+                SELECT id,question_revision_id,authored_position FROM quiz_revision_items FORCE INDEX (PRIMARY)
+                WHERE quiz_revision_id=:revision AND id=:pointId FOR SHARE
                 """, revision.items().stream().map(QuizRevision.Item::id).toList(), parameters, (row, index) ->
                 new ScenarioItem(uuid(row, "id"), uuid(row, "question_revision_id"), row.getInt("authored_position")));
         var stored = new HashSet<>(items);
         requireIdentical(stored.size() == revision.items().size() && revision.items().stream().allMatch(item ->
                 stored.contains(new ScenarioItem(item.id(), item.question().id(), item.authoredPosition()))));
         var questions = orderedQuestions(questions(revision).values());
-        compareScenarioQuestions(questions, scenarioQuestionKeys(questions));
+        var current = scenarioQuestionRows(questions);
+        compareScenarioQuestions(questions, current, scenarioQuestionKeys(questions), true);
     }
 
-    private void storeScenarioQuestions(Collection<QuestionRevision> requested) {
-        // All scenario publishers take shared question identities in the same unsigned UUID order.
-        var ordered = orderedQuestions(requested);
-        batch("""
-                INSERT INTO quiz_scenario_question_keys (question_revision_id) VALUES (:id)
-                ON DUPLICATE KEY UPDATE question_revision_id=quiz_scenario_question_keys.question_revision_id
-                """, ordered.stream().map(question -> questionKey(question.id())).toList());
+    private void storeScenarioQuestions(QuizRevision revision) {
+        // Each successful new graph owns a freshly inserted quiz revision ID. Use it to identify
+        // questions inserted by this batch, regardless of the driver's affected-row setting.
+        var ordered = orderedQuestions(questions(revision).values());
+        batch(INSERT_QUESTION.formatted(", creating_scenario_revision_id", ", :scenarioId") + """
+                ON DUPLICATE KEY UPDATE id=question_revisions.id
+                """, ordered.stream().map(question ->
+                questionParameters(question).addValue("scenarioId", bytes(revision.id()))).toList());
+        var current = scenarioQuestionRows(ordered);
         var keys = scenarioQuestionKeys(ordered);
-        var sealed = new ArrayList<QuestionRevision>();
-        var pending = new ArrayList<QuestionRevision>();
-        for (var question : ordered) {
-            if (keys.get(question.id()) == null) pending.add(question);
-            else sealed.add(question);
-        }
-        compareScenarioQuestions(sealed, keys);
-
         var additions = new ArrayList<QuestionRevision>();
         var previous = new ArrayList<QuestionRevision>();
-        for (var question : pending) {
-            try {
-                jdbc.update(INSERT_QUESTION, questionParameters(question));
-                additions.add(question);
-            } catch (DuplicateKeyException existing) {
-                // A question written by the ordinary publication path has no scenario key yet.
-                // The duplicate statement leaves this transaction usable for a current comparison.
-                previous.add(question);
-            }
+        for (var question : ordered) {
+            var row = current.get(question.id());
+            if (revision.id().equals(row.creatingScenario())) additions.add(question);
+            else previous.add(question);
         }
-        compareQuestionsOnFirstUse(previous);
+        compareScenarioQuestions(previous, current, keys, false);
         insertOptions(additions);
         batch("""
-                UPDATE quiz_scenario_question_keys SET option_count=:count WHERE question_revision_id=:id
-                """, pending.stream().map(question -> questionKey(question.id()).addValue("count", question.options().size())).toList());
+                UPDATE quiz_scenario_question_keys SET option_count=:count
+                WHERE question_revision_id=:id AND option_count IS NULL
+                """, ordered.stream().filter(question -> keys.get(question.id()).sealedCount() == null)
+                .map(question -> new MapSqlParameterSource("id", bytes(question.id()))
+                        .addValue("count", question.options().size())).toList());
     }
 
     private static List<QuestionRevision> orderedQuestions(Collection<QuestionRevision> questions) {
         return questions.stream().sorted(Comparator.comparing(question -> question.id().toString())).toList();
     }
 
-    private void compareQuestionsOnFirstUse(List<QuestionRevision> previous) {
-        var ids = previous.stream().map(QuestionRevision::id).toList();
-        var current = scenarioQuestionRows(ids);
-        var options = new HashMap<UUID, List<QuestionRevision.Option>>();
-        for (int start = 0; start < ids.size(); start += SQL_BATCH) {
-            var batchIds = ids.subList(start, Math.min(start + SQL_BATCH, ids.size()));
-            options.putAll(readOptions("o.question_revision_id IN (:ids)", Map.of("ids", binaryIds(batchIds)), true));
-        }
-        compareQuestionRows(previous, current, options);
-    }
-
-    private Map<UUID, Integer> scenarioQuestionKeys(List<QuestionRevision> questions) {
-        var counts = new HashMap<UUID, Integer>();
+    private Map<UUID, ScenarioQuestionKey> scenarioQuestionKeys(List<QuestionRevision> questions) {
+        var keys = new HashMap<UUID, ScenarioQuestionKey>();
         pointReads.readIds("""
-                SELECT qk.question_revision_id,qk.option_count FROM
-                """ + JdbcRevisionPointReads.IDS + """
-                 STRAIGHT_JOIN quiz_scenario_question_keys qk FORCE INDEX (PRIMARY)
-                  ON qk.question_revision_id=UUID_TO_BIN(k.id) FOR SHARE OF qk
+                SELECT question_revision_id,option_count,stored_option_count
+                FROM quiz_scenario_question_keys FORCE INDEX (PRIMARY)
+                WHERE question_revision_id=:pointId FOR SHARE
                 """, questions.stream().map(QuestionRevision::id).toList(), new MapSqlParameterSource(),
-                (row, index) -> new ScenarioQuestionKey(uuid(row, "question_revision_id"), row.getObject("option_count", Integer.class)))
-                .forEach(key -> counts.put(key.id(), key.optionCount()));
-        if (counts.size() != questions.size())
+                (row, index) -> new ScenarioQuestionKey(uuid(row, "question_revision_id"),
+                        row.getObject("option_count", Integer.class), row.getInt("stored_option_count")))
+                .forEach(key -> keys.put(key.id(), key));
+        if (keys.size() != questions.size())
             throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
-        return counts;
+        return keys;
     }
 
-    private void compareScenarioQuestions(List<QuestionRevision> requested, Map<UUID, Integer> counts) {
+    private void compareScenarioQuestions(List<QuestionRevision> requested, Map<UUID, ScenarioQuestionRow> current,
+                                          Map<UUID, ScenarioQuestionKey> metadata, boolean replay) {
         for (var question : requested) {
-            Integer count = counts.get(question.id());
-            if (count == null) throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
-            requireIdentical(count == question.options().size());
+            var key = metadata.get(question.id());
+            if ((replay && key.sealedCount() == null)
+                    || (key.sealedCount() != null && key.sealedCount() != key.storedCount()))
+                throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
+            requireIdentical(key.storedCount() == question.options().size());
         }
-        var current = scenarioQuestionRows(requested.stream().map(QuestionRevision::id).toList());
         var keys = requested.stream().flatMap(question -> question.options().stream()
-                .map(option -> JdbcRevisionPointReads.optionKey(question.id(), option.id()))).toList();
+                .map(option -> new JdbcRevisionPointReads.Key(option.id(), question.id()))).toList();
         var options = new HashMap<UUID, List<QuestionRevision.Option>>();
         pointReads.readKeys("""
-                SELECT o.* FROM
-                """ + JdbcRevisionPointReads.OPTION_IDS + """
-                 STRAIGHT_JOIN question_option_revisions o FORCE INDEX (PRIMARY)
-                  ON o.question_revision_id=UUID_TO_BIN(k.question_id) AND o.id=UUID_TO_BIN(k.id) FOR SHARE OF o
+                SELECT * FROM question_option_revisions FORCE INDEX (PRIMARY)
+                WHERE question_revision_id=:pointParent AND id=:pointId FOR SHARE
                 """, keys, new MapSqlParameterSource(), (row, index) ->
                 new ScenarioOption(uuid(row, "question_revision_id"), option(row)))
                 .forEach(row -> options.computeIfAbsent(row.questionId(), ignored -> new ArrayList<>()).add(row.option()));
-        compareQuestionRows(requested, current, options);
-    }
-
-    private Map<UUID, QuestionRevision> scenarioQuestionRows(List<UUID> ids) {
-        var current = new HashMap<UUID, QuestionRevision>();
-        pointReads.readIds("""
-                SELECT q.* FROM
-                """ + JdbcRevisionPointReads.IDS + """
-                 STRAIGHT_JOIN question_revisions q FORCE INDEX (PRIMARY) ON q.id=UUID_TO_BIN(k.id) FOR SHARE OF q
-                """, ids, new MapSqlParameterSource(), (row, index) -> question(row))
-                .forEach(question -> current.put(question.id(), question));
-        return current;
-    }
-
-    private static void compareQuestionRows(List<QuestionRevision> requested, Map<UUID, QuestionRevision> rows,
-                                            Map<UUID, List<QuestionRevision.Option>> options) {
         for (var question : requested) {
-            var stored = rows.get(question.id());
-            requireIdentical(stored != null && withOptions(stored, options.getOrDefault(question.id(), List.of())).equals(question));
+            var stored = current.get(question.id()).question();
+            requireIdentical(withOptions(stored, options.getOrDefault(question.id(), List.of())).equals(question));
         }
     }
 
-    private static MapSqlParameterSource questionKey(UUID id) {
-        return new MapSqlParameterSource("id", bytes(id));
+    private Map<UUID, ScenarioQuestionRow> scenarioQuestionRows(List<QuestionRevision> questions) {
+        var current = new HashMap<UUID, ScenarioQuestionRow>();
+        pointReads.readIds("""
+                SELECT * FROM question_revisions FORCE INDEX (PRIMARY) WHERE id=:pointId FOR SHARE
+                """, questions.stream().map(QuestionRevision::id).toList(), new MapSqlParameterSource(),
+                (row, index) -> new ScenarioQuestionRow(question(row), uuid(row, "creating_scenario_revision_id")))
+                .forEach(row -> current.put(row.question().id(), row));
+        requireIdentical(current.size() == questions.size());
+        return current;
     }
 
     @Override
@@ -544,7 +515,8 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
 
     private record ItemRow(UUID rootId, UUID id, int position, QuestionRevision question) { }
     private record ScenarioItem(UUID id, UUID questionId, int position) { }
-    private record ScenarioQuestionKey(UUID id, Integer optionCount) { }
+    private record ScenarioQuestionKey(UUID id, Integer sealedCount, int storedCount) { }
+    private record ScenarioQuestionRow(QuestionRevision question, UUID creatingScenario) { }
     private record ScenarioOption(UUID questionId, QuestionRevision.Option option) { }
     private record Root(UUID id, UUID quizId, UUID ownerId, int schemaVersion, String title, String description,
                         java.time.Instant createdAt, int sectionCount, int caseCount) { }

@@ -60,6 +60,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.*;
@@ -121,6 +123,7 @@ class ScenarioGraphMySqlIntegrationTest {
         seal(retainedV128.id(), legacyEntry);
         migrate("129");
         migrate("130");
+        migrate("131");
     }
 
     @BeforeEach void start() {
@@ -139,7 +142,7 @@ class ScenarioGraphMySqlIntegrationTest {
     }
 
     @Test void migrationPreservesOldFormatsAndOldReadsDoNotLoadGraphTables() {
-        migrate("130");
+        migrate("131");
         assertThat(rootRows()).usingRecursiveComparison().isEqualTo(beforeUpgrade);
         List<UUID> ids = PREVIOUS_FORMATS.stream().map(QuizRevision::id).toList();
         assertThat(repository.findByIds(OWNER, ids)).containsExactlyElementsOf(PREVIOUS_FORMATS);
@@ -239,6 +242,97 @@ class ScenarioGraphMySqlIntegrationTest {
         }
     }
 
+    @Test void heldReplayOf512QuestionsAllowsOneNewQuestionAboveItsKeys() throws Exception {
+        var published = scenario("large-held-replay", 512, CONDITION);
+        assertThat(publisher.publish(OWNER, published)).isEqualTo(published);
+        var peer = publicationWithOneQuestion("one-above-held", id("one-above-owner"), new UUID(-1L, -1L));
+        assertIndependentWhileHeld(published, peer, QUESTION_KEYS);
+    }
+
+    @Test void firstUseOfOrdinaryQuestionDoesNotBlockAnotherQuestionsOptions() throws Exception {
+        var held = publicationWithOneQuestion("first-ordinary-use", OWNER, new UUID(-1L, -10L));
+        var ordinary = quiz("ordinary-before-first-use", legacyQuestion(held));
+        repository.insert(ordinary);
+        assertThat(questionOptionCount(legacyQuestion(ordinary).id())).isNull();
+        var peer = publicationWithOneQuestion("one-after-adoption", id("after-adoption-owner"),
+                new UUID(-1L, -9L));
+        assertIndependentWhileHeld(held, peer, "question_option_revisions");
+        assertThat(questionOptionCount(legacyQuestion(ordinary).id())).isEqualTo(2);
+    }
+
+    private void assertIndependentWhileHeld(QuizRevision held, QuizRevision peer, String measuredTable) throws Exception {
+        var ready = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var connection = new AtomicLong();
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var waiting = workers.submit(() -> repeatableRead().executeWithoutResult(status -> {
+                connection.set(sql.queryForObject("SELECT CONNECTION_ID()", Long.class));
+                assertThat(publisher.publish(held.ownerId(), held)).isEqualTo(held);
+                ready.countDown();
+                awaitGate(release, "release the holder");
+            }));
+            awaitGate(ready, "the first publication call has returned");
+            var locks = admin.queryForList("""
+                    SELECT l.LOCK_MODE, l.LOCK_DATA FROM performance_schema.data_locks l
+                    JOIN performance_schema.threads t ON t.THREAD_ID=l.THREAD_ID
+                    WHERE t.PROCESSLIST_ID=? AND l.OBJECT_SCHEMA=? AND l.OBJECT_NAME=? AND l.LOCK_TYPE='RECORD'
+                    """, connection.get(), CATALOG, measuredTable);
+            assertThat(locks).isNotEmpty().allSatisfy(lock -> {
+                assertThat((String) lock.get("LOCK_MODE")).contains("REC_NOT_GAP");
+                assertThat(String.valueOf(lock.get("LOCK_DATA"))).doesNotContain("supremum");
+            });
+            var other = workers.submit(() -> publisher.publish(peer.ownerId(), peer));
+            assertThat(other.get(30, TimeUnit.SECONDS)).isEqualTo(peer);
+            assertThat(waiting.isDone()).isFalse();
+            assertThat(repository.findById(peer.ownerId(), peer.id())).contains(peer);
+            release.countDown();
+            waiting.get(30, TimeUnit.SECONDS);
+            assertThat(repository.findById(held.ownerId(), held.id())).contains(held);
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+            assertThat(workers.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test void databaseRejectsOptionMembershipChangesOnceTheQuestionIsSealed() {
+        var revision = scenario("sealed-option-membership", 1, CONDITION);
+        var question = legacyQuestion(revision);
+        repository.insert(quiz("ordinary-before-option-seal", question));
+        var option = question.options().get(0);
+        String query = "INSERT INTO question_option_revisions VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),'additional',5)";
+        var extra = id("extra-option-while-unsealed");
+        assertThat(sql.update(query, extra.toString(), question.id().toString())).isOne();
+        assertThat(sql.update("DELETE FROM question_option_revisions WHERE question_revision_id=UUID_TO_BIN(?) AND id=UUID_TO_BIN(?)",
+                question.id().toString(), extra.toString())).isOne();
+        assertThat(publisher.publish(OWNER, revision)).isEqualTo(revision);
+        sqlRejected(() -> sql.update(query, extra.toString(), question.id().toString()));
+        sqlRejected(() -> sql.update("""
+                UPDATE question_option_revisions SET source_key='changed'
+                WHERE question_revision_id=UUID_TO_BIN(?) AND id=UUID_TO_BIN(?)
+                """, question.id().toString(), option.id().toString()));
+        sqlRejected(() -> sql.update("DELETE FROM question_option_revisions WHERE question_revision_id=UUID_TO_BIN(?) AND id=UUID_TO_BIN(?)",
+                question.id().toString(), option.id().toString()));
+        sqlRejected(() -> sql.update("UPDATE " + QUESTION_KEYS + " SET option_count=NULL WHERE question_revision_id=UUID_TO_BIN(?)",
+                question.id().toString()));
+        sqlRejected(() -> sql.update("DELETE FROM " + QUESTION_KEYS + " WHERE question_revision_id=UUID_TO_BIN(?)",
+                question.id().toString()));
+        assertThat(repository.findById(OWNER, revision.id())).contains(revision);
+        assertThat(publisher.publish(OWNER, revision)).isEqualTo(revision);
+    }
+
+    @Test void publishes128NewQuestionsWithOneJdbcQuestionInsertBatch() {
+        var revision = scenario("question-insert-batch", 128, CONDITION);
+        var writes = new AtomicInteger();
+        source.before = (statement, connection) -> {
+            if (statement.startsWith("INSERT INTO question_revisions")) writes.incrementAndGet();
+        };
+        assertThat(publisher.publish(OWNER, revision)).isEqualTo(revision);
+        assertThat(writes).hasValue(1);
+        assertThat(repository.findById(OWNER, revision.id())).contains(revision);
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
     void twoDifferentGraphsCanShareOneQuestionOnlyIfItsContentMatches(boolean sameQuestion) throws Exception {
@@ -249,7 +343,7 @@ class ScenarioGraphMySqlIntegrationTest {
         var atKey = new CountDownLatch(2);
         var release = new CountDownLatch(1);
         source.before = (statement, connection) -> {
-            if (!statement.startsWith("INSERT INTO " + QUESTION_KEYS)) return;
+            if (!statement.startsWith("INSERT INTO question_revisions")) return;
             atKey.countDown();
             awaitGate(release, "release shared question writers");
         };
@@ -591,6 +685,17 @@ class ScenarioGraphMySqlIntegrationTest {
         return new QuizRevision(new UUID(0, revisionId), id(key + "-quiz"), owner, source.schemaVersion(),
                 source.title(), source.description(), source.createdAt(), source.items(), List.of(), List.of(),
                 new ScenarioGraph(old.schemaVersion(), id(key + old.entryNodeId()), nodes, edges));
+    }
+
+    private static QuizRevision publicationWithOneQuestion(String key, UUID owner, UUID questionId) {
+        var source = scenario(key, 1, CONDITION);
+        var old = legacyQuestion(source);
+        var question = new QuestionRevision(questionId, old.questionId(), old.schemaVersion(), old.type(),
+                old.difficulty(), old.questionText(), old.content(), old.hint(), old.explanation(),
+                old.attachmentUrl(), old.attachmentAssetId(), old.createdAt(), old.options());
+        var scoped = new QuizRevision(source.id(), id(key + "-quiz"), owner, source.schemaVersion(), source.title(),
+                source.description(), source.createdAt(), source.items(), List.of(), List.of(), source.scenarioGraph());
+        return replaceFirstQuestion(scoped, question);
     }
 
     private static QuestionRevision legacyQuestion(QuizRevision revision) { return revision.items().get(0).question(); }

@@ -98,16 +98,12 @@ final class JdbcScenarioGraphs {
                 && header.items() == revision.items().size()
                 && header.nodes() == graph.nodes().size() && header.edges() == graph.edges().size());
         var nodes = pointReads.readIds("""
-                SELECT n.* FROM
-                """ + JdbcRevisionPointReads.IDS + """
-                 STRAIGHT_JOIN quiz_scenario_nodes n FORCE INDEX (PRIMARY)
-                  ON n.quiz_revision_id=:revision AND n.id=UUID_TO_BIN(k.id) FOR SHARE OF n
+                SELECT * FROM quiz_scenario_nodes FORCE INDEX (PRIMARY)
+                WHERE quiz_revision_id=:revision AND id=:pointId FOR SHARE
                 """, graph.nodes().stream().map(ScenarioGraph.Node::id).toList(), parameters, (row, index) -> node(row));
         var edges = pointReads.readIds("""
-                SELECT e.* FROM
-                """ + JdbcRevisionPointReads.IDS + """
-                 STRAIGHT_JOIN quiz_scenario_edges e FORCE INDEX (PRIMARY)
-                  ON e.quiz_revision_id=:revision AND e.id=UUID_TO_BIN(k.id) FOR SHARE OF e
+                SELECT * FROM quiz_scenario_edges FORCE INDEX (PRIMARY)
+                WHERE quiz_revision_id=:revision AND id=:pointId FOR SHARE
                 """, graph.edges().stream().map(ScenarioGraph.Edge::id).toList(), parameters, (row, index) -> edge(row));
         requireIdentical(sameRows(nodes, graph.nodes(), ScenarioGraph.Node::id)
                 && sameRows(edges, graph.edges(), ScenarioGraph.Edge::id));

@@ -5594,19 +5594,21 @@ items, nodes, edges and sealing the graph at its entry node commit together. Dat
 same-revision references, including the entry point, and seal the published graph and its item
 membership. Publication takes a transactional key scoped to the revision ID before writing
 questions or graph rows. An exact replay reads the committed winner, including from an older
-caller snapshot. The comparison reads the current rows by their complete primary keys in
-batches, with the sealed record counts enforcing membership. Holding an exact replay open
+caller snapshot. Each SQL batch combines separate locking selects, each matching one complete
+primary key. The sealed record counts enforce membership. Holding an exact replay open
 does not lock the ranges where unrelated graphs are inserted. Different content under the
 same ID, including an ID occupied by an ordinary revision, conflicts. The key and graph commit
 or roll back together. An edit uses a new revision ID, so a retained reference still resolves
 the original graph.
 
-V130 coordinates scenario writers sharing a question revision. Writers take question keys in
-UUID order. The first writer inserts or verifies the existing immutable question and saves the
-number of its persisted options in the same transaction. Further uses compare the question
-and its options by complete keys against that count. Questions already linked to a sealed
-scenario take their option count from existing rows during migration. Ordinary revision
-publishing retains its existing write path.
+V131 coordinates scenario writers sharing a question revision with a batched no-op upsert in
+UUID order. The originating scenario identifies which questions were inserted by that batch.
+The database tracks each question's option count as options are written, including in ordinary
+publication. On first scenario use and replay, the application compares the current count and
+the option rows at their complete keys. First use seals the count in the same transaction.
+The database rejects option inserts, changes, and deletions for sealed questions. Migration
+derives current counts from existing option rows and retains existing seals so that prior
+inconsistencies cause a replay to fail closed.
 An incomplete or corrupt graph fails closed on read. Formats 1–3 keep their existing meanings
 and require no graph rows or backfill.
 

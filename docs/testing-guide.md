@@ -13,7 +13,7 @@ With JDK 17, the offline test environment and a disposable MySQL server, start w
 - Structural tests cover stable graph identity and authored order, exact condition retention,
   missing and duplicate identities, unknown format, and an item reference from another revision.
 - The MySQL suite upgrades real format 1–3 rows from V127 and verifies replay of a graph sealed
-  in V128 after V130. The scenario writer and reads exercise exact replay, a conflicting replay,
+  in V128 after V131. The scenario writer and reads exercise exact replay, a conflicting replay,
   caller ownership, new revisions after edits and reading the original after rebuilding the
   service and repository. An older outer repeatable-read snapshot can replay the committed winner.
 - Faults are injected after actual node, edge and graph header writes. Fresh transactions confirm
@@ -25,6 +25,11 @@ With JDK 17, the offline test environment and a disposable MySQL server, start w
   open. Distinct scenario revisions contend for the same question with equal or changed options.
   The former both commit and the latter leave one complete winner. Older repeatable-read
   snapshots can reuse a question already committed by either supported writer.
+- A replay of a 512-question scenario and the first scenario use of an ordinary question each
+  stay open in repeatable read while another author commits a graph with one new question.
+  MySQL reports record locks without gap locks on the measured indexes in both cases.
+  Direct inserts, updates and deletes of options are refused after the seal. First publication
+  of 128 new questions uses one JDBC execution of a question insert batch.
   SQL constraints and guards cover cross-revision references, invalid entry, incomplete graphs,
   and late mutation.
 - A multi-revision read measures six JDBC statements per batch with both two small graphs and

@@ -34,7 +34,9 @@ final class SectionTestDataSource extends DelegatingDataSource {
                         boolean execute = m.getName().startsWith("execute");
                         if (execute) {
                             before.accept(sql, actual);
-                            if (sql.stripLeading().startsWith("SELECT")) selects.incrementAndGet();
+                            var sqlWithoutLeadingSpace = sql.stripLeading();
+                            if (sqlWithoutLeadingSpace.startsWith("SELECT") || sqlWithoutLeadingSpace.startsWith("(SELECT"))
+                                selects.incrementAndGet();
                         }
                         Object returned = m.invoke(statement, a);
                         if (execute) after.accept(sql, actual);
