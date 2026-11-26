@@ -42,7 +42,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -64,9 +63,9 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
             INSERT INTO quiz_revision_items
                 (id,quiz_revision_id,question_revision_id,authored_position,scenario_content_evidence)
             VALUES (:item,:revision,:id,:position,UNHEX(SHA2(CONCAT(
-                HEX(COALESCE(:storedEvidence,scenario_question_evidence(:questionId,:version,:type,:difficulty,
-                    :text,:content,:hint,:explanation,:url,:assetId,:created))),
-                ':',CAST(CAST(:options AS JSON) AS CHAR CHARACTER SET utf8mb4)
+                COALESCE(:storedEvidence,scenario_question_evidence(:questionId,:version,:type,:difficulty,
+                    :text,:content,:hint,:explanation,:url,:assetId,:created)),
+                :options
             ),256)))
             """;
     private final NamedParameterJdbcTemplate jdbc;
@@ -223,24 +222,39 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
 
     private void storeScenarioQuestions(QuizRevision revision) {
         var ordered = orderedQuestions(questions(revision).values());
-        var inserted = insertMissingScenarioQuestions(revision.id(), ordered);
-        insertOptions(ordered.stream().filter(question -> inserted.contains(question.id())).toList());
+        var writes = insertMissingScenarioQuestions(revision.id(), ordered);
+        var additions = ordered.stream().filter(question -> writes.inserted().contains(question.id())).toList();
+        insertOptions(additions);
+        batch("""
+                UPDATE quiz_scenario_question_keys SET evidence_ready=TRUE
+                WHERE question_revision_id=:id AND NOT evidence_ready
+                """, writes.pendingEvidence().stream().sorted(Comparator.comparing(UUID::toString))
+                .map(id -> new MapSqlParameterSource("id", bytes(id))).toList());
     }
 
     private static List<QuestionRevision> orderedQuestions(Collection<QuestionRevision> questions) {
         return questions.stream().sorted(Comparator.comparing(question -> question.id().toString())).toList();
     }
 
-    private Set<UUID> insertMissingScenarioQuestions(UUID revisionId, List<QuestionRevision> ordered) {
+    private ScenarioQuestionWrites insertMissingScenarioQuestions(UUID revisionId, List<QuestionRevision> ordered) {
         var insert = INSERT_QUESTION.formatted(", creating_scenario_revision_id", ", :scenarioId");
         var inserted = new HashSet<UUID>();
+        var pendingEvidence = new HashSet<UUID>();
         for (int start = 0; start < ordered.size(); start += SQL_BATCH) {
             var part = ordered.subList(start, Math.min(start + SQL_BATCH, ordered.size()));
             var ids = part.stream().map(QuestionRevision::id).toList();
             // The snapshot is only an insert filter. A stale snapshot or a racing writer
             // can still cause a duplicate; comparison below always uses current rows.
-            var visible = new HashSet<>(jdbc.query("SELECT id FROM question_revisions WHERE id IN (:ids)",
-                    Map.of("ids", binaryIds(ids)), (row, index) -> uuid(row, "id")));
+            var visible = new HashSet<UUID>();
+            jdbc.query("""
+                    SELECT q.id,k.evidence_ready FROM question_revisions q
+                    LEFT JOIN quiz_scenario_question_keys k ON k.question_revision_id=q.id
+                    WHERE q.id IN (:ids)
+                    """, Map.of("ids", binaryIds(ids)), row -> {
+                var id = uuid(row, "id");
+                visible.add(id);
+                if (Boolean.FALSE.equals(row.getObject("evidence_ready", Boolean.class))) pendingEvidence.add(id);
+            });
             var candidates = part.stream().filter(question -> !visible.contains(question.id())).toList();
             var rows = candidates.stream().map(question ->
                     questionParameters(question).addValue("scenarioId", bytes(revisionId))).toList();
@@ -266,7 +280,8 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
                 }
             }
         }
-        return inserted;
+        pendingEvidence.addAll(inserted);
+        return new ScenarioQuestionWrites(inserted, pendingEvidence);
     }
 
     private void insertScenarioItems(QuizRevision revision) {
@@ -274,7 +289,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
                 .addValue("item", bytes(item.id()))
                 .addValue("revision", bytes(revision.id()))
                 .addValue("position", item.authoredPosition())
-                .addValue("options", PrivateSqlText.of(optionEvidence(item.question().options())))
+                .addValue("options", optionEvidence(item.question().options()))
                 .addValue("storedEvidence", null)).toList();
         for (int start = 0; start < parameters.size(); start += SQL_BATCH) {
             int end = Math.min(start + SQL_BATCH, parameters.size());
@@ -282,44 +297,57 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
                 batch(INSERT_SCENARIO_ITEM, parameters.subList(start, end));
             } catch (DataIntegrityViolationException failure) {
                 if (!questionEvidenceMismatch(failure)) throw failure;
-                for (int index = start; index < end; index++) {
-                    var row = parameters.get(index);
-                    try {
-                        jdbc.update(INSERT_SCENARIO_ITEM, row);
-                    } catch (DuplicateKeyException alreadyRecorded) {
-                        // Some JDBC batches retain earlier successful inserts.
-                    } catch (DataIntegrityViolationException mismatch) {
-                        if (!questionEvidenceMismatch(mismatch)) throw mismatch;
-                        row.addValue("storedEvidence", legacyQuestionEvidence(revision.items().get(index).question()));
-                        try {
-                            jdbc.update(INSERT_SCENARIO_ITEM, row);
-                        } catch (DataIntegrityViolationException legacyMismatch) {
-                            if (!questionEvidenceMismatch(legacyMismatch)) throw legacyMismatch;
-                            throw new RevisionIntegrityException(RevisionIntegrityException.Reason.IDENTITY_CONFLICT);
-                        }
-                    }
-                }
+                retryScenarioItems(revision, start, end, parameters);
             }
         }
     }
 
-    private byte[] legacyQuestionEvidence(QuestionRevision requested) {
-        // Canonicalize old JSON encodings through the domain model. The foreign key
-        // still verifies that this snapshot's evidence matches the current stored row.
-        var stored = jdbc.query("""
+    private void retryScenarioItems(QuizRevision revision, int start, int end, List<MapSqlParameterSource> parameters) {
+        var items = revision.items().subList(start, end);
+        // JDBC may have retained successful statements. This transaction's own items
+        // are visible even when its snapshot predates other committed questions.
+        var written = new HashSet<>(jdbc.query("""
+                SELECT id FROM quiz_revision_items WHERE quiz_revision_id=:revision AND id IN (:ids)
+                """, Map.of("revision", bytes(revision.id()), "ids", binaryIds(items.stream().map(QuizRevision.Item::id).toList())),
+                (row, index) -> uuid(row, "id")));
+        var ids = items.stream().filter(item -> !written.contains(item.id()))
+                .map(item -> item.question().id()).distinct().toList();
+        if (ids.isEmpty()) throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
+
+        var stored = new HashMap<UUID, StoredScenarioQuestion>();
+        jdbc.query("""
                 SELECT q.*,k.content_evidence,
                     scenario_question_evidence(q.question_id,q.schema_version,q.question_type,q.difficulty,
                         q.question_text,q.content,q.hint,q.explanation,q.attachment_url,q.attachment_asset_id,q.created_at)
                         AS stored_evidence
                 FROM question_revisions q LEFT JOIN quiz_scenario_question_keys k ON k.question_revision_id=q.id
-                WHERE q.id=:id
-                """, Map.of("id", bytes(requested.id())), (row, index) ->
-                new StoredScenarioQuestion(question(row), row.getBytes("stored_evidence"), row.getBytes("content_evidence") != null));
-        requireIdentical(stored.size() == 1);
-        var row = stored.get(0);
-        if (!row.valid()) throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
-        requireIdentical(withOptions(row.question(), requested.options()).equals(requested));
-        return row.evidence();
+                WHERE q.id IN (:ids)
+                """, Map.of("ids", binaryIds(ids)), (row, index) ->
+                new StoredScenarioQuestion(question(row), row.getBytes("stored_evidence"), row.getBytes("content_evidence") != null))
+                .forEach(row -> stored.put(row.question().id(), row));
+
+        var pending = new ArrayList<MapSqlParameterSource>();
+        for (int index = start; index < end; index++) {
+            var item = revision.items().get(index);
+            if (written.contains(item.id())) continue;
+            var requested = item.question();
+            var snapshot = stored.get(requested.id());
+            var parameter = parameters.get(index);
+            if (snapshot != null && snapshot.valid() && withOptions(snapshot.question(), requested.options()).equals(requested)) {
+                // The foreign key verifies the snapshot evidence against the current row.
+                parameter.addValue("storedEvidence", snapshot.evidence());
+            }
+            pending.add(parameter);
+        }
+        try {
+            batch(INSERT_SCENARIO_ITEM, pending);
+        } catch (DataIntegrityViolationException mismatch) {
+            if (!questionEvidenceMismatch(mismatch)) throw mismatch;
+            var reason = stored.values().stream().anyMatch(row -> !row.valid())
+                    ? RevisionIntegrityException.Reason.INVALID_STORED_REVISION
+                    : RevisionIntegrityException.Reason.IDENTITY_CONFLICT;
+            throw new RevisionIntegrityException(reason);
+        }
     }
 
     private static boolean questionEvidenceMismatch(DataIntegrityViolationException failure) {
@@ -332,20 +360,19 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
         return false;
     }
 
-    private static String optionEvidence(List<QuestionRevision.Option> options) {
+    private static byte[] optionEvidence(List<QuestionRevision.Option> options) {
         try {
             var digest = MessageDigest.getInstance("SHA-256");
-            var evidence = new StringJoiner(",", "{", "}");
-            var hex = HexFormat.of();
-            var hexIds = hex.withUpperCase();
+            var evidence = digest.digest();
+            var hexIds = HexFormat.of().withUpperCase();
             for (var option : options) {
-                // Match V134's exact encoding. Only hexadecimal text is interpolated into JSON.
                 var id = hexIds.formatHex(bytes(option.id()));
-                var text = option.authoredPosition() + ":" + option.sourceKey();
-                var hash = hex.formatHex(digest.digest(text.getBytes(StandardCharsets.UTF_8)));
-                evidence.add("\"" + id + "\":\"" + hash + "\"");
+                var text = id + ":" + option.authoredPosition() + ":" + option.sourceKey();
+                var optionHash = digest.digest(text.getBytes(StandardCharsets.UTF_8));
+                digest.update(evidence);
+                evidence = digest.digest(optionHash);
             }
-            return evidence.toString();
+            return evidence;
         } catch (NoSuchAlgorithmException impossible) {
             throw new IllegalStateException("Scenario option evidence is unavailable", impossible);
         }
@@ -587,6 +614,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
     private record ItemRow(UUID rootId, UUID id, int position, QuestionRevision question) { }
     private record ScenarioQuestionKey(UUID id, Integer sealedCount, int storedCount) { }
     private record StoredScenarioQuestion(QuestionRevision question, byte[] evidence, boolean valid) { }
+    private record ScenarioQuestionWrites(Set<UUID> inserted, Set<UUID> pendingEvidence) { }
     private record Root(UUID id, UUID quizId, UUID ownerId, int schemaVersion, String title, String description,
                         java.time.Instant createdAt, int sectionCount, int caseCount) { }
 }

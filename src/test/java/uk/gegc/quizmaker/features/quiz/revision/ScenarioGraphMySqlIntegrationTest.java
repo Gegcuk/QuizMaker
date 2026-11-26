@@ -79,6 +79,7 @@ class ScenarioGraphMySqlIntegrationTest {
     private static final String GRAPH_COUNTS = "quiz_scenario_graph_counts";
     private static final UUID OPEN_V132 = id("open-graph-v132");
     private static final QuizRevision DURING_V134 = scenario("ordinary-during-option-evidence-install", 1, CONDITION);
+    private static final QuizRevision BEFORE_V134_EDIT = scenario("ordinary-option-edited-during-v134", 1, CONDITION);
     private static final List<QuizRevision> PREVIOUS_FORMATS = List.of(
             quiz("scenario-upgrade", question("scenario-upgrade")),
             QuizRevisionSectionsTest.structured("scenario-upgrade-sections"),
@@ -98,7 +99,7 @@ class ScenarioGraphMySqlIntegrationTest {
     private QuizScenarioRevisionService publisher;
     private SimpleMeterRegistry metrics;
 
-    @BeforeAll static void migrate() {
+    @BeforeAll static void migrate() throws Exception {
         String port = System.getenv().getOrDefault("TEST_MYSQL_PORT", "3306");
         if (!port.matches("[0-9]{1,5}")) throw new IllegalArgumentException("Invalid test MySQL port");
         String base = "jdbc:mysql://127.0.0.1:" + port + "/";
@@ -146,21 +147,71 @@ class ScenarioGraphMySqlIntegrationTest {
         migrate("132");
         insertUnsealed(OPEN_V132, retainedV128.quizId(), "Previously open graph", 0);
         migrate("133");
+        baseline.insert(quiz("ordinary-before-v134-edit", legacyQuestion(BEFORE_V134_EDIT)));
+        var backfillStarting = new CountDownLatch(1);
+        var editWritten = new CountDownLatch(1);
+        var releaseEdit = new CountDownLatch(1);
+        var writerConnection = new AtomicLong();
         source.before = (statement, connection) -> {
             if (statement.contains("CREATE TRIGGER scenario_question_evidence_init")) {
                 var question = legacyQuestion(DURING_V134);
                 baseline.insert(quiz("ordinary-during-v134", question));
                 // Retained JSON can have equivalent content with a different stored representation.
-                sql.update("UPDATE question_revisions SET content=CONCAT(' ',content) WHERE id=UUID_TO_BIN(?)",
+                sql.update("UPDATE question_revisions SET content=REPLACE(content,'\"options\":','\"options\" : ') WHERE id=UUID_TO_BIN(?)",
                         question.id().toString());
                 assertThat(sql.queryForObject("""
                         SELECT option_evidence IS NULL AND question_evidence IS NULL FROM quiz_scenario_question_keys
                         WHERE question_revision_id=UUID_TO_BIN(?)
                         """, Boolean.class, question.id().toString())).isTrue();
             }
+            if (statement.contains("CALL scenario_backfill_question_evidence()")) {
+                backfillStarting.countDown();
+                awaitGate(editWritten, "the concurrent option replacement");
+            }
         };
-        migrate("134");
-        source.reset();
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var upgrade = workers.submit(() -> migrate("134"));
+            var edit = workers.submit(() -> {
+                awaitGate(backfillStarting, "the evidence backfill");
+                fresh().executeWithoutResult(status -> {
+                    writerConnection.set(sql.queryForObject("SELECT CONNECTION_ID()", Long.class));
+                    var question = legacyQuestion(BEFORE_V134_EDIT);
+                    var option = question.options().get(0);
+                    sql.update("""
+                            DELETE FROM question_option_revisions
+                            WHERE question_revision_id=UUID_TO_BIN(?) AND id=UUID_TO_BIN(?)
+                            """, question.id().toString(), option.id().toString());
+                    sql.update("""
+                            INSERT INTO question_option_revisions (id,question_revision_id,source_key,authored_position)
+                            VALUES (UUID_TO_BIN(?),UUID_TO_BIN(?),?,?)
+                            """, option.id().toString(), question.id().toString(), "Changed", option.authoredPosition());
+                    editWritten.countDown();
+                    awaitGate(releaseEdit, "release the concurrent edit");
+                });
+            });
+            awaitGate(editWritten, "the concurrent option replacement");
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            boolean waiting = false;
+            while (!waiting && System.nanoTime() < deadline && !upgrade.isDone()) {
+                waiting = Boolean.TRUE.equals(admin.queryForObject("""
+                        SELECT EXISTS (SELECT 1 FROM performance_schema.data_lock_waits w
+                          JOIN performance_schema.data_locks l ON l.ENGINE_LOCK_ID=w.BLOCKING_ENGINE_LOCK_ID
+                          JOIN performance_schema.threads t ON t.THREAD_ID=l.THREAD_ID
+                          WHERE t.PROCESSLIST_ID=? AND l.OBJECT_SCHEMA=? AND l.OBJECT_NAME=?)
+                        """, Boolean.class, writerConnection.get(), CATALOG, QUESTION_KEYS));
+                if (!waiting) Thread.sleep(20);
+            }
+            assertThat(waiting).as("backfill waits for the option writer's metadata lock").isTrue();
+            releaseEdit.countDown();
+            edit.get(30, TimeUnit.SECONDS);
+            upgrade.get(30, TimeUnit.SECONDS);
+        } finally {
+            releaseEdit.countDown();
+            workers.shutdownNow();
+            assertThat(workers.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+            source.reset();
+        }
     }
 
     @BeforeEach void start() {
@@ -221,10 +272,54 @@ class ScenarioGraphMySqlIntegrationTest {
         var question = legacyQuestion(DURING_V134);
         assertThat(questionOptionCount(question.id())).isNull();
         assertThat(sql.queryForObject("""
-                SELECT JSON_LENGTH(option_evidence) FROM quiz_scenario_question_keys WHERE question_revision_id=UUID_TO_BIN(?)
+                SELECT evidenced_option_count FROM quiz_scenario_question_keys WHERE question_revision_id=UUID_TO_BIN(?)
                 """, Integer.class, question.id().toString())).isEqualTo(question.options().size());
         assertThat(publisher.publish(OWNER, DURING_V134)).isEqualTo(DURING_V134);
         assertThat(repository.findById(OWNER, DURING_V134.id())).contains(DURING_V134);
+    }
+
+    @Test void migrationBackfillsTheOptionVersionCommittedWhileWaitingForItsLock() {
+        var old = BEFORE_V134_EDIT;
+        var current = replaceFirstQuestion(old, withOptionKey(legacyQuestion(old), "Changed"));
+        rejected(() -> publisher.publish(OWNER, old), "IDENTITY_CONFLICT");
+        assertThat(repository.findById(OWNER, old.id())).isEmpty();
+        assertThat(publisher.publish(OWNER, current)).isEqualTo(current);
+        assertThat(repository.findById(OWNER, current.id())).contains(current);
+        assertThat(publisher.publish(OWNER, current)).isEqualTo(current);
+    }
+
+    @Test void surroundingJsonSpacesAddedAfterAnOlderSnapshotKeepQuestionIdentity() {
+        var graph = scenario("canonical-outer-spaces", 1, CONDITION);
+        var question = legacyQuestion(graph);
+        var ordinary = quiz("ordinary-before-json-spaces", question);
+        repository.insert(ordinary);
+        repeatableRead().executeWithoutResult(status -> {
+            assertThat(repository.findById(OWNER, ordinary.id())).contains(ordinary);
+            fresh().executeWithoutResult(writer -> sql.update("""
+                    UPDATE question_revisions SET content=CONCAT(' ',content,' ') WHERE id=UUID_TO_BIN(?)
+                    """, question.id().toString()));
+            assertThat(publisher.publish(OWNER, graph)).isEqualTo(graph);
+        });
+        assertThat(repository.findById(OWNER, graph.id())).contains(graph);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 128})
+    void legacyJsonRetriesKeepScenarioItemWritesBatched(int legacyCount) {
+        var graph = scenario("batched-legacy-json-" + legacyCount, 128, CONDITION);
+        var questions = graph.items().stream().map(QuizRevision.Item::question).toArray(QuestionRevision[]::new);
+        repository.insert(quiz("ordinary-batched-legacy-json-" + legacyCount, questions));
+        for (int index = 0; index < legacyCount; index++) {
+            assertThat(sql.update("""
+                    UPDATE question_revisions SET content=REPLACE(content,'\"options\":','\"options\" : ')
+                    WHERE id=UUID_TO_BIN(?)
+                    """, questions[index].id().toString())).isOne();
+        }
+        var statements = new AtomicInteger();
+        source.before = (statement, connection) -> statements.incrementAndGet();
+        assertThat(publisher.publish(OWNER, graph)).isEqualTo(graph);
+        assertThat(statements.get()).isLessThanOrEqualTo(13);
+        assertThat(repository.findById(OWNER, graph.id())).contains(graph);
     }
 
     @Test void publishesOneGraphOnExactReplayAndRetainsOriginalAfterEditAndRestart() {
@@ -428,6 +523,12 @@ class ScenarioGraphMySqlIntegrationTest {
         String query = "INSERT INTO question_option_revisions VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),'additional',5)";
         var extra = id("extra-option-while-unsealed");
         assertThat(sql.update(query, extra.toString(), question.id().toString())).isOne();
+        var earlier = id("earlier-option-while-unsealed");
+        assertThat(sql.update("""
+                INSERT INTO question_option_revisions VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),'earlier',3)
+                """, earlier.toString(), question.id().toString())).isOne();
+        assertThat(sql.update("DELETE FROM question_option_revisions WHERE question_revision_id=UUID_TO_BIN(?) AND id=UUID_TO_BIN(?)",
+                question.id().toString(), earlier.toString())).isOne();
         assertThat(sql.update("DELETE FROM question_option_revisions WHERE question_revision_id=UUID_TO_BIN(?) AND id=UUID_TO_BIN(?)",
                 question.id().toString(), extra.toString())).isOne();
         assertThat(publisher.publish(OWNER, revision)).isEqualTo(revision);
@@ -501,6 +602,32 @@ class ScenarioGraphMySqlIntegrationTest {
         assertThat(publisher.publish(OWNER, revision)).isEqualTo(revision);
         assertThat(writes).hasValue(1);
         assertThat(repository.findById(OWNER, revision.id())).contains(revision);
+    }
+
+    @Test void ordinaryPublicationIndexesOptionEvidenceAfterAllOptionsAreWritten() {
+        var question = legacyQuestion(scenario("ordinary-indexed-option-evidence", 1, CONDITION));
+        var ordinary = quiz("ordinary-indexed-option-evidence", question);
+        var observed = new AtomicBoolean();
+        source.after = (statement, connection) -> {
+            if (!statement.startsWith("INSERT INTO question_option_revisions")) return;
+            try (var check = connection.prepareStatement("""
+                    SELECT evidenced_option_count,content_evidence IS NULL
+                    FROM quiz_scenario_question_keys WHERE question_revision_id=UUID_TO_BIN(?)
+                    """)) {
+                check.setString(1, question.id().toString());
+                try (var result = check.executeQuery()) {
+                    assertThat(result.next()).isTrue();
+                    assertThat(result.getInt(1)).isEqualTo(question.options().size());
+                    assertThat(result.getBoolean(2)).isTrue();
+                }
+            }
+            observed.set(true);
+        };
+        repository.insert(ordinary);
+        assertThat(observed).isTrue();
+        assertThat(sql.queryForObject("""
+                SELECT content_evidence IS NOT NULL FROM quiz_scenario_question_keys WHERE question_revision_id=UUID_TO_BIN(?)
+                """, Boolean.class, question.id().toString())).isTrue();
     }
 
     @ParameterizedTest

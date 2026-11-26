@@ -38,7 +38,10 @@ With JDK 17, the offline test environment and a disposable MySQL server, start w
   Adoption compares current question and option fingerprints even when a reused question
   or a change to its content was committed after the caller's repeatable-read snapshot.
   The V134 upgrade backfills fingerprints for questions published while its tracking triggers
-  are being installed. The migration fixture also covers equivalent legacy JSON encodings.
+  are being installed. A same-ID, same-count option replacement holds the metadata lock before
+  the backfill and commits while the migration waits. The original content then conflicts and
+  the current content can publish, read back and replay. Equivalent legacy JSON fixtures verify
+  outer whitespace under a stale snapshot and bounded retries for one or 128 legacy questions.
   Direct changes to sealed questions, their options and recorded replay fingerprints fail.
   First publication of 128 new questions uses one JDBC execution of a question insert batch.
   The upgrade exercises ordinary question publications on separate connections before and
