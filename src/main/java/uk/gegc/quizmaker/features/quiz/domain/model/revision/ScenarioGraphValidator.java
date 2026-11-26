@@ -3,6 +3,7 @@ package uk.gegc.quizmaker.features.quiz.domain.model.revision;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -27,6 +28,7 @@ public final class ScenarioGraphValidator {
     private enum Visit { ACTIVE, COMPLETE }
 
     private record Transition(int index, int target, ScenarioGraph.Edge edge) { }
+    private record RankedTransition(Transition transition, Integer priority) { }
 
     private ScenarioGraphValidator() { }
 
@@ -46,11 +48,15 @@ public final class ScenarioGraphValidator {
             outgoing.get(indexes.get(value.fromNodeId())).add(new Transition(edge, indexes.get(value.toNodeId()), value));
         }
 
-        validateTransitions(graph, outgoing);
-        validatePaths(indexes.get(graph.entryNodeId()), outgoing);
+        var selectable = collectSelectableTransitions(graph, outgoing);
+        var topological = topologicalOrder(outgoing);
+        int entry = indexes.get(graph.entryNodeId());
+        validateDeclaredDepth(entry, outgoing, topological);
+        validateSelectablePaths(graph, entry, selectable, topological);
     }
 
-    private static void validateTransitions(ScenarioGraph graph, List<List<Transition>> outgoing) {
+    private static List<List<Transition>> collectSelectableTransitions(ScenarioGraph graph, List<List<Transition>> outgoing) {
+        List<List<Transition>> selectable = new ArrayList<>(outgoing.size());
         int conditionBytes = 0;
         for (int nodeIndex = 0; nodeIndex < graph.nodes().size(); nodeIndex++) {
             var node = graph.nodes().get(nodeIndex);
@@ -59,16 +65,18 @@ public final class ScenarioGraphValidator {
                 if (!transitions.isEmpty()) {
                     throw new ScenarioGraphValidationException(TERMINAL_HAS_TRANSITIONS, edgePath(transitions.get(0)));
                 }
+                selectable.add(List.of());
                 continue;
             }
 
-            boolean hasDefault = false;
+            Transition fallback = null;
+            Map<ScenarioConditionV1.Score, RankedTransition> winners = new EnumMap<>(ScenarioConditionV1.Score.class);
             Map<ScenarioConditionV1.Score, Set<Integer>> scorePriorities = new EnumMap<>(ScenarioConditionV1.Score.class);
             for (var transition : transitions) {
                 var edge = transition.edge();
                 if (edge.type() == DEFAULT) {
-                    if (hasDefault) throw new ScenarioGraphValidationException(MULTIPLE_DEFAULTS, edgePath(transition));
-                    hasDefault = true;
+                    if (fallback != null) throw new ScenarioGraphValidationException(MULTIPLE_DEFAULTS, edgePath(transition));
+                    fallback = transition;
                     continue;
                 }
 
@@ -84,9 +92,20 @@ public final class ScenarioGraphValidator {
                 }
                 var condition = ScenarioConditionV1.parse(edge.condition(), path);
                 validatePriority(scorePriorities, condition, path);
+                // A second condition for the same score has an explicit priority on both edges.
+                var winner = winners.get(condition.score());
+                if (winner == null || condition.priority() < winner.priority()) {
+                    winners.put(condition.score(), new RankedTransition(transition, condition.priority()));
+                }
             }
-            if (!hasDefault) throw new ScenarioGraphValidationException(MISSING_DEFAULT, nodePath(nodeIndex));
+            if (fallback == null) throw new ScenarioGraphValidationException(MISSING_DEFAULT, nodePath(nodeIndex));
+
+            List<Transition> possible = new ArrayList<>(ScenarioConditionV1.Score.values().length);
+            for (var winner : winners.values()) possible.add(winner.transition());
+            if (winners.size() < ScenarioConditionV1.Score.values().length) possible.add(fallback);
+            selectable.add(possible);
         }
+        return selectable;
     }
 
     private static int conditionSize(String value, String path) {
@@ -107,45 +126,77 @@ public final class ScenarioGraphValidator {
         }
     }
 
-    private static void validatePaths(int entry, List<List<Transition>> outgoing) {
+    private static ArrayDeque<Integer> topologicalOrder(List<List<Transition>> outgoing) {
         var stack = new ArrayDeque<Integer>();
         var topological = new ArrayDeque<Integer>();
         var visits = new Visit[outgoing.size()];
         var nextEdge = new int[outgoing.size()];
-        stack.push(entry);
-        visits[entry] = Visit.ACTIVE;
-        while (!stack.isEmpty()) {
-            int node = stack.peek();
-            var edges = outgoing.get(node);
-            if (nextEdge[node] == edges.size()) {
-                visits[node] = Visit.COMPLETE;
-                topological.addFirst(stack.pop());
-                continue;
-            }
-            var transition = edges.get(nextEdge[node]++);
-            int target = transition.target();
-            if (visits[target] == Visit.ACTIVE) throw new ScenarioGraphValidationException(CYCLE, edgePath(transition));
-            if (visits[target] == null) {
-                visits[target] = Visit.ACTIVE;
-                stack.push(target);
+        // The cycle rule applies to every declared edge, including edges that cannot win.
+        for (int start = 0; start < outgoing.size(); start++) {
+            if (visits[start] != null) continue;
+            stack.push(start);
+            visits[start] = Visit.ACTIVE;
+            while (!stack.isEmpty()) {
+                int node = stack.peek();
+                var edges = outgoing.get(node);
+                if (nextEdge[node] == edges.size()) {
+                    visits[node] = Visit.COMPLETE;
+                    topological.addFirst(stack.pop());
+                    continue;
+                }
+                var transition = edges.get(nextEdge[node]++);
+                int target = transition.target();
+                if (visits[target] == Visit.ACTIVE) throw new ScenarioGraphValidationException(CYCLE, edgePath(transition));
+                if (visits[target] == null) {
+                    visits[target] = Visit.ACTIVE;
+                    stack.push(target);
+                }
             }
         }
+        return topological;
+    }
 
-        for (int node = 0; node < visits.length; node++) {
-            if (visits[node] == null) throw new ScenarioGraphValidationException(UNREACHABLE_NODE, nodePath(node));
-        }
-
-        // Reachability, acyclicity and required defaults make every sink a terminal node.
+    private static void validateDeclaredDepth(int entry, List<List<Transition>> outgoing, Iterable<Integer> topological) {
         // Reverse finishing order visits all predecessors before a shared successor.
         var longest = new int[outgoing.size()];
         longest[entry] = 1;
         for (int node : topological) {
+            if (longest[node] == 0) continue;
             for (var transition : outgoing.get(node)) {
                 int length = longest[node] + 1;
                 if (length > MAX_PATH_NODES) throw new ScenarioGraphValidationException(PATH_LIMIT, edgePath(transition));
                 int target = transition.target();
                 longest[target] = Math.max(longest[target], length);
             }
+        }
+    }
+
+    private static void validateSelectablePaths(ScenarioGraph graph, int entry, List<List<Transition>> selectable,
+                                                Iterable<Integer> topological) {
+        Map<UUID, Integer> itemIndexes = new HashMap<>();
+        var precedingItems = new BitSet[selectable.size()];
+        precedingItems[entry] = new BitSet();
+        for (int node : topological) {
+            var seen = precedingItems[node];
+            if (seen == null) continue;
+
+            UUID itemId = graph.nodes().get(node).itemId();
+            if (itemId != null) {
+                int item = itemIndexes.computeIfAbsent(itemId, ignored -> itemIndexes.size());
+                if (seen.get(item)) throw new ScenarioGraphValidationException(REPEATED_ITEM_ON_PATH, nodePath(node) + ".itemId");
+                seen.set(item);
+            }
+
+            // Each bit means at least one incoming path saw that item. Merging paths preserves
+            // this fact without treating items in mutually exclusive branches as a repeat.
+            for (var transition : selectable.get(node)) {
+                int target = transition.target();
+                if (precedingItems[target] == null) precedingItems[target] = (BitSet) seen.clone();
+                else precedingItems[target].or(seen);
+            }
+        }
+        for (int node = 0; node < precedingItems.length; node++) {
+            if (precedingItems[node] == null) throw new ScenarioGraphValidationException(UNREACHABLE_NODE, nodePath(node));
         }
     }
 

@@ -5654,10 +5654,11 @@ Readback and exact replay of earlier sealed graphs preserve the stored evidence,
 conditions accepted before validation existed. A future execution boundary must establish that a
 retained graph is executable before using it. Formats 1–3 and existing HTTP publication remain as before.
 
-The graph must have a valid entry and targets, and every node must be reachable from the entry.
-Every cycle is invalid, including self-loops. A terminal node has no outgoing edges. Each other
+The graph must have a valid entry and targets, and every node must be reachable from the entry
+through selectable transitions. The validator checks all declared edges for cycles, including
+self-loops and cycles containing losing edges. A terminal node has no outgoing edges. Each other
 node has exactly one explicit default edge. Together these rules make every path end at a terminal.
-The validator uses an iterative traversal and checks the longest path through shared successors.
+The validator uses an iterative traversal and checks the longest declared path through shared successors.
 
 Condition version 1 permits `SCORE_IS` on an `ITEM` node. The source item identifies the immutable
 question occurrence whose accepted response supplies the score under its versioned scoring contract.
@@ -5669,10 +5670,17 @@ Other fields, item references, operators, values and grammar versions are reject
 ```
 
 Priority is an optional nonnegative 32-bit integer. Conditions for the same outcome can overlap,
-so all such edges in a node must have distinct explicit priorities, with the lowest value first.
-The two different score outcomes are mutually exclusive. The default applies when no condition
-matches. Authored position gives stable diagnostics, while branch precedence comes from the explicit
-rules. Execution, including the treatment of missing score evidence, is outside this publication check.
+so all such edges in a node must have distinct explicit priorities. Only the lowest priority value
+can select its edge for that outcome. The two score outcomes are mutually exclusive. An item node's
+default participates in the reachability check when at least one score outcome has no condition.
+A routing node uses its default. A node reached only by losing transitions or a fully covered
+default is rejected. The node can still be reached through another selectable route. Authored
+position gives stable diagnostics. Execution and missing score evidence remain with the runtime contract.
+
+One selectable path can append a revision `itemId` to the progressive form only once, as required
+by #661. The same `itemId` may appear in mutually exclusive branches, and distinct `itemId` values
+may refer to the same question revision. The check tracks item presence across incoming paths in
+topological order using bounded bit sets.
 
 The v1 limits are 1,024 nodes, 4,096 edges, 768 nodes on the longest path including entry and terminal,
 256 UTF-8 bytes per serialized condition and 256 KiB of condition payload across a graph. Whitespace

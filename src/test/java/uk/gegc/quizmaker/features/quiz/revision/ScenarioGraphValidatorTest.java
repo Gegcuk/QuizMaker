@@ -67,6 +67,53 @@ class ScenarioGraphValidatorTest {
                 fallback(EXPLANATION, END, 0))), UNREACHABLE_NODE, "nodes[1]");
     }
 
+    @Test void losingPriorityDoesNotMakeItsTargetReachableButAnotherOutcomeCan() {
+        var nodes = List.of(QUESTION, EXPLANATION, END);
+        var edges = new ArrayList<>(List.of(fallback(QUESTION, END, 0),
+                condition(QUESTION, EXPLANATION, 1, priority(2)), condition(QUESTION, END, 2, priority(1)),
+                fallback(EXPLANATION, END, 0)));
+        rejects(graph(nodes, edges), UNREACHABLE_NODE, "nodes[1]");
+
+        edges.set(0, fallback(QUESTION, EXPLANATION, 0));
+        validateForPublication(graph(nodes, edges));
+    }
+
+    @Test void fallbackDoesNotMakeItsTargetReachableWhenBothScoresHaveMatchingConditions() {
+        var nodes = List.of(QUESTION, EXPLANATION, END);
+        var edges = List.of(fallback(QUESTION, EXPLANATION, 0), condition(QUESTION, END, 1, FULL),
+                condition(QUESTION, END, 2, NOT_FULL), fallback(EXPLANATION, END, 0));
+        rejects(graph(nodes, edges), UNREACHABLE_NODE, "nodes[1]");
+    }
+
+    @Test void cyclesAreRejectedEvenInLosingTransitionsOrDisconnectedComponents() {
+        rejects(graph(List.of(QUESTION, END), List.of(fallback(QUESTION, END, 0),
+                condition(QUESTION, END, 1, priority(1)), condition(QUESTION, QUESTION, 2, priority(2)))),
+                CYCLE, "edges[2]");
+        rejects(graph(List.of(QUESTION, EXPLANATION, END), List.of(fallback(QUESTION, END, 0),
+                fallback(EXPLANATION, EXPLANATION, 0))), CYCLE, "edges[1]");
+    }
+
+    @Test void rejectsRepeatedSourceItemEvenWhenOnlyOnePathToTheSecondOccurrenceContainsIt() {
+        var first = node(1, ITEM);
+        var second = new Node(new UUID(0, 3), 3, ITEM, first.itemId());
+        var bypass = node(2, ROUTING);
+        var finish = node(4, TERMINAL);
+        var nodes = List.of(QUESTION, first, bypass, second, finish);
+        var edges = List.of(fallback(QUESTION, bypass, 0), condition(QUESTION, first, 1, FULL),
+                fallback(first, second, 0), fallback(bypass, second, 0), fallback(second, finish, 0));
+        rejects(graph(nodes, edges), REPEATED_ITEM_ON_PATH, "nodes[3].itemId");
+    }
+
+    @Test void allowsSharedSourceItemInExclusiveBranchesEvenWithALosingEdgeBetweenThem() {
+        var left = node(1, ITEM);
+        var right = new Node(new UUID(0, 2), 2, ITEM, left.itemId());
+        var finish = node(3, TERMINAL);
+        validateForPublication(graph(List.of(QUESTION, left, right, finish), List.of(
+                fallback(QUESTION, left, 0), condition(QUESTION, right, 1, FULL),
+                fallback(left, finish, 0), condition(left, finish, 1, priority(1)),
+                condition(left, right, 2, priority(2)), fallback(right, finish, 0))));
+    }
+
     @Test void rejectsDeadEndsAndChecksDefaultAndTerminalRules() {
         rejects(graph(List.of(QUESTION, EXPLANATION), List.of(fallback(QUESTION, EXPLANATION, 0))),
                 MISSING_DEFAULT, "nodes[1]");
@@ -127,21 +174,24 @@ class ScenarioGraphValidatorTest {
     }
 
     @Test void boundsNodesAndEdgesIndependently() {
-        var nodes = new ArrayList<Node>();
-        nodes.add(QUESTION);
-        IntStream.range(1, 1_024).mapToObj(index -> node(index, TERMINAL)).forEach(nodes::add);
+        var nodes = new ArrayList<>(IntStream.range(0, 1_024)
+                .mapToObj(index -> node(index, index < 512 ? ITEM : TERMINAL)).toList());
         var edges = new ArrayList<Edge>();
-        edges.add(fallback(QUESTION, nodes.get(1), 0));
-        for (int index = 1; index < 4_096; index++) {
-            edges.add(condition(QUESTION, nodes.get(Math.min(index + 1, 1_023)), index, priority(index)));
+        for (int index = 0; index < 512; index++) {
+            Node source = nodes.get(index);
+            int left = 2 * index + 1;
+            edges.add(fallback(source, nodes.get(left), 0));
+            if (left + 1 < nodes.size()) edges.add(condition(source, nodes.get(left + 1), 1, priority(0)));
+        }
+        // The binary tree makes every node selectable independently of the losing edges.
+        for (int position = 2; edges.size() < 4_096; position++) {
+            edges.add(condition(QUESTION, nodes.get(2), position, priority(position)));
         }
         validateForPublication(graph(nodes, edges));
         nodes.add(node(1_024, TERMINAL));
-        edges.set(4_095, condition(QUESTION, nodes.get(1_024), 4_095, priority(4_095)));
         rejects(graph(nodes, edges), NODE_LIMIT, "nodes");
-        edges.set(4_095, condition(QUESTION, nodes.get(1_023), 4_095, priority(4_095)));
         nodes.remove(1_024);
-        edges.add(condition(QUESTION, END, 4_096, priority(4_096)));
+        edges.add(condition(QUESTION, nodes.get(2), 4_096, priority(4_096)));
         rejects(graph(nodes, edges), EDGE_LIMIT, "edges");
     }
 

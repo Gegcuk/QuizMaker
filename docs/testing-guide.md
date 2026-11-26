@@ -13,9 +13,14 @@ Use JDK 17, the offline test environment and a disposable MySQL server.
 - The deterministic validator tests exercise invalid references, strict condition versions and grammar,
   equivalent input permutations, explicit priorities, topology, and exact acceptance/rejection at
   each of the five bounds. The longest-path fixture includes a shared successor reached by a shortcut.
+- Reachability cases distinguish losing edges and a default covered by both score outcomes from
+  selectable routes. Cycles remain invalid in any declared component. Item cases include a repeat
+  through one side of a merge, shared items in exclusive branches and distinct items for one question revision.
 - The MySQL cases exercise the real first-publication path with a cycle or invalid grammar. A statement
   hook observes writing the publication key before rejection. Fresh reads prove the transaction leaves
   no key, revision, graph or question rows. Correcting the same candidate ID then publishes and replays.
+  The same fresh-state and retry assertions cover a question reached only by losing priority and a
+  repeated source item. A different route or two distinct item IDs, respectively, permits publication.
   Direct aggregate insertion uses the same validation. A retained V128 graph with an opaque condition
   still reads and replays, preserving its supplementary Unicode and exact condition text.
 - Existing concurrent publication, lock scope, rollback, fixed-format compatibility and measured SQL

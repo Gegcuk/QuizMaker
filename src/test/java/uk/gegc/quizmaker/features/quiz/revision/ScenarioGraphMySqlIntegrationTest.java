@@ -457,6 +457,49 @@ class ScenarioGraphMySqlIntegrationTest {
         assertThat(repository.findByIds(foreign, List.of(original.id(), changed.id()))).isEmpty();
     }
 
+    @Test void rejectsQuestionReachedOnlyByLosingPriorityAndPublishesWhenAnotherOutcomeCanReachIt() {
+        var draft = scenario("shadowed-scenario-question", 2, CONDITION);
+        var graph = draft.scenarioGraph();
+        var first = graph.nodes().get(0);
+        var hidden = graph.nodes().get(1);
+        var terminal = graph.nodes().get(2);
+        var edges = new ArrayList<>(graph.edges());
+        String rankedScore = "{\"operator\":\"SCORE_IS\",\"value\":\"FULL_CREDIT\",\"priority\":%d}";
+        edges.set(0, new ScenarioGraph.Edge(id("fallback-to-terminal"), first.id(), terminal.id(), 0,
+                ScenarioGraph.EdgeType.DEFAULT, null, null));
+        edges.set(1, new ScenarioGraph.Edge(id("winning-edge"), first.id(), terminal.id(), 6,
+                ScenarioGraph.EdgeType.CONDITIONAL, 1, rankedScore.formatted(1)));
+        edges.add(new ScenarioGraph.Edge(id("losing-edge"), first.id(), hidden.id(), 7,
+                ScenarioGraph.EdgeType.CONDITIONAL, 1, rankedScore.formatted(2)));
+        var rejected = withScenario(draft, draft.items(), graph.nodes(), edges);
+        assertFirstPublicationRejected(rejected, ScenarioGraphValidationException.Reason.UNREACHABLE_NODE, "nodes[1]");
+
+        edges.set(0, graph.edges().get(0));
+        var corrected = withScenario(draft, draft.items(), graph.nodes(), edges);
+        assertThat(publisher.publish(OWNER, corrected)).isEqualTo(corrected);
+        assertThat(repository.findById(OWNER, corrected.id())).contains(corrected);
+        assertThat(publisher.publish(OWNER, corrected)).isEqualTo(corrected);
+    }
+
+    @Test void rejectsRepeatedSourceItemButPublishesDistinctItemsOfTheSameQuestionRevision() {
+        var draft = scenario("repeated-scenario-item", 2, CONDITION);
+        var graph = draft.scenarioGraph();
+        var first = graph.nodes().get(0);
+        var second = graph.nodes().get(1);
+        var terminal = graph.nodes().get(2);
+        var repeated = new ScenarioGraph.Node(second.id(), second.authoredPosition(), second.type(), first.itemId());
+        var rejected = withScenario(draft, draft.items(), List.of(first, repeated, terminal), graph.edges());
+        assertFirstPublicationRejected(rejected, ScenarioGraphValidationException.Reason.REPEATED_ITEM_ON_PATH, "nodes[1].itemId");
+
+        var firstItem = draft.items().get(0);
+        var secondItem = draft.items().get(1);
+        var items = List.of(firstItem, new QuizRevision.Item(secondItem.id(), secondItem.authoredPosition(), firstItem.question()));
+        var corrected = withScenario(draft, items, graph.nodes(), graph.edges());
+        assertThat(publisher.publish(OWNER, corrected)).isEqualTo(corrected);
+        assertThat(repository.findById(OWNER, corrected.id())).contains(corrected);
+        assertThat(publisher.publish(OWNER, corrected)).isEqualTo(corrected);
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void invalidFirstPublicationRollsBackItsKeyAndAllowsCorrectedContent(boolean cycle) {
@@ -490,20 +533,35 @@ class ScenarioGraphMySqlIntegrationTest {
         assertThat(metrics.get("quiz.revision.scenario.publish")
                 .tag("outcome", cycle ? "graph_cycle" : "graph_invalid_condition").counter().count()).isEqualTo(1);
         assertThatThrownBy(() -> repository.insert(candidate)).isInstanceOf(ScenarioGraphValidationException.class);
-        fresh().executeWithoutResult(status -> {
-            assertThat(repository.findById(OWNER, corrected.id())).isEmpty();
-            assertThat(count(PUBLICATION_KEYS, corrected.id())).isZero();
-            assertThat(count(GRAPH_COUNTS, corrected.id())).isZero();
-            for (String table : GRAPH_TABLES) assertThat(count(table, corrected.id())).isZero();
-            for (var item : corrected.items()) {
-                assertThat(sql.queryForObject("SELECT COUNT(*) FROM question_revisions WHERE id=UUID_TO_BIN(?)",
-                        Integer.class, item.question().id().toString())).isZero();
-            }
-        });
+        assertNoStoredScenario(corrected);
 
         assertThat(publisher.publish(OWNER, corrected)).isEqualTo(corrected);
         assertThat(repository.findById(OWNER, corrected.id())).contains(corrected);
         assertThat(publisher.publish(OWNER, corrected)).isEqualTo(corrected);
+    }
+
+    private void assertFirstPublicationRejected(QuizRevision candidate, ScenarioGraphValidationException.Reason reason,
+                                                String path) {
+        assertThatThrownBy(() -> publisher.publish(OWNER, candidate)).isInstanceOfSatisfying(
+                ScenarioGraphValidationException.class, failure -> {
+                    assertThat(failure.reason()).isEqualTo(reason);
+                    assertThat(failure.path()).isEqualTo(path);
+                });
+        assertNoStoredScenario(candidate);
+    }
+
+    private void assertNoStoredScenario(QuizRevision revision) {
+        fresh().executeWithoutResult(status -> {
+            assertThat(repository.findById(OWNER, revision.id())).isEmpty();
+            assertThat(count(PUBLICATION_KEYS, revision.id())).isZero();
+            assertThat(count(GRAPH_COUNTS, revision.id())).isZero();
+            assertThat(count("quiz_revision_items", revision.id())).isZero();
+            for (String table : GRAPH_TABLES) assertThat(count(table, revision.id())).isZero();
+            for (var item : revision.items()) {
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM question_revisions WHERE id=UUID_TO_BIN(?)",
+                        Integer.class, item.question().id().toString())).isZero();
+            }
+        });
     }
 
     @ParameterizedTest
@@ -1347,9 +1405,15 @@ class ScenarioGraphMySqlIntegrationTest {
         var edges = old.edges().stream().map(edge -> edge.condition() == null ? edge : new ScenarioGraph.Edge(
                 edge.id(), edge.fromNodeId(), edge.toNodeId(), edge.authoredPosition(), edge.type(),
                 edge.conditionVersion(), edge.condition().replace("FULL_CREDIT", "NOT_FULL_CREDIT"))).toList();
+        return withScenario(revision, revision.items(), old.nodes(), edges);
+    }
+
+    private static QuizRevision withScenario(QuizRevision revision, List<QuizRevision.Item> items,
+                                             List<ScenarioGraph.Node> nodes, List<ScenarioGraph.Edge> edges) {
+        var old = revision.scenarioGraph();
         return new QuizRevision(revision.id(), revision.quizId(), revision.ownerId(), revision.schemaVersion(),
-                revision.title(), revision.description(), revision.createdAt(), revision.items(), List.of(), List.of(),
-                new ScenarioGraph(old.schemaVersion(), old.entryNodeId(), old.nodes(), edges));
+                revision.title(), revision.description(), revision.createdAt(), items, List.of(), List.of(),
+                new ScenarioGraph(old.schemaVersion(), old.entryNodeId(), nodes, edges));
     }
 
     private void restart() {
