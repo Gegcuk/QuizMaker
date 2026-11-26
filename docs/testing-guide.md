@@ -2,6 +2,28 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Executable scenario graph validation (#573)
+
+Use JDK 17, the offline test environment and a disposable MySQL server.
+
+```bash
+./mvnw test -Dtest=ScenarioGraphValidatorTest,ScenarioGraphTest,ScenarioGraphMySqlIntegrationTest
+```
+
+- The deterministic validator tests exercise invalid references, strict condition versions and grammar,
+  equivalent input permutations, explicit priorities, topology, and exact acceptance/rejection at
+  each of the five bounds. The longest-path fixture includes a shared successor reached by a shortcut.
+- The MySQL cases exercise the real first-publication path with a cycle or invalid grammar. A statement
+  hook observes writing the publication key before rejection. Fresh reads prove the transaction leaves
+  no key, revision, graph or question rows. Correcting the same candidate ID then publishes and replays.
+  Direct aggregate insertion uses the same validation. A retained V128 graph with an opaque condition
+  still reads and replays, preserving its supplementary Unicode and exact condition text.
+- Existing concurrent publication, lock scope, rollback, fixed-format compatibility and measured SQL
+  count tests remain applicable. Validation runs on the in-memory graph and introduces neither queries
+  nor JPA traversal. The internal boundary has no new HTTP scenario.
+
+Run the full four-worker verification on the final implementation before publishing the branch.
+
 ## Immutable scenario graph revisions (#572)
 
 With JDK 17, the offline test environment and a disposable MySQL server, start with:

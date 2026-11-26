@@ -6,6 +6,6 @@ import java.util.UUID;
 
 /** Internal boundary for a caller that has already authorized this quiz and its source content. */
 public interface QuizScenarioRevisionService {
-    /** Stores the complete revision, or returns the exact saved revision on repeat. */
+    /** Validates and stores a new executable scenario revision, or returns the exact saved revision on repeat. */
     QuizRevision publish(UUID trustedOwnerId, QuizRevision revision);
 }

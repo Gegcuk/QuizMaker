@@ -47,6 +47,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.ScenarioGraph;
+import uk.gegc.quizmaker.features.quiz.domain.model.revision.ScenarioGraphValidationException;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
 import uk.gegc.quizmaker.features.quiz.infra.repository.JdbcQuizRevisionRepository;
 
@@ -67,6 +68,7 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.*;
 import static uk.gegc.quizmaker.features.quiz.revision.RevisionFixtures.*;
 import static uk.gegc.quizmaker.features.quiz.revision.ScenarioGraphTest.CONDITION;
+import static uk.gegc.quizmaker.features.quiz.revision.ScenarioGraphTest.OPAQUE_CONDITION;
 import static uk.gegc.quizmaker.features.quiz.revision.ScenarioGraphTest.scenario;
 
 @Tag("db-serial")
@@ -118,16 +120,28 @@ class ScenarioGraphMySqlIntegrationTest {
         beforeUpgrade = rootRows();
         migrate("128");
         var legacyEntry = id("scenario-v128-entry");
+        var legacyTerminal = id("scenario-v128-terminal");
+        var legacyEdge = id("scenario-v128-conditional");
         var legacyItem = PREVIOUS_FORMATS.get(0).items().get(0);
         retainedV128 = new QuizRevision(id("scenario-v128"), id("scenario-v128-quiz"), OWNER, QuizRevision.SCENARIO_FORMAT,
                 "Previously sealed graph", null, CREATED, List.of(legacyItem), List.of(), List.of(),
                 new ScenarioGraph(1, legacyEntry,
-                        List.of(new ScenarioGraph.Node(legacyEntry, 0, ScenarioGraph.NodeType.ITEM, legacyItem.id())), List.of()));
-        insertUnsealed(retainedV128.id(), retainedV128.quizId(), retainedV128.title(), 1);
+                        List.of(new ScenarioGraph.Node(legacyEntry, 0, ScenarioGraph.NodeType.ITEM, legacyItem.id()),
+                                new ScenarioGraph.Node(legacyTerminal, 1, ScenarioGraph.NodeType.TERMINAL, null)),
+                        List.of(new ScenarioGraph.Edge(legacyEdge, legacyEntry, legacyTerminal, 0,
+                                ScenarioGraph.EdgeType.CONDITIONAL, 1, OPAQUE_CONDITION))));
+        insertUnsealed(retainedV128.id(), retainedV128.quizId(), retainedV128.title(), 1, 2, 1);
         sql.update("INSERT INTO quiz_revision_items VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),?)",
                 legacyItem.id().toString(), retainedV128.id().toString(), legacyItem.question().id().toString(),
                 legacyItem.authoredPosition());
         insertNode(retainedV128.id(), legacyEntry, 0, "ITEM", legacyItem.id());
+        insertNode(retainedV128.id(), legacyTerminal, 1, "TERMINAL", null);
+        sql.update("""
+                INSERT INTO quiz_scenario_edges (quiz_revision_id,id,from_node_id,to_node_id,authored_position,
+                    edge_type,condition_version,condition_payload)
+                VALUES (UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),0,'CONDITIONAL',1,?)
+                """, retainedV128.id().toString(), legacyEdge.toString(), legacyEntry.toString(),
+                legacyTerminal.toString(), OPAQUE_CONDITION);
         seal(retainedV128.id(), legacyEntry);
         migrate("129");
         migrate("130");
@@ -248,6 +262,7 @@ class ScenarioGraphMySqlIntegrationTest {
         assertThat(hasReplayFingerprint(retainedV128.id())).isFalse();
         assertThat(publisher.publish(OWNER, retainedV128)).isEqualTo(retainedV128);
         assertThat(hasReplayFingerprint(retainedV128.id())).isTrue();
+        assertThat(publisher.publish(OWNER, retainedV128)).isEqualTo(retainedV128);
         assertThat(count(PUBLICATION_KEYS, retainedV128.id())).isOne();
         assertThat(questionOptionCount(legacyQuestion(retainedV128).id())).isEqualTo(2);
 
@@ -425,7 +440,7 @@ class ScenarioGraphMySqlIntegrationTest {
 
     @Test void publishesOneGraphOnExactReplayAndRetainsOriginalAfterEditAndRestart() {
         var original = scenario("original", 3, CONDITION);
-        var changed = scenario("edited", 3, CONDITION + "edited");
+        var changed = scenario("edited", 3, CONDITION.replace("FULL_CREDIT", "NOT_FULL_CREDIT"));
         assertThat(publisher.publish(OWNER, original)).isEqualTo(original);
         assertThat(publisher.publish(OWNER, changed)).isEqualTo(changed);
         restart();
@@ -440,6 +455,55 @@ class ScenarioGraphMySqlIntegrationTest {
         UUID foreign = id("foreign-owner");
         rejected(() -> publisher.publish(foreign, original), "INVALID_CONTENT");
         assertThat(repository.findByIds(foreign, List.of(original.id(), changed.id()))).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void invalidFirstPublicationRollsBackItsKeyAndAllowsCorrectedContent(boolean cycle) {
+        String key = "invalid-first-scenario-" + cycle;
+        var corrected = scenario(key, 2, CONDITION);
+        var invalid = scenario(key, 2, cycle ? CONDITION : OPAQUE_CONDITION);
+        if (cycle) {
+            var graph = invalid.scenarioGraph();
+            var edges = new ArrayList<>(graph.edges());
+            var second = graph.nodes().get(1);
+            edges.set(2, new ScenarioGraph.Edge(id("back-edge"), second.id(), graph.entryNodeId(), 0,
+                    ScenarioGraph.EdgeType.DEFAULT, null, null));
+            invalid = new QuizRevision(invalid.id(), invalid.quizId(), OWNER, invalid.schemaVersion(), invalid.title(),
+                    invalid.description(), invalid.createdAt(), invalid.items(), List.of(), List.of(),
+                    new ScenarioGraph(1, graph.entryNodeId(), graph.nodes(), edges));
+        }
+        var candidate = invalid;
+        var reason = cycle ? ScenarioGraphValidationException.Reason.CYCLE : ScenarioGraphValidationException.Reason.INVALID_CONDITION;
+        var keyWasWritten = new AtomicBoolean();
+        var rootWriteAttempted = new AtomicBoolean();
+        source.after = (statement, connection) -> {
+            if (statement.startsWith("INSERT INTO " + PUBLICATION_KEYS)) keyWasWritten.set(true);
+        };
+        source.before = (statement, connection) -> {
+            if (statement.startsWith("INSERT INTO quiz_revisions")) rootWriteAttempted.set(true);
+        };
+        assertThatThrownBy(() -> publisher.publish(OWNER, candidate)).isInstanceOfSatisfying(
+                ScenarioGraphValidationException.class, failure -> assertThat(failure.reason()).isEqualTo(reason));
+        assertThat(keyWasWritten).isTrue();
+        assertThat(rootWriteAttempted).isFalse();
+        assertThat(metrics.get("quiz.revision.scenario.publish")
+                .tag("outcome", cycle ? "graph_cycle" : "graph_invalid_condition").counter().count()).isEqualTo(1);
+        assertThatThrownBy(() -> repository.insert(candidate)).isInstanceOf(ScenarioGraphValidationException.class);
+        fresh().executeWithoutResult(status -> {
+            assertThat(repository.findById(OWNER, corrected.id())).isEmpty();
+            assertThat(count(PUBLICATION_KEYS, corrected.id())).isZero();
+            assertThat(count(GRAPH_COUNTS, corrected.id())).isZero();
+            for (String table : GRAPH_TABLES) assertThat(count(table, corrected.id())).isZero();
+            for (var item : corrected.items()) {
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM question_revisions WHERE id=UUID_TO_BIN(?)",
+                        Integer.class, item.question().id().toString())).isZero();
+            }
+        });
+
+        assertThat(publisher.publish(OWNER, corrected)).isEqualTo(corrected);
+        assertThat(repository.findById(OWNER, corrected.id())).contains(corrected);
+        assertThat(publisher.publish(OWNER, corrected)).isEqualTo(corrected);
     }
 
     @ParameterizedTest
@@ -1174,7 +1238,7 @@ class ScenarioGraphMySqlIntegrationTest {
         String questionMarker = "private-question-marker";
         String answerMarker = "private-answer-marker";
         String explanationMarker = "private-explanation-marker";
-        String conditionMarker = "scenario-condition-marker";
+        String conditionMarker = CONDITION.strip();
         String optionMarker = "private-option-key-marker";
         String titleMarker = "private-quiz-title-marker";
         String descriptionMarker = "private-quiz-description-marker";
@@ -1282,7 +1346,7 @@ class ScenarioGraphMySqlIntegrationTest {
         var old = revision.scenarioGraph();
         var edges = old.edges().stream().map(edge -> edge.condition() == null ? edge : new ScenarioGraph.Edge(
                 edge.id(), edge.fromNodeId(), edge.toNodeId(), edge.authoredPosition(), edge.type(),
-                edge.conditionVersion(), edge.condition() + "changed")).toList();
+                edge.conditionVersion(), edge.condition().replace("FULL_CREDIT", "NOT_FULL_CREDIT"))).toList();
         return new QuizRevision(revision.id(), revision.quizId(), revision.ownerId(), revision.schemaVersion(),
                 revision.title(), revision.description(), revision.createdAt(), revision.items(), List.of(), List.of(),
                 new ScenarioGraph(old.schemaVersion(), old.entryNodeId(), old.nodes(), edges));
@@ -1358,11 +1422,15 @@ class ScenarioGraphMySqlIntegrationTest {
     }
 
     private static void insertUnsealed(UUID revisionId, UUID quizId, String title, int items) {
+        insertUnsealed(revisionId, quizId, title, items, 1, 0);
+    }
+
+    private static void insertUnsealed(UUID revisionId, UUID quizId, String title, int items, int nodes, int edges) {
         sql.update("INSERT INTO quiz_revisions(id,quiz_id,owner_id,schema_version,title,created_at) "
                         + "VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),4,?,?)",
                 revisionId.toString(), quizId.toString(), OWNER.toString(), title, Timestamp.from(CREATED));
         sql.update("INSERT INTO quiz_scenario_graphs (quiz_revision_id,schema_version,item_count,node_count,edge_count) "
-                + "VALUES(UUID_TO_BIN(?),1,?,1,0)", revisionId.toString(), items);
+                + "VALUES(UUID_TO_BIN(?),1,?,?,?)", revisionId.toString(), items, nodes, edges);
     }
 
     private static void rejected(Runnable action, String reason) {

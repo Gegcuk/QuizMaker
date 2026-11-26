@@ -5640,23 +5640,47 @@ and require no graph rows or backfill.
 Format 4 is available through the internal revision boundary. The existing public publication and
 participant APIs keep their current contracts. The shared fixed-form writer rejects format 4.
 The graph writer preserves structural identity and references, rejects malformed Unicode in
-the scenario snapshot, and keeps author text and option keys out of JDBC parameter diagnostics. #573 owns
-executable topology and condition validation. #574 owns real execution and needs format 4
+the scenario snapshot, and keeps author text and option keys out of JDBC parameter diagnostics.
+#574 owns real execution and needs format 4
 support in its composition with the existing #661 append contract. Authoring transport, participant path disclosure and public
 conformance are later boundaries. Scenario revisions inherit the quiz revision retention class
 under #664. Recovery after graph writes uses forward fixes.
 
-### Executable graph validation and delivery
+### Executable graph publication validation (#573)
 
-Publication validation must detect:
+New format-4 publications validate the complete graph under the existing per-revision key before
+writing revision, question or graph rows. Rejection rolls back the key in the same transaction.
+Readback and exact replay of earlier sealed graphs preserve the stored evidence, including opaque
+conditions accepted before validation existed. A future execution boundary must establish that a
+retained graph is executable before using it. Formats 1–3 and existing HTTP publication remain as before.
 
-- missing entry node;
-- missing targets;
-- unreachable nodes;
-- forbidden cycles;
-- invalid conditions;
-- ambiguous transitions;
-- missing terminal behaviour.
+The graph must have a valid entry and targets, and every node must be reachable from the entry.
+Every cycle is invalid, including self-loops. A terminal node has no outgoing edges. Each other
+node has exactly one explicit default edge. Together these rules make every path end at a terminal.
+The validator uses an iterative traversal and checks the longest path through shared successors.
+
+Condition version 1 permits `SCORE_IS` on an `ITEM` node. The source item identifies the immutable
+question occurrence whose accepted response supplies the score under its versioned scoring contract.
+`FULL_CREDIT` means earned points equal possible points, and `NOT_FULL_CREDIT` covers lower scores.
+Other fields, item references, operators, values and grammar versions are rejected. For example:
+
+```json
+{"operator":"SCORE_IS","value":"NOT_FULL_CREDIT","priority":10}
+```
+
+Priority is an optional nonnegative 32-bit integer. Conditions for the same outcome can overlap,
+so all such edges in a node must have distinct explicit priorities, with the lowest value first.
+The two different score outcomes are mutually exclusive. The default applies when no condition
+matches. Authored position gives stable diagnostics, while branch precedence comes from the explicit
+rules. Execution, including the treatment of missing score evidence, is outside this publication check.
+
+The v1 limits are 1,024 nodes, 4,096 edges, 768 nodes on the longest path including entry and terminal,
+256 UTF-8 bytes per serialized condition and 256 KiB of condition payload across a graph. Whitespace
+counts toward the byte limits. The fixed reason and zero-based path refer to the graph's authored
+order and exclude payloads and identifiers. The publication counter records version and a bounded
+outcome that distinguishes graph errors and each complexity limit. The validator adds no database reads.
+
+### Execution and delivery boundaries
 
 The participant cannot request an arbitrary branch or hidden node.
 

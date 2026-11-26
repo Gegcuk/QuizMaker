@@ -15,7 +15,7 @@ public interface QuizRevisionRepository {
     /** Inserts the complete aggregate atomically, including the chosen layout and its immutable evidence. */
     void insert(QuizRevision revision);
 
-    /** Serializes publication by revision ID and compares a replay to the current sealed graph. */
+    /** Serializes publication by revision ID, validating a new graph or comparing an exact replay. */
     ScenarioPublication publishScenario(QuizRevision revision);
 
     record ScenarioPublication(QuizRevision revision, boolean replayed) { }
