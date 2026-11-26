@@ -5609,11 +5609,18 @@ The rollout from V127 runs alongside ordinary publication. A pre-fingerprint sce
 from an intermediate revision can commit a graph outside an already open caller snapshot.
 Replaying that graph for the first time requires a transaction that can see it.
 
-V131 coordinates scenario writers sharing a question revision with a batched no-op upsert in
-UUID order. The originating scenario identifies which questions were inserted by that batch.
-The database tracks each question's option count as options are written, including in ordinary
-publication. On first scenario use, the application compares the current count and the
-option rows at their complete keys. First use seals the count in the same transaction.
+Scenario publication checks which questions are visible before a strict insert batch for
+missing IDs in UUID order. A primary-key collision can come from a racing writer or an
+older snapshot. In that case, individual inserts determine which rows still need writing,
+and the originating scenario identifies any rows already inserted by the batch in this transaction.
+V134 stores a SHA-256 fingerprint of the question and a map of option IDs to fingerprints
+of their positions and source keys. A new scenario item references the metadata by question ID
+and the fingerprint of its complete current content. The foreign key both verifies the expected
+content at insertion and prevents later changes to the referenced content. Ordinary and retained
+items continue to reference their question directly. Equivalent legacy JSON encodings can be
+compared from the caller's snapshot, with the resulting fingerprint still checked against the
+current foreign key. The database maintains evidence as content is written, including in ordinary
+publication. V134 fills fingerprints after installing the tracking triggers.
 The database rejects mutations to sealed question content and options. V132 reconciles
 missing or stale unsealed counts after V131 has installed all tracking triggers, including
 for ordinary questions published while the old application is still serving requests.

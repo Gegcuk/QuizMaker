@@ -31,7 +31,14 @@ With JDK 17, the offline test environment and a disposable MySQL server, start w
 - A replay of a 512-question scenario stays open in repeatable read while other authors
   commit graphs with one new question apiece, using UUIDs inside and above the original key
   range. MySQL reports record locks only on the publication key. The first scenario use of
-  an ordinary question also allows another author to commit while it remains open.
+  one or 512 ordinary questions also allows another author to commit a neighboring question.
+  MySQL reports shared locks on the question metadata, with record-only locks in the
+  single-question fixture, and no question or option-index locks for these visible existing
+  questions. Bulk foreign-key validation can also take shared metadata gap locks.
+  Adoption compares current question and option fingerprints even when a reused question
+  or a change to its content was committed after the caller's repeatable-read snapshot.
+  The V134 upgrade backfills fingerprints for questions published while its tracking triggers
+  are being installed. The migration fixture also covers equivalent legacy JSON encodings.
   Direct changes to sealed questions, their options and recorded replay fingerprints fail.
   First publication of 128 new questions uses one JDBC execution of a question insert batch.
   The upgrade exercises ordinary question publications on separate connections before and

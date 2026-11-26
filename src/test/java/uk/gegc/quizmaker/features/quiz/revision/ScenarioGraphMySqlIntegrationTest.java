@@ -78,6 +78,7 @@ class ScenarioGraphMySqlIntegrationTest {
     private static final String QUESTION_KEYS = "quiz_scenario_question_keys";
     private static final String GRAPH_COUNTS = "quiz_scenario_graph_counts";
     private static final UUID OPEN_V132 = id("open-graph-v132");
+    private static final QuizRevision DURING_V134 = scenario("ordinary-during-option-evidence-install", 1, CONDITION);
     private static final List<QuizRevision> PREVIOUS_FORMATS = List.of(
             quiz("scenario-upgrade", question("scenario-upgrade")),
             QuizRevisionSectionsTest.structured("scenario-upgrade-sections"),
@@ -145,6 +146,21 @@ class ScenarioGraphMySqlIntegrationTest {
         migrate("132");
         insertUnsealed(OPEN_V132, retainedV128.quizId(), "Previously open graph", 0);
         migrate("133");
+        source.before = (statement, connection) -> {
+            if (statement.contains("CREATE TRIGGER scenario_question_evidence_init")) {
+                var question = legacyQuestion(DURING_V134);
+                baseline.insert(quiz("ordinary-during-v134", question));
+                // Retained JSON can have equivalent content with a different stored representation.
+                sql.update("UPDATE question_revisions SET content=CONCAT(' ',content) WHERE id=UUID_TO_BIN(?)",
+                        question.id().toString());
+                assertThat(sql.queryForObject("""
+                        SELECT option_evidence IS NULL AND question_evidence IS NULL FROM quiz_scenario_question_keys
+                        WHERE question_revision_id=UUID_TO_BIN(?)
+                        """, Boolean.class, question.id().toString())).isTrue();
+            }
+        };
+        migrate("134");
+        source.reset();
     }
 
     @BeforeEach void start() {
@@ -163,7 +179,7 @@ class ScenarioGraphMySqlIntegrationTest {
     }
 
     @Test void migrationPreservesOldFormatsAndOldReadsDoNotLoadGraphTables() {
-        migrate("133");
+        migrate("134");
         assertThat(rootRows()).usingRecursiveComparison().isEqualTo(beforeUpgrade);
         List<UUID> ids = PREVIOUS_FORMATS.stream().map(QuizRevision::id).toList();
         assertThat(repository.findByIds(OWNER, ids)).containsExactlyElementsOf(PREVIOUS_FORMATS);
@@ -199,6 +215,16 @@ class ScenarioGraphMySqlIntegrationTest {
             assertThat(questionOptionCount(legacyQuestion(graph).id())).isEqualTo(2);
             assertThat(repository.findById(OWNER, graph.id())).contains(graph);
         }
+    }
+
+    @Test void migrationBackfillsEvidenceForOrdinaryPublicationBeforeV134TrackingStarts() {
+        var question = legacyQuestion(DURING_V134);
+        assertThat(questionOptionCount(question.id())).isNull();
+        assertThat(sql.queryForObject("""
+                SELECT JSON_LENGTH(option_evidence) FROM quiz_scenario_question_keys WHERE question_revision_id=UUID_TO_BIN(?)
+                """, Integer.class, question.id().toString())).isEqualTo(question.options().size());
+        assertThat(publisher.publish(OWNER, DURING_V134)).isEqualTo(DURING_V134);
+        assertThat(repository.findById(OWNER, DURING_V134.id())).contains(DURING_V134);
     }
 
     @Test void publishesOneGraphOnExactReplayAndRetainsOriginalAfterEditAndRestart() {
@@ -296,7 +322,7 @@ class ScenarioGraphMySqlIntegrationTest {
             peers.add(publicationWithOneQuestion("one-near-held-" + position, id("near-owner-" + position), next));
         }
         peers.add(publicationWithOneQuestion("one-above-held", id("one-above-owner"), new UUID(-1L, -1L)));
-        assertIndependentWhileHeld(published, peers, null);
+        assertIndependentWhileHeld(published, peers, List.of());
     }
 
     @Test void firstUseOfOrdinaryQuestionDoesNotBlockAnotherQuestionsOptions() throws Exception {
@@ -306,11 +332,31 @@ class ScenarioGraphMySqlIntegrationTest {
         assertThat(questionOptionCount(legacyQuestion(ordinary).id())).isNull();
         var peer = publicationWithOneQuestion("one-after-adoption", id("after-adoption-owner"),
                 new UUID(-1L, -9L));
-        assertIndependentWhileHeld(held, List.of(peer), "question_option_revisions");
+        assertIndependentWhileHeld(held, List.of(peer), List.of(QUESTION_KEYS));
         assertThat(questionOptionCount(legacyQuestion(ordinary).id())).isEqualTo(2);
     }
 
-    private void assertIndependentWhileHeld(QuizRevision held, List<QuizRevision> peers, String adoptionTable) throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = {1, 512})
+    void firstUseOfOrdinaryQuestionsAllowsAnAdjacentQuestionToCommit(int adoptedCount) throws Exception {
+        var existing = scenario(adoptedCount == 1 ? "new-adopt-ordinary" : "new-adopt-ordinary-bulk", 512, CONDITION);
+        var questions = existing.items().stream().map(QuizRevision.Item::question).toArray(QuestionRevision[]::new);
+        repository.insert(quiz("ordinary-dense-for-" + adoptedCount, questions));
+        var held = adoptedCount == 1
+                ? replaceFirstQuestion(scenario("isolated-existing-question", 1, CONDITION), questions[280])
+                : existing;
+        var peers = new ArrayList<QuizRevision>();
+        for (int selected : adoptedCount == 1 ? List.of(280) : List.of(280, 453)) {
+            var neighbor = questions[selected].id();
+            var adjacent = new UUID(neighbor.getMostSignificantBits(), neighbor.getLeastSignificantBits() ^ 1L);
+            peers.add(publicationWithOneQuestion("near-adoption-" + adoptedCount + "-" + selected,
+                    id("independent-adoption-author-" + selected), adjacent));
+        }
+        assertIndependentWhileHeld(held, peers, List.of(QUESTION_KEYS));
+        assertThat(questionOptionCount(questions[280].id())).isEqualTo(questions[280].options().size());
+    }
+
+    private void assertIndependentWhileHeld(QuizRevision held, List<QuizRevision> peers, List<String> adoptionTables) throws Exception {
         var ready = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var connection = new AtomicLong();
@@ -323,18 +369,17 @@ class ScenarioGraphMySqlIntegrationTest {
                 awaitGate(release, "release the holder");
             }));
             awaitGate(ready, "the first publication call has returned");
-            var locks = admin.queryForList("""
-                    SELECT l.OBJECT_NAME, l.LOCK_MODE, l.LOCK_DATA FROM performance_schema.data_locks l
-                    JOIN performance_schema.threads t ON t.THREAD_ID=l.THREAD_ID
-                    WHERE t.PROCESSLIST_ID=? AND l.OBJECT_SCHEMA=? AND l.LOCK_TYPE='RECORD'
-                      AND (? IS NULL OR l.OBJECT_NAME=?)
-                    """, connection.get(), CATALOG, adoptionTable, adoptionTable);
-            if (adoptionTable == null)
+            var locks = revisionRecordLocks(connection.get());
+            if (adoptionTables.isEmpty()) {
                 assertThat(locks).extracting(lock -> lock.get("OBJECT_NAME")).containsOnly(PUBLICATION_KEYS);
-            assertThat(locks).isNotEmpty().allSatisfy(lock -> {
-                assertThat((String) lock.get("LOCK_MODE")).contains("REC_NOT_GAP");
-                assertThat(String.valueOf(lock.get("LOCK_DATA"))).doesNotContain("supremum");
-            });
+                assertRecordOnly(locks);
+            } else {
+                var metadataLocks = locks.stream().filter(lock -> QUESTION_KEYS.equals(lock.get("OBJECT_NAME"))).toList();
+                assertThat(metadataLocks).isNotEmpty().allSatisfy(lock -> assertThat((String) lock.get("LOCK_MODE")).startsWith("S"));
+                if (held.items().size() == 1) assertRecordOnly(metadataLocks);
+                assertThat(locks).noneMatch(lock ->
+                        List.of("question_revisions", "question_option_revisions").contains(lock.get("OBJECT_NAME")));
+            }
             for (var peer : peers) {
                 var other = workers.submit(() -> fresh().execute(status -> {
                     sql.execute("SET SESSION innodb_lock_wait_timeout=2");
@@ -352,6 +397,27 @@ class ScenarioGraphMySqlIntegrationTest {
             workers.shutdownNow();
             assertThat(workers.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
         }
+    }
+
+    private static List<Map<String, Object>> revisionRecordLocks(long connection) {
+        return admin.queryForList("""
+                SELECT l.OBJECT_NAME, l.LOCK_MODE, l.LOCK_DATA FROM performance_schema.data_locks l
+                JOIN performance_schema.threads t ON t.THREAD_ID=l.THREAD_ID
+                WHERE t.PROCESSLIST_ID=? AND l.OBJECT_SCHEMA=? AND l.LOCK_TYPE='RECORD'
+                """, connection, CATALOG);
+    }
+
+    private static void assertQuestionLocksAreRecordOnly(List<Map<String, Object>> locks, List<String> tables) {
+        for (String table : tables) {
+            assertRecordOnly(locks.stream().filter(lock -> table.equals(lock.get("OBJECT_NAME"))).toList());
+        }
+    }
+
+    private static void assertRecordOnly(List<Map<String, Object>> locks) {
+        assertThat(locks).isNotEmpty().allSatisfy(lock -> {
+            assertThat((String) lock.get("LOCK_MODE")).contains("REC_NOT_GAP");
+            assertThat(String.valueOf(lock.get("LOCK_DATA"))).doesNotContain("supremum");
+        });
     }
 
     @Test void databaseRejectsOptionMembershipChangesOnceTheQuestionIsSealed() {
@@ -372,9 +438,14 @@ class ScenarioGraphMySqlIntegrationTest {
                 """, question.id().toString(), option.id().toString()));
         sqlRejected(() -> sql.update("DELETE FROM question_option_revisions WHERE question_revision_id=UUID_TO_BIN(?) AND id=UUID_TO_BIN(?)",
                 question.id().toString(), option.id().toString()));
-        sqlRejected(() -> sql.update("UPDATE " + QUESTION_KEYS + " SET option_count=NULL WHERE question_revision_id=UUID_TO_BIN(?)",
+        sqlRejected(() -> sql.update("""
+                UPDATE quiz_scenario_question_keys SET stored_option_count=stored_option_count+1
+                WHERE question_revision_id=UUID_TO_BIN(?)
+                """,
                 question.id().toString()));
         sqlRejected(() -> sql.update("DELETE FROM " + QUESTION_KEYS + " WHERE question_revision_id=UUID_TO_BIN(?)",
+                question.id().toString()));
+        sqlRejected(() -> sql.update("UPDATE " + QUESTION_KEYS + " SET option_evidence=NULL WHERE question_revision_id=UUID_TO_BIN(?)",
                 question.id().toString()));
         sqlRejected(() -> sql.update("UPDATE question_revisions SET question_text=CONCAT(question_text,' ') WHERE id=UUID_TO_BIN(?)",
                 question.id().toString()));
@@ -383,6 +454,42 @@ class ScenarioGraphMySqlIntegrationTest {
         sqlRejected(() -> sql.update("DELETE FROM " + PUBLICATION_KEYS + WHERE_REVISION, revision.id().toString()));
         assertThat(repository.findById(OWNER, revision.id())).contains(revision);
         assertThat(publisher.publish(OWNER, revision)).isEqualTo(revision);
+    }
+
+    @Test void adoptionUsesTheCurrentQuestionAndExactOptionKeyFromAnOlderSnapshot() {
+        var revision = scenario("adopt-after-option-change", 1, CONDITION);
+        var question = legacyQuestion(revision);
+        var ordinary = quiz("ordinary-before-option-edit", question);
+        repository.insert(ordinary);
+        var option = question.options().get(0);
+        String sourceKey = "Ключ 🚀 ";
+        String prompt = "Changed ordinary question";
+        var updatedQuestion = new QuestionRevision(question.id(), question.questionId(), question.schemaVersion(),
+                question.type(), question.difficulty(), prompt, question.content(), question.hint(), question.explanation(),
+                question.attachmentUrl(), question.attachmentAssetId(), question.createdAt(),
+                withOptionKey(question, sourceKey).options());
+        var updated = replaceFirstQuestion(revision, updatedQuestion);
+
+        repeatableRead().executeWithoutResult(status -> {
+            assertThat(repository.findById(OWNER, ordinary.id())).contains(ordinary);
+            fresh().executeWithoutResult(writer -> {
+                sql.update("UPDATE question_revisions SET question_text=? WHERE id=UUID_TO_BIN(?)",
+                        prompt, question.id().toString());
+                sql.update("""
+                        UPDATE question_option_revisions SET source_key=?
+                        WHERE question_revision_id=UUID_TO_BIN(?) AND id=UUID_TO_BIN(?)
+                        """, sourceKey, question.id().toString(), option.id().toString());
+            });
+            assertThat(repository.findById(OWNER, ordinary.id())).contains(ordinary);
+            assertThat(publisher.publish(OWNER, updated)).isEqualTo(updated);
+        });
+        rejected(() -> publisher.publish(OWNER,
+                replaceFirstQuestion(scenario("adopt-with-trimmed-option-key", 1, CONDITION),
+                        withOptionKey(updatedQuestion, sourceKey.stripTrailing()))), "IDENTITY_CONFLICT");
+        rejected(() -> publisher.publish(OWNER,
+                replaceFirstQuestion(scenario("adopt-with-superseded-question", 1, CONDITION),
+                        withOptionKey(question, sourceKey))), "IDENTITY_CONFLICT");
+        assertThat(repository.findById(OWNER, updated.id())).contains(updated);
     }
 
     @Test void publishes128NewQuestionsWithOneJdbcQuestionInsertBatch() {
@@ -459,6 +566,8 @@ class ScenarioGraphMySqlIntegrationTest {
                 }
                 assertThat(repository.findById(OWNER, original.id())).isEmpty();
                 assertThat(publisher.publish(OWNER, other)).isEqualTo(other);
+                assertQuestionLocksAreRecordOnly(revisionRecordLocks(sql.queryForObject("SELECT CONNECTION_ID()", Long.class)),
+                        List.of(QUESTION_KEYS));
             });
             assertThat(repository.findByIds(OWNER, List.of(original.id(), other.id()))).containsExactly(original, other);
         } finally {
@@ -662,7 +771,10 @@ class ScenarioGraphMySqlIntegrationTest {
         sqlRejected(() -> sql.update("DELETE FROM quiz_scenario_edges" + WHERE_REVISION, root));
         sqlRejected(() -> sql.update("DELETE FROM quiz_scenario_graphs" + WHERE_REVISION, root));
         sqlRejected(() -> sql.update("UPDATE quiz_revision_items SET authored_position=99" + WHERE_REVISION, root));
-        sqlRejected(() -> sql.update("INSERT INTO quiz_revision_items VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),99)",
+        sqlRejected(() -> sql.update("""
+                INSERT INTO quiz_revision_items (id,quiz_revision_id,question_revision_id,authored_position)
+                VALUES (UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),99)
+                """,
                 id("late-item").toString(), root, revision.items().get(0).question().id().toString()));
         sqlRejected(() -> insertNode(revision.id(), id("late-node"), 99, "TERMINAL", null));
         var entry = revision.scenarioGraph().entryNodeId();
@@ -912,7 +1024,13 @@ class ScenarioGraphMySqlIntegrationTest {
     }
 
     private static Integer questionOptionCount(UUID questionId) {
-        var rows = sql.queryForList("SELECT option_count FROM " + QUESTION_KEYS + " WHERE question_revision_id=UUID_TO_BIN(?)",
+        var rows = sql.queryForList("""
+                SELECT COALESCE(k.option_count, IF(EXISTS (
+                    SELECT 1 FROM quiz_revision_items i WHERE i.question_revision_id=k.question_revision_id
+                    AND i.scenario_content_evidence IS NOT NULL
+                ), k.stored_option_count, NULL))
+                FROM quiz_scenario_question_keys k WHERE k.question_revision_id=UUID_TO_BIN(?)
+                """,
                 Integer.class, questionId.toString());
         return rows.isEmpty() ? null : rows.get(0);
     }

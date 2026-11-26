@@ -1,6 +1,7 @@
 package uk.gegc.quizmaker.features.quiz.infra.repository;
 
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import uk.gegc.quizmaker.features.learning.application.LearningPublicationItems;
 import uk.gegc.quizmaker.features.learning.domain.model.LearningSession;
@@ -23,7 +24,9 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityEx
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -31,11 +34,15 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -53,18 +60,25 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
             VALUES (:id, :questionId, :version, :type, :difficulty, :text, :content,
                     :hint, :explanation, :url, :assetId, :created%s)
             """;
+    private static final String INSERT_SCENARIO_ITEM = """
+            INSERT INTO quiz_revision_items
+                (id,quiz_revision_id,question_revision_id,authored_position,scenario_content_evidence)
+            VALUES (:item,:revision,:id,:position,UNHEX(SHA2(CONCAT(
+                HEX(COALESCE(:storedEvidence,scenario_question_evidence(:questionId,:version,:type,:difficulty,
+                    :text,:content,:hint,:explanation,:url,:assetId,:created))),
+                ':',CAST(CAST(:options AS JSON) AS CHAR CHARACTER SET utf8mb4)
+            ),256)))
+            """;
     private final NamedParameterJdbcTemplate jdbc;
     private final JdbcRevisionSections sections;
     private final JdbcRevisionCases cases;
     private final JdbcScenarioGraphs scenarioGraphs;
-    private final JdbcRevisionPointReads pointReads;
 
     public JdbcQuizRevisionRepository(NamedParameterJdbcTemplate jdbc) {
         this.jdbc = jdbc;
         this.sections = new JdbcRevisionSections(jdbc);
         this.cases = new JdbcRevisionCases(jdbc);
         this.scenarioGraphs = new JdbcScenarioGraphs(jdbc);
-        this.pointReads = new JdbcRevisionPointReads(jdbc);
     }
 
     @Override
@@ -166,14 +180,18 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
     }
 
     private void insertMembership(QuizRevision revision) {
-        scenarioGraphs.begin(revision);
-        batch("""
-                INSERT INTO quiz_revision_items (id, quiz_revision_id, question_revision_id, authored_position)
-                VALUES (:id, :quizId, :questionId, :position)
-                """, revision.items().stream().map(item -> new MapSqlParameterSource()
-                .addValue("id", bytes(item.id())).addValue("quizId", bytes(revision.id()))
-                .addValue("questionId", bytes(item.question().id()))
-                .addValue("position", item.authoredPosition())).toList());
+        if (revision.scenarioGraph() == null) {
+            batch("""
+                    INSERT INTO quiz_revision_items (id,quiz_revision_id,question_revision_id,authored_position)
+                    VALUES (:id,:quizId,:questionId,:position)
+                    """, revision.items().stream().map(item -> new MapSqlParameterSource()
+                    .addValue("id", bytes(item.id())).addValue("quizId", bytes(revision.id()))
+                    .addValue("questionId", bytes(item.question().id()))
+                    .addValue("position", item.authoredPosition())).toList());
+        } else {
+            scenarioGraphs.begin(revision);
+            insertScenarioItems(revision);
+        }
         sections.insert(revision);
         cases.insert(revision);
         scenarioGraphs.insertAndSeal(revision);
@@ -204,83 +222,133 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
     }
 
     private void storeScenarioQuestions(QuizRevision revision) {
-        // Each successful new graph owns a freshly inserted quiz revision ID. Use it to identify
-        // questions inserted by this batch, regardless of the driver's affected-row setting.
         var ordered = orderedQuestions(questions(revision).values());
-        batch(INSERT_QUESTION.formatted(", creating_scenario_revision_id", ", :scenarioId") + """
-                ON DUPLICATE KEY UPDATE id=question_revisions.id
-                """, ordered.stream().map(question ->
-                questionParameters(question).addValue("scenarioId", bytes(revision.id()))).toList());
-        var current = scenarioQuestionRows(ordered);
-        var keys = scenarioQuestionKeys(ordered);
-        var additions = new ArrayList<QuestionRevision>();
-        var previous = new ArrayList<QuestionRevision>();
-        for (var question : ordered) {
-            var row = current.get(question.id());
-            if (revision.id().equals(row.creatingScenario())) additions.add(question);
-            else previous.add(question);
-        }
-        compareScenarioQuestions(previous, current, keys);
-        insertOptions(additions);
-        batch("""
-                UPDATE quiz_scenario_question_keys SET option_count=:count
-                WHERE question_revision_id=:id AND option_count IS NULL
-                """, ordered.stream().filter(question -> keys.get(question.id()).sealedCount() == null)
-                .map(question -> new MapSqlParameterSource("id", bytes(question.id()))
-                        .addValue("count", question.options().size())).toList());
+        var inserted = insertMissingScenarioQuestions(revision.id(), ordered);
+        insertOptions(ordered.stream().filter(question -> inserted.contains(question.id())).toList());
     }
 
     private static List<QuestionRevision> orderedQuestions(Collection<QuestionRevision> questions) {
         return questions.stream().sorted(Comparator.comparing(question -> question.id().toString())).toList();
     }
 
-    private Map<UUID, ScenarioQuestionKey> scenarioQuestionKeys(List<QuestionRevision> questions) {
-        var keys = new HashMap<UUID, ScenarioQuestionKey>();
-        pointReads.readIds("""
-                SELECT question_revision_id,option_count,stored_option_count
-                FROM quiz_scenario_question_keys FORCE INDEX (PRIMARY)
-                WHERE question_revision_id=:pointId FOR SHARE
-                """, questions.stream().map(QuestionRevision::id).toList(), new MapSqlParameterSource(),
-                (row, index) -> new ScenarioQuestionKey(uuid(row, "question_revision_id"),
-                        row.getObject("option_count", Integer.class), row.getInt("stored_option_count")))
-                .forEach(key -> keys.put(key.id(), key));
-        if (keys.size() != questions.size())
-            throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
-        return keys;
+    private Set<UUID> insertMissingScenarioQuestions(UUID revisionId, List<QuestionRevision> ordered) {
+        var insert = INSERT_QUESTION.formatted(", creating_scenario_revision_id", ", :scenarioId");
+        var inserted = new HashSet<UUID>();
+        for (int start = 0; start < ordered.size(); start += SQL_BATCH) {
+            var part = ordered.subList(start, Math.min(start + SQL_BATCH, ordered.size()));
+            var ids = part.stream().map(QuestionRevision::id).toList();
+            // The snapshot is only an insert filter. A stale snapshot or a racing writer
+            // can still cause a duplicate; comparison below always uses current rows.
+            var visible = new HashSet<>(jdbc.query("SELECT id FROM question_revisions WHERE id IN (:ids)",
+                    Map.of("ids", binaryIds(ids)), (row, index) -> uuid(row, "id")));
+            var candidates = part.stream().filter(question -> !visible.contains(question.id())).toList();
+            var rows = candidates.stream().map(question ->
+                    questionParameters(question).addValue("scenarioId", bytes(revisionId))).toList();
+            try {
+                batch(insert, rows);
+                candidates.forEach(question -> inserted.add(question.id()));
+            } catch (DuplicateKeyException collision) {
+                // A batch may have inserted some rows before reporting a duplicate, or
+                // it may have been rewritten to one statement and inserted none.
+                for (int i = 0; i < candidates.size(); i++) {
+                    var id = candidates.get(i).id();
+                    try {
+                        jdbc.update(insert, rows.get(i));
+                        inserted.add(id);
+                    } catch (DuplicateKeyException duplicate) {
+                        // Even an older snapshot sees rows this transaction inserted.
+                        var creators = jdbc.query("""
+                                SELECT creating_scenario_revision_id FROM question_revisions
+                                WHERE id=:id
+                                """, Map.of("id", bytes(id)), (row, index) -> uuid(row, "creating_scenario_revision_id"));
+                        if (creators.contains(revisionId)) inserted.add(id);
+                    }
+                }
+            }
+        }
+        return inserted;
     }
 
-    private void compareScenarioQuestions(List<QuestionRevision> requested, Map<UUID, ScenarioQuestionRow> current,
-                                          Map<UUID, ScenarioQuestionKey> metadata) {
-        for (var question : requested) {
-            var key = metadata.get(question.id());
-            if (key.sealedCount() != null && key.sealedCount() != key.storedCount())
-                throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
-            requireIdentical(key.storedCount() == question.options().size());
-        }
-        var keys = requested.stream().flatMap(question -> question.options().stream()
-                .map(option -> new JdbcRevisionPointReads.Key(option.id(), question.id()))).toList();
-        var options = new HashMap<UUID, List<QuestionRevision.Option>>();
-        pointReads.readKeys("""
-                SELECT * FROM question_option_revisions FORCE INDEX (PRIMARY)
-                WHERE question_revision_id=:pointParent AND id=:pointId FOR SHARE
-                """, keys, new MapSqlParameterSource(), (row, index) ->
-                new ScenarioOption(uuid(row, "question_revision_id"), option(row)))
-                .forEach(row -> options.computeIfAbsent(row.questionId(), ignored -> new ArrayList<>()).add(row.option()));
-        for (var question : requested) {
-            var stored = current.get(question.id()).question();
-            requireIdentical(withOptions(stored, options.getOrDefault(question.id(), List.of())).equals(question));
+    private void insertScenarioItems(QuizRevision revision) {
+        var parameters = revision.items().stream().map(item -> questionParameters(item.question())
+                .addValue("item", bytes(item.id()))
+                .addValue("revision", bytes(revision.id()))
+                .addValue("position", item.authoredPosition())
+                .addValue("options", PrivateSqlText.of(optionEvidence(item.question().options())))
+                .addValue("storedEvidence", null)).toList();
+        for (int start = 0; start < parameters.size(); start += SQL_BATCH) {
+            int end = Math.min(start + SQL_BATCH, parameters.size());
+            try {
+                batch(INSERT_SCENARIO_ITEM, parameters.subList(start, end));
+            } catch (DataIntegrityViolationException failure) {
+                if (!questionEvidenceMismatch(failure)) throw failure;
+                for (int index = start; index < end; index++) {
+                    var row = parameters.get(index);
+                    try {
+                        jdbc.update(INSERT_SCENARIO_ITEM, row);
+                    } catch (DuplicateKeyException alreadyRecorded) {
+                        // Some JDBC batches retain earlier successful inserts.
+                    } catch (DataIntegrityViolationException mismatch) {
+                        if (!questionEvidenceMismatch(mismatch)) throw mismatch;
+                        row.addValue("storedEvidence", legacyQuestionEvidence(revision.items().get(index).question()));
+                        try {
+                            jdbc.update(INSERT_SCENARIO_ITEM, row);
+                        } catch (DataIntegrityViolationException legacyMismatch) {
+                            if (!questionEvidenceMismatch(legacyMismatch)) throw legacyMismatch;
+                            throw new RevisionIntegrityException(RevisionIntegrityException.Reason.IDENTITY_CONFLICT);
+                        }
+                    }
+                }
+            }
         }
     }
 
-    private Map<UUID, ScenarioQuestionRow> scenarioQuestionRows(List<QuestionRevision> questions) {
-        var current = new HashMap<UUID, ScenarioQuestionRow>();
-        pointReads.readIds("""
-                SELECT * FROM question_revisions FORCE INDEX (PRIMARY) WHERE id=:pointId FOR SHARE
-                """, questions.stream().map(QuestionRevision::id).toList(), new MapSqlParameterSource(),
-                (row, index) -> new ScenarioQuestionRow(question(row), uuid(row, "creating_scenario_revision_id")))
-                .forEach(row -> current.put(row.question().id(), row));
-        requireIdentical(current.size() == questions.size());
-        return current;
+    private byte[] legacyQuestionEvidence(QuestionRevision requested) {
+        // Canonicalize old JSON encodings through the domain model. The foreign key
+        // still verifies that this snapshot's evidence matches the current stored row.
+        var stored = jdbc.query("""
+                SELECT q.*,k.content_evidence,
+                    scenario_question_evidence(q.question_id,q.schema_version,q.question_type,q.difficulty,
+                        q.question_text,q.content,q.hint,q.explanation,q.attachment_url,q.attachment_asset_id,q.created_at)
+                        AS stored_evidence
+                FROM question_revisions q LEFT JOIN quiz_scenario_question_keys k ON k.question_revision_id=q.id
+                WHERE q.id=:id
+                """, Map.of("id", bytes(requested.id())), (row, index) ->
+                new StoredScenarioQuestion(question(row), row.getBytes("stored_evidence"), row.getBytes("content_evidence") != null));
+        requireIdentical(stored.size() == 1);
+        var row = stored.get(0);
+        if (!row.valid()) throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
+        requireIdentical(withOptions(row.question(), requested.options()).equals(requested));
+        return row.evidence();
+    }
+
+    private static boolean questionEvidenceMismatch(DataIntegrityViolationException failure) {
+        if (failure.getCause() instanceof SQLException sqlFailure) {
+            for (var cause : sqlFailure) {
+                if (cause instanceof SQLException sql && sql.getErrorCode() == 1452
+                        && sql.getMessage() != null && sql.getMessage().contains("fk_revision_item_scenario_question")) return true;
+            }
+        }
+        return false;
+    }
+
+    private static String optionEvidence(List<QuestionRevision.Option> options) {
+        try {
+            var digest = MessageDigest.getInstance("SHA-256");
+            var evidence = new StringJoiner(",", "{", "}");
+            var hex = HexFormat.of();
+            var hexIds = hex.withUpperCase();
+            for (var option : options) {
+                // Match V134's exact encoding. Only hexadecimal text is interpolated into JSON.
+                var id = hexIds.formatHex(bytes(option.id()));
+                var text = option.authoredPosition() + ":" + option.sourceKey();
+                var hash = hex.formatHex(digest.digest(text.getBytes(StandardCharsets.UTF_8)));
+                evidence.add("\"" + id + "\":\"" + hash + "\"");
+            }
+            return evidence.toString();
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("Scenario option evidence is unavailable", impossible);
+        }
     }
 
     @Override
@@ -518,8 +586,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
 
     private record ItemRow(UUID rootId, UUID id, int position, QuestionRevision question) { }
     private record ScenarioQuestionKey(UUID id, Integer sealedCount, int storedCount) { }
-    private record ScenarioQuestionRow(QuestionRevision question, UUID creatingScenario) { }
-    private record ScenarioOption(UUID questionId, QuestionRevision.Option option) { }
+    private record StoredScenarioQuestion(QuestionRevision question, byte[] evidence, boolean valid) { }
     private record Root(UUID id, UUID quizId, UUID ownerId, int schemaVersion, String title, String description,
                         java.time.Instant createdAt, int sectionCount, int caseCount) { }
 }
