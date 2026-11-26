@@ -86,6 +86,10 @@ class ScenarioGraphMySqlIntegrationTest {
     private static DataSourceTransactionManager manager;
     private static List<Map<String, Object>> beforeUpgrade;
     private static QuizRevision retainedV128;
+    private static final List<QuizRevision> DURING_V131 = List.of(
+            scenario("v131-before-question-tracking", 1, CONDITION),
+            scenario("v131-before-option-tracking", 1, CONDITION),
+            scenario("v131-after-tracking", 1, CONDITION));
     private static boolean created;
     private QuizRevisionRepository repository;
     private QuizScenarioRevisionService publisher;
@@ -123,7 +127,20 @@ class ScenarioGraphMySqlIntegrationTest {
         seal(retainedV128.id(), legacyEntry);
         migrate("129");
         migrate("130");
+        // Flyway and the previous publisher use different connections, as in a rolling deployment.
+        source.before = (statement, connection) -> {
+            if (statement.stripLeading().startsWith("CREATE TRIGGER scenario_question_track_insert "))
+                baseline.insert(quiz("v131-no-tracking-key", legacyQuestion(DURING_V131.get(0))));
+            if (statement.stripLeading().startsWith("CREATE TRIGGER scenario_question_option_insert "))
+                baseline.insert(quiz("v131-zero-tracking-count", legacyQuestion(DURING_V131.get(1))));
+        };
         migrate("131");
+        source.reset();
+        baseline.insert(quiz("v131-complete-tracking", legacyQuestion(DURING_V131.get(2))));
+        assertThat(trackedOptionCounts(DURING_V131.get(0))).isEmpty();
+        assertThat(trackedOptionCounts(DURING_V131.get(1))).containsExactly(0);
+        assertThat(trackedOptionCounts(DURING_V131.get(2))).containsExactly(2);
+        migrate("132");
     }
 
     @BeforeEach void start() {
@@ -142,7 +159,7 @@ class ScenarioGraphMySqlIntegrationTest {
     }
 
     @Test void migrationPreservesOldFormatsAndOldReadsDoNotLoadGraphTables() {
-        migrate("131");
+        migrate("132");
         assertThat(rootRows()).usingRecursiveComparison().isEqualTo(beforeUpgrade);
         List<UUID> ids = PREVIOUS_FORMATS.stream().map(QuizRevision::id).toList();
         assertThat(repository.findByIds(OWNER, ids)).containsExactlyElementsOf(PREVIOUS_FORMATS);
@@ -154,9 +171,25 @@ class ScenarioGraphMySqlIntegrationTest {
         assertThat(repository.findById(OWNER, ids.get(0))).contains(PREVIOUS_FORMATS.get(0));
         assertThat(source.selects).hasValue(3);
         assertThat(repository.findById(OWNER, retainedV128.id())).contains(retainedV128);
+        assertThat(hasReplayFingerprint(retainedV128.id())).isFalse();
+        rejected(() -> publisher.publish(OWNER, replaceFirstQuestion(retainedV128,
+                withOptionKey(legacyQuestion(retainedV128), "different-legacy-option"))), "IDENTITY_CONFLICT");
+        assertThat(hasReplayFingerprint(retainedV128.id())).isFalse();
         assertThat(publisher.publish(OWNER, retainedV128)).isEqualTo(retainedV128);
+        assertThat(hasReplayFingerprint(retainedV128.id())).isTrue();
         assertThat(count(PUBLICATION_KEYS, retainedV128.id())).isOne();
         assertThat(questionOptionCount(legacyQuestion(retainedV128).id())).isEqualTo(2);
+    }
+
+    @Test void migrationReconcilesQuestionPublicationsBetweenV131TriggerInstalls() {
+        for (var graph : DURING_V131) {
+            assertThat(trackedOptionCounts(graph)).containsExactly(2);
+            assertThat(questionOptionCount(legacyQuestion(graph).id())).isNull();
+            var published = repeatableRead().execute(status -> publisher.publish(OWNER, graph));
+            assertThat(published).isEqualTo(graph);
+            assertThat(questionOptionCount(legacyQuestion(graph).id())).isEqualTo(2);
+            assertThat(repository.findById(OWNER, graph.id())).contains(graph);
+        }
     }
 
     @Test void publishesOneGraphOnExactReplayAndRetainsOriginalAfterEditAndRestart() {
@@ -242,11 +275,18 @@ class ScenarioGraphMySqlIntegrationTest {
         }
     }
 
-    @Test void heldReplayOf512QuestionsAllowsOneNewQuestionAboveItsKeys() throws Exception {
-        var published = scenario("large-held-replay", 512, CONDITION);
+    @Test void heldReplayOf512QuestionsAllowsOneNewQuestionBetweenOrAboveItsKeys() throws Exception {
+        var published = scenario("dense-replay", 512, CONDITION);
         assertThat(publisher.publish(OWNER, published)).isEqualTo(published);
-        var peer = publicationWithOneQuestion("one-above-held", id("one-above-owner"), new UUID(-1L, -1L));
-        assertIndependentWhileHeld(published, peer, QUESTION_KEYS);
+        var peers = new ArrayList<QuizRevision>();
+        // Adjacent UUIDs inside the populated index, exercising both reported MySQL layouts.
+        for (int position : List.of(28, 374)) {
+            var neighbor = published.items().get(position).question().id();
+            var next = new UUID(neighbor.getMostSignificantBits(), neighbor.getLeastSignificantBits() ^ 1);
+            peers.add(publicationWithOneQuestion("one-near-held-" + position, id("near-owner-" + position), next));
+        }
+        peers.add(publicationWithOneQuestion("one-above-held", id("one-above-owner"), new UUID(-1L, -1L)));
+        assertIndependentWhileHeld(published, peers, null);
     }
 
     @Test void firstUseOfOrdinaryQuestionDoesNotBlockAnotherQuestionsOptions() throws Exception {
@@ -256,11 +296,11 @@ class ScenarioGraphMySqlIntegrationTest {
         assertThat(questionOptionCount(legacyQuestion(ordinary).id())).isNull();
         var peer = publicationWithOneQuestion("one-after-adoption", id("after-adoption-owner"),
                 new UUID(-1L, -9L));
-        assertIndependentWhileHeld(held, peer, "question_option_revisions");
+        assertIndependentWhileHeld(held, List.of(peer), "question_option_revisions");
         assertThat(questionOptionCount(legacyQuestion(ordinary).id())).isEqualTo(2);
     }
 
-    private void assertIndependentWhileHeld(QuizRevision held, QuizRevision peer, String measuredTable) throws Exception {
+    private void assertIndependentWhileHeld(QuizRevision held, List<QuizRevision> peers, String adoptionTable) throws Exception {
         var ready = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var connection = new AtomicLong();
@@ -274,18 +314,26 @@ class ScenarioGraphMySqlIntegrationTest {
             }));
             awaitGate(ready, "the first publication call has returned");
             var locks = admin.queryForList("""
-                    SELECT l.LOCK_MODE, l.LOCK_DATA FROM performance_schema.data_locks l
+                    SELECT l.OBJECT_NAME, l.LOCK_MODE, l.LOCK_DATA FROM performance_schema.data_locks l
                     JOIN performance_schema.threads t ON t.THREAD_ID=l.THREAD_ID
-                    WHERE t.PROCESSLIST_ID=? AND l.OBJECT_SCHEMA=? AND l.OBJECT_NAME=? AND l.LOCK_TYPE='RECORD'
-                    """, connection.get(), CATALOG, measuredTable);
+                    WHERE t.PROCESSLIST_ID=? AND l.OBJECT_SCHEMA=? AND l.LOCK_TYPE='RECORD'
+                      AND (? IS NULL OR l.OBJECT_NAME=?)
+                    """, connection.get(), CATALOG, adoptionTable, adoptionTable);
+            if (adoptionTable == null)
+                assertThat(locks).extracting(lock -> lock.get("OBJECT_NAME")).containsOnly(PUBLICATION_KEYS);
             assertThat(locks).isNotEmpty().allSatisfy(lock -> {
                 assertThat((String) lock.get("LOCK_MODE")).contains("REC_NOT_GAP");
                 assertThat(String.valueOf(lock.get("LOCK_DATA"))).doesNotContain("supremum");
             });
-            var other = workers.submit(() -> publisher.publish(peer.ownerId(), peer));
-            assertThat(other.get(30, TimeUnit.SECONDS)).isEqualTo(peer);
-            assertThat(waiting.isDone()).isFalse();
-            assertThat(repository.findById(peer.ownerId(), peer.id())).contains(peer);
+            for (var peer : peers) {
+                var other = workers.submit(() -> fresh().execute(status -> {
+                    sql.execute("SET SESSION innodb_lock_wait_timeout=2");
+                    return publisher.publish(peer.ownerId(), peer);
+                }));
+                assertThat(other.get(30, TimeUnit.SECONDS)).isEqualTo(peer);
+                assertThat(waiting.isDone()).isFalse();
+                assertThat(repository.findById(peer.ownerId(), peer.id())).contains(peer);
+            }
             release.countDown();
             waiting.get(30, TimeUnit.SECONDS);
             assertThat(repository.findById(held.ownerId(), held.id())).contains(held);
@@ -318,6 +366,11 @@ class ScenarioGraphMySqlIntegrationTest {
                 question.id().toString()));
         sqlRejected(() -> sql.update("DELETE FROM " + QUESTION_KEYS + " WHERE question_revision_id=UUID_TO_BIN(?)",
                 question.id().toString()));
+        sqlRejected(() -> sql.update("UPDATE question_revisions SET question_text=CONCAT(question_text,' ') WHERE id=UUID_TO_BIN(?)",
+                question.id().toString()));
+        sqlRejected(() -> sql.update("UPDATE " + PUBLICATION_KEYS + " SET replay_sha256=NULL" + WHERE_REVISION,
+                revision.id().toString()));
+        sqlRejected(() -> sql.update("DELETE FROM " + PUBLICATION_KEYS + WHERE_REVISION, revision.id().toString()));
         assertThat(repository.findById(OWNER, revision.id())).contains(revision);
         assertThat(publisher.publish(OWNER, revision)).isEqualTo(revision);
     }
@@ -566,7 +619,7 @@ class ScenarioGraphMySqlIntegrationTest {
             assertThat(source.selects).hasValue(6);
             source.selects.set(0);
             assertThat(publisher.publish(OWNER, revisions.get(0))).isEqualTo(revisions.get(0));
-            assertThat(source.selects).hasValue(9);
+            assertThat(source.selects).hasValue(1);
             for (String table : GRAPH_TABLES) {
                 assertThat(sql.queryForList("EXPLAIN SELECT * FROM " + table + WHERE_REVISION, ids.get(0).toString()))
                         .singleElement().satisfies(row -> assertThat(row.get("key")).isNotNull());
@@ -779,6 +832,17 @@ class ScenarioGraphMySqlIntegrationTest {
         var rows = sql.queryForList("SELECT option_count FROM " + QUESTION_KEYS + " WHERE question_revision_id=UUID_TO_BIN(?)",
                 Integer.class, questionId.toString());
         return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    private static List<Integer> trackedOptionCounts(QuizRevision graph) {
+        return sql.queryForList("SELECT stored_option_count FROM " + QUESTION_KEYS + " WHERE question_revision_id=UUID_TO_BIN(?)",
+                Integer.class, legacyQuestion(graph).id().toString());
+    }
+
+    private static boolean hasReplayFingerprint(UUID revisionId) {
+        return Boolean.TRUE.equals(sql.queryForObject(
+                "SELECT replay_sha256 IS NOT NULL FROM " + PUBLICATION_KEYS + WHERE_REVISION,
+                Boolean.class, revisionId.toString()));
     }
 
     private static void insertNode(UUID root, UUID node, int position, String type, UUID item) {

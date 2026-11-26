@@ -23,6 +23,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityEx
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
 
 import java.nio.ByteBuffer;
+import java.security.MessageDigest;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -30,7 +31,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,8 +87,14 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
         if (revision == null || revision.scenarioGraph() == null)
             throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_CONTENT);
         try {
-            if (scenarioGraphs.lockPublication(revision.id())) {
-                compareScenarioReplay(revision);
+            byte[] fingerprint = ScenarioReplayFingerprint.of(revision);
+            var publication = scenarioGraphs.lockPublication(revision.id());
+            if (publication.published()) {
+                if (publication.fingerprint() == null) {
+                    adoptLegacyScenarioReplay(revision, fingerprint);
+                } else {
+                    requireIdentical(MessageDigest.isEqual(publication.fingerprint(), fingerprint));
+                }
                 return new ScenarioPublication(revision, true);
             }
             // A collision on the quiz revision itself is permanent. Other SQL failures retain
@@ -100,7 +106,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
             }
             storeScenarioQuestions(revision);
             insertMembership(revision);
-            scenarioGraphs.recordPublication(revision.id());
+            scenarioGraphs.recordPublication(revision.id(), fingerprint);
             return new ScenarioPublication(revision, false);
         } catch (RevisionIntegrityException failure) {
             throw failure;
@@ -173,30 +179,28 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
         scenarioGraphs.insertAndSeal(revision);
     }
 
-    private void compareScenarioReplay(QuizRevision revision) {
-        var parameters = new MapSqlParameterSource("revision", bytes(revision.id()));
-        var roots = jdbc.query("""
-                SELECT id,quiz_id,owner_id,schema_version,title,description,created_at
-                FROM quiz_revisions WHERE id=:revision FOR SHARE
-                """, parameters, (row, index) -> new Root(uuid(row, "id"), uuid(row, "quiz_id"),
-                uuid(row, "owner_id"), row.getInt("schema_version"), row.getString("title"),
-                row.getString("description"), row.getTimestamp("created_at").toInstant(), 0, 0));
-        var requestedRoot = new Root(revision.id(), revision.quizId(), revision.ownerId(), revision.schemaVersion(),
-                revision.title(), revision.description(), revision.createdAt(), 0, 0);
-        requireIdentical(roots.size() == 1 && roots.get(0).equals(requestedRoot));
-        scenarioGraphs.compareSealedGraph(revision);
+    private void adoptLegacyScenarioReplay(QuizRevision revision, byte[] fingerprint) {
+        // These graphs were sealed before replay fingerprints were introduced. Read their
+        // immutable rows through MVCC while holding only this revision's publication key.
+        var stored = read(revision.ownerId(), List.of(revision.id()), false);
+        requireIdentical(stored.size() == 1);
 
-        var items = pointReads.readIds("""
-                SELECT id,question_revision_id,authored_position FROM quiz_revision_items FORCE INDEX (PRIMARY)
-                WHERE quiz_revision_id=:revision AND id=:pointId FOR SHARE
-                """, revision.items().stream().map(QuizRevision.Item::id).toList(), parameters, (row, index) ->
-                new ScenarioItem(uuid(row, "id"), uuid(row, "question_revision_id"), row.getInt("authored_position")));
-        var stored = new HashSet<>(items);
-        requireIdentical(stored.size() == revision.items().size() && revision.items().stream().allMatch(item ->
-                stored.contains(new ScenarioItem(item.id(), item.question().id(), item.authoredPosition()))));
-        var questions = orderedQuestions(questions(revision).values());
-        var current = scenarioQuestionRows(questions);
-        compareScenarioQuestions(questions, current, scenarioQuestionKeys(questions), true);
+        var keys = jdbc.query("""
+                SELECT DISTINCT k.question_revision_id,k.option_count,k.stored_option_count
+                FROM quiz_revision_items i LEFT JOIN quiz_scenario_question_keys k
+                    ON k.question_revision_id=i.question_revision_id
+                WHERE i.quiz_revision_id=:revision
+                """, Map.of("revision", bytes(revision.id())), (row, index) ->
+                new ScenarioQuestionKey(uuid(row, "question_revision_id"),
+                        row.getObject("option_count", Integer.class), row.getInt("stored_option_count")));
+        var questions = questions(stored.get(0));
+        if (keys.size() != questions.size() || keys.stream().anyMatch(key ->
+                key.id() == null || key.sealedCount() == null || key.sealedCount() != key.storedCount()
+                        || key.storedCount() != questions.get(key.id()).options().size())) {
+            throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
+        }
+        requireIdentical(stored.get(0).equals(revision));
+        scenarioGraphs.recordPublication(revision.id(), fingerprint);
     }
 
     private void storeScenarioQuestions(QuizRevision revision) {
@@ -216,7 +220,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
             if (revision.id().equals(row.creatingScenario())) additions.add(question);
             else previous.add(question);
         }
-        compareScenarioQuestions(previous, current, keys, false);
+        compareScenarioQuestions(previous, current, keys);
         insertOptions(additions);
         batch("""
                 UPDATE quiz_scenario_question_keys SET option_count=:count
@@ -246,11 +250,10 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
     }
 
     private void compareScenarioQuestions(List<QuestionRevision> requested, Map<UUID, ScenarioQuestionRow> current,
-                                          Map<UUID, ScenarioQuestionKey> metadata, boolean replay) {
+                                          Map<UUID, ScenarioQuestionKey> metadata) {
         for (var question : requested) {
             var key = metadata.get(question.id());
-            if ((replay && key.sealedCount() == null)
-                    || (key.sealedCount() != null && key.sealedCount() != key.storedCount()))
+            if (key.sealedCount() != null && key.sealedCount() != key.storedCount())
                 throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
             requireIdentical(key.storedCount() == question.options().size());
         }
@@ -514,7 +517,6 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
     }
 
     private record ItemRow(UUID rootId, UUID id, int position, QuestionRevision question) { }
-    private record ScenarioItem(UUID id, UUID questionId, int position) { }
     private record ScenarioQuestionKey(UUID id, Integer sealedCount, int storedCount) { }
     private record ScenarioQuestionRow(QuestionRevision question, UUID creatingScenario) { }
     private record ScenarioOption(UUID questionId, QuestionRevision.Option option) { }

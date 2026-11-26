@@ -13,7 +13,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.function.Function;
 
 import static uk.gegc.quizmaker.features.quiz.infra.repository.JdbcQuizRevisionRepository.binaryIds;
 import static uk.gegc.quizmaker.features.quiz.infra.repository.JdbcQuizRevisionRepository.bytes;
@@ -22,30 +21,28 @@ import static uk.gegc.quizmaker.features.quiz.infra.repository.JdbcQuizRevisionR
 /** Part of the revision aggregate, with no transaction or writer of its own. */
 final class JdbcScenarioGraphs {
     private final NamedParameterJdbcTemplate jdbc;
-    private final JdbcRevisionPointReads pointReads;
 
     JdbcScenarioGraphs(NamedParameterJdbcTemplate jdbc) {
         this.jdbc = jdbc;
-        this.pointReads = new JdbcRevisionPointReads(jdbc);
     }
 
-    boolean lockPublication(UUID revisionId) {
+    Publication lockPublication(UUID revisionId) {
         var parameters = parameters(revisionId);
         jdbc.update("""
                 INSERT INTO quiz_scenario_publication_keys (quiz_revision_id) VALUES (:revision)
                 ON DUPLICATE KEY UPDATE quiz_revision_id=quiz_scenario_publication_keys.quiz_revision_id
                 """, parameters);
-        return Boolean.TRUE.equals(jdbc.queryForObject("""
-                SELECT published_revision_id IS NOT NULL FROM quiz_scenario_publication_keys
-                WHERE quiz_revision_id=:revision FOR UPDATE
-                """, parameters, Boolean.class));
+        return jdbc.queryForObject("""
+                SELECT published_revision_id IS NOT NULL AS published,replay_sha256
+                FROM quiz_scenario_publication_keys WHERE quiz_revision_id=:revision FOR UPDATE
+                """, parameters, (row, index) -> new Publication(row.getBoolean("published"), row.getBytes("replay_sha256")));
     }
 
-    void recordPublication(UUID revisionId) {
+    void recordPublication(UUID revisionId, byte[] fingerprint) {
         jdbc.update("""
-                UPDATE quiz_scenario_publication_keys SET published_revision_id=quiz_revision_id
+                UPDATE quiz_scenario_publication_keys SET published_revision_id=quiz_revision_id,replay_sha256=:fingerprint
                 WHERE quiz_revision_id=:revision
-                """, parameters(revisionId));
+                """, parameters(revisionId).addValue("fingerprint", fingerprint));
     }
 
     void begin(QuizRevision revision) {
@@ -84,29 +81,6 @@ final class JdbcScenarioGraphs {
 
         jdbc.update("UPDATE quiz_scenario_graphs SET entry_node_id=:entry WHERE quiz_revision_id=:revision",
                 parameters(root).addValue("entry", bytes(graph.entryNodeId())));
-    }
-
-    void compareSealedGraph(QuizRevision revision) {
-        var graph = revision.scenarioGraph();
-        var parameters = parameters(revision.id());
-        Header header = jdbc.queryForObject("""
-                SELECT quiz_revision_id,schema_version,entry_node_id,item_count,node_count,edge_count
-                FROM quiz_scenario_graphs WHERE quiz_revision_id=:revision FOR SHARE
-                """, parameters, (row, index) -> header(row));
-        require(header != null && header.entry() != null);
-        requireIdentical(header.version() == graph.schemaVersion() && header.entry().equals(graph.entryNodeId())
-                && header.items() == revision.items().size()
-                && header.nodes() == graph.nodes().size() && header.edges() == graph.edges().size());
-        var nodes = pointReads.readIds("""
-                SELECT * FROM quiz_scenario_nodes FORCE INDEX (PRIMARY)
-                WHERE quiz_revision_id=:revision AND id=:pointId FOR SHARE
-                """, graph.nodes().stream().map(ScenarioGraph.Node::id).toList(), parameters, (row, index) -> node(row));
-        var edges = pointReads.readIds("""
-                SELECT * FROM quiz_scenario_edges FORCE INDEX (PRIMARY)
-                WHERE quiz_revision_id=:revision AND id=:pointId FOR SHARE
-                """, graph.edges().stream().map(ScenarioGraph.Edge::id).toList(), parameters, (row, index) -> edge(row));
-        requireIdentical(sameRows(nodes, graph.nodes(), ScenarioGraph.Node::id)
-                && sameRows(edges, graph.edges(), ScenarioGraph.Edge::id));
     }
 
     Map<UUID, ScenarioGraph> read(List<UUID> roots, Map<UUID, List<QuizRevision.Item>> items, boolean current) {
@@ -167,13 +141,6 @@ final class JdbcScenarioGraphs {
         rows.computeIfAbsent(uuid(row, "quiz_revision_id"), ignored -> new ArrayList<>()).add(value);
     }
 
-    private static <T> boolean sameRows(List<T> stored, List<T> requested, Function<T, UUID> identity) {
-        if (stored.size() != requested.size()) return false;
-        var byId = new HashMap<UUID, T>();
-        stored.forEach(row -> byId.put(identity.apply(row), row));
-        return requested.stream().allMatch(row -> row.equals(byId.get(identity.apply(row))));
-    }
-
     private static MapSqlParameterSource parameters(UUID root) {
         return new MapSqlParameterSource("revision", bytes(root));
     }
@@ -181,6 +148,8 @@ final class JdbcScenarioGraphs {
     private static void require(boolean valid) {
         if (!valid) throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
     }
+
+    record Publication(boolean published, byte[] fingerprint) { }
 
     private record Header(UUID root, int version, UUID entry, int items, int nodes, int edges) { }
 }
