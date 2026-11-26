@@ -360,6 +360,33 @@ class ScenarioGraphMySqlIntegrationTest {
                 reordered.replace("\"big\":", "\"big\":0,\"big\":"))).isFalse();
         assertThat(sql.queryForObject(same, Boolean.class, "{\"n\":1e999,\"b\":true}",
                 "{\"b\":true,\"n\":1e999}")).isTrue();
+        assertThat(sql.queryForObject(same, Boolean.class, "{\"n\":42,\"s\":\"\\u001e\\u001f\"}",
+                "{\"s\":\"\\u001e\\u001f\",\"n\":42}")).isTrue();
+        String normalize = "SELECT scenario_ordered_question_json(?)";
+        assertThat(sql.queryForObject(normalize, String.class, "{\"n\":00}")).isNull();
+        assertThat(sql.queryForObject(normalize, String.class, "{42 \t:true}")).isNull();
+        assertThat(sql.queryForObject(normalize, String.class, "{\"n\":" + (char) 30 + "42" + (char) 31 + "}")).isNull();
+    }
+
+    @Test void largeJsonQuestionRetainsItsProofOnlyForEquivalentUpdates() {
+        var template = legacyQuestion(scenario("large-json-update", 1, CONDITION));
+        String entries = String.join(",", IntStream.range(0, 1024)
+                .mapToObj(index -> "{\"id\":" + index + ",\"label\":\"word\",\"value\":" + index + "}")
+                .toList());
+        String content = "{\"list\":[" + entries + "],\"ready\":true}";
+        var question = new QuestionRevision(template.id(), template.questionId(), template.schemaVersion(), template.type(),
+                template.difficulty(), template.questionText(), content, null, null, null, null, template.createdAt(), template.options());
+        repository.insert(quiz("large-json-update-ordinary", question));
+
+        String id = question.id().toString();
+        String evidence = "SELECT question_evidence FROM quiz_scenario_question_keys WHERE question_revision_id=UUID_TO_BIN(?)";
+        String update = "UPDATE question_revisions SET content=? WHERE id=UUID_TO_BIN(?)";
+        byte[] original = sql.queryForObject(evidence, byte[].class, id);
+        assertThat(original).hasSize(32);
+        assertThat(sql.update(update, "{\"ready\":true,\"list\":[" + entries + "]}", id)).isOne();
+        assertThat(sql.queryForObject(evidence, byte[].class, id)).isEqualTo(original);
+        assertThat(sql.update(update, "{\"ready\":false,\"list\":[" + entries + "]}", id)).isOne();
+        assertThat(sql.queryForObject(evidence, byte[].class, id)).isNotEqualTo(original);
     }
 
     @Test void questionsBeyondTheNativeJsonNestingLimitKeepTheWhitespaceComparison() {

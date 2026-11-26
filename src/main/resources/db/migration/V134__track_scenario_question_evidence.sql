@@ -34,36 +34,30 @@ CREATE FUNCTION scenario_ordered_question_json(payload LONGTEXT CHARACTER SET ut
 RETURNS LONGTEXT CHARACTER SET utf8mb4 DETERMINISTIC NO SQL
 BEGIN
     DECLARE slash CHAR(1) CHARACTER SET utf8mb4 DEFAULT CHAR(92 USING utf8mb4);
-    DECLARE quoted VARCHAR(80) CHARACTER SET utf8mb4 DEFAULT CONCAT('"(?:[^"', slash, slash, ']++|', slash, slash, '.)*+"');
-    DECLARE tokens VARCHAR(160) CHARACTER SET utf8mb4 DEFAULT CONCAT(quoted, '|-?(?:0|[1-9][0-9]*)(?:[.][0-9]+)?(?:[eE][+-]?[0-9]+)?');
-    DECLARE offset_chars INT DEFAULT 1;
-    DECLARE token_start INT;
-    DECLARE token_text LONGTEXT CHARACTER SET utf8mb4;
-    DECLARE tagged LONGTEXT CHARACTER SET utf8mb4 DEFAULT '';
+    DECLARE string_body VARCHAR(80) CHARACTER SET utf8mb4 DEFAULT CONCAT('(?:[^"', slash, slash, ']++|', slash, slash, '.)*+');
+    DECLARE quoted VARCHAR(80) CHARACTER SET utf8mb4 DEFAULT CONCAT('"', string_body, '"');
+    DECLARE number_pattern VARCHAR(80) CHARACTER SET utf8mb4 DEFAULT '-?(?:0|[1-9][0-9]*)(?:[.][0-9]+)?(?:[eE][+-]?[0-9]+)?';
+    DECLARE number_start CHAR(1) CHARACTER SET utf8mb4 DEFAULT CHAR(30 USING utf8mb4);
+    DECLARE number_end CHAR(1) CHARACTER SET utf8mb4 DEFAULT CHAR(31 USING utf8mb4);
+    DECLARE tagged LONGTEXT CHARACTER SET utf8mb4;
     DECLARE punctuation LONGTEXT CHARACTER SET utf8mb4;
     DECLARE member_count INT;
     DECLARE normalized LONGTEXT CHARACTER SET utf8mb4;
     -- LONGTEXT questions may exceed native JSON's size, key or nesting limits.
     DECLARE EXIT HANDLER FOR 3150,3151,3157 RETURN NULL;
 
-    WHILE offset_chars<=CHAR_LENGTH(payload) DO
-        SET token_start=REGEXP_INSTR(payload, tokens, offset_chars, 1, 0, 'cn');
-        IF token_start=0 THEN
-            SET tagged=CONCAT(tagged,SUBSTRING(payload,offset_chars));
-            SET offset_chars=CHAR_LENGTH(payload)+1;
-        ELSE
-            SET token_text=REGEXP_SUBSTR(payload,tokens,token_start,1,'cn');
-            SET tagged=CONCAT(tagged,SUBSTRING(payload,offset_chars,token_start-offset_chars));
-            SET offset_chars=token_start+CHAR_LENGTH(token_text);
-            IF LEFT(token_text,1)='"' THEN
-                SET tagged=CONCAT(tagged,'"s',SUBSTRING(token_text,2));
-            ELSEIF SUBSTRING(payload,offset_chars,1)=':' THEN
-                RETURN NULL;
-            ELSE
-                SET tagged=CONCAT(tagged,'"n',token_text,'"');
-            END IF;
-        END IF;
-    END WHILE;
+    -- Unescaped control characters are invalid JSON and reserved for numeric tokens.
+    IF LOCATE(CAST(number_start AS BINARY),CAST(payload AS BINARY))>0
+        OR LOCATE(CAST(number_end AS BINARY),CAST(payload AS BINARY))>0 THEN RETURN NULL; END IF;
+
+    SET tagged=REGEXP_REPLACE(payload,CONCAT('"(',string_body,')"'),'"s$1"',1,0,'cn');
+    -- The string branch keeps the whole quoted token and emits an empty marker pair.
+    -- Distinct markers prevent adjacent numeric tokens from being joined.
+    SET tagged=REGEXP_REPLACE(tagged,CONCAT('(',quoted,')|(',number_pattern,')'),
+        CONCAT('$1',number_start,'$2',number_end),1,0,'cn');
+    SET tagged=REPLACE(tagged,CONCAT(number_start,number_end),'');
+    IF REGEXP_LIKE(tagged,CONCAT(number_end,'[',CHAR(32,9,10,13 USING utf8mb4),']*:'),'c') THEN RETURN NULL; END IF;
+    SET tagged=REPLACE(REPLACE(tagged,number_start,'"n'),number_end,'"');
     IF NOT JSON_VALID(tagged) THEN RETURN NULL; END IF;
     SET punctuation=REGEXP_REPLACE(tagged,quoted,'',1,0,'cn');
     SET member_count=CHAR_LENGTH(punctuation)-CHAR_LENGTH(REPLACE(punctuation,':',''));
