@@ -23,6 +23,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -72,6 +73,7 @@ class ScenarioGraphMySqlIntegrationTest {
     private static final String WHERE_REVISION = " WHERE quiz_revision_id=UUID_TO_BIN(?)";
     private static final List<String> GRAPH_TABLES = List.of("quiz_scenario_graphs", "quiz_scenario_nodes", "quiz_scenario_edges");
     private static final String PUBLICATION_KEYS = "quiz_scenario_publication_keys";
+    private static final String QUESTION_KEYS = "quiz_scenario_question_keys";
     private static final List<QuizRevision> PREVIOUS_FORMATS = List.of(
             quiz("scenario-upgrade", question("scenario-upgrade")),
             QuizRevisionSectionsTest.structured("scenario-upgrade-sections"),
@@ -106,14 +108,19 @@ class ScenarioGraphMySqlIntegrationTest {
         beforeUpgrade = rootRows();
         migrate("128");
         var legacyEntry = id("scenario-v128-entry");
+        var legacyItem = PREVIOUS_FORMATS.get(0).items().get(0);
         retainedV128 = new QuizRevision(id("scenario-v128"), id("scenario-v128-quiz"), OWNER, QuizRevision.SCENARIO_FORMAT,
-                "Previously sealed graph", null, CREATED, List.of(), List.of(), List.of(),
+                "Previously sealed graph", null, CREATED, List.of(legacyItem), List.of(), List.of(),
                 new ScenarioGraph(1, legacyEntry,
-                        List.of(new ScenarioGraph.Node(legacyEntry, 0, ScenarioGraph.NodeType.TERMINAL, null)), List.of()));
-        insertUnsealed(retainedV128.id(), retainedV128.quizId(), retainedV128.title());
-        insertNode(retainedV128.id(), legacyEntry, 0, "TERMINAL", null);
+                        List.of(new ScenarioGraph.Node(legacyEntry, 0, ScenarioGraph.NodeType.ITEM, legacyItem.id())), List.of()));
+        insertUnsealed(retainedV128.id(), retainedV128.quizId(), retainedV128.title(), 1);
+        sql.update("INSERT INTO quiz_revision_items VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),?)",
+                legacyItem.id().toString(), retainedV128.id().toString(), legacyItem.question().id().toString(),
+                legacyItem.authoredPosition());
+        insertNode(retainedV128.id(), legacyEntry, 0, "ITEM", legacyItem.id());
         seal(retainedV128.id(), legacyEntry);
         migrate("129");
+        migrate("130");
     }
 
     @BeforeEach void start() {
@@ -132,7 +139,7 @@ class ScenarioGraphMySqlIntegrationTest {
     }
 
     @Test void migrationPreservesOldFormatsAndOldReadsDoNotLoadGraphTables() {
-        migrate("129");
+        migrate("130");
         assertThat(rootRows()).usingRecursiveComparison().isEqualTo(beforeUpgrade);
         List<UUID> ids = PREVIOUS_FORMATS.stream().map(QuizRevision::id).toList();
         assertThat(repository.findByIds(OWNER, ids)).containsExactlyElementsOf(PREVIOUS_FORMATS);
@@ -146,6 +153,7 @@ class ScenarioGraphMySqlIntegrationTest {
         assertThat(repository.findById(OWNER, retainedV128.id())).contains(retainedV128);
         assertThat(publisher.publish(OWNER, retainedV128)).isEqualTo(retainedV128);
         assertThat(count(PUBLICATION_KEYS, retainedV128.id())).isOne();
+        assertThat(questionOptionCount(legacyQuestion(retainedV128).id())).isEqualTo(2);
     }
 
     @Test void publishesOneGraphOnExactReplayAndRetainsOriginalAfterEditAndRestart() {
@@ -168,18 +176,20 @@ class ScenarioGraphMySqlIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"quiz_scenario_nodes", "quiz_scenario_edges", "quiz_scenario_graphs"})
+    @ValueSource(strings = {"quiz_scenario_nodes", "quiz_scenario_edges", "quiz_scenario_graphs", PUBLICATION_KEYS})
     void reachedGraphWriteFailureRollsBackEntireRevisionAndRetrySucceeds(String table) {
         var revision = scenario("scenario-fault-" + table, 3, CONDITION);
         var reached = new AtomicBoolean();
         source.after = (statement, connection) -> {
-            String write = table.equals("quiz_scenario_graphs") ? "UPDATE " : "INSERT INTO ";
+            String write = table.equals("quiz_scenario_graphs") || table.equals(PUBLICATION_KEYS) ? "UPDATE " : "INSERT INTO ";
             if (statement.startsWith(write + table)) {
                 reached.set(true);
                 throw new SQLException("private scenario fault", "HYT00");
             }
         };
-        rejected(() -> publisher.publish(OWNER, revision), "PERSISTENCE_UNAVAILABLE");
+        assertThatThrownBy(() -> repeatableRead().executeWithoutResult(status ->
+                rejected(() -> publisher.publish(OWNER, revision), "PERSISTENCE_UNAVAILABLE")))
+                .isInstanceOf(UnexpectedRollbackException.class);
         assertThat(reached).isTrue();
         source.reset();
 
@@ -189,12 +199,127 @@ class ScenarioGraphMySqlIntegrationTest {
             assertThat(count(PUBLICATION_KEYS, revision.id())).isZero();
             for (String graphTable : GRAPH_TABLES) assertThat(count(graphTable, revision.id())).isZero();
             for (var item : revision.items()) {
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM " + QUESTION_KEYS + " WHERE question_revision_id=UUID_TO_BIN(?)",
+                        Integer.class, item.question().id().toString())).isZero();
                 assertThat(sql.queryForObject("SELECT COUNT(*) FROM question_revisions WHERE id=UUID_TO_BIN(?)",
                         Integer.class, item.question().id().toString())).isZero();
             }
         });
         assertThat(publisher.publish(OWNER, revision)).isEqualTo(revision);
         assertThat(repository.findById(OWNER, revision.id())).contains(revision);
+    }
+
+    @Test void unrelatedAuthorPublishesOnBothSidesOfHeldRepeatableReadReplay() throws Exception {
+        var held = independentScenario("held-replay", 20L, OWNER);
+        var before = independentScenario("before-replay", 10L, id("before-owner"));
+        var after = independentScenario("after-replay", 30L, id("after-owner"));
+        publisher.publish(held.ownerId(), held);
+        var completed = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var replay = workers.submit(() -> repeatableRead().executeWithoutResult(status -> {
+                assertThat(publisher.publish(held.ownerId(), held)).isEqualTo(held);
+                completed.countDown();
+                awaitGate(release, "release replay transaction");
+            }));
+            awaitGate(completed, "exact replay has completed");
+            var peers = workers.submit(() -> List.of(publisher.publish(before.ownerId(), before),
+                    publisher.publish(after.ownerId(), after)));
+            assertThat(peers.get(30, TimeUnit.SECONDS)).containsExactly(before, after);
+            assertThat(replay.isDone()).isFalse();
+            assertThat(repository.findById(before.ownerId(), before.id())).contains(before);
+            assertThat(repository.findById(after.ownerId(), after.id())).contains(after);
+            release.countDown();
+            replay.get(30, TimeUnit.SECONDS);
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+            assertThat(workers.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void twoDifferentGraphsCanShareOneQuestionOnlyIfItsContentMatches(boolean sameQuestion) throws Exception {
+        var left = scenario("shared-question-left-" + sameQuestion, 2, CONDITION);
+        var question = legacyQuestion(left);
+        var right = replaceFirstQuestion(scenario("shared-question-right-" + sameQuestion, 2, CONDITION),
+                sameQuestion ? question : withOptionKey(question, "different-option-key"));
+        var atKey = new CountDownLatch(2);
+        var release = new CountDownLatch(1);
+        source.before = (statement, connection) -> {
+            if (!statement.startsWith("INSERT INTO " + QUESTION_KEYS)) return;
+            atKey.countDown();
+            awaitGate(release, "release shared question writers");
+        };
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var a = workers.submit(() -> racePut(left));
+            var b = workers.submit(() -> racePut(right));
+            awaitGate(atKey, "both graph publishers reached question keys");
+            release.countDown();
+            var outcomes = List.of(a.get(30, TimeUnit.SECONDS), b.get(30, TimeUnit.SECONDS));
+            if (sameQuestion) {
+                assertThat(outcomes).containsExactly(left, right);
+                assertThat(repository.findByIds(OWNER, List.of(left.id(), right.id()))).containsExactly(left, right);
+            } else {
+                var winner = outcomes.stream().filter(QuizRevision.class::isInstance).map(QuizRevision.class::cast).toList();
+                assertThat(winner).hasSize(1);
+                assertThat(outcomes).contains(RevisionIntegrityException.Reason.IDENTITY_CONFLICT);
+                assertThat(repository.findByIds(OWNER, List.of(left.id(), right.id()))).containsExactlyElementsOf(winner);
+                assertThat(count(PUBLICATION_KEYS, winner.get(0).id().equals(left.id()) ? right.id() : left.id())).isZero();
+            }
+            assertThat(questionOptionCount(question.id())).isEqualTo(question.options().size());
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM question_option_revisions WHERE question_revision_id=UUID_TO_BIN(?)",
+                    Integer.class, question.id().toString())).isEqualTo(question.options().size());
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+            assertThat(workers.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void newGraphReusesAQuestionCommittedAfterItsRepeatableReadSnapshot(boolean scenarioWriter) throws Exception {
+        var key = "shared-question-stale-" + scenarioWriter;
+        var question = question(key);
+        var original = scenarioWriter ? replaceFirstQuestion(scenario(key + "-original", 2, CONDITION), question)
+                : quiz(key + "-original", question);
+        var other = replaceFirstQuestion(scenario(key + "-peer", 2, CONDITION), question);
+        var worker = Executors.newSingleThreadExecutor();
+        try {
+            repeatableRead().executeWithoutResult(status -> {
+                assertThat(repository.findById(OWNER, original.id())).isEmpty();
+                try {
+                    worker.submit(() -> {
+                        if (scenarioWriter) publisher.publish(OWNER, original);
+                        else repository.insert(original);
+                    }).get(30, TimeUnit.SECONDS);
+                } catch (Exception failure) {
+                    throw new AssertionError("Question reuse requires a committed writer", failure);
+                }
+                assertThat(repository.findById(OWNER, original.id())).isEmpty();
+                assertThat(publisher.publish(OWNER, other)).isEqualTo(other);
+            });
+            assertThat(repository.findByIds(OWNER, List.of(original.id(), other.id()))).containsExactly(original, other);
+        } finally {
+            worker.shutdownNow();
+            assertThat(worker.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test void scenarioOverAnExistingFlatIdentityHasAStableConflict() {
+        var flat = PREVIOUS_FORMATS.get(0);
+        var original = scenario("scenario-flat-id-conflict", 2, CONDITION);
+        var conflicting = new QuizRevision(flat.id(), flat.quizId(), OWNER, QuizRevision.SCENARIO_FORMAT,
+                original.title(), original.description(), CREATED, original.items(), List.of(), List.of(), original.scenarioGraph());
+        rejected(() -> publisher.publish(OWNER, conflicting), "IDENTITY_CONFLICT");
+        rejected(() -> publisher.publish(OWNER, conflicting), "IDENTITY_CONFLICT");
+        assertThat(repository.findById(OWNER, flat.id())).contains(flat);
+        assertThat(count(PUBLICATION_KEYS, flat.id())).isZero();
+        assertThat(questionOptionCount(legacyQuestion(original).id())).isNull();
     }
 
     @ParameterizedTest
@@ -322,7 +447,7 @@ class ScenarioGraphMySqlIntegrationTest {
 
         var partial = id("unsealed-scenario");
         var localNode = id("unsealed-node");
-        insertUnsealed(partial, revision.quizId(), "Partial fixture");
+        insertUnsealed(partial, revision.quizId(), "Partial fixture", 0);
         sqlRejected(() -> seal(partial, localNode));
         sqlRejected(() -> insertNode(partial, localNode, 0, "ITEM", revision.items().get(0).id()));
         sqlRejected(() -> insertNode(partial, localNode, 0, "TERMINAL ", null));
@@ -345,6 +470,9 @@ class ScenarioGraphMySqlIntegrationTest {
             var ids = revisions.stream().map(QuizRevision::id).toList();
             assertThat(repository.findByIds(OWNER, ids)).containsExactlyElementsOf(revisions);
             assertThat(source.selects).hasValue(6);
+            source.selects.set(0);
+            assertThat(publisher.publish(OWNER, revisions.get(0))).isEqualTo(revisions.get(0));
+            assertThat(source.selects).hasValue(9);
             for (String table : GRAPH_TABLES) {
                 assertThat(sql.queryForList("EXPLAIN SELECT * FROM " + table + WHERE_REVISION, ids.get(0).toString()))
                         .singleElement().satisfies(row -> assertThat(row.get("key")).isNotNull());
@@ -416,15 +544,18 @@ class ScenarioGraphMySqlIntegrationTest {
         String answerMarker = "private-answer-marker";
         String explanationMarker = "private-explanation-marker";
         String conditionMarker = "scenario-condition-marker";
+        String optionMarker = "private-option-key-marker";
+        String titleMarker = "private-quiz-title-marker";
+        String descriptionMarker = "private-quiz-description-marker";
         var base = scenario("scenario-private-parameter", 2, CONDITION);
         var first = base.items().get(0);
         var question = first.question();
-        var privateQuestion = new QuestionRevision(question.id(), question.questionId(), question.schemaVersion(),
+        var privateQuestion = withOptionKey(new QuestionRevision(question.id(), question.questionId(), question.schemaVersion(),
                 question.type(), question.difficulty(), questionMarker,
                 question.content().replace("Paris", answerMarker), question.hint(), explanationMarker,
-                question.attachmentUrl(), question.attachmentAssetId(), question.createdAt(), question.options());
+                question.attachmentUrl(), question.attachmentAssetId(), question.createdAt(), question.options()), optionMarker);
         var revision = new QuizRevision(base.id(), base.quizId(), base.ownerId(), base.schemaVersion(),
-                base.title(), base.description(), base.createdAt(),
+                titleMarker, descriptionMarker, base.createdAt(),
                 List.of(new QuizRevision.Item(first.id(), first.authoredPosition(), privateQuestion), base.items().get(1)),
                 List.of(), List.of(), base.scenarioGraph());
         var logger = (Logger) LoggerFactory.getLogger(StatementCreatorUtils.class);
@@ -443,9 +574,51 @@ class ScenarioGraphMySqlIntegrationTest {
         assertThat(capture.list).extracting(ILoggingEvent::getFormattedMessage)
                 .anyMatch(message -> message.contains("[private revision text]"))
                 .noneMatch(message -> message.contains(questionMarker) || message.contains(answerMarker)
-                        || message.contains(explanationMarker) || message.contains(conditionMarker));
+                        || message.contains(explanationMarker) || message.contains(conditionMarker)
+                        || message.contains(optionMarker) || message.contains(titleMarker) || message.contains(descriptionMarker));
         assertThat(repository.findById(OWNER, revision.id())).contains(revision);
         assertThat(publisher.publish(OWNER, revision)).isEqualTo(revision);
+    }
+
+    private static QuizRevision independentScenario(String key, long revisionId, UUID owner) {
+        var source = scenario(key, 2, CONDITION);
+        var old = source.scenarioGraph();
+        var nodes = old.nodes().stream().map(node -> new ScenarioGraph.Node(id(key + node.id()),
+                node.authoredPosition(), node.type(), node.itemId())).toList();
+        var edges = old.edges().stream().map(edge -> new ScenarioGraph.Edge(id(key + edge.id()),
+                id(key + edge.fromNodeId()), id(key + edge.toNodeId()), edge.authoredPosition(), edge.type(),
+                edge.conditionVersion(), edge.condition())).toList();
+        return new QuizRevision(new UUID(0, revisionId), id(key + "-quiz"), owner, source.schemaVersion(),
+                source.title(), source.description(), source.createdAt(), source.items(), List.of(), List.of(),
+                new ScenarioGraph(old.schemaVersion(), id(key + old.entryNodeId()), nodes, edges));
+    }
+
+    private static QuestionRevision legacyQuestion(QuizRevision revision) { return revision.items().get(0).question(); }
+
+    private static QuizRevision replaceFirstQuestion(QuizRevision revision, QuestionRevision question) {
+        var items = new ArrayList<>(revision.items());
+        var first = items.get(0);
+        items.set(0, new QuizRevision.Item(first.id(), first.authoredPosition(), question));
+        return new QuizRevision(revision.id(), revision.quizId(), revision.ownerId(), revision.schemaVersion(),
+                revision.title(), revision.description(), revision.createdAt(), items, List.of(), List.of(), revision.scenarioGraph());
+    }
+
+    private static QuestionRevision withOptionKey(QuestionRevision question, String key) {
+        var options = new ArrayList<>(question.options());
+        var first = options.get(0);
+        options.set(0, new QuestionRevision.Option(first.id(), key, first.authoredPosition()));
+        return new QuestionRevision(question.id(), question.questionId(), question.schemaVersion(), question.type(),
+                question.difficulty(), question.questionText(), question.content(), question.hint(), question.explanation(),
+                question.attachmentUrl(), question.attachmentAssetId(), question.createdAt(), options);
+    }
+
+    private static void awaitGate(CountDownLatch gate, String purpose) {
+        try {
+            if (!gate.await(30, TimeUnit.SECONDS)) throw new AssertionError("Timed out waiting to " + purpose);
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while waiting to " + purpose, failure);
+        }
     }
 
     private Object racePut(QuizRevision revision) {
@@ -478,6 +651,12 @@ class ScenarioGraphMySqlIntegrationTest {
         return transaction;
     }
 
+    private static TransactionTemplate repeatableRead() {
+        var transaction = new TransactionTemplate(manager);
+        transaction.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        return transaction;
+    }
+
     private static void migrate(String version) {
         Flyway.configure().dataSource(source).locations("classpath:db/migration").target(version).load().migrate();
     }
@@ -489,6 +668,12 @@ class ScenarioGraphMySqlIntegrationTest {
 
     private static int count(String table, UUID revisionId) {
         return sql.queryForObject("SELECT COUNT(*) FROM " + table + WHERE_REVISION, Integer.class, revisionId.toString());
+    }
+
+    private static Integer questionOptionCount(UUID questionId) {
+        var rows = sql.queryForList("SELECT option_count FROM " + QUESTION_KEYS + " WHERE question_revision_id=UUID_TO_BIN(?)",
+                Integer.class, questionId.toString());
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     private static void insertNode(UUID root, UUID node, int position, String type, UUID item) {
@@ -506,12 +691,12 @@ class ScenarioGraphMySqlIntegrationTest {
                 node.toString(), root.toString());
     }
 
-    private static void insertUnsealed(UUID revisionId, UUID quizId, String title) {
+    private static void insertUnsealed(UUID revisionId, UUID quizId, String title, int items) {
         sql.update("INSERT INTO quiz_revisions(id,quiz_id,owner_id,schema_version,title,created_at) "
                         + "VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),4,?,?)",
                 revisionId.toString(), quizId.toString(), OWNER.toString(), title, Timestamp.from(CREATED));
         sql.update("INSERT INTO quiz_scenario_graphs (quiz_revision_id,schema_version,item_count,node_count,edge_count) "
-                + "VALUES(UUID_TO_BIN(?),1,0,1,0)", revisionId.toString());
+                + "VALUES(UUID_TO_BIN(?),1,?,1,0)", revisionId.toString(), items);
     }
 
     private static void rejected(Runnable action, String reason) {

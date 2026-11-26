@@ -13,7 +13,7 @@ With JDK 17, the offline test environment and a disposable MySQL server, start w
 - Structural tests cover stable graph identity and authored order, exact condition retention,
   missing and duplicate identities, unknown format, and an item reference from another revision.
 - The MySQL suite upgrades real format 1–3 rows from V127 and verifies replay of a graph sealed
-  in V128 after V129. The scenario writer and reads exercise exact replay, a conflicting replay,
+  in V128 after V130. The scenario writer and reads exercise exact replay, a conflicting replay,
   caller ownership, new revisions after edits and reading the original after rebuilding the
   service and repository. An older outer repeatable-read snapshot can replay the committed winner.
 - Faults are injected after actual node, edge and graph header writes. Fresh transactions confirm
@@ -21,13 +21,19 @@ With JDK 17, the offline test environment and a disposable MySQL server, start w
   transactions meet at the real publication-key insert. Equal requests both succeed with one
   stored graph, and different requests have one complete winner. A separate revision commits
   while another caller holds an uncommitted sealed graph, then the first caller rolls it back.
+  Two other authors publish neighboring revisions while a repeatable-read exact replay remains
+  open. Distinct scenario revisions contend for the same question with equal or changed options.
+  The former both commit and the latter leave one complete winner. Older repeatable-read
+  snapshots can reuse a question already committed by either supported writer.
   SQL constraints and guards cover cross-revision references, invalid entry, incomplete graphs,
   and late mutation.
 - A multi-revision read measures six JDBC statements per batch with both two small graphs and
   six larger graphs, with indexed graph table lookups. A flat-only read uses three statements.
+  Exact replay uses nine selects for a small or larger graph within a single key batch.
   The real fixed materializer succeeds for a flat revision. Both direct fixed-form and option
   order services reject scenarios and continue to support formats 1–3. Actual JDBC TRACE events
-  exclude distinct question, answer, explanation and condition markers. A supplementary Unicode
+  exclude distinct title, description, option key, question, answer, explanation and condition
+  markers. A supplementary Unicode
   character is preserved through publication, reload and replay. Lone surrogates are rejected.
 - The suite uses a generated catalog and belongs to the context manifest as a database companion.
   The full four-worker verify remains the final backend gate. Scenario graph storage adds no
