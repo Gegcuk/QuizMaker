@@ -21,10 +21,11 @@ import static uk.gegc.quizmaker.features.quiz.domain.model.revision.ScenarioGrap
 import static uk.gegc.quizmaker.features.quiz.revision.RevisionFixtures.*;
 
 class ScenarioGraphTest {
-    static final String CONDITION = "  { \"private\": \"scenario-condition-marker 🧭\" } \n";
+    static final String CONDITION = "  { \"operator\": \"SCORE_IS\", \"value\": \"FULL_CREDIT\" } \n";
+    static final String OPAQUE_CONDITION = "  { \"private\": \"scenario-condition-marker 🧭\" } \n";
 
     @Test void graphOwnsStableIdentitiesOrderAndConditionEvidence() {
-        var original = scenario("ordered", 2, CONDITION).scenarioGraph();
+        var original = scenario("ordered", 2, OPAQUE_CONDITION).scenarioGraph();
         var nodes = new ArrayList<>(original.nodes());
         var edges = new ArrayList<>(original.edges());
         Collections.reverse(nodes);
@@ -36,9 +37,9 @@ class ScenarioGraphTest {
         assertThat(reordered).isEqualTo(original);
         assertThat(reordered.nodes()).extracting(Node::authoredPosition).containsExactly(2, 4, 9);
         assertThat(reordered.edges()).extracting(Edge::authoredPosition).containsExactly(0, 6, 0);
-        assertThat(reordered.edges().get(1).condition()).isEqualTo(CONDITION);
-        assertThat(reordered.toString()).doesNotContain(CONDITION, original.entryNodeId().toString());
-        assertThat(reordered.edges().get(1).toString()).doesNotContain(CONDITION);
+        assertThat(reordered.edges().get(1).condition()).isEqualTo(OPAQUE_CONDITION);
+        assertThat(reordered.toString()).doesNotContain(OPAQUE_CONDITION, original.entryNodeId().toString());
+        assertThat(reordered.edges().get(1).toString()).doesNotContain(OPAQUE_CONDITION);
     }
 
     @Test void invalidReferencesDuplicatesAndVersionFailAtTheStructuralBoundary() {

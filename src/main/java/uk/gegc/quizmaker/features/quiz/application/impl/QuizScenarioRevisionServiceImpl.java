@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.quiz.application.QuizScenarioRevisionService;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException;
+import uk.gegc.quizmaker.features.quiz.domain.model.revision.ScenarioGraphValidationException;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
 
 import java.util.Locale;
@@ -36,6 +37,9 @@ public class QuizScenarioRevisionServiceImpl implements QuizScenarioRevisionServ
             var publication = revisions.publishScenario(revision);
             outcome = publication.replayed() ? "replayed" : "inserted";
             return publication.revision();
+        } catch (ScenarioGraphValidationException failure) {
+            outcome = "graph_" + failure.reason().name().toLowerCase(Locale.ROOT);
+            throw failure;
         } catch (RevisionIntegrityException failure) {
             outcome = failure.reason().name().toLowerCase(Locale.ROOT);
             throw failure;

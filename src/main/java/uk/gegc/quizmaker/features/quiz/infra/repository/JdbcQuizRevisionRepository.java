@@ -20,6 +20,7 @@ import uk.gegc.quizmaker.features.question.domain.model.Difficulty;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
+import uk.gegc.quizmaker.features.quiz.domain.model.revision.ScenarioGraphValidator;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
 
@@ -108,8 +109,10 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
         if (revision == null || revision.scenarioGraph() == null)
             throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_CONTENT);
         try {
-            byte[] fingerprint = ScenarioReplayFingerprint.of(revision);
             var publication = scenarioGraphs.lockPublication(revision.id());
+            // Only first publication creates graph authority. Exact replay preserves old snapshots.
+            if (!publication.published()) ScenarioGraphValidator.validateForPublication(revision.scenarioGraph());
+            byte[] fingerprint = ScenarioReplayFingerprint.of(revision);
             if (publication.published()) {
                 if (publication.fingerprint() == null) {
                     adoptLegacyScenarioReplay(revision, fingerprint);
