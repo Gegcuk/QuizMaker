@@ -14,6 +14,19 @@ ALTER TABLE quiz_scenario_question_keys
     ) STORED,
     ADD UNIQUE KEY uq_scenario_question_evidence (content_evidence, question_revision_id);
 
+-- Keep quoted tokens byte-for-byte and remove JSON whitespace at structural
+-- boundaries. Do not parse numbers or join whitespace-separated literals.
+CREATE FUNCTION scenario_compact_question_json(payload LONGTEXT CHARACTER SET utf8mb4)
+RETURNS LONGTEXT CHARACTER SET utf8mb4 DETERMINISTIC NO SQL
+BEGIN
+    DECLARE slash CHAR(1) CHARACTER SET utf8mb4 DEFAULT CHAR(92 USING utf8mb4);
+    DECLARE whitespace VARCHAR(8) CHARACTER SET utf8mb4 DEFAULT CONCAT('[', CHAR(32, 9, 10, 13 USING utf8mb4), ']+');
+    RETURN REGEXP_REPLACE(payload,
+        CONCAT('("(?:[^"', slash, slash, ']++|', slash, slash, '.)*+")|^', whitespace,
+            '|([,:{', slash, '[])', whitespace, '|', whitespace, '(?=[,:}', slash, ']]|$)'),
+        '$1$2', 1, 0, 'cn');
+END;
+
 CREATE FUNCTION scenario_question_evidence(
     source_id BINARY(16), format_version SMALLINT, kind VARCHAR(50) CHARACTER SET utf8mb4,
     difficulty_name VARCHAR(20) CHARACTER SET utf8mb4, prompt VARCHAR(1000) CHARACTER SET utf8mb4,
@@ -27,6 +40,25 @@ RETURN UNHEX(SHA2(CONCAT_WS(':', HEX(source_id), format_version,
     COALESCE(SHA2(asset_url, 256), '-'), COALESCE(HEX(asset_id), '-'),
     DATE_FORMAT(created, '%Y-%m-%d %H:%i:%s.%f')
 ), 256));
+
+-- Ordinary inserts remain strict. The scenario writer can race another publisher
+-- on an existing identity, so allow only a duplicate and verify content on item insert.
+CREATE PROCEDURE scenario_insert_question_if_absent(
+    IN revision_id BINARY(16), IN source_id BINARY(16), IN format_version SMALLINT,
+    IN kind VARCHAR(50) CHARACTER SET utf8mb4, IN difficulty_name VARCHAR(20) CHARACTER SET utf8mb4,
+    IN prompt VARCHAR(1000) CHARACTER SET utf8mb4, IN payload LONGTEXT CHARACTER SET utf8mb4,
+    IN hint_text VARCHAR(500) CHARACTER SET utf8mb4, IN explanation_text VARCHAR(2000) CHARACTER SET utf8mb4,
+    IN asset_url VARCHAR(2048) CHARACTER SET utf8mb4, IN asset_id BINARY(16),
+    IN created DATETIME(6), IN scenario_id BINARY(16)
+)
+MODIFIES SQL DATA
+BEGIN
+    DECLARE CONTINUE HANDLER FOR 1062 BEGIN END;
+    INSERT INTO question_revisions (id,question_id,schema_version,question_type,difficulty,
+        question_text,content,hint,explanation,attachment_url,attachment_asset_id,created_at,creating_scenario_revision_id)
+    VALUES (revision_id,source_id,format_version,kind,difficulty_name,prompt,payload,
+        hint_text,explanation_text,asset_url,asset_id,created,scenario_id);
+END;
 
 -- Hash one option as its hex ID, decimal position, and exact UTF-8 key.
 CREATE FUNCTION scenario_option_evidence(
@@ -115,12 +147,22 @@ END;
 
 CREATE TRIGGER scenario_question_evidence_update AFTER UPDATE ON question_revisions
 FOR EACH ROW
-    UPDATE quiz_scenario_question_keys
-    SET question_evidence=IF(question_evidence IS NULL, NULL,
-        scenario_question_evidence(NEW.question_id, NEW.schema_version, NEW.question_type, NEW.difficulty,
-            NEW.question_text, NEW.content, NEW.hint, NEW.explanation, NEW.attachment_url,
-            NEW.attachment_asset_id, NEW.created_at))
-    WHERE question_revision_id=NEW.id;
+BEGIN
+    -- Preserve the recorded proof across formatting-only edits, including
+    -- when the original stored JSON already used legacy formatting.
+    IF scenario_question_evidence(OLD.question_id, OLD.schema_version, OLD.question_type, OLD.difficulty,
+            OLD.question_text, scenario_compact_question_json(OLD.content), OLD.hint,
+            OLD.explanation, OLD.attachment_url, OLD.attachment_asset_id, OLD.created_at)
+        <> scenario_question_evidence(NEW.question_id, NEW.schema_version, NEW.question_type, NEW.difficulty,
+            NEW.question_text, scenario_compact_question_json(NEW.content), NEW.hint,
+            NEW.explanation, NEW.attachment_url, NEW.attachment_asset_id, NEW.created_at) THEN
+        UPDATE quiz_scenario_question_keys
+        SET question_evidence=scenario_question_evidence(NEW.question_id, NEW.schema_version,
+            NEW.question_type, NEW.difficulty, NEW.question_text, NEW.content, NEW.hint,
+            NEW.explanation, NEW.attachment_url, NEW.attachment_asset_id, NEW.created_at)
+        WHERE question_revision_id=NEW.id AND question_evidence IS NOT NULL;
+    END IF;
+END;
 
 -- Existing items retain their direct foreign key. New scenario items refer to
 -- the exact current digest, which also prevents subsequent changes to it.

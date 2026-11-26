@@ -59,6 +59,10 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
             VALUES (:id, :questionId, :version, :type, :difficulty, :text, :content,
                     :hint, :explanation, :url, :assetId, :created%s)
             """;
+    private static final String INSERT_SCENARIO_QUESTION = """
+            CALL scenario_insert_question_if_absent(:id,:questionId,:version,:type,:difficulty,:text,:content,
+                :hint,:explanation,:url,:assetId,:created,:scenarioId)
+            """;
     private static final String INSERT_SCENARIO_ITEM = """
             INSERT INTO quiz_revision_items
                 (id,quiz_revision_id,question_revision_id,authored_position,scenario_content_evidence)
@@ -243,8 +247,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
         for (int start = 0; start < ordered.size(); start += SQL_BATCH) {
             var part = ordered.subList(start, Math.min(start + SQL_BATCH, ordered.size()));
             var ids = part.stream().map(QuestionRevision::id).toList();
-            // The snapshot is only an insert filter. A stale snapshot or a racing writer
-            // can still cause a duplicate; comparison below always uses current rows.
+            // The snapshot is only an insert filter. Item insertion later verifies current content.
             var visible = new HashSet<UUID>();
             jdbc.query("""
                     SELECT q.id,k.evidence_ready FROM question_revisions q
@@ -256,28 +259,21 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
                 if (Boolean.FALSE.equals(row.getObject("evidence_ready", Boolean.class))) pendingEvidence.add(id);
             });
             var candidates = part.stream().filter(question -> !visible.contains(question.id())).toList();
+            if (candidates.isEmpty()) continue;
             var rows = candidates.stream().map(question ->
                     questionParameters(question).addValue("scenarioId", bytes(revisionId))).toList();
             try {
                 batch(insert, rows);
                 candidates.forEach(question -> inserted.add(question.id()));
             } catch (DuplicateKeyException collision) {
-                // A batch may have inserted some rows before reporting a duplicate, or
-                // it may have been rewritten to one statement and inserted none.
-                for (int i = 0; i < candidates.size(); i++) {
-                    var id = candidates.get(i).id();
-                    try {
-                        jdbc.update(insert, rows.get(i));
-                        inserted.add(id);
-                    } catch (DuplicateKeyException duplicate) {
-                        // Even an older snapshot sees rows this transaction inserted.
-                        var creators = jdbc.query("""
-                                SELECT creating_scenario_revision_id FROM question_revisions
-                                WHERE id=:id
-                                """, Map.of("id", bytes(id)), (row, index) -> uuid(row, "creating_scenario_revision_id"));
-                        if (creators.contains(revisionId)) inserted.add(id);
-                    }
-                }
+                // Replay the batch because a driver can stop at a duplicate or roll
+                // back an entire rewritten statement. The procedure ignores only duplicates.
+                batch(INSERT_SCENARIO_QUESTION, rows);
+                // An older snapshot still sees all rows written by this transaction.
+                inserted.addAll(jdbc.query("""
+                        SELECT id FROM question_revisions WHERE id IN (:ids) AND creating_scenario_revision_id=:scenario
+                        """, Map.of("ids", binaryIds(candidates.stream().map(QuestionRevision::id).toList()),
+                        "scenario", bytes(revisionId)), (row, index) -> uuid(row, "id")));
             }
         }
         pendingEvidence.addAll(inserted);
@@ -316,10 +312,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
 
         var stored = new HashMap<UUID, StoredScenarioQuestion>();
         jdbc.query("""
-                SELECT q.*,k.content_evidence,
-                    scenario_question_evidence(q.question_id,q.schema_version,q.question_type,q.difficulty,
-                        q.question_text,q.content,q.hint,q.explanation,q.attachment_url,q.attachment_asset_id,q.created_at)
-                        AS stored_evidence
+                SELECT q.*,k.content_evidence,k.question_evidence AS stored_evidence
                 FROM question_revisions q LEFT JOIN quiz_scenario_question_keys k ON k.question_revision_id=q.id
                 WHERE q.id IN (:ids)
                 """, Map.of("ids", binaryIds(ids)), (row, index) ->
@@ -334,7 +327,8 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
             var snapshot = stored.get(requested.id());
             var parameter = parameters.get(index);
             if (snapshot != null && snapshot.valid() && withOptions(snapshot.question(), requested.options()).equals(requested)) {
-                // The foreign key verifies the snapshot evidence against the current row.
+                // The snapshot pairs the parsed question with its recorded proof.
+                // The foreign key verifies that proof and the requested options against the current row.
                 parameter.addValue("storedEvidence", snapshot.evidence());
             }
             pending.add(parameter);

@@ -41,7 +41,10 @@ With JDK 17, the offline test environment and a disposable MySQL server, start w
   are being installed. A same-ID, same-count option replacement holds the metadata lock before
   the backfill and commits while the migration waits. The original content then conflicts and
   the current content can publish, read back and replay. Equivalent legacy JSON fixtures verify
-  outer whitespace under a stale snapshot and bounded retries for one or 128 legacy questions.
+  whitespace at JSON boundaries under a stale snapshot and bounded retries for one or 128
+  legacy questions with reordered object keys. The question-creation regression opens a
+  repeatable-read snapshot before another transaction commits 64 or 128 questions and counts
+  JDBC calls through successful scenario publication.
   Direct changes to sealed questions, their options and recorded replay fingerprints fail.
   First publication of 128 new questions uses one JDBC execution of a question insert batch.
   The upgrade exercises ordinary question publications on separate connections before and

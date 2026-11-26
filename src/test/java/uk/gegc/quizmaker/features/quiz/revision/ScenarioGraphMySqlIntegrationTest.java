@@ -288,19 +288,38 @@ class ScenarioGraphMySqlIntegrationTest {
         assertThat(publisher.publish(OWNER, current)).isEqualTo(current);
     }
 
-    @Test void surroundingJsonSpacesAddedAfterAnOlderSnapshotKeepQuestionIdentity() {
-        var graph = scenario("canonical-outer-spaces", 1, CONDITION);
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void jsonWhitespaceAddedAfterAnOlderSnapshotKeepsQuestionIdentity(boolean legacyOrder) {
+        var graph = scenario("json-whitespace-" + legacyOrder, 1, CONDITION);
         var question = legacyQuestion(graph);
-        var ordinary = quiz("ordinary-before-json-spaces", question);
+        var ordinary = quiz("ordinary-before-json-spaces-" + legacyOrder, question);
         repository.insert(ordinary);
+        String content = legacyOrder
+                ? question.content().replace("\"correct\":true,\"id\":\"a\"", "\"id\":\"a\",\"correct\":true")
+                : question.content();
+        assertThat(sql.update("UPDATE question_revisions SET content=? WHERE id=UUID_TO_BIN(?)",
+                content, question.id().toString())).isOne();
+        var formatted = " \t" + content.replace("\"options\":", "\"options\" \t:\r\n ") + "\n ";
         repeatableRead().executeWithoutResult(status -> {
             assertThat(repository.findById(OWNER, ordinary.id())).contains(ordinary);
-            fresh().executeWithoutResult(writer -> sql.update("""
-                    UPDATE question_revisions SET content=CONCAT(' ',content,' ') WHERE id=UUID_TO_BIN(?)
-                    """, question.id().toString()));
+            fresh().executeWithoutResult(writer -> assertThat(sql.update(
+                    "UPDATE question_revisions SET content=? WHERE id=UUID_TO_BIN(?)",
+                    formatted, question.id().toString())).isOne());
             assertThat(publisher.publish(OWNER, graph)).isEqualTo(graph);
         });
+        assertThat(sql.queryForObject("SELECT content FROM question_revisions WHERE id=UUID_TO_BIN(?)",
+                String.class, question.id().toString())).isEqualTo(formatted);
         assertThat(repository.findById(OWNER, graph.id())).contains(graph);
+    }
+
+    @Test void jsonWhitespaceNormalizationKeepsQuotedTextAndSeparatedTokens() {
+        String quoted = "\" a  : \\\"q\\\" \\\\ \\t [ ] , \"";
+        String formatted = "\t { \"n\" : [ 1.00e+3, \n 9223372036854775807 ] , \"s\" : " + quoted + " } \r\n";
+        assertThat(sql.queryForObject("SELECT scenario_compact_question_json(?)", String.class, formatted))
+                .isEqualTo("{\"n\":[1.00e+3,9223372036854775807],\"s\":" + quoted + "}");
+        assertThat(sql.queryForObject("SELECT scenario_compact_question_json(?)", String.class, "{ \"n\": 1 2 }"))
+                .isEqualTo("{\"n\":1 2}");
     }
 
     @ParameterizedTest
@@ -311,7 +330,7 @@ class ScenarioGraphMySqlIntegrationTest {
         repository.insert(quiz("ordinary-batched-legacy-json-" + legacyCount, questions));
         for (int index = 0; index < legacyCount; index++) {
             assertThat(sql.update("""
-                    UPDATE question_revisions SET content=REPLACE(content,'\"options\":','\"options\" : ')
+                    UPDATE question_revisions SET content=REPLACE(content,'"correct":true,"id":"a"','"id":"a","correct":true')
                     WHERE id=UUID_TO_BIN(?)
                     """, questions[index].id().toString())).isOne();
         }
@@ -701,6 +720,27 @@ class ScenarioGraphMySqlIntegrationTest {
             worker.shutdownNow();
             assertThat(worker.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {64, 128})
+    void insertsAndReusesQuestionsInBatchesAfterAnOlderSnapshot(int concurrentQuestions) {
+        var graph = scenario("batched-stale-questions-" + concurrentQuestions, 128, CONDITION);
+        var concurrent = graph.items().stream().limit(concurrentQuestions).map(QuizRevision.Item::question)
+                .toArray(QuestionRevision[]::new);
+        var ordinary = quiz("ordinary-batched-stale-questions-" + concurrentQuestions, concurrent);
+        var calls = new AtomicInteger();
+        repeatableRead().executeWithoutResult(status -> {
+            assertThat(repository.findById(OWNER, ordinary.id())).isEmpty();
+            fresh().executeWithoutResult(writer -> repository.insert(ordinary));
+            assertThat(repository.findById(OWNER, ordinary.id())).isEmpty();
+            source.before = (statement, connection) -> calls.incrementAndGet();
+            assertThat(publisher.publish(OWNER, graph)).isEqualTo(graph);
+            source.reset();
+        });
+        assertThat(calls.get()).isLessThanOrEqualTo(concurrentQuestions == 128 ? 13 : 15);
+        assertThat(repository.findById(OWNER, graph.id())).contains(graph);
+        assertThat(repository.findById(OWNER, ordinary.id())).contains(ordinary);
     }
 
     @Test void scenarioOverAnExistingFlatIdentityHasAStableConflict() {

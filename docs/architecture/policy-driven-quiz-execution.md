@@ -5610,9 +5610,9 @@ from an intermediate revision can commit a graph outside an already open caller 
 Replaying that graph for the first time requires a transaction that can see it.
 
 Scenario publication checks which questions are visible before a strict insert batch for
-missing IDs in UUID order. A primary-key collision can come from a racing writer or an
-older snapshot. In that case, individual inserts determine which rows still need writing,
-and the originating scenario identifies any rows already inserted by the batch in this transaction.
+missing IDs in UUID order. After a duplicate from a racing writer or an older snapshot,
+the retry batches a database procedure that tolerates only duplicate keys. One query per
+retried batch identifies rows created by this scenario, whose options still need to be written.
 V134 stores a SHA-256 fingerprint of the question and a fixed-size digest of its options in
 authored order. Each ordinary option insert extends the digest with one fixed-size update.
 New questions enter the fingerprint index after their option set has been written. The digest
@@ -5621,8 +5621,10 @@ Direct edits or out-of-order inserts rebuild the digest for that question. A new
 and the fingerprint of its complete current content. The foreign key both verifies the expected
 content at insertion and prevents later changes to the referenced content. Ordinary and retained
 items continue to reference their question directly. Equivalent legacy JSON encodings can be
-compared in batches from the caller's snapshot, with the resulting fingerprint still checked
-against the current foreign key. Surrounding spaces are ignored when hashing the question JSON.
+compared in batches from the caller's snapshot, with its recorded fingerprint still checked
+against the current foreign key. A formatting-only edit preserves the existing fingerprint.
+The update trigger ignores JSON whitespace at structural boundaries when comparing old and
+new content, and retains quoted text and exact number spellings.
 V134 fills fingerprints after installing the tracking triggers. The backfill acquires the
 question metadata lock before opening the options snapshot in READ COMMITTED, so it includes
 changes committed by an option writer it had to wait for.
