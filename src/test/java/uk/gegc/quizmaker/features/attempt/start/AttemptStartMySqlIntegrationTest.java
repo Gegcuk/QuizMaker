@@ -112,7 +112,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStart
         PublishedQuestionContractServiceImpl.class, BaselineQuestionContractConfig.class,
         FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
         JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
-        AttemptStartServiceImpl.class, uk.gegc.quizmaker.features.attempt.application.impl.AttemptTimingServiceImpl.class, uk.gegc.quizmaker.features.attempt.infra.repository.JdbcAttemptTimingRepository.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
+        uk.gegc.quizmaker.features.attempt.infra.repository.JdbcUngradedActivityRepository.class, AttemptStartServiceImpl.class, uk.gegc.quizmaker.features.attempt.application.impl.AttemptTimingServiceImpl.class, uk.gegc.quizmaker.features.attempt.infra.repository.JdbcAttemptTimingRepository.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
         AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
         JdbcPolicySnapshotRepository.class, QuestionSelectionServiceImpl.class,
@@ -1503,7 +1503,7 @@ class AttemptStartMySqlIntegrationTest {
     private AttemptStartService withGate(AttemptAllowanceService gate, Clock at) {
         return new AttemptStartServiceImpl(identity, sources, presets, policies, snapshots, contracts, selector, materializer, subjects, lifecycle, trace,
                 new CommandReceiptServiceImpl(new JdbcCommandReceiptRepository(new NamedParameterJdbcTemplate(source)), manager, at, metrics),
-                metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), gate, timing, manager);
+                metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), gate, timing, new JdbcUngradedActivityRepository(new NamedParameterJdbcTemplate(source)), manager);
     }
 
     private AttemptStartService randomStarts() {
@@ -1513,7 +1513,7 @@ class AttemptStartMySqlIntegrationTest {
     private AttemptStartService withSelector(QuestionSelectionService configured) {
         var receipt = new CommandReceiptServiceImpl(new JdbcCommandReceiptRepository(new NamedParameterJdbcTemplate(source)), manager, clock, metrics);
         return new AttemptStartServiceImpl(identity, sources, presets, policies, snapshots, contracts, configured, materializer,
-                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), allowance, timing, manager);
+                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), allowance, timing, new JdbcUngradedActivityRepository(new NamedParameterJdbcTemplate(source)), manager);
     }
     private static AttemptStartService.Command selected(AttemptStartService.Command c, Configuration selection) {
         return new AttemptStartService.Command(c.version(), c.quizId(), c.content(), c.publicationVersion(), c.key(), c.preset(),
@@ -1529,7 +1529,7 @@ class AttemptStartMySqlIntegrationTest {
     private AttemptStartService restarted() {
         var receipt = new CommandReceiptServiceImpl(new JdbcCommandReceiptRepository(new NamedParameterJdbcTemplate(source)), manager, clock, metrics);
         return new AttemptStartServiceImpl(identity, sources, presets, policies, snapshots, contracts, selector, materializer,
-                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), allowance, timing, manager);
+                subjects, lifecycle, trace, receipt, metrics, new JdbcNavigationRepository(new NamedParameterJdbcTemplate(source)), allowance, timing, new JdbcUngradedActivityRepository(new NamedParameterJdbcTemplate(source)), manager);
     }
     private Object raced(AttemptStartService.Command command, int isolation) {
         authenticate(username);

@@ -11,7 +11,9 @@ import uk.gegc.quizmaker.features.attempt.domain.model.trace.ExecutionTrace;
 import uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository;
 import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
+import uk.gegc.quizmaker.features.question.application.contract.ResolvedQuestionContracts;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractVersion;
+import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision;
 import static uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException.Reason.*;
 import static uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException.require;
 
@@ -22,9 +24,20 @@ final class AcceptedResponseWork {
         @Override public String toString() { return "PreparedResponse[redacted]"; }
     }
     record Written(CommandReceipt.Acknowledgement acknowledgement, LifecycleState state) { }
+    private record BoundQuestion(QuestionRevision question, ResolvedQuestionContracts contracts) { }
 
     static Prepared prepare(AttemptReadFactsService.Facts saved, UUID itemId, QuestionType type, ObjectNode stable,
                             long expectedVersion, UUID commandId, java.util.function.BooleanSupplier accepted) {
+        var bound = question(saved, itemId, type);
+        requireAnswerAllowed(saved, itemId, expectedVersion, commandId, accepted.getAsBoolean());
+        return normalize(itemId, bound, stable);
+    }
+
+    static Prepared normalize(AttemptReadFactsService.Facts saved, UUID itemId, QuestionType type, ObjectNode stable) {
+        return normalize(itemId, question(saved, itemId, type), stable);
+    }
+
+    private static BoundQuestion question(AttemptReadFactsService.Facts saved, UUID itemId, QuestionType type) {
         var item = saved.form().items().stream().filter(i -> i.id().equals(itemId)).findFirst()
                 .orElseThrow(() -> new ResponseAcceptanceException(NOT_FOUND));
         require(saved.current(item.id()), NOT_FOUND);
@@ -33,16 +46,24 @@ final class AcceptedResponseWork {
                 .findFirst().orElseThrow(() -> new ResponseAcceptanceException(CORRUPT)).question();
         require(question.type() == type, INVALID_INPUT);
         var contracts = saved.contracts().get(question.id()); require(contracts != null, CORRUPT);
+        return new BoundQuestion(question, contracts);
+    }
+
+    static void requireAnswerAllowed(AttemptReadFactsService.Facts saved, UUID itemId, long expectedVersion,
+                                     UUID commandId, boolean accepted) {
         var current = saved.access().lifecycle();
         var context = new AttemptCommands.Context(AttemptCommands.Access.VERIFIED, saved.policy(), current.state(), current.rowVersion(),
-                new AttemptCommands.ItemFacts(true, true, accepted.getAsBoolean() ? CompletionFacts.ResponseState.ACCEPTED : CompletionFacts.ResponseState.EMPTY,
-                        item.id(), saved.navigation()), null);
+                new AttemptCommands.ItemFacts(true, true, accepted ? CompletionFacts.ResponseState.ACCEPTED : CompletionFacts.ResponseState.EMPTY,
+                        itemId, saved.navigation()), null);
         var decision = AttemptCommands.evaluate(new AttemptCommands.Command(1, AttemptCommands.Type.SUBMIT_ANSWER), context,
                 new AttemptCommands.Metadata(expectedVersion, commandId, AttemptLifecycle.CommandIdentity.FRESH));
         require(decision.outcome() != AttemptCommands.Outcome.STALE, STALE);
         require(decision.outcome() == AttemptCommands.Outcome.ALLOWED, CONFLICT);
-        var normalized = StableResponseNormalizer.bind(question, contracts, stable);
-        return new Prepared(item.id(), question.id(), contracts.response().version(), normalized.toString());
+    }
+
+    private static Prepared normalize(UUID itemId, BoundQuestion bound, ObjectNode stable) {
+        var normalized = StableResponseNormalizer.bind(bound.question(), bound.contracts(), stable);
+        return new Prepared(itemId, bound.question().id(), bound.contracts().response().version(), normalized.toString());
     }
 
     static Written persist(Prepared prepared, AttemptReadFactsService.Facts saved,

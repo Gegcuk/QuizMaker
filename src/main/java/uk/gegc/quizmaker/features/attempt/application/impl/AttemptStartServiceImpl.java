@@ -11,6 +11,8 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.TransactionException;
 import uk.gegc.quizmaker.features.attempt.application.*;
+import uk.gegc.quizmaker.features.attempt.domain.model.activity.ActivityContract;
+import uk.gegc.quizmaker.features.attempt.domain.model.activity.ActivityContractException;
 import uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycle;
@@ -26,6 +28,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.snapshot.PolicySnapshot;
 import uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStartException;
 import uk.gegc.quizmaker.features.attempt.domain.model.subject.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.trace.ExecutionTrace;
+import uk.gegc.quizmaker.features.attempt.domain.repository.UngradedActivityRepository;
 import uk.gegc.quizmaker.features.attempt.infra.receipt.CanonicalCommandInput;
 import uk.gegc.quizmaker.features.attempt.infra.receipt.ReceiptDatabaseFailure;
 import uk.gegc.quizmaker.features.question.application.QuestionRevisionContractService;
@@ -46,6 +49,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.preset.LegacyPract
 public class AttemptStartServiceImpl implements AttemptStartService {
     private final TransactionTemplate read;
     private final AttemptAllowanceService allowance;
+    private final UngradedActivityRepository activities;
     private final AttemptTimingService timing;
     private final AuthenticatedSubjectResolver identity;
     private final QuizPracticeSourceService sources;
@@ -68,27 +72,39 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                                    QuestionSelectionService selection, FixedFormMaterializer forms,
                                    AttemptSubjectService subjects, AttemptLifecycleService lifecycle,
                                    ExecutionTraceService trace, CommandReceiptService receipts, MeterRegistry metrics,
-                                   uk.gegc.quizmaker.features.attempt.domain.repository.NavigationRepository navigation, AttemptAllowanceService allowance, AttemptTimingService timing, PlatformTransactionManager manager) {
+                                   uk.gegc.quizmaker.features.attempt.domain.repository.NavigationRepository navigation, AttemptAllowanceService allowance, AttemptTimingService timing,
+                                   UngradedActivityRepository activities, PlatformTransactionManager manager) {
         this.read = AttemptTransactions.readCommitted(manager); this.read.setReadOnly(true);
-        this.allowance = allowance; this.timing = timing;
+        this.allowance = allowance; this.timing = timing; this.activities = activities;
         this.identity = identity; this.sources = sources; this.presets = presets; this.policies = policies;
         this.snapshots = snapshots; this.contracts = contracts; this.selection = selection; this.forms = forms;
         this.subjects = subjects; this.lifecycle = lifecycle; this.trace = trace; this.receipts = receipts; this.metrics = metrics; this.navigation = navigation;
     }
 
     @Override public Result start(Command command) {
+        return start(command, null);
+    }
+
+    @Override public Result startUngraded(Command command, UngradedConfiguration configuration) {
+        AttemptTransactions.requireCompatible(read.getTransactionManager(), true);
+        require(configuration != null, INVALID_INPUT);
+        return start(command, configuration);
+    }
+
+    private Result start(Command command, UngradedConfiguration ungraded) {
         AttemptTransactions.requireCompatible(read.getTransactionManager(), true);
         Timer.Sample timer = null;
         try { timer = Timer.start(metrics); } catch (RuntimeException ignored) { /* best effort */ }
         String outcome = "rejected";
         try {
             validate(command);
+            if (ungraded != null) validateUngraded(command, ungraded);
             var subject = read.execute(status -> {
                 try { return identity.resolve(UUID.randomUUID()); }
                 catch (RuntimeException failure) { throw translate(failure); }
             });
             var request = new CommandReceipt.Request(1, subject.userId(), command.quizId(), AttemptCommands.Type.START,
-                    command.content().quizRevisionId(), command.publicationVersion(), command.key(), fingerprint(command));
+                    command.content().quizRevisionId(), command.publicationVersion(), command.key(), fingerprint(command, ungraded));
             // Invocation-local state: never retained across a retry, thread or process restart.
             class Invocation {
                 QuizPracticeSourceService.Access access;
@@ -103,7 +119,7 @@ public class AttemptStartServiceImpl implements AttemptStartService {
             try {
                 result = receipts.execute(request,
                         () -> call.checked(() -> call.access = sources.lockAccess(subject.userId(), command.quizId())),
-                        id -> call.checked(() -> create(command, subject, call.access, id)));
+                        id -> call.checked(() -> create(command, subject, call.access, id, ungraded)));
             } catch (ReceiptException failure) {
                 // Only the receipt's confirmed callback denial restores the bounded business reason.
                 // Commit uncertainty/deadlock/connection failure must retain the receipt semantics.
@@ -128,7 +144,8 @@ public class AttemptStartServiceImpl implements AttemptStartService {
     }
 
     private CommandReceipt.Acknowledgement create(Command command, AttemptSubject subject,
-                                                  QuizPracticeSourceService.Access access, UUID commandId) {
+                                                  QuizPracticeSourceService.Access access, UUID commandId,
+                                                  UngradedConfiguration ungraded) {
         require(command.content().quizRevisionId().equals(access.currentRevisionId())
                 && command.publicationVersion() == access.publicationVersion(), STALE_PUBLICATION);
         require(BuiltInPracticePreset.REFERENCE.equals(command.preset()), UNSUPPORTED_PRESET);
@@ -172,7 +189,7 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                 revision.id(), command.publicationVersion());
         var resolution = policies.resolve(new PolicyResolutionRequest(1, 1, PolicyResolutionRequest.HASH_ALGORITHM,
                 command.preset(), command.content(), overrides));
-        allowance.check(allowanceScope, resolution.policy().attempts());
+        if (ungraded == null) allowance.check(allowanceScope, resolution.policy().attempts());
         var snapshot = snapshots.createOrReplay(access.ownerId(), new PolicySnapshot(UUID.randomUUID(), resolution));
         var policy = resolution.policy();
         var config = policy.questionSelection().configuration();
@@ -214,8 +231,38 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         if (policy.delivery().mode() == DeliveryMode.ONE_AT_A_TIME)
             trace.append(scope, new ExecutionTrace.Event(1, UUID.randomUUID(), ExecutionTrace.Type.QUESTION_DELIVERED,
                     ExecutionTrace.Actor.PARTICIPANT, new ExecutionTrace.Data(commandId, form.items().get(0).id(), null, null, ExecutionTrace.ReasonCode.DELIVERED)));
-        allowance.bind(allowanceScope, subject.attemptId(), startEventId);
+        if (ungraded == null) {
+            allowance.bind(allowanceScope, subject.attemptId(), startEventId);
+        } else {
+            bindUngraded(subject.attemptId(), form, ungraded);
+        }
         return new CommandReceipt.Acknowledgement(1, subject.attemptId(), form.id(), started.rowVersion());
+    }
+
+    private void bindUngraded(UUID attemptId, FixedForm form, UngradedConfiguration configuration) {
+        var selected = new HashSet<UUID>();
+        var requirements = form.items().stream().map(item -> {
+            selected.add(item.sourceItemId());
+            return new ActivityContract.ItemRequirement(item.id(), configuration.requiredSourceItems().contains(item.sourceItemId()));
+        }).toList();
+        require(!requirements.isEmpty() && selected.containsAll(configuration.requiredSourceItems()), SELECTION_REJECTED);
+        var policy = new ActivityContract.UngradedPolicy(ActivityContract.VERSION, configuration.retention(),
+                new ActivityContract.ParticipationRequirements(requirements));
+        ActivityContract.start(policy, configuration.startFacts());
+        activities.bind(new UngradedActivityRepository.Binding(attemptId, form.id(), policy, configuration.startFacts()));
+    }
+
+    private static void validateUngraded(Command command, UngradedConfiguration configuration) {
+        require(configuration.retention() != null && configuration.requiredSourceItems() != null
+                && configuration.startFacts() != null, INVALID_INPUT);
+        // This internal composition uses the already supported flat online form. It has no
+        // timed, sequential, editable-response, or shared assessment allowance integration.
+        require(command.delivery() == DeliveryMode.ALL_AT_ONCE
+                && command.navigation().equals(new NavigationPolicy(NavigationMode.FREE))
+                && !command.draftsEnabled() && command.timing().mode() == TimingMode.NONE
+                && command.attemptLimit().equals(new AttemptLimitPolicy(AttemptLimitMode.UNLIMITED)), UNSUPPORTED_CAPABILITY);
+        require(configuration.retention() != ActivityContract.ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION
+                || configuration.startFacts().privacyNoticePresented(), UNSUPPORTED_CAPABILITY);
     }
 
     private static void validate(Command c) {
@@ -226,7 +273,7 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                 && c.answerOrder() != null && c.navigation() != null && c.delivery() != null && c.selection() != null && c.attemptLimit() != null && c.timing() != null, INVALID_INPUT);
     }
 
-    private static CommandReceipt.Fingerprint fingerprint(Command c) {
+    private static CommandReceipt.Fingerprint fingerprint(Command c, UngradedConfiguration ungraded) {
         var json = JsonNodeFactory.instance.objectNode();
         json.put("version", c.version()).put("quiz", c.quizId().toString())
                 .put("revision", c.content().quizRevisionId().toString()).put("publicationVersion", c.publicationVersion())
@@ -259,12 +306,20 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         }
         if (c.timing().mode() != TimingMode.NONE) json.set("timing", com.fasterxml.jackson.databind.json.JsonMapper.builder()
                 .addModule(uk.gegc.quizmaker.features.attempt.infra.policy.TimingPolicyJson.module()).build().valueToTree(c.timing()));
+        if (ungraded != null) {
+            var activity = json.putObject("activity").put("version", ActivityContract.VERSION)
+                    .put("kind", ActivityContract.Kind.UNGRADED.name()).put("retention", ungraded.retention().name())
+                    .put("privacyNoticePresented", ungraded.startFacts().privacyNoticePresented());
+            var required = activity.putArray("requiredSourceItems");
+            ungraded.requiredSourceItems().stream().map(UUID::toString).sorted().forEach(required::add);
+        }
         return CanonicalCommandInput.fingerprint(1, json);
     }
 
     private static AttemptStartException translate(RuntimeException failure) {
         AttemptTransactionException.preserve(failure);
         if (failure instanceof AttemptStartException start) return new AttemptStartException(start.reason(), start.nextEligibleAt());
+        if (failure instanceof ActivityContractException) return new AttemptStartException(UNSUPPORTED_CAPABILITY);
         if (failure instanceof SubjectResolutionException subject) return new AttemptStartException(switch (subject.reason()) {
             case UNAUTHENTICATED -> UNAUTHENTICATED;
             case UNAVAILABLE -> PERSISTENCE_UNAVAILABLE;

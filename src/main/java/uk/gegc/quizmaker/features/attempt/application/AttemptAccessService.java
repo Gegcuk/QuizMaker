@@ -16,6 +16,9 @@ public interface AttemptAccessService {
      */
     Access requireAccess(UUID attemptId, Operation operation);
 
+    /** Internal command authority for an explicitly bound ungraded activity. */
+    Access requireUngradedAnswerAccess(UUID attemptId);
+
     /** Internal references for this invocation and operation only. Never accept this value from a client. */
     record Access(UUID attemptId, Operation operation, UUID quizId, UUID quizRevisionId,
                   UUID formId, UUID policySnapshotId, long stateVersion,

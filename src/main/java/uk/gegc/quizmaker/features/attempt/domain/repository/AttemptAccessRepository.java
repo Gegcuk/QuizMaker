@@ -8,6 +8,7 @@ import java.util.UUID;
 /** Current, bounded metadata reads only. Resource/operation authorization belongs to the service. */
 public interface AttemptAccessRepository {
     Optional<Evidence> lockEvidence(UUID attemptId, UUID trustedUserId);
+    Optional<Evidence> lockUngradedEvidence(UUID attemptId, UUID trustedUserId);
 
     record Evidence(UUID quizId, UUID contentOwnerId, UUID revisionId, UUID formId,
                     UUID policySnapshotId, LifecycleState lifecycle) {

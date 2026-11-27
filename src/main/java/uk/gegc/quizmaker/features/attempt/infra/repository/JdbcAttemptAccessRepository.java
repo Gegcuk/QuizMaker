@@ -31,8 +31,17 @@ public class JdbcAttemptAccessRepository implements AttemptAccessRepository {
     public JdbcAttemptAccessRepository(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
 
     @Override public Optional<Evidence> lockEvidence(UUID attemptId, UUID trustedUserId) {
+        return lockEvidence(attemptId, trustedUserId, false);
+    }
+
+    @Override public Optional<Evidence> lockUngradedEvidence(UUID attemptId, UUID trustedUserId) {
+        return lockEvidence(attemptId, trustedUserId, true);
+    }
+
+    private Optional<Evidence> lockEvidence(UUID attemptId, UUID trustedUserId, boolean ungraded) {
         try {
-            var parameters = Map.of("attempt", attemptId.toString(), "user", trustedUserId.toString());
+            var parameters = Map.of("attempt", attemptId.toString(), "user", trustedUserId.toString(),
+                    "ungraded", ungraded);
             // Check the own binding before touching other roots. A joined locking read, or a primary-key
             // lookup followed by a user filter, can wait on a foreign row and disclose it via lock timeout.
             // Force the exact (user, attempt) index range so another participant's binding is not visited.
@@ -56,7 +65,9 @@ public class JdbcAttemptAccessRepository implements AttemptAccessRepository {
                     JOIN attempt_form f ON f.id=s.form_id
                     JOIN attempt_policy_snapshot p ON p.id=s.policy_snapshot_id AND p.quiz_revision_id=f.quiz_revision_id
                     JOIN quiz_revisions r ON r.id=f.quiz_revision_id
+                    LEFT JOIN attempt_ungraded_activity u ON u.attempt_id=l.attempt_id
                     WHERE l.attempt_id=UUID_TO_BIN(:attempt)
+                      AND (u.attempt_id IS NOT NULL)=:ungraded
                       AND s.schema_version=1 AND s.last_sequence>=2 AND f.schema_version=1
                       AND p.schema_version=1 AND p.resolver_version=1 AND p.canonical_version=1
                       AND CAST(p.hash_algorithm AS BINARY)='SHA-256' AND r.schema_version=1

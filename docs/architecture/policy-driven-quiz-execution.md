@@ -5488,6 +5488,40 @@ and submit transactions, #642 the participant API, #568/#644 reports, #643 certi
 proves those downstream writes, exclusions or public behavior. A future offline package must
 preserve the explicit kind/version; this contract enables no offline execution.
 
+### Internal ungraded response and completion commands (#567)
+
+`AttemptStartService.startUngraded` captures the versioned activity policy alongside a new canonical
+attempt and its fixed form. A trusted start owner supplies the saved required source occurrences
+and verified notice evidence. Start binds them to delivered form item IDs in the same transaction
+as the start receipt. It cannot adopt a previously graded attempt. This composition supports the
+existing authenticated, flat, untimed, all-at-once form with immediate response acceptance. Its
+start does not consume or alter the ordinary assessment allowance. Timed, sequential, editable,
+guest and offline integrations remain outside this increment.
+
+`UngradedActivityService` checks current participant and resource authority before inspecting
+receipts, including replay. Both commands serialize on the canonical attempt row and use the v2
+writable READ_COMMITTED contract. A response is validated against the immutable form item and its
+response contract. In retained-response mode the validated value is saved once. In completion-only
+mode the value is validated in memory and neither its bytes nor a digest of those bytes is stored.
+The same key, attempt, item and expected version return the first participation acknowledgement
+even with a different valid response value. Reusing that key for another item or version conflicts.
+The database constrains the response column to be empty in completion-only mode.
+
+An explicit completion uses saved requirements and committed participation. Optional items may
+remain empty. The canonical lifecycle holds the terminal timestamp. Its transition, trace and
+receipt commit together without a scored submission, finalization intent or result. Existing
+graded commands and participant reads reject the ungraded binding. The per-attempt write lock,
+unique participation identity and command receipt distinguish an exact repeat from a second write.
+An unconfirmed commit is reconciled by repeating the same command. Recovery after writes uses a
+forward fix. Existing attempts require no backfill and receipt retention is unchanged.
+
+For example, an authenticated participant answers the required reflection, skips an optional
+question and submits. The command returns the same completion timestamp after a restart, and the
+graded worker has no job for that attempt. Publication/participant integration, feedback and
+reporting, retention/erasure integration for these new facts and public activation remain with
+their owning tasks. A trusted local composition proves the commands and persistence, without
+establishing that participant-facing notice presentation or a published ungraded start is ready.
+
 ---
 
 ## Accessibility and Accommodations
