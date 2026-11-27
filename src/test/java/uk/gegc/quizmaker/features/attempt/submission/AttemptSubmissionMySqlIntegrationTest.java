@@ -52,6 +52,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import jakarta.validation.Validator;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
+import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -113,6 +116,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
 
 /** Real publication and five-family bindings feed the real atomic start. Only external storage is fake. */
 @Tag("db-serial")
+@ImportAutoConfiguration(ValidationAutoConfiguration.class)
 @DataJpaTest(showSql = false)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test-mysql")
@@ -270,6 +274,7 @@ class AttemptSubmissionMySqlIntegrationTest {
     @Autowired SubmissionResponseFinalizer finalizer;
     @Autowired AttemptReadFactsService facts;
     @Autowired AttemptAccessService access;
+    @Autowired Validator validator;
     @Autowired ResponseAcceptanceService responses;
     @Autowired AttemptDeliveryService delivery;
     @Autowired org.springframework.context.ApplicationContext context;
@@ -698,7 +703,7 @@ class AttemptSubmissionMySqlIntegrationTest {
         new ResponseAcceptanceJsonConfig().extendMessageConverters(converters);
         new AttemptSubmissionJsonConfig().extendMessageConverters(converters);
         return MockMvcBuilders.standaloneSetup(new ParticipantAttemptViewController(views, branch),
-                        new ResponseAcceptanceController(responses, json, branch), new AttemptSubmissionController(submissions, branch))
+                        new ResponseAcceptanceController(responses, json, branch, validator), new AttemptSubmissionController(submissions, branch, validator))
                 .setControllerAdvice(new ParticipantAttemptViewErrorHandler(), new ResponseAcceptanceErrorHandler(),
                         new AttemptSubmissionErrorHandler())
                 .setMessageConverters(converters.toArray(HttpMessageConverter[]::new)).build();
@@ -736,8 +741,9 @@ class AttemptSubmissionMySqlIntegrationTest {
         http(mvc, get(path).param("includeCorrectAnswers", "true"), 404);
         http(mvc, get(path + "/answer-key"), 404);
         http(mvc, get(path + "/review").param("includeCorrectAnswers", "true"), 404);
-        assertThat(http(mvc, postCommand(path + "/submit", "finish", finish), 422).path("code").asText())
-                .isEqualTo("SUBMISSION_INCOMPLETE");
+        var incomplete = http(mvc, postCommand(path + "/submit", "finish", finish), 422);
+        assertThat(incomplete.path("code").asText()).isEqualTo("SUBMISSION_INCOMPLETE");
+        assertThat(incomplete.path("missingFormItemIds")).isEqualTo(json.valueToTree(List.of(f.items().get(0))));
         assertThat(targetSnapshot()).isEqualTo(before);
 
         var accepted = http(mvc, postCommand(path + "/responses", "answer", answer), 200);
@@ -756,8 +762,9 @@ class AttemptSubmissionMySqlIntegrationTest {
         assertThat(progress.at("/items/1/participated").asBoolean(true)).isFalse();
         assertThat(progress.path("allowedActions").toString()).contains("SUBMIT_ATTEMPT");
         finish.put("expectedStateVersion", 2).put("completionConfirmed", false);
-        assertThat(http(mvc, postCommand(path + "/submit", "finish", finish), 422).path("code").asText())
-                .isEqualTo("SUBMISSION_CONFIRMATION_REQUIRED");
+        var unconfirmed = http(mvc, postCommand(path + "/submit", "finish", finish), 422);
+        assertThat(unconfirmed.path("code").asText()).isEqualTo("SUBMISSION_CONFIRMATION_REQUIRED");
+        assertThat(unconfirmed.path("missingFormItemIds")).isEmpty();
         finish.put("completionConfirmed", true);
         var done = http(mvc, postCommand(path + "/submit", "finish", finish), 200);
         var replay = http(mvc, postCommand(path + "/submit", "finish", finish), 200);
@@ -778,6 +785,96 @@ class AttemptSubmissionMySqlIntegrationTest {
         http(mvc, get(path), 200);
         revoke(ownerId, "ATTEMPT_READ");
         http(mvc, get(path), 404);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {" {}", " {\"unfinished\":"})
+    void participantHttpRejectsTrailingJsonBeforeReservingTheKey(String tail) throws Exception {
+        var f = ungradedFixture(ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION, 1);
+        var mvc = participantHttp(true);
+        String path = "/api/v2/attempts/" + f.attempt() + "/responses";
+        String key = UUID.randomUUID().toString();
+        var body = json.createObjectNode().put("expectedStateVersion", 1).put("formItemId", f.items().get(0).toString());
+        body.putObject("response").put("type", "OPEN").put("answer", "test reflection");
+        var before = targetSnapshot();
+        var problem = http(mvc, post(path).header("Idempotency-Key", key).contentType("application/json")
+                .content(body.toString() + tail), 400);
+        assertThat(problem.path("code").asText()).isEqualTo("INVALID_RESPONSE_REQUEST");
+        assertThat(targetSnapshot()).isEqualTo(before);
+        var accepted = http(mvc, postCommand(path, key, body), 200);
+        assertThat(accepted.required("stateVersion").asLong()).isEqualTo(2);
+        assertThat(accepted.required("replayed").asBoolean(true)).isFalse();
+    }
+
+    @Test void participantHttpTraceOmitsChoicesCommandKeysAndParticipationMetadata() throws Exception {
+        var f = ungradedFixture(ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION, 2);
+        var mvc = participantHttp(true);
+        String path = "/api/v2/attempts/" + f.attempt();
+        String answerKey = UUID.randomUUID().toString(), submitKey = UUID.randomUUID().toString();
+        String optionId = UUID.randomUUID().toString(), text = "reflection-" + UUID.randomUUID();
+        var answer = json.createObjectNode().put("expectedStateVersion", 1).put("formItemId", f.items().get(0).toString());
+        var choices = answer.putObject("response").put("type", "MCQ_MULTI").putArray("selectedOptionIds");
+        for (int i = 0; i < 101; i++) choices.add(optionId);
+        try (var logs = new TransactionLogs("org.springframework.web")) {
+            http(mvc, postCommand(path + "/responses", answerKey, answer), 400);
+            answer.putObject("response").put("type", "OPEN").put("answer", text);
+            var ack = http(mvc, postCommand(path + "/responses", answerKey, answer), 200);
+            var view = http(mvc, get(path), 200);
+            var submit = json.createObjectNode().put("expectedStateVersion", 2).put("completionConfirmed", true);
+            var done = http(mvc, postCommand(path + "/submit", submitKey, submit), 200);
+            String rendered = logs.rendered();
+            assertThat(rendered).contains("Arguments:", "Writing");
+            assertThat(view.at("/items/0/participated").asBoolean()).isTrue();
+            assertThat(view.at("/items/1/participated").asBoolean(true)).isFalse();
+            for (String value : List.of(answerKey, submitKey, optionId, text, ack.required("participationId").asText(),
+                    view.required("formId").asText(), f.items().get(0).toString(), done.required("completedAt").asText(),
+                    "participated=true", "participated=false", "\"participated\"")) {
+                assertThat(rendered.contains(value)).as("participant data in MVC TRACE").isFalse();
+            }
+        }
+    }
+
+    @Test void participantHttpPermissionReadScrubsDriverDiagnosticsInsideTheRepository() throws Exception {
+        var f = ungradedFixture(ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION, 1);
+        var mvc = participantHttp(true);
+        String marker = "permission-fault-" + UUID.randomUUID();
+        var reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.contains("SELECT p.permission_name FROM user_roles") && reached.compareAndSet(false, true)) {
+                var failure = new SQLException(marker, "HY000", new IllegalStateException(marker + "-cause"));
+                failure.addSuppressed(new IllegalArgumentException(marker + "-suppressed"));
+                throw failure;
+            }
+        };
+        String path = "/api/v2/attempts/" + f.attempt();
+        try (var logs = new TransactionLogs()) {
+            var problem = http(mvc, get(path), 503);
+            assertThat(reached).isTrue();
+            assertThat(problem.path("detail").asText()).isEqualTo("Attempt delivery is temporarily unavailable");
+            assertThat(logs.rendered()).contains("JdbcQuizPracticeSourceRepository.lockPermissions").doesNotContain(marker);
+        } finally { observer().reset(); }
+        assertThat(http(mvc, get(path), 200).required("stateVersion").asLong()).isOne();
+    }
+
+    @Test void participantViewTranslatesCollaboratorFailureBeforeTransactionRollbackLogging() {
+        var f = ungradedFixture(ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION, 1);
+        String marker = "view-read-" + UUID.randomUUID();
+        ParticipantViewMediaReader unavailable = (attempt, revision, refs) -> {
+            var failure = new org.springframework.dao.DataAccessResourceFailureException(marker,
+                    new IllegalStateException(marker + "-cause"));
+            failure.addSuppressed(new IllegalStateException(marker + "-suppressed"));
+            throw failure;
+        };
+        var service = new UngradedParticipantServiceImpl(manager, context.getBean(AuthenticatedSubjectResolver.class),
+                context.getBean(UngradedActivityRepository.class), facts, ungraded, unavailable, metrics, true, true);
+        try (var logs = new TransactionLogs()) {
+            assertThatThrownBy(() -> service.read(f.attempt(), false))
+                    .isInstanceOfSatisfying(uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException.class, e -> {
+                        assertThat(e.reason().name()).isEqualTo("UNAVAILABLE");
+                        assertThat(e.getCause()).isNull();
+                        assertThat(e.getSuppressed()).isEmpty();
+                    });
+            assertThat(logs.rendered()).contains("Initiating transaction rollback").doesNotContain(marker);
+        }
     }
 
     @Test void participantHttpKeepsGradedShapesAndFinalization() throws Exception {
@@ -863,6 +960,7 @@ class AttemptSubmissionMySqlIntegrationTest {
             observer().selects.clear();
             for (UUID attempt : attempts) assertThat(participant.read(attempt, false).orElseThrow().items()).hasSize(size);
             counts.add(observer().selects.size());
+            assertThat(observer().selects.stream().filter(q -> q.contains("SELECT p.permission_name FROM user_roles"))).hasSize(3);
             assertThat(observer().selects.stream().filter(q -> q.contains("FROM attempt_ungraded_participation")))
                     .hasSize(3).noneMatch(q -> q.contains("normalized_response"));
         }
@@ -1336,7 +1434,7 @@ class AttemptSubmissionMySqlIntegrationTest {
                 new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter()));
         new uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionJsonConfig().extendMessageConverters(converters);
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionController(submissions, java.util.Optional.empty()))
+                new uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionController(submissions, java.util.Optional.empty(), validator))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionErrorHandler())
                 .setMessageConverters(converters.toArray(org.springframework.http.converter.HttpMessageConverter[]::new)).build();
         var path = "/api/v2/attempts/" + f.attempt() + "/submit";
@@ -1862,9 +1960,12 @@ class AttemptSubmissionMySqlIntegrationTest {
         final ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> events=new ch.qos.logback.core.read.ListAppender<>();
         final Map<ch.qos.logback.classic.Logger,ch.qos.logback.classic.Level> levels=new HashMap<>();
         TransactionLogs() {
+            this("org.springframework.transaction", "org.springframework.orm.jpa.JpaTransactionManager",
+                    "uk.gegc.quizmaker.shared.transaction.SafeJpaTransactionManager");
+        }
+        TransactionLogs(String... categories) {
             events.start(); root.addAppender(events);
-            for(String name:List.of("org.springframework.transaction","org.springframework.orm.jpa.JpaTransactionManager",
-                    "uk.gegc.quizmaker.shared.transaction.SafeJpaTransactionManager")) {
+            for (String name : categories) {
                 var logger=(ch.qos.logback.classic.Logger)org.slf4j.LoggerFactory.getLogger(name);
                 levels.put(logger,logger.getLevel()); logger.setLevel(ch.qos.logback.classic.Level.TRACE);
             }

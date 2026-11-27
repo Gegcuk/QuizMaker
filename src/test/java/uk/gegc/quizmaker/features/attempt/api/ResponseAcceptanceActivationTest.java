@@ -1,6 +1,8 @@
 package uk.gegc.quizmaker.features.attempt.api;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import uk.gegc.quizmaker.features.attempt.application.ResponseAcceptanceService;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -8,6 +10,7 @@ import static org.mockito.Mockito.mock;
 
 class ResponseAcceptanceActivationTest {
     private final WebApplicationContextRunner runner = new WebApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(ValidationAutoConfiguration.class))
             .withBean(ResponseAcceptanceService.class, () -> mock(ResponseAcceptanceService.class))
             .withBean(uk.gegc.quizmaker.features.attempt.application.ResponseBatchAcceptanceService.class,
                     () -> mock(uk.gegc.quizmaker.features.attempt.application.ResponseBatchAcceptanceService.class))

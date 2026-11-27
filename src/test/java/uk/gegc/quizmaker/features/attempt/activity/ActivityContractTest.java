@@ -88,9 +88,16 @@ class ActivityContractTest {
                     var facts = new CompletionEvidence(submit, participated, TIME);
                     var running = start(policy, new StartFacts(false));
                     if (!submit) rejected(() -> complete(policy, running, facts), FINAL_SUBMIT_REQUIRED);
-                    else if ((participationMask & requiredMask) != requiredMask)
-                        rejected(() -> complete(policy, running, facts), PARTICIPATION_REQUIRED);
-                    else assertThat(complete(policy, running, facts)).isEqualTo(new Completed(1, TIME));
+                    else if ((participationMask & requiredMask) != requiredMask) {
+                        var missing = new ArrayList<UUID>();
+                        for (int i = 0; i < ids.size(); i++)
+                            if (((requiredMask & ~participationMask) & (1 << i)) != 0) missing.add(ids.get(i));
+                        assertThatThrownBy(() -> complete(policy, running, facts)).isInstanceOfSatisfying(
+                                ActivityContractException.class, failure -> {
+                                    assertThat(failure.reason()).isEqualTo(PARTICIPATION_REQUIRED);
+                                    assertThat(failure.missingFormItemIds()).containsExactlyElementsOf(missing);
+                                });
+                    } else assertThat(complete(policy, running, facts)).isEqualTo(new Completed(1, TIME));
                 }
             }
         }

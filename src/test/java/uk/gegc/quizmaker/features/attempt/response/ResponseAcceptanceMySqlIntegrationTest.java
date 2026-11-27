@@ -25,6 +25,9 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import jakarta.validation.Validator;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
+import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -79,6 +82,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
 
 /** Real publication and five-family bindings feed the real atomic start. Only external storage is fake. */
 @Tag("db-serial")
+@ImportAutoConfiguration(ValidationAutoConfiguration.class)
 @DataJpaTest(showSql = false)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test-mysql")
@@ -250,6 +254,7 @@ class ResponseAcceptanceMySqlIntegrationTest {
         }
     }
     @Autowired AttemptAccessService access;
+    @Autowired Validator validator;
     @Autowired ResponseAcceptanceService responses;
     @Autowired AttemptDeliveryService delivery;
     @Autowired org.springframework.context.ApplicationContext context;
@@ -658,7 +663,7 @@ class ResponseAcceptanceMySqlIntegrationTest {
         var converters = new ArrayList<org.springframework.http.converter.HttpMessageConverter<?>>(List.of(converter));
         new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceJsonConfig().extendMessageConverters(converters);
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceController(responses, json, java.util.Optional.empty()))
+                new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceController(responses, json, java.util.Optional.empty(), validator))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceErrorHandler())
                 .setMessageConverters(converters.toArray(org.springframework.http.converter.HttpMessageConverter[]::new)).build();
         String path = "/api/v2/attempts/" + started.attemptId() + "/responses";
@@ -1660,7 +1665,7 @@ class ResponseAcceptanceMySqlIntegrationTest {
         new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceJsonConfig().extendMessageConverters(converters);
         new uk.gegc.quizmaker.features.attempt.api.ResponseBatchJsonConfig().extendMessageConverters(converters);
         return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceController(responses, json, java.util.Optional.empty()),
+                new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceController(responses, json, java.util.Optional.empty(), validator),
                 new uk.gegc.quizmaker.features.attempt.api.ResponseBatchController(batches, json),
                 new uk.gegc.quizmaker.features.attempt.api.AttemptFormController(delivery))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceErrorHandler(),

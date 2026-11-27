@@ -72,7 +72,7 @@ public class AttemptExpiryServiceImpl implements AttemptExpiryService {
         var bound=bindings.lockEvidence(attempt,user).orElseThrow(()->new Failure(CORRUPT));
         check(bound.lifecycle().equals(state),CORRUPT);
         var captured=new AttemptAccessService.Access(attempt,AttemptAccessService.Operation.ANSWER,bound.quizId(),bound.revisionId(),
-                bound.formId(),bound.policySnapshotId(),state.rowVersion(),bound.contentOwnerId(),state);
+                bound.formId(),bound.policySnapshotId(),state.rowVersion(),bound.contentOwnerId(),state,false);
         var saved=facts.read(captured);
         check(saved!=null && saved.timing()!=null,UNSUPPORTED);
         Instant now=uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt.time(clock.instant());

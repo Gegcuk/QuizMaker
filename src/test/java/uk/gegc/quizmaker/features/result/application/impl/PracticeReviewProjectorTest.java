@@ -42,7 +42,7 @@ class PracticeReviewProjectorTest {
 
     AttemptReadFactsService.Facts facts() {
         return new AttemptReadFactsService.Facts(new AttemptAccessService.Access(attempt, AttemptAccessService.Operation.RESULT,
-                quiz, revision, form, snapshot, 3, user, lifecycle), policy,
+                quiz, revision, form, snapshot, 3, user, lifecycle, false), policy,
                 new FixedForm(form, 1, revision, List.of(new FixedForm.Item(item, sourceItem, 0))),
                 new FormOptionOrder(form, 1, policy.answerOrdering(), List.of(new FormOptionOrder.Item(item, sourceItem, binding, List.of()))),
                 new QuizRevision(revision, quiz, user, 1, "Frozen quiz", null, at, List.of(new QuizRevision.Item(sourceItem, 0, q))),

@@ -142,7 +142,16 @@ class AttemptSubmissionOpenApiTest {
                     List.of(PATH, "post", "AttemptSubmitAcknowledgement", "UngradedCompletionAcknowledgement"),
                     List.of("/api/v2/attempts/{attemptId}/responses", "post", "AcceptedResponseAcknowledgement", "UngradedParticipationAcknowledgement"),
                     List.of("/api/v2/attempts/{attemptId}", "get", "ParticipantAttemptView", "UngradedParticipantView"))) {
-                var media = spec.path("paths").path(variant.get(0)).path(variant.get(1)).at("/responses/200/content/application~1json");
+                var operation = spec.path("paths").path(variant.get(0)).path(variant.get(1));
+                if ("post".equals(variant.get(1))) {
+                    assertThat(operation.path("parameters")).filteredOn(parameter -> "header".equals(parameter.path("in").asText()))
+                            .singleElement().satisfies(header -> {
+                                assertThat(header.path("name").asText()).isEqualTo("Idempotency-Key");
+                                assertThat(header.path("required").asBoolean()).isTrue();
+                                assertThat(header.at("/schema/type").asText()).isEqualTo("string");
+                            });
+                }
+                var media = operation.at("/responses/200/content/application~1json");
                 var union = media.at("/schema/oneOf");
                 assertThat(union).hasSize(2);
                 assertThat(union.at("/0/allOf/0/$ref").asText()).isEqualTo("#/components/schemas/" + variant.get(2));

@@ -26,24 +26,32 @@ public final class UngradedParticipantResponse {
                        @Schema(requiredMode = REQUIRED) State state,
                        @Schema(description = "UTC instant of explicit completion; absent during participation.") Instant completedAt,
                        @Schema(description = "Saved participant-safe questions while in progress; absent after completion.") List<Item> items,
-                       @Schema(requiredMode = REQUIRED) List<Action> allowedActions) { }
+                       @Schema(requiredMode = REQUIRED) List<Action> allowedActions) {
+        @Override public String toString() { return "UngradedView[redacted]"; }
+    }
 
     @Schema(name = "UngradedParticipantItem", additionalProperties = FALSE)
     public record Item(@Schema(requiredMode = REQUIRED) ParticipantAttemptView.Item question,
                        @Schema(requiredMode = REQUIRED) boolean required,
-                       @Schema(requiredMode = REQUIRED) boolean participated) { }
+                       @Schema(requiredMode = REQUIRED) boolean participated) {
+        @Override public String toString() { return "UngradedItem[redacted]"; }
+    }
 
     @Schema(name = "UngradedParticipationAcknowledgement", additionalProperties = FALSE)
     public record Participation(@Schema(requiredMode = REQUIRED) Kind activityKind,
                                 @Schema(requiredMode = REQUIRED) UUID attemptId,
                                 @Schema(requiredMode = REQUIRED) UUID participationId,
                                 @Schema(requiredMode = REQUIRED) long stateVersion,
-                                @Schema(requiredMode = REQUIRED) boolean replayed) { }
+                                @Schema(requiredMode = REQUIRED) boolean replayed) {
+        @Override public String toString() { return "UngradedParticipation[redacted]"; }
+    }
 
     @Schema(name = "UngradedCompletionAcknowledgement", additionalProperties = FALSE)
     public record Completion(@Schema(requiredMode = REQUIRED) Kind activityKind,
                              @Schema(requiredMode = REQUIRED) UUID attemptId,
                              @Schema(requiredMode = REQUIRED) Instant completedAt,
                              @Schema(requiredMode = REQUIRED) long stateVersion,
-                             @Schema(requiredMode = REQUIRED) boolean replayed) { }
+                             @Schema(requiredMode = REQUIRED) boolean replayed) {
+        @Override public String toString() { return "UngradedCompletion[redacted]"; }
+    }
 }

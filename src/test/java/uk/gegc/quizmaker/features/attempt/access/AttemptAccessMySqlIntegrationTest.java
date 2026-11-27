@@ -220,14 +220,17 @@ class AttemptAccessMySqlIntegrationTest {
         var before = targetSnapshot();
         for (var operation : Operation.values()) {
             boolean allowed = permissions.equals("both") || permissions.equals(operation == Operation.ANSWER ? "create" : "read");
-            if (allowed) assertThat(access.requireAccess(started.attemptId(), operation).operation()).isEqualTo(operation);
-            else denied(() -> guarded(started.attemptId(), operation), DENIED);
+            if (allowed) {
+                var granted = access.requireAccess(started.attemptId(), operation);
+                assertThat(granted.operation()).isEqualTo(operation);
+                assertThat(granted.canCreateAttempt()).isEqualTo(permissions.equals("create") || permissions.equals("both"));
+            } else denied(() -> guarded(started.attemptId(), operation), DENIED);
         }
         assertThat(targetSnapshot()).isEqualTo(before);
-        // Access returns only scoped references, never an answer, grade, release or allowed-actions DTO.
+        // Authorization facts may describe current command permission, but cannot grant result disclosure.
         assertThat(Arrays.stream(AttemptAccessService.Access.class.getRecordComponents()).map(RecordComponent::getName))
                 .containsExactly("attemptId", "operation", "quizId", "quizRevisionId", "formId", "policySnapshotId", "stateVersion",
-                        "contentOwnerId", "lifecycle");
+                        "contentOwnerId", "lifecycle", "canCreateAttempt");
     }
 
     @ParameterizedTest @ValueSource(strings = {"QUESTION_ADMIN", "QUIZ_MODERATE"})

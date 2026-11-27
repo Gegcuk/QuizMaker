@@ -83,10 +83,11 @@ public class AttemptAccessServiceImpl implements AttemptAccessService {
             case VIEW, RESULT -> PermissionName.ATTEMPT_READ;
             case ANSWER -> PermissionName.ATTEMPT_CREATE;
         };
-        var owner = quizzes.lockParticipantAccess(subject.userId(), evidence.quizId(), required);
-        if (!owner.equals(evidence.contentOwnerId())) throw new AttemptAccessException(DENIED);
+        var resource = quizzes.lockParticipantAccess(subject.userId(), evidence.quizId(), required);
+        if (!resource.ownerId().equals(evidence.contentOwnerId())) throw new AttemptAccessException(DENIED);
         return new Access(attemptId, operation, evidence.quizId(), evidence.revisionId(), evidence.formId(),
-                evidence.policySnapshotId(), evidence.lifecycle().rowVersion(), owner, evidence.lifecycle());
+                evidence.policySnapshotId(), evidence.lifecycle().rowVersion(), resource.ownerId(), evidence.lifecycle(),
+                resource.canCreateAttempt());
     }
 
     private static AttemptAccessException translate(RuntimeException failure) {

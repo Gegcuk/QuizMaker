@@ -111,7 +111,8 @@ class AttemptAccessServiceTest {
         when(identity.resolveCurrent(attempt)).thenReturn(AttemptSubject.authenticated(attempt, actor));
         when(attempts.lockEvidence(attempt, actor)).thenReturn(Optional.of(new AttemptAccessRepository.Evidence(
                 quiz, actor, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), lifecycle)));
-        when(quizzes.lockParticipantAccess(actor, quiz, PermissionName.ATTEMPT_READ)).thenReturn(actor);
+        when(quizzes.lockParticipantAccess(actor, quiz, PermissionName.ATTEMPT_READ))
+                .thenReturn(new QuizPracticeSourceService.ParticipantAccess(actor, false));
     }
 
     private static void rejected(Runnable action, AttemptAccessException.Reason reason) {

@@ -235,7 +235,7 @@ public class UngradedActivityServiceImpl implements UngradedActivityService {
 
     private static RuntimeException bounded(RuntimeException failure) {
         if (failure instanceof ActivityContractException activity) {
-            return new ActivityContractException(activity.reason());
+            return new ActivityContractException(activity.reason(), activity.missingFormItemIds());
         }
         return AttemptCommandFailures.translate(failure);
     }

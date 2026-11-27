@@ -34,7 +34,8 @@ public final class UngradedParticipantOpenApi implements GlobalOpenApiCustomizer
                                 + "the same key, item and expected version acknowledge the same participation for any valid value. No answer bytes or content digest are retained.");
                 case "submitAttempt" -> extend(api, operation, Completion.class,
                         Map.of("activityKind", "UNGRADED", "attemptId", ATTEMPT, "completedAt", COMPLETED, "stateVersion", 3, "replayed", false),
-                        "A confirmed submit requires every saved required participation. Missing participation or confirmation returns 422. "
+                        "A confirmed submit requires every saved required participation. A 422 SUBMISSION_INCOMPLETE lists the unanswered "
+                                + "required form item IDs in saved order in missingFormItemIds. Missing confirmation also returns 422. "
                                 + "An exact replay returns the original completion time. Optional items may remain unanswered.");
                 default -> { }
             }

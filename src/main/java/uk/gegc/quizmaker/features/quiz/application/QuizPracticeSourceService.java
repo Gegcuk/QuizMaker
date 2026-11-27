@@ -9,18 +9,19 @@ public interface QuizPracticeSourceService {
     record Access(UUID quizId, UUID ownerId, boolean owner, Boolean timerEnabled,
                   UUID currentRevisionId, long publicationVersion) { }
 
+    record ParticipantAccess(UUID ownerId, boolean canCreateAttempt) {
+        @Override public String toString() { return "ParticipantAccess[redacted]"; }
+    }
+
     /** Requires a caller transaction and a server-authenticated actor ID. Locks access through commit. */
     Access lockAccess(UUID trustedActorId, UUID quizId);
 
     /**
      * Current owner/full-editor authority plus ATTEMPT_READ or ATTEMPT_CREATE, in the caller transaction.
-     * Returns the content owner. Does not require the attempt's revision to remain the publication head.
+     * Returns the content owner and current command permission from the same locked grants. Does not require the attempt's revision to remain the publication head.
      * This is resource authority only; the caller must independently verify the attempt's own subject.
      */
-    UUID lockParticipantAccess(UUID trustedActorId, UUID quizId, PermissionName operationPermission);
-
-    /** Command permission only, after current participant and resource read authority are established. */
-    boolean hasAnswerPermission(UUID trustedActorId);
+    ParticipantAccess lockParticipantAccess(UUID trustedActorId, UUID quizId, PermissionName operationPermission);
 
     /** Same transaction as lockAccess; this internal value must never be accepted from transport. */
     QuizRevision readRevision(Access access, UUID revisionId);

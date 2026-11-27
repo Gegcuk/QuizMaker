@@ -25,7 +25,6 @@ import uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycl
 import uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException;
 import uk.gegc.quizmaker.features.attempt.domain.model.submission.AttemptSubmissionException;
 import uk.gegc.quizmaker.features.attempt.domain.repository.UngradedActivityRepository;
-import uk.gegc.quizmaker.features.quiz.application.QuizPracticeSourceService;
 
 import static uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException.Reason.*;
 
@@ -38,14 +37,13 @@ public class UngradedParticipantServiceImpl implements UngradedParticipantServic
     private final AttemptReadFactsService facts;
     private final UngradedActivityService commands;
     private final ParticipantViewMediaReader media;
-    private final QuizPracticeSourceService quizzes;
     private final MeterRegistry metrics;
     private final boolean responsesEnabled;
     private final boolean submissionEnabled;
 
     public UngradedParticipantServiceImpl(PlatformTransactionManager manager, AuthenticatedSubjectResolver subjects,
             UngradedActivityRepository activities, AttemptReadFactsService facts, UngradedActivityService commands,
-            ParticipantViewMediaReader media, QuizPracticeSourceService quizzes, MeterRegistry metrics,
+            ParticipantViewMediaReader media, MeterRegistry metrics,
             @Value("${quizmaker.attempts.response-acceptance-enabled:false}") boolean responsesEnabled,
             @Value("${quizmaker.attempts.submission-enabled:false}") boolean submissionEnabled) {
         this.reads = AttemptTransactions.readCommitted(manager);
@@ -55,7 +53,6 @@ public class UngradedParticipantServiceImpl implements UngradedParticipantServic
         this.facts = facts;
         this.commands = commands;
         this.media = media;
-        this.quizzes = quizzes;
         this.metrics = metrics;
         this.responsesEnabled = responsesEnabled;
         this.submissionEnabled = submissionEnabled;
@@ -65,11 +62,15 @@ public class UngradedParticipantServiceImpl implements UngradedParticipantServic
         AttemptTransactions.requireCompatible(reads.getTransactionManager(), false);
         try {
             Optional<View> result = reads.execute(status -> {
-                var actor = subjects.resolve(attemptId).userId();
-                if (!activities.isOwnedUngraded(attemptId, actor)) return Optional.empty();
-                var saved = facts.read(attemptId, AttemptReadFactsService.Purpose.UNGRADED_VIEW);
-                if (hasQueryParameters) throw new AttemptDeliveryException(NOT_FOUND);
-                return Optional.of(view(saved, actor));
+                try {
+                    var actor = subjects.resolve(attemptId).userId();
+                    if (!activities.isOwnedUngraded(attemptId, actor)) return Optional.empty();
+                    var saved = facts.read(attemptId, AttemptReadFactsService.Purpose.UNGRADED_VIEW);
+                    if (hasQueryParameters) throw new AttemptDeliveryException(NOT_FOUND);
+                    return Optional.of(view(saved));
+                } catch (RuntimeException failure) {
+                    throw readFailure(failure);
+                }
             });
             if (result.isPresent()) recordRead("returned");
             return result;
@@ -101,7 +102,7 @@ public class UngradedParticipantServiceImpl implements UngradedParticipantServic
         return AttemptReadFailures.translate(failure);
     }
 
-    private View view(AttemptReadFactsService.Facts saved, UUID actor) {
+    private View view(AttemptReadFactsService.Facts saved) {
         var access = saved.access();
         var state = access.lifecycle();
         var binding = activities.read(access.attemptId(), access.formId())
@@ -126,7 +127,7 @@ public class UngradedParticipantServiceImpl implements UngradedParticipantServic
         var items = questions.stream().map(q -> new Item(q, required.contains(q.id()), participated.contains(q.id()))).toList();
         var actions = new ArrayList<Action>();
         actions.add(Action.VIEW_ATTEMPT);
-        if (quizzes.hasAnswerPermission(actor)) {
+        if (access.canCreateAttempt()) {
             if (responsesEnabled && participated.size() < formIds.size()) actions.add(Action.SUBMIT_ANSWER);
             if (submissionEnabled && participated.containsAll(required)) actions.add(Action.SUBMIT_ATTEMPT);
         }
@@ -138,8 +139,13 @@ public class UngradedParticipantServiceImpl implements UngradedParticipantServic
     // including current authorization, receipt and uncertain-commit recovery.
     private boolean ungradedCommand(UUID attemptId) {
         AttemptTransactions.requireCompatible(reads.getTransactionManager(), true);
-        return Boolean.TRUE.equals(reads.execute(status ->
-                activities.isOwnedUngraded(attemptId, subjects.resolve(attemptId).userId())));
+        return Boolean.TRUE.equals(reads.execute(status -> {
+            try {
+                return activities.isOwnedUngraded(attemptId, subjects.resolve(attemptId).userId());
+            } catch (RuntimeException failure) {
+                throw AttemptCommandFailures.translate(failure);
+            }
+        }));
     }
 
     @Override public Optional<Participation> accept(ResponseAcceptanceService.Command command) {
@@ -175,7 +181,7 @@ public class UngradedParticipantServiceImpl implements UngradedParticipantServic
                 case PARTICIPATION_REQUIRED -> AttemptSubmissionException.Reason.INCOMPLETE;
                 case FINAL_SUBMIT_REQUIRED -> AttemptSubmissionException.Reason.CONFIRMATION_REQUIRED;
                 default -> submissionReason(activityFailure(failure));
-            });
+            }, failure.missingFormItemIds());
         } catch (RuntimeException failure) {
             throw new AttemptSubmissionException(submissionReason(AttemptCommandFailures.translate(failure).reason()));
         }

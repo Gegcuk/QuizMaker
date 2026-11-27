@@ -6,7 +6,10 @@ import io.swagger.v3.oas.annotations.media.*;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import org.springframework.util.StringUtils;
+import org.springframework.web.context.request.WebRequest;
+import jakarta.validation.Validator;
 import java.util.Optional;
 import java.util.UUID;
 import uk.gegc.quizmaker.features.attempt.application.UngradedParticipantService;
@@ -25,12 +28,14 @@ public class ResponseAcceptanceController {
     private final ResponseAcceptanceService responses;
     private final ObjectMapper json;
     private final Optional<UngradedParticipantService> ungraded;
+    private final Validator validator;
 
     public ResponseAcceptanceController(ResponseAcceptanceService responses, ObjectMapper json,
-            Optional<UngradedParticipantService> ungraded) {
+            Optional<UngradedParticipantService> ungraded, Validator validator) {
         this.responses = responses;
         this.json = json;
         this.ungraded = ungraded;
+        this.validator = validator;
     }
 
     @PostMapping(value = "/{attemptId}/responses", produces = "application/json", consumes = "application/json")
@@ -43,6 +48,8 @@ public class ResponseAcceptanceController {
                     "request after an unknown outcome. No automatic retries or partial writes. The five baseline response families, OPEN and MATCHING; arrays at most 100, " +
                     "strings at most 10000 characters and normalized response JSON at most 65536 UTF-8 bytes. Empty multi-choice/order/gap arrays retain v1 validation semantics. " +
                     "No grading/feedback is performed here. Legacy /answers remains unchanged. Disabled by default pending #609 activation.",
+            parameters = @Parameter(name = "Idempotency-Key", in = ParameterIn.HEADER, required = true,
+                    description = "Exact opaque command identity; do not reuse for different input", schema = @Schema(type = "string")),
             security = @SecurityRequirement(name = "bearerAuth"))
     @ApiResponse(responseCode = "200", description = "Committed acceptance or identical replay", content = @Content(
             schema = @Schema(implementation = AcceptedResponseAcknowledgement.class), examples = @ExampleObject(value = """
@@ -56,16 +63,15 @@ public class ResponseAcceptanceController {
     @ApiResponse(responseCode = "500", description = "Inconsistent saved evidence", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "503", description = "Storage unavailable, retryable transaction or unknown commit outcome", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     public ResponseEntity<?> accept(@PathVariable UUID attemptId,
-            @Parameter(description = "Exact opaque command identity; do not reuse for different input", required = true)
-            @RequestHeader("Idempotency-Key") String key,
+            WebRequest http,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
                     schema = @Schema(implementation = AcceptResponseRequest.class), examples = @ExampleObject(value = """
                     {"formItemId":"00000000-0000-0000-0000-000000000002","expectedStateVersion":1,"response":{"type":"TRUE_FALSE","answer":true}}
-                    """))) @Valid @RequestBody AcceptResponseRequest request, org.springframework.validation.BindingResult validation) {
-        // Avoid Spring's MethodArgumentNotValidException diagnostics containing rejected answers.
-        if (validation.hasErrors()) throw new ResponseAcceptanceJsonConfig.InvalidRequest();
+                    """))) @RequestBody AcceptResponseRequest request) {
+        if (!validator.validate(request).isEmpty()) throw new ResponseAcceptanceJsonConfig.InvalidRequest();
+        var key = CommandReceipt.Key.from(StringUtils.arrayToCommaDelimitedString(http.getHeaderValues("Idempotency-Key")));
         var command = new ResponseAcceptanceService.Command(attemptId, request.formItemId(), request.expectedStateVersion(),
-                CommandReceipt.Key.from(key), request.response().type(), json.valueToTree(request.response()));
+                key, request.response().type(), json.valueToTree(request.response()));
         var participation = ungraded.flatMap(service -> service.accept(command));
         if (participation.isPresent()) return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(participation.get());
         var result = responses.accept(command);

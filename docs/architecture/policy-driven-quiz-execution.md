@@ -5552,8 +5552,10 @@ and answer-key operations cannot disclose an ungraded attempt. The local contrac
 named examples in the full specification and the `attempts-v2` group.
 
 Use the same `Idempotency-Key`, body and expected version to reconcile a lost response. Retained
-mode rejects changed content for the same key. In no-retention mode a different valid value for
+mode rejects changed content for the same key. A malformed response body, including trailing JSON,
+returns 400 and leaves a fresh key available. In no-retention mode a different valid value for
 the same item, key and expected version yields the original participation acknowledgement.
+An incomplete confirmed submit returns 422 with the missing required form item IDs in saved order.
 Completion replays return the original terminal timestamp. Missing required participation and
 unconfirmed completion return 422 without consuming the key. Existing graded JSON is preserved.
 

@@ -24,7 +24,7 @@ public interface AttemptAccessService {
     /** Internal references for this invocation and operation only. Never accept this value from a client. */
     record Access(UUID attemptId, Operation operation, UUID quizId, UUID quizRevisionId,
                   UUID formId, UUID policySnapshotId, long stateVersion,
-                  UUID contentOwnerId, LifecycleState lifecycle) {
+                  UUID contentOwnerId, LifecycleState lifecycle, boolean canCreateAttempt) {
         @Override public String toString() { return "AttemptAccess[operation=" + operation + "]"; }
     }
 }
