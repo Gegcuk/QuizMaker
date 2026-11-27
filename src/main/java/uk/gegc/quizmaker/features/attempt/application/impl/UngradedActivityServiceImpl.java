@@ -88,6 +88,7 @@ public class UngradedActivityServiceImpl implements UngradedActivityService {
     @Override public Completion complete(Submit command) {
         require(command != null, INVALID_INPUT);
         return execute(command.attemptId(), command.expectedStateVersion(), command.key(), "complete", context -> {
+            ActivityContractException.require(command.confirmed(), ActivityContractException.Reason.FINAL_SUBMIT_REQUIRED);
             var input = JsonNodeFactory.instance.objectNode().put("activity", ActivityContract.Kind.UNGRADED.name());
             var request = new CommandReceipt.Request(1, context.userId(), command.attemptId(),
                     AttemptCommands.Type.SUBMIT_ATTEMPT, command.attemptId(), command.expectedStateVersion(),

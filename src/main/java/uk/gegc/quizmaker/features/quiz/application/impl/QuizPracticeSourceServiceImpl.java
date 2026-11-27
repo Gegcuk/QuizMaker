@@ -48,6 +48,10 @@ public class QuizPracticeSourceServiceImpl implements QuizPracticeSourceService 
         return quiz.ownerId();
     }
 
+    @Override public boolean hasAnswerPermission(UUID actor) {
+        return actor != null && source.lockPermissions(actor).contains(PermissionName.ATTEMPT_CREATE.name());
+    }
+
     private static boolean fullEditor(Set<String> permissions) {
         return permissions.contains("QUESTION_UPDATE")
                 && (permissions.contains("QUIZ_MODERATE") || permissions.contains("QUESTION_ADMIN"));

@@ -19,6 +19,9 @@ public interface QuizPracticeSourceService {
      */
     UUID lockParticipantAccess(UUID trustedActorId, UUID quizId, PermissionName operationPermission);
 
+    /** Command permission only, after current participant and resource read authority are established. */
+    boolean hasAnswerPermission(UUID trustedActorId);
+
     /** Same transaction as lockAccess; this internal value must never be accepted from transport. */
     QuizRevision readRevision(Access access, UUID revisionId);
 }

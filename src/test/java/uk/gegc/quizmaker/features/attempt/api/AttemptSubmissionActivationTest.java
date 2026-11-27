@@ -17,6 +17,13 @@ class AttemptSubmissionActivationTest {
         runner.withPropertyValues("quizmaker.attempts.submission-enabled=false")
                 .run(context -> assertThat(context).doesNotHaveBean(AttemptSubmissionController.class));
     }
+    @Test void enablingGradedSubmissionAloneKeepsUngradedHandlingOff() {
+        var graded = runner.withPropertyValues("quizmaker.attempts.submission-enabled=true")
+                .withUserConfiguration(uk.gegc.quizmaker.features.attempt.application.impl.UngradedParticipantServiceImpl.class);
+        graded.run(context -> assertThat(context).doesNotHaveBean(uk.gegc.quizmaker.features.attempt.application.UngradedParticipantService.class));
+        graded.withPropertyValues("quizmaker.attempts.ungraded-participant-enabled=false")
+                .run(context -> assertThat(context).doesNotHaveBean(uk.gegc.quizmaker.features.attempt.application.UngradedParticipantService.class));
+    }
     @Test void explicitTestActivationRegistersTheEndpoint() {
         runner.withPropertyValues("quizmaker.attempts.submission-enabled=true")
                 .run(context -> assertThat(context).hasSingleBean(AttemptSubmissionController.class));

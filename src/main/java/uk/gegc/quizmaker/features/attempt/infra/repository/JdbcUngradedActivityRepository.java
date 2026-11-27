@@ -32,6 +32,16 @@ public class JdbcUngradedActivityRepository implements UngradedActivityRepositor
         this.jdbc = jdbc;
     }
 
+    @Override public boolean isOwnedUngraded(UUID attemptId, UUID trustedUserId) {
+        return access(() -> !jdbc.query("""
+                SELECT 1 FROM attempt_participant_subject s
+                JOIN attempt_lifecycle_state l ON l.attempt_id=s.attempt_id
+                WHERE s.user_id=UUID_TO_BIN(:user) AND s.attempt_id=UUID_TO_BIN(:attempt)
+                  AND s.schema_version=1 AND s.subject_type='AUTHENTICATED_USER' AND l.activity_kind='UNGRADED'
+                """, Map.of("user", trustedUserId.toString(), "attempt", attemptId.toString()),
+                (row, index) -> true).isEmpty());
+    }
+
     @Override public void bind(Binding binding) {
         access(() -> jdbc.update("""
                 INSERT INTO attempt_ungraded_activity

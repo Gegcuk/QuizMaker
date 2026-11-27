@@ -69,6 +69,12 @@ public class OpenApiGroupConfig {
     }
 
     @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name = "quizmaker.attempts.ungraded-participant-enabled", havingValue = "true")
+    public org.springdoc.core.customizers.GlobalOpenApiCustomizer ungradedParticipantOpenApi() {
+        return new uk.gegc.quizmaker.features.attempt.api.UngradedParticipantOpenApi();
+    }
+
+    @Bean
     public GroupedOpenApi policyDrivenAttemptsGroup() {
         return GroupedOpenApi.builder()
                 .group("attempts-v2")

@@ -42,8 +42,9 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {AttemptSubmissionController.class, ApiDiscoveryController.class})
-@TestPropertySource(properties = "quizmaker.attempts.submission-enabled=true")
+@WebMvcTest(controllers = {AttemptSubmissionController.class, ResponseAcceptanceController.class, ParticipantAttemptViewController.class, ApiDiscoveryController.class})
+@TestPropertySource(properties = {"quizmaker.attempts.submission-enabled=true", "quizmaker.attempts.response-acceptance-enabled=true",
+        "quizmaker.attempts.participant-view-enabled=true", "quizmaker.attempts.ungraded-participant-enabled=true"})
 @Import({SecurityConfig.class, AttemptSubmissionErrorHandler.class, AttemptSubmissionJsonConfig.class, OpenApiConfig.class, OpenApiGroupConfig.class, ApiDocumentationService.class,
         SpringDocConfiguration.class, SpringDocWebMvcConfiguration.class, MultipleOpenApiSupportConfiguration.class,
         AttemptSubmissionOpenApiTest.DocConfig.class})
@@ -55,6 +56,9 @@ class AttemptSubmissionOpenApiTest {
     @Autowired ObjectMapper json;
     @Autowired List<org.springdoc.core.models.GroupedOpenApi> groups;
     @MockitoBean uk.gegc.quizmaker.features.attempt.application.AttemptSubmissionService responses;
+    @MockitoBean uk.gegc.quizmaker.features.attempt.application.ResponseAcceptanceService acceptance;
+    @MockitoBean uk.gegc.quizmaker.features.attempt.application.ParticipantAttemptViewService views;
+    @MockitoBean uk.gegc.quizmaker.features.attempt.application.UngradedParticipantService ungraded;
     @MockitoBean AuthSessionService authSessions;
     @MockitoBean AuthSessionMetricsService authMetrics;
     @MockitoBean(name = "corsConfigurationSource") org.springframework.web.cors.CorsConfigurationSource cors;
@@ -134,7 +138,25 @@ class AttemptSubmissionOpenApiTest {
             assertThat(op.path("operationId").asText()).isEqualTo("submitAttempt");
             assertThat(op.path("security").get(0).has("bearerAuth")).isTrue();
             assertThat(op.at("/requestBody/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/AttemptSubmitRequest");
-            assertThat(op.at("/responses/200/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/AttemptSubmitAcknowledgement");
+            for (var variant : List.of(
+                    List.of(PATH, "post", "AttemptSubmitAcknowledgement", "UngradedCompletionAcknowledgement"),
+                    List.of("/api/v2/attempts/{attemptId}/responses", "post", "AcceptedResponseAcknowledgement", "UngradedParticipationAcknowledgement"),
+                    List.of("/api/v2/attempts/{attemptId}", "get", "ParticipantAttemptView", "UngradedParticipantView"))) {
+                var media = spec.path("paths").path(variant.get(0)).path(variant.get(1)).at("/responses/200/content/application~1json");
+                var union = media.at("/schema/oneOf");
+                assertThat(union).hasSize(2);
+                assertThat(union.at("/0/allOf/0/$ref").asText()).isEqualTo("#/components/schemas/" + variant.get(2));
+                assertThat(union.at("/0/not/required/0").asText()).isEqualTo("activityKind");
+                assertThat(union.at("/1/$ref").asText()).isEqualTo("#/components/schemas/" + variant.get(3));
+                var ungradedSchema = schemas.path(variant.get(3));
+                assertThat(ungradedSchema.path("additionalProperties").asBoolean(true)).isFalse();
+                assertThat(ungradedSchema.path("properties").toString())
+                        .doesNotContain("correctAnswer", "correctness", "score", "grading", "pass", "explanation");
+                var example = media.at("/examples/ungraded/value");
+                assertThat(example.path("activityKind").asText()).isEqualTo("UNGRADED");
+                assertThat(media.has("example")).isFalse();
+                assertThat(matchesFormSchema(spec, media.path("schema"), example, 0)).isTrue();
+            }
             for (String name : List.of("AttemptSubmitRequest", "AttemptSubmitAcknowledgement", "AttemptSubmitProblem")) assertThat(schemas.has(name)).isTrue();
             assertThat(schemas.path("AttemptSubmitRequest").path("properties").size()).isEqualTo(2);
             assertThat(schemas.path("AttemptSubmitRequest").path("additionalProperties").booleanValue()).isFalse();
@@ -161,6 +183,7 @@ class AttemptSubmissionOpenApiTest {
         if (depth > 20 || schema.isMissingNode() || value.isNull()) return false;
         if (schema.has("$ref")) return matchesFormSchema(spec, spec.at(schema.path("$ref").asText().substring(1)), value, depth + 1);
         for (var part : schema.path("allOf")) if (!matchesFormSchema(spec, part, value, depth + 1)) return false;
+        if (schema.has("not") && matchesFormSchema(spec, schema.path("not"), value, depth + 1)) return false;
         if (schema.has("oneOf")) {
             int matches = 0;
             for (var part : schema.path("oneOf")) if (matchesFormSchema(spec, part, value, depth + 1)) matches++;

@@ -6,7 +6,9 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.Optional;
 import java.util.UUID;
+import uk.gegc.quizmaker.features.attempt.application.UngradedParticipantService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -20,7 +22,12 @@ import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt;
 @ConditionalOnProperty(name = "quizmaker.attempts.submission-enabled", havingValue = "true")
 public class AttemptSubmissionController {
     private final AttemptSubmissionService submissions;
-    public AttemptSubmissionController(AttemptSubmissionService submissions) { this.submissions = submissions; }
+    private final Optional<UngradedParticipantService> ungraded;
+
+    public AttemptSubmissionController(AttemptSubmissionService submissions, Optional<UngradedParticipantService> ungraded) {
+        this.submissions = submissions;
+        this.ungraded = ungraded;
+    }
     @PostMapping(value = "/{attemptId}/submit", consumes = "application/json", produces = "application/json")
     @Operation(operationId = "submitAttempt", summary = "Submit an attempt once",
             description = "Online authenticated flat untimed immediate-lock practice. Requires ATTEMPT_CREATE, the bound participant and current quiz ownership/full question editing authority. " +
@@ -42,14 +49,17 @@ public class AttemptSubmissionController {
     @ApiResponse(responseCode = "422", description = "Incomplete required answers, confirmation required or unsupported saved capability", content = @Content(schema = @Schema(implementation = AttemptSubmitProblem.class)))
     @ApiResponse(responseCode = "500", description = "Corrupt server evidence; no partial writes", content = @Content(schema = @Schema(implementation = AttemptSubmitProblem.class)))
     @ApiResponse(responseCode = "503", description = "Unavailable, fully rolled-back retryable conflict or unknown commit outcome; keep command identity", content = @Content(schema = @Schema(implementation = AttemptSubmitProblem.class)))
-    public ResponseEntity<AttemptSubmitAcknowledgement> submit(@PathVariable UUID attemptId,
+    public ResponseEntity<?> submit(@PathVariable UUID attemptId,
             @RequestHeader("Idempotency-Key") String key,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
                     schema = @Schema(implementation = AttemptSubmitRequest.class), examples = @ExampleObject(value = """
                     {"expectedStateVersion":9,"completionConfirmed":true}
                     """))) @Valid @RequestBody AttemptSubmitRequest request, org.springframework.validation.BindingResult validation) {
         if (validation.hasErrors()) throw new AttemptSubmissionJsonConfig.InvalidRequest();
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(AttemptSubmitAcknowledgement.from(submissions.submit(
-                new AttemptSubmissionService.Command(attemptId, request.expectedStateVersion(), request.completionConfirmed(), CommandReceipt.Key.from(key)))));
+        var command = new AttemptSubmissionService.Command(attemptId, request.expectedStateVersion(),
+                request.completionConfirmed(), CommandReceipt.Key.from(key));
+        var completion = ungraded.flatMap(service -> service.submit(command));
+        if (completion.isPresent()) return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(completion.get());
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(AttemptSubmitAcknowledgement.from(submissions.submit(command)));
     }
 }

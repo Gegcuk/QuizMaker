@@ -368,7 +368,7 @@ class ImmediateResultReleaseMySqlIntegrationTest {
     }
     private MockMvc mvc() {
         return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new ParticipantAttemptViewController(context.getBean(ParticipantAttemptViewService.class)))
+                new ParticipantAttemptViewController(context.getBean(ParticipantAttemptViewService.class), java.util.Optional.empty()))
                 .setControllerAdvice(new ParticipantAttemptViewErrorHandler())
                 .setMessageConverters(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(json)).build();
     }

@@ -20,6 +20,8 @@ public interface UngradedActivityRepository {
         @Override public String toString() { return "UngradedParticipation[redacted]"; }
     }
 
+    /** Nonlocking dispatch hint; each operation revalidates ownership, kind and authority. */
+    boolean isOwnedUngraded(UUID attemptId, UUID trustedUserId);
     void bind(Binding binding);
     Optional<Binding> read(UUID attemptId, UUID formId);
     boolean participated(UUID attemptId, UUID formItemId);

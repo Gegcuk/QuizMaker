@@ -47,11 +47,13 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
     @Override public Facts read(UUID attemptId, Purpose purpose) {
         AttemptTransactions.requireCompatible(transactions, false);
         try {
-            boolean ungraded = purpose == Purpose.UNGRADED_COMMAND;
-            var granted = ungraded ? access.requireUngradedAnswerAccess(attemptId) :
-                    access.requireAccess(attemptId, purpose == Purpose.ACCEPT_RESPONSE || purpose == Purpose.SUBMIT_ATTEMPT
-                            || purpose == Purpose.DRAFT_COMMAND
-                            ? AttemptAccessService.Operation.ANSWER : AttemptAccessService.Operation.VIEW);
+            boolean ungraded = purpose == Purpose.UNGRADED_COMMAND || purpose == Purpose.UNGRADED_VIEW;
+            var granted = switch (purpose) {
+                case UNGRADED_VIEW -> access.requireUngradedViewAccess(attemptId);
+                case UNGRADED_COMMAND -> access.requireUngradedAnswerAccess(attemptId);
+                case ACCEPT_RESPONSE, SUBMIT_ATTEMPT, DRAFT_COMMAND -> access.requireAccess(attemptId, AttemptAccessService.Operation.ANSWER);
+                default -> access.requireAccess(attemptId, AttemptAccessService.Operation.VIEW);
+            };
             if (!ungraded && purpose != Purpose.PARTICIPANT_VIEW && granted.lifecycle().state().execution()
                     != uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycle.Execution.IN_PROGRESS)
                 throw new AttemptDeliveryException(INACTIVE);

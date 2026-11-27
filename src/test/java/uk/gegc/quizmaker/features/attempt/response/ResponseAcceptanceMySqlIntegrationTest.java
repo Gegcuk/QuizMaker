@@ -658,7 +658,7 @@ class ResponseAcceptanceMySqlIntegrationTest {
         var converters = new ArrayList<org.springframework.http.converter.HttpMessageConverter<?>>(List.of(converter));
         new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceJsonConfig().extendMessageConverters(converters);
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceController(responses, json))
+                new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceController(responses, json, java.util.Optional.empty()))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceErrorHandler())
                 .setMessageConverters(converters.toArray(org.springframework.http.converter.HttpMessageConverter[]::new)).build();
         String path = "/api/v2/attempts/" + started.attemptId() + "/responses";
@@ -1660,7 +1660,7 @@ class ResponseAcceptanceMySqlIntegrationTest {
         new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceJsonConfig().extendMessageConverters(converters);
         new uk.gegc.quizmaker.features.attempt.api.ResponseBatchJsonConfig().extendMessageConverters(converters);
         return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceController(responses, json),
+                new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceController(responses, json, java.util.Optional.empty()),
                 new uk.gegc.quizmaker.features.attempt.api.ResponseBatchController(batches, json),
                 new uk.gegc.quizmaker.features.attempt.api.AttemptFormController(delivery))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceErrorHandler(),

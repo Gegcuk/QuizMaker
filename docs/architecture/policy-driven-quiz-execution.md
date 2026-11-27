@@ -5528,6 +5528,39 @@ reporting, retention/erasure integration for these new facts and public activati
 their owning tasks. A trusted local composition proves the commands and persistence, without
 establishing that participant-facing notice presentation or a published ungraded start is ready.
 
+### Participant API for an existing ungraded attempt (#642)
+
+The three canonical v2 operations support a previously started, authenticated, flat, untimed
+ungraded attempt when the operation's ordinary flag and
+`quizmaker.attempts.ungraded-participant-enabled` are both enabled. The latter defaults to false.
+The server selects the representation using the persisted activity kind and authenticated
+participant binding. This selection grants no access. Each operation checks current resource
+authority again. Reads require `ATTEMPT_READ`, commands require `ATTEMPT_CREATE`, and exact
+command replays require the same current access as the first submission.
+
+| Operation under `/api/v2/attempts/{attemptId}` | Ungraded success |
+|---|---|
+| `GET` | `UngradedParticipantView` carries the saved form ID, state version and allowed actions. During participation it returns participant-safe questions in saved order, with required and participated flags. A completed view returns the original completion time. |
+| `POST /responses` | `UngradedParticipationAcknowledgement` identifies the participation and its committed state version. The response authority remains the saved form item. |
+| `POST /submit` | `UngradedCompletionAcknowledgement` returns the committed time and state version after explicit confirmation and participation on all required items. |
+
+All three responses carry `activityKind: UNGRADED`. No grade, score, pass/fail, correctness,
+answer key or grading provenance is present. The read projects participation IDs in one batch
+without retrieving response text. A read-only participant can see progress but cannot submit.
+A foreign, missing or inaccessible attempt gives the same operation-specific 404. Graded review
+and answer-key operations cannot disclose an ungraded attempt. The local contract includes
+named examples in the full specification and the `attempts-v2` group.
+
+Use the same `Idempotency-Key`, body and expected version to reconcile a lost response. Retained
+mode rejects changed content for the same key. In no-retention mode a different valid value for
+the same item, key and expected version yields the original participation acknowledgement.
+Completion replays return the original terminal timestamp. Missing required participation and
+unconfirmed completion return 422 without consuming the key. Existing graded JSON is preserved.
+
+There is no public start in this increment. Internal start supplies the saved policy, participation
+requirements and trusted advance privacy notice where required. End-to-end publication, start
+and public activation remain gated by #695.
+
 ---
 
 ## Accessibility and Accommodations

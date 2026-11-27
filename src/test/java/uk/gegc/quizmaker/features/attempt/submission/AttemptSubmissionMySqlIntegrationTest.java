@@ -1,5 +1,14 @@
 package uk.gegc.quizmaker.features.attempt.submission;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.RequestBuilder;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import uk.gegc.quizmaker.features.attempt.api.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -107,7 +116,9 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
 @DataJpaTest(showSql = false)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test-mysql")
-@TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=none", "spring.flyway.enabled=true"})
+@TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=none", "spring.flyway.enabled=true",
+        "quizmaker.attempts.ungraded-participant-enabled=true", "quizmaker.attempts.submission-enabled=true",
+        "quizmaker.attempts.response-acceptance-enabled=true", "quizmaker.attempts.participant-view-enabled=true"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Import({uk.gegc.quizmaker.shared.config.TransactionConfig.class, AttemptExpiryServiceImpl.class, AttemptExpiryFactsServiceImpl.class, JdbcAttemptExpiryRepository.class,
@@ -127,7 +138,8 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         ResponseBatchAcceptanceServiceImpl.class, JdbcResponseBatchResultRepository.class,
         AttemptSubmissionServiceImpl.class, AttemptTerminalSubmissionImpl.class, AcceptedSubmissionResponseFinalizer.class, JdbcAttemptSubmissionRepository.class,
         AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, JdbcUngradedActivityRepository.class,
-        UngradedActivityServiceImpl.class, OpenQuestionContractConfig.class,
+        UngradedActivityServiceImpl.class, UngradedParticipantServiceImpl.class, ParticipantAttemptViewServiceImpl.class,
+        InitialParticipantViewMediaReader.class, JdbcAttemptViewRouteRepository.class, OpenQuestionContractConfig.class,
         AttemptStartServiceImpl.class, uk.gegc.quizmaker.features.attempt.application.impl.AttemptTimingServiceImpl.class, uk.gegc.quizmaker.features.attempt.infra.repository.JdbcAttemptTimingRepository.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
         AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
@@ -226,6 +238,12 @@ class AttemptSubmissionMySqlIntegrationTest {
     @EnableAspectJAutoProxy
     static class Config {
         @Bean Clock clock() { return new AdjustableClock(); }
+        @Bean ParticipantViewDisclosureReader disclosure() {
+            return facts -> {
+                if (facts.access().lifecycle().state().terminal()) throw new AssertionError("Unexpected graded result read");
+                return ParticipantViewDisclosureReader.ContentVisibility.VISIBLE;
+            };
+        }
         @Bean SimpleMeterRegistry metrics() { return new SimpleMeterRegistry(); }
         @Bean MediaStorageProperties mediaProperties() { return new MediaStorageProperties(); }
         @Bean SavedImageStorage storage() {
@@ -245,6 +263,8 @@ class AttemptSubmissionMySqlIntegrationTest {
     }
     @Autowired AttemptSubmissionService submissions;
     @Autowired UngradedActivityService ungraded;
+    @Autowired UngradedParticipantService participant;
+    @Autowired ParticipantAttemptViewService views;
     @MockitoSpyBean(name = "openScoringV1") VersionedScoringContract openScoring;
     @Autowired AttemptTerminalSubmission terminal;
     @Autowired SubmissionResponseFinalizer finalizer;
@@ -624,8 +644,8 @@ class AttemptSubmissionMySqlIntegrationTest {
         assertNoUngradedAssessment();
     }
 
-    @ParameterizedTest @ValueSource(booleans = {true, false})
-    void simultaneousUngradedCompletionSharesOneTerminalTransition(boolean identical) throws Exception {
+    @ParameterizedTest @CsvSource({"true,false", "false,false", "true,true", "false,true"})
+    void simultaneousUngradedCompletionSharesOneTerminalTransition(boolean identical, boolean participantBoundary) throws Exception {
         var f = ungradedFixture(ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION, 1);
         ungraded.accept(ungradedResponse(f, f.items().get(0), 1, "answer", "reflection"));
         var one = ungradedSubmit(f, 2, "finish");
@@ -647,18 +667,16 @@ class AttemptSubmissionMySqlIntegrationTest {
             }
         };
         try {
-            var first = workers.submit(() -> raceUngraded(one));
+            var first = workers.submit(() -> raceUngraded(one, participantBoundary));
             await(held);
-            var second = workers.submit(() -> raceUngraded(two));
+            var second = workers.submit(() -> raceUngraded(two, participantBoundary));
             await(waiting);
             release.countDown();
-            assertThat(first.get(20, TimeUnit.SECONDS)).isInstanceOfSatisfying(UngradedActivityService.Completion.class,
-                    outcome -> assertThat(outcome.replayed()).isFalse());
+            assertThat(first.get(20, TimeUnit.SECONDS)).isEqualTo(false);
             if (identical) {
-                assertThat(second.get(20, TimeUnit.SECONDS)).isInstanceOfSatisfying(UngradedActivityService.Completion.class,
-                        outcome -> assertThat(outcome.replayed()).isTrue());
+                assertThat(second.get(20, TimeUnit.SECONDS)).isEqualTo(true);
             } else {
-                assertThat(second.get(20, TimeUnit.SECONDS)).isEqualTo(ResponseAcceptanceException.Reason.STALE);
+                assertThat(second.get(20, TimeUnit.SECONDS)).isEqualTo(ResponseAcceptanceException.Reason.STALE.name());
             }
             assertThat(count("attempt_command_receipt")).isEqualTo(3);
             assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_trace_event WHERE event_type='ATTEMPT_SUBMITTED'", Long.class))
@@ -670,6 +688,186 @@ class AttemptSubmissionMySqlIntegrationTest {
             assertThat(workers.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
             observer().reset();
         }
+    }
+
+    private MockMvc participantHttp(boolean enabled) {
+        var branch = enabled ? Optional.of(participant) : Optional.<UngradedParticipantService>empty();
+        var converter = new MappingJackson2HttpMessageConverter();
+        converter.getObjectMapper().disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        var converters = new ArrayList<HttpMessageConverter<?>>(List.of(converter));
+        new ResponseAcceptanceJsonConfig().extendMessageConverters(converters);
+        new AttemptSubmissionJsonConfig().extendMessageConverters(converters);
+        return MockMvcBuilders.standaloneSetup(new ParticipantAttemptViewController(views, branch),
+                        new ResponseAcceptanceController(responses, json, branch), new AttemptSubmissionController(submissions, branch))
+                .setControllerAdvice(new ParticipantAttemptViewErrorHandler(), new ResponseAcceptanceErrorHandler(),
+                        new AttemptSubmissionErrorHandler())
+                .setMessageConverters(converters.toArray(HttpMessageConverter[]::new)).build();
+    }
+
+    private JsonNode http(MockMvc mvc, RequestBuilder request, int expectedStatus) throws Exception {
+        var result = mvc.perform(request).andExpect(status().is(expectedStatus)).andReturn().getResponse();
+        assertThat(result.getHeader("Cache-Control")).isEqualTo("no-store");
+        return json.readTree(result.getContentAsString());
+    }
+
+    private RequestBuilder postCommand(String path, String key, JsonNode body) {
+        return post(path).header("Idempotency-Key", key).contentType("application/json").content(body.toString());
+    }
+
+    @ParameterizedTest @EnumSource(ResponseRetention.class)
+    void participantHttpReadsRespondsAndCompletesAnUngradedForm(ResponseRetention retention) throws Exception {
+        var f = ungradedFixture(retention, 2);
+        var mvc = participantHttp(true);
+        String path = "/api/v2/attempts/" + f.attempt();
+        var start = http(mvc, get(path), 200);
+        assertThat(start.path("activityKind").asText()).isEqualTo("UNGRADED");
+        assertThat(start.path("allowedActions")).isEqualTo(json.valueToTree(List.of("VIEW_ATTEMPT", "SUBMIT_ANSWER")));
+        assertThat(start.at("/items/0/question/id").asText()).isEqualTo(f.items().get(0).toString());
+        assertThat(start.at("/items/0/required").asBoolean()).isTrue();
+        assertThat(start.at("/items/1/required").asBoolean(true)).isFalse();
+        var answer = json.createObjectNode().put("expectedStateVersion", 1).put("formItemId", f.items().get(0).toString());
+        answer.putObject("response").put("type", "OPEN").put("answer", "private reflection");
+        var finish = json.createObjectNode().put("expectedStateVersion", 1).put("completionConfirmed", true);
+        var before = targetSnapshot();
+        var disabled = participantHttp(false);
+        http(disabled, get(path), 404);
+        http(disabled, postCommand(path + "/responses", "answer", answer), 404);
+        http(disabled, postCommand(path + "/submit", "finish", finish), 404);
+        http(mvc, get(path).param("includeCorrectAnswers", "true"), 404);
+        http(mvc, get(path + "/answer-key"), 404);
+        http(mvc, get(path + "/review").param("includeCorrectAnswers", "true"), 404);
+        assertThat(http(mvc, postCommand(path + "/submit", "finish", finish), 422).path("code").asText())
+                .isEqualTo("SUBMISSION_INCOMPLETE");
+        assertThat(targetSnapshot()).isEqualTo(before);
+
+        var accepted = http(mvc, postCommand(path + "/responses", "answer", answer), 200);
+        assertThat(accepted.path("participationId").asText()).isNotBlank();
+        assertThat(accepted.path("replayed").asBoolean(true)).isFalse();
+        var exact = http(mvc, postCommand(path + "/responses", "answer", answer), 200);
+        assertThat(exact.path("participationId")).isEqualTo(accepted.path("participationId"));
+        assertThat(exact.path("replayed").asBoolean()).isTrue();
+        var revised = answer.deepCopy();
+        revised.withObject("/response").put("answer", "different private reflection");
+        boolean retains = retention == ResponseRetention.RETAIN_IMMUTABLE_RESPONSES;
+        var changed = http(mvc, postCommand(path + "/responses", "answer", revised), retains ? 409 : 200);
+        if (!retains) assertThat(changed.path("participationId")).isEqualTo(accepted.path("participationId"));
+        var progress = http(mvc, get(path), 200);
+        assertThat(progress.at("/items/0/participated").asBoolean()).isTrue();
+        assertThat(progress.at("/items/1/participated").asBoolean(true)).isFalse();
+        assertThat(progress.path("allowedActions").toString()).contains("SUBMIT_ATTEMPT");
+        finish.put("expectedStateVersion", 2).put("completionConfirmed", false);
+        assertThat(http(mvc, postCommand(path + "/submit", "finish", finish), 422).path("code").asText())
+                .isEqualTo("SUBMISSION_CONFIRMATION_REQUIRED");
+        finish.put("completionConfirmed", true);
+        var done = http(mvc, postCommand(path + "/submit", "finish", finish), 200);
+        var replay = http(mvc, postCommand(path + "/submit", "finish", finish), 200);
+        assertThat(replay.path("completedAt")).isEqualTo(done.path("completedAt"));
+        assertThat(replay.path("replayed").asBoolean()).isTrue();
+        var terminal = http(mvc, get(path), 200);
+        assertThat(terminal.path("completedAt").asText()).isNotBlank().isEqualTo(done.path("completedAt").asText());
+        assertThat(terminal.path("state").asText()).isEqualTo("COMPLETED");
+        assertThat(terminal.has("items")).isFalse();
+        assertThat(terminal.path("allowedActions")).isEqualTo(json.valueToTree(List.of("VIEW_ATTEMPT")));
+        for (var data : List.of(start, progress, accepted, done, terminal))
+            assertThat(data.toString()).doesNotContain("score", "correct", "pass", "result", "grading", "private reflection");
+        assertNoUngradedAssessment();
+        verify(openScoring, never()).score(any(), any());
+        revoke(ownerId, "ATTEMPT_CREATE");
+        http(mvc, postCommand(path + "/submit", "finish", finish), 404);
+        http(mvc, postCommand(path + "/responses", "answer", answer), 404);
+        http(mvc, get(path), 200);
+        revoke(ownerId, "ATTEMPT_READ");
+        http(mvc, get(path), 404);
+    }
+
+    @Test void participantHttpKeepsGradedShapesAndFinalization() throws Exception {
+        var f = fixture(false, 1, 0);
+        var mvc = participantHttp(true);
+        String path = "/api/v2/attempts/" + f.attempt();
+        var view = http(mvc, get(path), 200);
+        assertThat(view.path("representation").asText()).isEqualTo("POLICY_DRIVEN");
+        assertThat(view.has("activityKind")).isFalse();
+        var answer = json.createObjectNode().put("expectedStateVersion", f.version())
+                .put("formItemId", f.items().get(0).id().toString());
+        answer.putObject("response").put("type", "TRUE_FALSE").put("answer", false);
+        var accepted = http(mvc, postCommand(path + "/responses", "graded-answer", answer), 200);
+        assertThat(accepted.path("acceptedResponseId").asText()).isNotBlank();
+        assertThat(accepted.has("participationId")).isFalse();
+        var finish = json.createObjectNode().put("expectedStateVersion", accepted.path("stateVersion").longValue()).put("completionConfirmed", true);
+        var done = http(mvc, postCommand(path + "/submit", "graded-submit", finish), 200);
+        assertThat(done.path("submissionId").asText()).isNotBlank();
+        assertThat(done.has("activityKind")).isFalse();
+        assertThat(count("attempt_finalization_intent")).isOne();
+        assertThat(count("attempt_ungraded_participation")).isZero();
+    }
+
+    @Test void participantHttpChecksCurrentReadAndWriteAuthorityIndependently() throws Exception {
+        var f = ungradedFixture(ResponseRetention.RETAIN_IMMUTABLE_RESPONSES, 2);
+        var mvc = participantHttp(true);
+        String path = "/api/v2/attempts/" + f.attempt();
+        var before = targetSnapshot();
+        revoke(ownerId, "ATTEMPT_CREATE");
+        assertThat(http(mvc, get(path), 200).path("allowedActions")).isEqualTo(json.valueToTree(List.of("VIEW_ATTEMPT")));
+        String stranger = "outsider-" + UUID.randomUUID().toString().substring(0, 8);
+        grant(user(stranger, false), "ATTEMPT_READ", "ATTEMPT_CREATE");
+        authenticate(stranger);
+        var foreign = http(mvc, get(path), 404);
+        var missing = http(mvc, get("/api/v2/attempts/" + UUID.randomUUID()), 404);
+        assertThat(foreign.path("detail")).isEqualTo(missing.path("detail"));
+        SecurityContextHolder.clearContext();
+        http(mvc, get(path), 401);
+        assertThat(targetSnapshot()).isEqualTo(before);
+    }
+
+    @Test void participantBoundaryJoinsWritableRcAndRejectsIncompatibleCallersBeforeRouting() {
+        var f = ungradedFixture(ResponseRetention.RETAIN_IMMUTABLE_RESPONSES, 1);
+        var answer = new ResponseAcceptanceService.Command(f.attempt(), f.items().get(0), 1,
+                CommandReceipt.Key.from("outer-answer"), QuestionType.OPEN,
+                json.createObjectNode().put("type", "OPEN").put("answer", "temporary"));
+        var submit = new AttemptSubmissionService.Command(f.attempt(), 2, true, CommandReceipt.Key.from("outer-submit"));
+        var before = targetSnapshot();
+        var outer = new TransactionTemplate(manager);
+        outer.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        outer.executeWithoutResult(status -> {
+            observer().reset();
+            for (Runnable action : List.<Runnable>of(() -> participant.read(f.attempt(), false),
+                    () -> participant.accept(answer), () -> participant.submit(submit))) {
+                assertThatThrownBy(action::run).isInstanceOfSatisfying(
+                        uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactionException.class,
+                        failure -> assertThat(failure.reason().name()).isEqualTo("INCOMPATIBLE_ISOLATION"));
+            }
+            assertThat(observer().selects).isEmpty();
+        });
+        outer.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        outer.executeWithoutResult(status -> {
+            assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("READ-COMMITTED");
+            assertThat(participant.accept(answer).orElseThrow().replayed()).isFalse();
+            assertThat(participant.submit(submit).orElseThrow().replayed()).isFalse();
+            assertThat(participant.read(f.attempt(), false).orElseThrow().completedAt()).isNotNull();
+            status.setRollbackOnly();
+        });
+        assertThat(targetSnapshot()).isEqualTo(before);
+        assertThat(participant.read(f.attempt(), false).orElseThrow().completedAt()).isNull();
+        assertThat(participant.accept(answer).orElseThrow().replayed()).isFalse();
+        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+    }
+
+    @Test void participantViewReadsOnlyBoundedParticipationMetadata(TestReporter reporter) {
+        var counts = new ArrayList<Integer>();
+        for (int size : List.of(2, 12)) {
+            var attempts = new ArrayList<UUID>();
+            for (int n = 0; n < 3; n++) {
+                quizId = newQuiz();
+                attempts.add(ungradedFixture(ResponseRetention.RETAIN_IMMUTABLE_RESPONSES, size).attempt());
+            }
+            observer().selects.clear();
+            for (UUID attempt : attempts) assertThat(participant.read(attempt, false).orElseThrow().items()).hasSize(size);
+            counts.add(observer().selects.size());
+            assertThat(observer().selects.stream().filter(q -> q.contains("FROM attempt_ungraded_participation")))
+                    .hasSize(3).noneMatch(q -> q.contains("normalized_response"));
+        }
+        assertThat(counts.get(0)).isPositive().isEqualTo(counts.get(1));
+        reporter.publishEntry("ungraded-http-view-selects-three-forms-2-vs-12-items", counts.toString());
     }
 
     @Test void ungradedCompletionReadCountIsBoundedAcrossSeveralForms(TestReporter reporter) {
@@ -732,10 +930,17 @@ class AttemptSubmissionMySqlIntegrationTest {
                 context.getBean(Clock.class), metrics);
     }
 
-    private Object raceUngraded(UngradedActivityService.Submit request) {
+    private Object raceUngraded(UngradedActivityService.Submit request, boolean participantBoundary) {
         authenticate(username);
-        try { return ungraded.complete(request); }
-        catch (ResponseAcceptanceException failure) { return failure.reason(); }
+        try {
+            if (participantBoundary) {
+                var command = new AttemptSubmissionService.Command(request.attemptId(), request.expectedStateVersion(), true, request.key());
+                return participant.submit(command).orElseThrow().replayed();
+            }
+            return ungraded.complete(request).replayed();
+        }
+        catch (AttemptSubmissionException failure) { return failure.reason().name(); }
+        catch (ResponseAcceptanceException failure) { return failure.reason().name(); }
         finally { SecurityContextHolder.clearContext(); }
     }
 
@@ -1131,7 +1336,7 @@ class AttemptSubmissionMySqlIntegrationTest {
                 new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter()));
         new uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionJsonConfig().extendMessageConverters(converters);
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionController(submissions))
+                new uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionController(submissions, java.util.Optional.empty()))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionErrorHandler())
                 .setMessageConverters(converters.toArray(org.springframework.http.converter.HttpMessageConverter[]::new)).build();
         var path = "/api/v2/attempts/" + f.attempt() + "/submit";

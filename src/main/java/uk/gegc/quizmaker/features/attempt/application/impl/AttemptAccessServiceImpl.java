@@ -45,6 +45,10 @@ public class AttemptAccessServiceImpl implements AttemptAccessService {
         return requireAccess(attemptId, Operation.ANSWER, true);
     }
 
+    @Override public Access requireUngradedViewAccess(UUID attemptId) {
+        return requireAccess(attemptId, Operation.VIEW, true);
+    }
+
     private Access requireAccess(UUID attemptId, Operation operation, boolean ungraded) {
         Timer.Sample timer = null;
         try { timer = Timer.start(metrics); } catch (RuntimeException ignored) { /* best effort */ }

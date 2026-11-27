@@ -7,7 +7,9 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.Optional;
 import java.util.UUID;
+import uk.gegc.quizmaker.features.attempt.application.UngradedParticipantService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -22,7 +24,14 @@ import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt;
 public class ResponseAcceptanceController {
     private final ResponseAcceptanceService responses;
     private final ObjectMapper json;
-    public ResponseAcceptanceController(ResponseAcceptanceService responses, ObjectMapper json) { this.responses = responses; this.json = json; }
+    private final Optional<UngradedParticipantService> ungraded;
+
+    public ResponseAcceptanceController(ResponseAcceptanceService responses, ObjectMapper json,
+            Optional<UngradedParticipantService> ungraded) {
+        this.responses = responses;
+        this.json = json;
+        this.ungraded = ungraded;
+    }
 
     @PostMapping(value = "/{attemptId}/responses", produces = "application/json", consumes = "application/json")
     @Operation(operationId = "acceptAttemptResponse", summary = "Accept one immutable response",
@@ -46,7 +55,7 @@ public class ResponseAcceptanceController {
     @ApiResponse(responseCode = "422", description = "Invalid response or unsupported saved contract", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "500", description = "Inconsistent saved evidence", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "503", description = "Storage unavailable, retryable transaction or unknown commit outcome", content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
-    public ResponseEntity<AcceptedResponseAcknowledgement> accept(@PathVariable UUID attemptId,
+    public ResponseEntity<?> accept(@PathVariable UUID attemptId,
             @Parameter(description = "Exact opaque command identity; do not reuse for different input", required = true)
             @RequestHeader("Idempotency-Key") String key,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
@@ -55,8 +64,11 @@ public class ResponseAcceptanceController {
                     """))) @Valid @RequestBody AcceptResponseRequest request, org.springframework.validation.BindingResult validation) {
         // Avoid Spring's MethodArgumentNotValidException diagnostics containing rejected answers.
         if (validation.hasErrors()) throw new ResponseAcceptanceJsonConfig.InvalidRequest();
-        var result = responses.accept(new ResponseAcceptanceService.Command(attemptId, request.formItemId(), request.expectedStateVersion(),
-                CommandReceipt.Key.from(key), request.response().type(), json.valueToTree(request.response())));
+        var command = new ResponseAcceptanceService.Command(attemptId, request.formItemId(), request.expectedStateVersion(),
+                CommandReceipt.Key.from(key), request.response().type(), json.valueToTree(request.response()));
+        var participation = ungraded.flatMap(service -> service.accept(command));
+        if (participation.isPresent()) return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(participation.get());
+        var result = responses.accept(command);
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(AcceptedResponseAcknowledgement.from(result));
     }
 }
