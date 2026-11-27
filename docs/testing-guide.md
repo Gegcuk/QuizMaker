@@ -187,13 +187,16 @@ The conformance class already belongs to the existing context inventory.
   response writer waits on an observed MySQL lifecycle lock across the deadline, then the real
   expiry/result/release writers preserve that answer at the inclusive processing-time boundary.
   Later acceptance, a contradictory voluntary cause and a mismatched expiry receipt are refused.
-- Both modes check accepted-response counts from every completed attempt root, before an answer
+- Both modes check accepted-response counts from every completed graded attempt root, before an answer
   join can drop a root with no surviving rows. Real pending submissions lose one or all response
   rows in separate regressions; #603 and both selectors refuse the incomplete history, including
   an exhausted cursor, without modifying storage. Restoring the rows restores pending/answered
   classifications; real grading then leaves only the remaining mistake. Genuine empty submissions
   (`0 == 0`) preserve both views before and after grading, and active attempts without a submission
   do not trigger the completed-attempt check.
+- In mixed history for the same learner and revision, accepting and completing a real ungraded
+  activity preserves both selections and their evidence. A corrupt accepted-response count on
+  the graded submission still fails both modes with `CORRUPT`; restoring the count restores both results.
 - Real Learning enrollment/delivery leaves questions unanswered. An actual HTTP response removes
   only that exact question revision; a later publication has separate state and old reads retain
   their captured identity. No assessment facts are repurposed as Learning grades.

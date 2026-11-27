@@ -33,9 +33,14 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import uk.gegc.quizmaker.features.attempt.application.AttemptDeliveryService;
+import uk.gegc.quizmaker.features.attempt.application.AttemptReadFactsService;
 import uk.gegc.quizmaker.features.attempt.application.AttemptStartService;
 import uk.gegc.quizmaker.features.attempt.application.AttemptSubmissionService;
 import uk.gegc.quizmaker.features.attempt.application.ResponseAcceptanceService;
+import uk.gegc.quizmaker.features.attempt.application.UngradedActivityService;
+import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
+import uk.gegc.quizmaker.features.attempt.domain.model.activity.ActivityContract.ResponseRetention;
+import uk.gegc.quizmaker.features.attempt.domain.model.activity.ActivityContract.StartFacts;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy;
 import uk.gegc.quizmaker.features.attempt.domain.model.preset.BuiltInPracticePreset;
 import uk.gegc.quizmaker.features.attempt.domain.model.preset.LegacyPracticeRequest;
@@ -184,8 +189,10 @@ class LearningConformanceMySqlIntegrationTest {
     @Autowired MeterRegistry metrics;
     @Autowired AttemptStartService attemptStarts;
     @Autowired AttemptDeliveryService attemptDelivery;
+    @Autowired AttemptReadFactsService attemptFacts;
     @Autowired ResponseAcceptanceService attemptResponses;
     @Autowired AttemptSubmissionService attemptSubmissions;
+    @Autowired UngradedActivityService ungradedAttempts;
     @Autowired uk.gegc.quizmaker.features.attempt.application.AttemptExpiryService attemptExpiry;
     @Autowired AutomaticResultService automaticResults;
     @Autowired ImmediateResultReleaseService resultReleases;
@@ -736,6 +743,57 @@ class LearningConformanceMySqlIntegrationTest {
         assertThat(history(anna,source,Mode.INCORRECT_ONLY,20,null).items()).isEmpty();
         assertThat(history(anna,source,Mode.UNSEEN_ONLY,20,null).items())
                 .extracting(i -> i.questionRevisionId()).containsExactly(source.questions().get(2));
+    }
+
+    @Test
+    void historySelectionsIgnoreUngradedParticipationWithoutSkippingGradedIntegrity() {
+        Persona anna = persona("mixed-history", "QUIZ_UPDATE", "ATTEMPT_READ", "ATTEMPT_CREATE");
+        Source source = publishedQuiz(anna, "Reviewed mistake", "Still unseen in assessment");
+        UUID graded = historyAttempt(anna, source, List.of(false), true);
+        CLOCK.set(now.plusSeconds(1));
+        var mistakes = history(anna, source, Mode.INCORRECT_ONLY, 20, null);
+        var unseen = history(anna, source, Mode.UNSEEN_ONLY, 20, null);
+        assertThat(mistakes.availability()).isEqualTo(Availability.COMPLETE);
+        assertThat(mistakes.items()).extracting(item -> item.questionRevisionId()).containsExactly(source.questions().get(0));
+        assertThat(mistakes.items().get(0).evidence().attemptId()).isEqualTo(graded);
+        assertThat(unseen.availability()).isEqualTo(Availability.COMPLETE);
+        assertThat(unseen.items()).extracting(item -> item.questionRevisionId()).containsExactly(source.questions().get(1));
+
+        var ungraded = asPrincipal(anna, () -> attemptStarts.startUngraded(historyStartCommand(source),
+                new AttemptStartService.UngradedConfiguration(ResponseRetention.RETAIN_IMMUTABLE_RESPONSES,
+                        Set.of(), new StartFacts(false))));
+        var item = asPrincipal(anna, () -> AttemptTransactions.readCommitted(transactions).execute(status ->
+                attemptFacts.read(ungraded.attemptId(), AttemptReadFactsService.Purpose.UNGRADED_COMMAND)
+                        .form().items().get(1)));
+        var participated = asPrincipal(anna, () -> ungradedAttempts.accept(new UngradedActivityService.Response(
+                ungraded.attemptId(), item.id(), ungraded.stateVersion(), CommandReceipt.Key.from("ungraded-history-answer"),
+                QuestionType.TRUE_FALSE, json.createObjectNode().put("answer", true))));
+        assertThat(history(anna, source, Mode.INCORRECT_ONLY, 20, null)).isEqualTo(mistakes);
+        assertThat(history(anna, source, Mode.UNSEEN_ONLY, 20, null)).isEqualTo(unseen);
+
+        var completed = asPrincipal(anna, () -> ungradedAttempts.complete(new UngradedActivityService.Submit(
+                ungraded.attemptId(), participated.stateVersion(), CommandReceipt.Key.from("ungraded-history-submit"))));
+        assertThat(completed.outcome().completedAt()).isEqualTo(CLOCK.instant());
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_submission WHERE attempt_id=UUID_TO_BIN(?)",
+                Integer.class, ungraded.attemptId().toString())).isZero();
+        assertThat(history(anna, source, Mode.INCORRECT_ONLY, 20, null)).isEqualTo(mistakes);
+        assertThat(history(anna, source, Mode.UNSEEN_ONLY, 20, null)).isEqualTo(unseen);
+
+        // Keep a corrupt graded root in the same mixed history: only the explicit activity kind excludes a root.
+        try {
+            assertThat(sql.update("UPDATE attempt_submission SET accepted_count=0,unanswered_count=2 WHERE attempt_id=UUID_TO_BIN(?)",
+                    graded.toString())).isOne();
+            for (Mode mode : Mode.values()) {
+                assertThatThrownBy(() -> history(anna, source, mode, 20, null))
+                        .isInstanceOfSatisfying(LearningSessionException.class,
+                                failure -> assertThat(failure.reason()).isEqualTo(LearningSessionException.Reason.CORRUPT));
+            }
+        } finally {
+            sql.update("UPDATE attempt_submission SET accepted_count=1,unanswered_count=1 WHERE attempt_id=UUID_TO_BIN(?)",
+                    graded.toString());
+        }
+        assertThat(history(anna, source, Mode.INCORRECT_ONLY, 20, null)).isEqualTo(mistakes);
+        assertThat(history(anna, source, Mode.UNSEEN_ONLY, 20, null)).isEqualTo(unseen);
     }
 
     @Test
@@ -1488,15 +1546,19 @@ class LearningConformanceMySqlIntegrationTest {
     private AttemptStartService.Result historyStartedAttempt(Persona author,Source source,ResolvedAttemptPolicy.TimingPolicy timing) {
         return asPrincipal(author,() -> {
             historyBindings.bind(source.quizId(),source.revisionId());
-            var content=new ResolvedAttemptPolicy.ContentPolicy(source.revisionId(),source.schemaVersion(),
-                    ResolvedAttemptPolicy.FormMode.PRECOMPUTED,ResolvedAttemptPolicy.SectionMode.IMPLICIT_FLAT,ResolvedAttemptPolicy.CaseMode.NOT_CONFIGURED);
-            var command=new AttemptStartService.Command(1,source.quizId(),content,1,
-                    CommandReceipt.Key.from("history-"+UUID.randomUUID()),BuiltInPracticePreset.REFERENCE,
-                    LegacyPracticeRequest.LaunchContext.ORDINARY,"ALL_AT_ONCE",ResolvedAttemptPolicy.AnswerOrder.AUTHORED,false);
+            var command=historyStartCommand(source);
             return attemptStarts.start(new AttemptStartService.Command(command.version(),command.quizId(),command.content(),command.publicationVersion(),
                     command.key(),command.preset(),command.context(),command.legacyMode(),command.answerOrder(),command.draftsEnabled(),
                     command.navigation(),command.delivery(),command.selection(),command.attemptLimit(),timing));
         });
+    }
+
+    private AttemptStartService.Command historyStartCommand(Source source) {
+        var content=new ResolvedAttemptPolicy.ContentPolicy(source.revisionId(),source.schemaVersion(),
+                ResolvedAttemptPolicy.FormMode.PRECOMPUTED,ResolvedAttemptPolicy.SectionMode.IMPLICIT_FLAT,ResolvedAttemptPolicy.CaseMode.NOT_CONFIGURED);
+        return new AttemptStartService.Command(1,source.quizId(),content,1,
+                CommandReceipt.Key.from("history-"+UUID.randomUUID()),BuiltInPracticePreset.REFERENCE,
+                LegacyPracticeRequest.LaunchContext.ORDINARY,"ALL_AT_ONCE",ResolvedAttemptPolicy.AnswerOrder.AUTHORED,false);
     }
 
     private void assertBoundedLearningSignals() {

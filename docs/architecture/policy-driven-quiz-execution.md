@@ -6034,13 +6034,16 @@ joins an explicitly RC caller. It reuses current author-source authority, the ex
 schedule, form, receipt, rate debit, assessment mutation or schema migration is introduced.
 
 The [owner-approved selection rules](decision-register.md#learning-history-selection) use
-the latest accepted answer in a completed target attempt for `INCORRECT_ONLY`. Ordering by
+the latest accepted answer in a completed graded target attempt for `INCORRECT_ONLY`. Ordering by
 acceptance time and unsigned response UUID is independent of result-worker completion time.
 Missing answers never become incorrect answers. Rank accepted answers before joining optional
 grades: a submitted attempt with no accepted answers does not block history while its result is
 pending, and a superseded pending answer cannot replace the latest accepted evidence. A pending
 result for the latest accepted answer remains unavailable. `UNSEEN_ONLY` instead excludes any accepted
-target answer, including active attempts, and actual Learning responses. It does not infer
+graded target answer, including active attempts, and actual Learning responses. Both modes exclude
+explicit `UNGRADED` activity before evaluating assessment availability or submission integrity.
+They still classify missing or unsupported lifecycle evidence through the compatibility checks.
+Selection does not infer
 answers from enrollment, a self-rating event alone, a displayed form or mutable legacy data.
 Each question revision appears once, at its first authored occurrence. Selection has bounded
 lookahead and a source/mode-bound authored-position continuation.
