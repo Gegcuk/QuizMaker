@@ -18,6 +18,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.activity.ActivityContract
 import uk.gegc.quizmaker.features.attempt.domain.repository.UngradedActivityRepository;
 import uk.gegc.quizmaker.features.attempt.infra.activity.ActivityContractJson;
 import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
+import uk.gegc.quizmaker.shared.util.PrivateSqlText;
 
 import static uk.gegc.quizmaker.features.attempt.domain.model.activity.ActivityContractException.Reason.CONTRADICTORY_STATE;
 
@@ -88,7 +89,7 @@ public class JdbcUngradedActivityRepository implements UngradedActivityRepositor
                 .addValue("contract", participation.responseContract().id())
                 .addValue("version", participation.responseContract().version())
                 .addValue("retention", binding.policy().responseRetention().name())
-                .addValue("response", participation.normalizedResponse())
+                .addValue("response", PrivateSqlText.of(participation.normalizedResponse()))
                 .addValue("command", participation.commandId().toString())
                 .addValue("time", Timestamp.from(participation.acceptedAt()))));
     }

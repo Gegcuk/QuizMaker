@@ -1325,7 +1325,7 @@ class ScenarioGraphMySqlIntegrationTest {
             capture.stop();
         }
         assertThat(capture.list).extracting(ILoggingEvent::getFormattedMessage)
-                .anyMatch(message -> message.contains("[private revision text]"))
+                .anyMatch(message -> message.contains("[private SQL text]"))
                 .noneMatch(message -> message.contains(questionMarker) || message.contains(answerMarker)
                         || message.contains(explanationMarker) || message.contains(conditionMarker)
                         || message.contains(optionMarker) || message.contains(titleMarker) || message.contains(descriptionMarker));

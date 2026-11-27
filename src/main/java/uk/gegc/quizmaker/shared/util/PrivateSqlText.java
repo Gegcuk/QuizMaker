@@ -1,4 +1,4 @@
-package uk.gegc.quizmaker.features.quiz.infra.repository;
+package uk.gegc.quizmaker.shared.util;
 
 import org.springframework.jdbc.support.SqlValue;
 
@@ -6,8 +6,8 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 
 /** Bind the original text without exposing it when Spring logs JDBC parameters. */
-record PrivateSqlText(String value) implements SqlValue {
-    static SqlValue of(String value) {
+public record PrivateSqlText(String value) implements SqlValue {
+    public static SqlValue of(String value) {
         return value == null ? null : new PrivateSqlText(value);
     }
 
@@ -17,5 +17,5 @@ record PrivateSqlText(String value) implements SqlValue {
 
     @Override public void cleanup() { }
 
-    @Override public String toString() { return "[private revision text]"; }
+    @Override public String toString() { return "[private SQL text]"; }
 }

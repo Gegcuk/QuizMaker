@@ -10,6 +10,7 @@ import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolut
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractVersion;
 import uk.gegc.quizmaker.features.question.domain.model.contract.QuestionContractBinding;
 import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
+import uk.gegc.quizmaker.shared.util.PrivateSqlText;
 
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;

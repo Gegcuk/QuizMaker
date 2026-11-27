@@ -1035,7 +1035,7 @@ python3 tools/testing/context_benchmark.py verify --workers 4 \
 On JDK 17 and disposable MySQL, with the standard offline test environment:
 
 ```bash
-./mvnw test '-Dtest=ActivityContractTest,AttemptStartValidationTest,AttemptSubmissionMySqlIntegrationTest#ungraded*+*Ungraded*'
+./mvnw test '-Dtest=ActivityContractTest,AttemptStartValidationTest,AttemptSubmissionMySqlIntegrationTest#ungraded*+*Ungraded*+repeatableReadAccessDistinguishesBothActivityKindsCommittedAfterItsSnapshot'
 ```
 
 The MySQL cases start real fixed-form activities and exercise both response retention modes.
@@ -1044,6 +1044,13 @@ post-terminal attempts, same-key changed content, conflicts, and no response pay
 payload-derived command fingerprint in the no-retention mode. The graded control invokes the
 same OPEN scorer through the real automatic-result worker. Ungraded commands must produce no
 scorer invocation, graded submission, finalization intent or result row.
+
+With Spring JDBC parameter TRACE enabled, the retained OPEN response keeps the exact normalized
+text in MySQL and logs only the private parameter marker. A separate graded RR access transaction
+holds its own attempt open until a second user commits a real ungraded start on a different quiz.
+The test exercises both relative user ID orders in the participant binding index.
+An older RR snapshot also grants each kind only through its matching access operation, even when
+both attempts committed after that snapshot.
 
 The suite injects failures after real participation and terminal writes, checks rollback through
 fresh reads, and retries using a reconstructed service and real receipts. It also covers outer

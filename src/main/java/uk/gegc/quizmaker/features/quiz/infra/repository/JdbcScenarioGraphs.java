@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.quiz.infra.repository;
 
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import uk.gegc.quizmaker.shared.util.PrivateSqlText;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.ScenarioGraph;

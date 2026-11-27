@@ -5493,7 +5493,11 @@ preserve the explicit kind/version; this contract enables no offline execution.
 `AttemptStartService.startUngraded` captures the versioned activity policy alongside a new canonical
 attempt and its fixed form. A trusted start owner supplies the saved required source occurrences
 and verified notice evidence. Start binds them to delivered form item IDs in the same transaction
-as the start receipt. It cannot adopt a previously graded attempt. This composition supports the
+as the start receipt. The lifecycle row captures the activity kind at creation. Its kind
+constrains the policy binding and supplies the current access check in both RC and RR. A graded
+access check never needs to inspect a missing ungraded policy row. The unique participant lookup
+key lets a current RR read lock the existing binding without locking adjacent new bindings.
+This composition supports the
 existing authenticated, flat, untimed, all-at-once form with immediate response acceptance. Its
 start does not consume or alter the ordinary assessment allowance. Timed, sequential, editable,
 guest and offline integrations remain outside this increment.
@@ -5503,6 +5507,8 @@ receipts, including replay. Both commands serialize on the canonical attempt row
 writable READ_COMMITTED contract. A response is validated against the immutable form item and its
 response contract. In retained-response mode the validated value is saved once. In completion-only
 mode the value is validated in memory and neither its bytes nor a digest of those bytes is stored.
+The retained value is bound through the shared private JDBC parameter wrapper, which binds the
+exact normalized text and uses a fixed redaction marker in Spring JDBC TRACE.
 The same key, attempt, item and expected version return the first participation acknowledgement
 even with a different valid response value. Reusing that key for another item or version conflicts.
 The database constrains the response column to be empty in completion-only mode.

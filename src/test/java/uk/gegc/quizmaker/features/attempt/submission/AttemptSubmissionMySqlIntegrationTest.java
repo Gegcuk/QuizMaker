@@ -1,5 +1,9 @@
 package uk.gegc.quizmaker.features.attempt.submission;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.FixedForm;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm;
@@ -36,6 +40,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -43,6 +48,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.*;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.StatementCreatorUtils;
 import org.springframework.jdbc.datasource.*;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -305,6 +311,171 @@ class AttemptSubmissionMySqlIntegrationTest {
         UUID attempt() { return started.attemptId(); }
     }
 
+    private record UngradedStart(AttemptStartService.Command command, AttemptStartService.UngradedConfiguration policy) { }
+    private record AttemptActor(UUID userId, String username, UUID quizId) { }
+
+    @Test void retainedUngradedResponseKeepsExactTextOutOfJdbcTrace() {
+        var f = ungradedFixture(ResponseRetention.RETAIN_IMMUTABLE_RESPONSES, 1);
+        var marker = "synthetic-private-response-" + UUID.randomUUID();
+        var answer = marker + "\n\"Quoted\" café 😀";
+        var logger = (Logger) LoggerFactory.getLogger(StatementCreatorUtils.class);
+        var originalLevel = logger.getLevel();
+        var originalAdditive = logger.isAdditive();
+        var captured = new ListAppender<ILoggingEvent>();
+        captured.start();
+        logger.addAppender(captured);
+        logger.setAdditive(false);
+        logger.setLevel(Level.TRACE);
+        try {
+            assertThat(ungraded.accept(ungradedResponse(f, f.items().get(0), 1, "private-answer", answer)).replayed()).isFalse();
+        } finally {
+            logger.detachAppender(captured);
+            logger.setLevel(originalLevel);
+            logger.setAdditive(originalAdditive);
+            captured.stop();
+        }
+        assertThat(sql.queryForObject("SELECT normalized_response FROM attempt_ungraded_participation", String.class))
+                .isEqualTo(json.createObjectNode().put("answer", answer).toString());
+        var messages = captured.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+        assertThat(messages.stream().anyMatch(message -> message.contains("SQL statement parameter value"))).isTrue();
+        assertThat(messages.stream().anyMatch(message -> message.contains(marker)))
+                .as("JDBC TRACE contains the synthetic participant text").isFalse();
+        assertThat(messages).anyMatch(message -> message.contains("[private SQL text]"));
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {true, false})
+    void repeatableReadGradedAccessDoesNotBlockAnIndependentUngradedStart(boolean ungradedUserSortsFirst) throws Exception {
+        var first = new AttemptActor(ownerId, username, quizId);
+        String newUser = "ungraded-" + UUID.randomUUID().toString().substring(0, 10);
+        ownerId = user(newUser, true);
+        grant(ownerId, "ATTEMPT_CREATE", "ATTEMPT_READ");
+        var other = new AttemptActor(ownerId, newUser, newQuiz());
+        // Canonical UUID strings order their binary MySQL keys by the same bytes.
+        boolean firstSortsFirst = first.userId().toString().compareTo(other.userId().toString()) < 0;
+        var lower = firstSortsFirst ? first : other;
+        var higher = firstSortsFirst ? other : first;
+        var gradedActor = ungradedUserSortsFirst ? higher : lower;
+        var ungradedActor = ungradedUserSortsFirst ? lower : higher;
+        ownerId = gradedActor.userId();
+        quizId = gradedActor.quizId();
+        authenticate(gradedActor.username());
+        var graded = fixture(false, 1, 0);
+        ownerId = ungradedActor.userId();
+        quizId = ungradedActor.quizId();
+        authenticate(ungradedActor.username());
+        var next = prepareUngradedStart(ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION, 1);
+        assertThat(count("attempt_ungraded_activity")).isZero();
+        var outer = new TransactionTemplate(manager);
+        outer.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        var accessHeld = new CountDownLatch(1);
+        var releaseAccess = new CountDownLatch(1);
+        var writerThread = new AtomicReference<Thread>();
+        var writerStatement = new AtomicReference<String>();
+        var workers = Executors.newFixedThreadPool(2);
+        observer().beforeSql = (statement, connection) -> {
+            if (Thread.currentThread() == writerThread.get()) writerStatement.set(statement.strip());
+        };
+        try {
+            var reader = workers.submit(() -> {
+                authenticate(gradedActor.username());
+                try {
+                    outer.executeWithoutResult(status -> {
+                        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+                        assertThat(access.requireAccess(graded.attempt(), AttemptAccessService.Operation.VIEW).attemptId())
+                                .isEqualTo(graded.attempt());
+                        accessHeld.countDown();
+                        try {
+                            assertThat(releaseAccess.await(45, TimeUnit.SECONDS)).isTrue();
+                        } catch (InterruptedException failure) {
+                            Thread.currentThread().interrupt();
+                            throw new AssertionError(failure);
+                        }
+                    });
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+            });
+            await(accessHeld);
+            var writer = workers.submit(() -> {
+                writerThread.set(Thread.currentThread());
+                authenticate(ungradedActor.username());
+                try {
+                    return starts.startUngraded(next.command(), next.policy());
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+            });
+            AttemptStartService.Result started;
+            try {
+                started = writer.get(20, TimeUnit.SECONDS);
+            } catch (TimeoutException blocked) {
+                var waits = admin.queryForList("""
+                        SELECT held.OBJECT_NAME AS table_name, held.INDEX_NAME AS index_name,
+                               held.LOCK_MODE AS held_mode, wanted.LOCK_MODE AS wanted_mode
+                        FROM performance_schema.data_lock_waits waits
+                        JOIN performance_schema.data_locks held ON held.ENGINE_LOCK_ID=waits.BLOCKING_ENGINE_LOCK_ID
+                        JOIN performance_schema.data_locks wanted ON wanted.ENGINE_LOCK_ID=waits.REQUESTING_ENGINE_LOCK_ID
+                        WHERE held.OBJECT_SCHEMA=?
+                        """, SCHEMA);
+                throw new AssertionError("Independent ungraded start did not commit while graded RR access was open"
+                        + "; last writer statement=" + writerStatement.get() + "; waits=" + waits, blocked);
+            }
+            assertThat(reader.isDone()).isFalse();
+            assertThat(started.replayed()).isFalse();
+            assertThat(count("attempt_ungraded_activity")).isEqualTo(1);
+            releaseAccess.countDown();
+            reader.get(15, TimeUnit.SECONDS);
+        } finally {
+            releaseAccess.countDown();
+            workers.shutdown();
+            assertThat(workers.awaitTermination(20, TimeUnit.SECONDS)).isTrue();
+            observer().reset();
+        }
+    }
+
+    @Test void repeatableReadAccessDistinguishesBothActivityKindsCommittedAfterItsSnapshot() throws Exception {
+        var next = prepareUngradedStart(ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION, 1);
+        var graded = command(next.command().content().quizRevisionId(), AnswerOrder.AUTHORED, "graded-after-snapshot");
+        var executor = Executors.newSingleThreadExecutor();
+        var outer = new TransactionTemplate(manager);
+        outer.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        try {
+            outer.executeWithoutResult(status -> {
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_lifecycle_state", Integer.class)).isZero();
+                var writer = executor.submit(() -> {
+                    authenticate(username);
+                    try {
+                        return List.of(starts.start(graded), starts.startUngraded(next.command(), next.policy()));
+                    } finally {
+                        SecurityContextHolder.clearContext();
+                    }
+                });
+                List<AttemptStartService.Result> started;
+                try {
+                    started = writer.get(20, TimeUnit.SECONDS);
+                } catch (InterruptedException failure) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(failure);
+                } catch (ExecutionException | TimeoutException failure) {
+                    throw new AssertionError("Both starts must commit after the snapshot is established", failure);
+                }
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_lifecycle_state", Integer.class)).isZero();
+                var gradedId = started.get(0).attemptId();
+                var ungradedId = started.get(1).attemptId();
+                assertThat(access.requireAccess(gradedId, AttemptAccessService.Operation.VIEW).attemptId()).isEqualTo(gradedId);
+                assertThat(access.requireUngradedAnswerAccess(ungradedId).attemptId()).isEqualTo(ungradedId);
+                assertThatThrownBy(() -> access.requireAccess(ungradedId, AttemptAccessService.Operation.VIEW))
+                        .isInstanceOfSatisfying(AttemptAccessException.class, failure -> assertThat(failure.reason()).isEqualTo(DENIED));
+                assertThatThrownBy(() -> access.requireUngradedAnswerAccess(gradedId))
+                        .isInstanceOfSatisfying(AttemptAccessException.class, failure -> assertThat(failure.reason()).isEqualTo(DENIED));
+                status.setRollbackOnly();
+            });
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(20, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
     @ParameterizedTest @EnumSource(ResponseRetention.class)
     void ungradedOptionalParticipationCompletesAndReplaysWithoutAssessment(ResponseRetention retention) {
         var f = ungradedFixture(retention, 2);
@@ -523,6 +694,14 @@ class AttemptSubmissionMySqlIntegrationTest {
     }
 
     private UngradedFixture ungradedFixture(ResponseRetention retention, int size) {
+        var next = prepareUngradedStart(retention, size);
+        var started = starts.startUngraded(next.command(), next.policy());
+        var items = tx.execute(status -> facts.read(started.attemptId(), AttemptReadFactsService.Purpose.UNGRADED_COMMAND)
+                .form().items().stream().map(FixedForm.Item::id).toList());
+        return new UngradedFixture(next.command(), next.policy(), started, items);
+    }
+
+    private UngradedStart prepareUngradedStart(ResponseRetention retention, int size) {
         var draftIds = IntStream.range(0, size).mapToObj(i -> draft(QuestionType.OPEN)).toList();
         var revision = publish(0, draftIds);
         binding.bind(quizId, revision);
@@ -532,10 +711,7 @@ class AttemptSubmissionMySqlIntegrationTest {
         var configuration = new AttemptStartService.UngradedConfiguration(retention, Set.of(UUID.fromString(required)),
                 new StartFacts(retention == ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION));
         var start = command(revision, AnswerOrder.AUTHORED, UUID.randomUUID().toString());
-        var started = starts.startUngraded(start, configuration);
-        var items = tx.execute(status -> facts.read(started.attemptId(), AttemptReadFactsService.Purpose.UNGRADED_COMMAND)
-                .form().items().stream().map(FixedForm.Item::id).toList());
-        return new UngradedFixture(start, configuration, started, items);
+        return new UngradedStart(start, configuration);
     }
 
     private UngradedActivityService.Response ungradedResponse(UngradedFixture f, UUID item, long version, String key, String answer) {

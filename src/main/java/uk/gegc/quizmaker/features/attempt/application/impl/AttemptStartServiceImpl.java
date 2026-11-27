@@ -208,7 +208,8 @@ public class AttemptStartServiceImpl implements AttemptStartService {
                 .mapToObj(n -> new FixedForm.Item(UUID.randomUUID(), ordered.itemIds().get(n), n)).toList());
         forms.materializeSelected(access.ownerId(), new FixedFormMaterializer.Command(form, selected, ordered, policy.answerOrdering()));
         subjects.bindOrReplay(subject.userId(), subject);
-        var initial = lifecycle.initialize(subject.attemptId());
+        var initial = ungraded == null ? lifecycle.initialize(subject.attemptId())
+                : lifecycle.initializeUngraded(subject.attemptId());
         var decision = AttemptCommands.evaluate(new AttemptCommands.Command(1, AttemptCommands.Type.START),
                 new AttemptCommands.Context(AttemptCommands.Access.VERIFIED, policy, initial.state(), 0, null, null),
                 new AttemptCommands.Metadata(0, commandId, AttemptLifecycle.CommandIdentity.FRESH));

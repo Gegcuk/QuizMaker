@@ -1,13 +1,29 @@
--- Internal ungraded activity bindings. Existing attempts have no activity row.
+-- Existing target attempts use the graded mode. Legacy attempts have no lifecycle row.
+ALTER TABLE attempt_lifecycle_state
+    ADD COLUMN activity_kind VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'GRADED',
+    ADD CONSTRAINT chk_lifecycle_activity_kind CHECK (CAST(activity_kind AS BINARY) IN ('GRADED', 'UNGRADED')),
+    ADD UNIQUE KEY uq_lifecycle_activity_kind (attempt_id, activity_kind);
+
+-- The attempt primary key already makes this pair unique. A current RR lookup of an
+-- existing binding can use a record lock instead of locking adjacent participant inserts.
+ALTER TABLE attempt_participant_subject
+    DROP INDEX ix_attempt_subject_user,
+    ADD UNIQUE KEY ix_attempt_subject_user (user_id, attempt_id);
+
+-- Internal ungraded activity bindings. An activity can only bind an ungraded lifecycle.
 CREATE TABLE attempt_ungraded_activity (
     attempt_id BINARY(16) NOT NULL PRIMARY KEY,
     form_id BINARY(16) NOT NULL,
+    activity_kind VARCHAR(8) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT 'UNGRADED',
     response_retention VARCHAR(40) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     privacy_notice_presented BOOLEAN NOT NULL,
     activity_policy MEDIUMTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
     UNIQUE KEY uq_ungraded_activity_form (attempt_id, form_id, response_retention),
+    CONSTRAINT fk_ungraded_activity_kind FOREIGN KEY (attempt_id, activity_kind)
+        REFERENCES attempt_lifecycle_state(attempt_id, activity_kind),
     CONSTRAINT fk_ungraded_activity_stream FOREIGN KEY (attempt_id, form_id)
         REFERENCES attempt_trace_stream(attempt_id, form_id),
+    CONSTRAINT chk_ungraded_activity_kind CHECK (CAST(activity_kind AS BINARY) = 'UNGRADED'),
     CONSTRAINT chk_ungraded_policy CHECK (JSON_VALID(activity_policy) AND JSON_TYPE(activity_policy) = 'OBJECT'),
     CONSTRAINT chk_ungraded_notice CHECK (privacy_notice_presented IN (0, 1)
         AND (CAST(response_retention AS BINARY) = 'RETAIN_IMMUTABLE_RESPONSES'
