@@ -100,7 +100,7 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
             WITH own_attempts AS (
                 SELECT s.attempt_id, s.schema_version subject_version, s.subject_type,
                     f.id form_id, f.schema_version form_version, f.item_count form_item_count, t.policy_snapshot_id,
-                    t.schema_version trace_version, l.lifecycle_version, l.execution_state,
+                    t.schema_version trace_version, l.lifecycle_version, l.activity_kind, l.execution_state,
                     l.answer_collection_state, r.id result_id, r.schema_version result_version,
                     r.scoring_contract, r.quiz_revision_id result_revision, r.form_id result_form,
                     r.policy_snapshot_id result_policy, r.policy_hash result_hash, r.created_at result_at,
@@ -133,7 +133,9 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
                 LEFT JOIN attempt_submission submission ON submission.attempt_id=s.attempt_id
                 LEFT JOIN attempt_policy_snapshot p ON p.id=t.policy_snapshot_id
                 LEFT JOIN attempt_automatic_result r ON r.attempt_id=s.attempt_id
+                -- Keep missing or unsupported lifecycle evidence for compatibility validation.
                 WHERE s.user_id=UUID_TO_BIN(:learner) AND f.quiz_revision_id=UUID_TO_BIN(:revision)
+                    AND (CAST(l.activity_kind AS BINARY)='UNGRADED') IS NOT TRUE
             ), history AS (
                 SELECT a.question_revision_id, a.id response_id, a.accepted_at, g.earned_points,
                     g.response_id graded_response_id, o.*,
@@ -187,7 +189,8 @@ public class JdbcLearningHistorySources implements MistakeHistorySource, UnseenC
                     THEN 'LEGACY_UNKNOWN'
                   WHEN EXISTS(SELECT 1 FROM own_attempts o WHERE NOT (
                       o.subject_version=1 AND CAST(o.subject_type AS BINARY)='AUTHENTICATED_USER' AND o.form_version=1 AND o.trace_version=1
-                      AND o.lifecycle_version=1 AND o.policy_version=1 AND o.resolver_version=1 AND o.canonical_version=1
+                      AND o.lifecycle_version=1 AND CAST(o.activity_kind AS BINARY)='GRADED'
+                      AND o.policy_version=1 AND o.resolver_version=1 AND o.canonical_version=1
                       AND CAST(o.hash_algorithm AS BINARY)='SHA-256' AND o.policy_revision=UUID_TO_BIN(:revision)
                       AND o.policy_integrity=TRUE
                       AND (o.result_id IS NULL OR (o.result_version=1 AND CAST(o.scoring_contract AS BINARY)='binary-result/v1'

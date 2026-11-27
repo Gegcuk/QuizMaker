@@ -20,7 +20,8 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
  * for ownership, rejection and JPA caller obligations. Legacy contracts are separate.
  */
 public interface AttemptReadFactsService {
-    enum Purpose { ACTIVE_DELIVERY, PARTICIPANT_VIEW, ACCEPT_RESPONSE, SUBMIT_ATTEMPT, DRAFT_COMMAND, NAVIGATION }
+    enum Purpose { ACTIVE_DELIVERY, PARTICIPANT_VIEW, ACCEPT_RESPONSE, SUBMIT_ATTEMPT, DRAFT_COMMAND,
+        NAVIGATION, UNGRADED_COMMAND }
     Facts read(UUID attemptId, Purpose purpose);
     /** Receipt time comes from the command's injected Clock before any database lock wait. */
     default Facts read(UUID attemptId, Purpose purpose, Instant serverReceivedAt) {

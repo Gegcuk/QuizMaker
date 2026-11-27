@@ -39,6 +39,20 @@ public class JdbcLifecycleStateRepository implements LifecycleStateRepository {
     }
 
     @Override
+    public void insertUngraded(LifecycleState value) {
+        try {
+            jdbc.update("""
+                    INSERT INTO attempt_lifecycle_state
+                      (attempt_id,lifecycle_version,row_version,execution_state,answer_collection_state,
+                       created_at,updated_at,started_at,submitted_at,activity_kind)
+                    VALUES (:id,:contract,:version,:execution,:answers,:created,:updated,:started,:submitted,'UNGRADED')
+                    """, parameters(value));
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
+    }
+
+    @Override
     public Optional<StoredState> findById(UUID attemptId) { return find(attemptId, false); }
 
     @Override

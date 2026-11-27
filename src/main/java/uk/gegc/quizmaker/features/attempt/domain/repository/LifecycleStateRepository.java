@@ -9,6 +9,7 @@ import java.util.UUID;
 /** Internal transactional storage; callers must verify every raw read through the application boundary. */
 public interface LifecycleStateRepository {
     void insert(LifecycleState initial);
+    void insertUngraded(LifecycleState initial);
     Optional<StoredState> findById(UUID attemptId);
     Optional<StoredState> findByIdForUpdate(UUID attemptId);
     boolean compareAndSet(long expectedVersion, LifecycleState next);

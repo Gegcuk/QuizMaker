@@ -1,6 +1,11 @@
 package uk.gegc.quizmaker.features.attempt.submission;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException;
+import uk.gegc.quizmaker.features.attempt.domain.model.form.FixedForm;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ParticipantContent;
 import uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycle;
@@ -10,11 +15,15 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.CompletionFacts;
 import uk.gegc.quizmaker.features.attempt.domain.model.submission.AttemptSubmissionException;
 import uk.gegc.quizmaker.features.attempt.domain.model.trace.ExecutionTrace;
+import uk.gegc.quizmaker.features.attempt.domain.model.activity.ActivityContract.ResponseRetention;
+import uk.gegc.quizmaker.features.attempt.domain.model.activity.ActivityContract.StartFacts;
+import uk.gegc.quizmaker.features.attempt.domain.model.activity.ActivityContractException;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptSubmissionRepository;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptExpiryRepository;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptAccessRepository;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository;
 import uk.gegc.quizmaker.features.attempt.domain.repository.CommandReceiptRepository;
+import uk.gegc.quizmaker.features.attempt.domain.repository.UngradedActivityRepository;
 import uk.gegc.quizmaker.features.attempt.infra.receipt.CanonicalCommandInput;
 import uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy;
@@ -31,6 +40,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -38,11 +48,13 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.*;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.StatementCreatorUtils;
 import org.springframework.jdbc.datasource.*;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.*;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.*;
@@ -60,8 +72,10 @@ import uk.gegc.quizmaker.features.media.application.impl.RetainedImageServiceImp
 import uk.gegc.quizmaker.features.media.config.MediaStorageProperties;
 import uk.gegc.quizmaker.features.media.domain.model.SavedImageVersion;
 import uk.gegc.quizmaker.features.question.application.*;
+import uk.gegc.quizmaker.features.question.application.contract.VersionedScoringContract;
 import uk.gegc.quizmaker.features.question.application.impl.*;
 import uk.gegc.quizmaker.features.question.config.BaselineQuestionContractConfig;
+import uk.gegc.quizmaker.features.question.config.OpenQuestionContractConfig;
 import uk.gegc.quizmaker.features.question.domain.model.*;
 import uk.gegc.quizmaker.features.question.domain.repository.QuestionRepository;
 import uk.gegc.quizmaker.features.question.infra.factory.QuestionHandlerFactory;
@@ -82,6 +96,9 @@ import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.shared.security.AppPermissionEvaluator;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAccessException;
 import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAccessException.Reason.*;
 
@@ -109,7 +126,9 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         ResponseAcceptanceServiceImpl.class, JdbcAcceptedResponseRepository.class,
         ResponseBatchAcceptanceServiceImpl.class, JdbcResponseBatchResultRepository.class,
         AttemptSubmissionServiceImpl.class, AttemptTerminalSubmissionImpl.class, AcceptedSubmissionResponseFinalizer.class, JdbcAttemptSubmissionRepository.class,
-        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, AttemptStartServiceImpl.class, uk.gegc.quizmaker.features.attempt.application.impl.AttemptTimingServiceImpl.class, uk.gegc.quizmaker.features.attempt.infra.repository.JdbcAttemptTimingRepository.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
+        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, JdbcUngradedActivityRepository.class,
+        UngradedActivityServiceImpl.class, OpenQuestionContractConfig.class,
+        AttemptStartServiceImpl.class, uk.gegc.quizmaker.features.attempt.application.impl.AttemptTimingServiceImpl.class, uk.gegc.quizmaker.features.attempt.infra.repository.JdbcAttemptTimingRepository.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
         AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
         AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
         JdbcPolicySnapshotRepository.class, QuestionSelectionServiceImpl.class,
@@ -225,6 +244,8 @@ class AttemptSubmissionMySqlIntegrationTest {
         }
     }
     @Autowired AttemptSubmissionService submissions;
+    @Autowired UngradedActivityService ungraded;
+    @MockitoSpyBean(name = "openScoringV1") VersionedScoringContract openScoring;
     @Autowired AttemptTerminalSubmission terminal;
     @Autowired SubmissionResponseFinalizer finalizer;
     @Autowired AttemptReadFactsService facts;
@@ -247,7 +268,8 @@ class AttemptSubmissionMySqlIntegrationTest {
     @Autowired SimpleMeterRegistry metrics;
     static final List<QuestionType> FAMILIES = List.of(QuestionType.MCQ_SINGLE, QuestionType.MCQ_MULTI,
             QuestionType.TRUE_FALSE, QuestionType.FILL_GAP, QuestionType.ORDERING);
-    static final List<String> TARGET_TABLES = List.of("attempt_result_created", "attempt_automatic_grade", "attempt_automatic_result",
+    static final List<String> TARGET_TABLES = List.of("attempt_ungraded_participation", "attempt_ungraded_activity",
+            "attempt_result_created", "attempt_automatic_grade", "attempt_automatic_result",
             "attempt_response_batch_result", "attempt_navigation_result", "attempt_navigation", "attempt_expiry_receipt", "attempt_expiry_work", "attempt_timing", "attempt_start_binding", "attempt_allowance_scope", "attempt_unclassified_publication", "attempt_finalization_intent", "attempt_submission", "attempt_accepted_response", "attempt_trace_event", "attempt_trace_identity", "attempt_trace_stream",
             "attempt_command_receipt", "attempt_participant_subject", "attempt_lifecycle_state", "attempt_form_option",
             "attempt_form_item_option_order", "attempt_form_option_order", "attempt_form_item", "attempt_form_selection", "attempt_form", "attempt_policy_snapshot");
@@ -283,6 +305,449 @@ class AttemptSubmissionMySqlIntegrationTest {
 
 
     record Fixture(UUID attempt, List<ParticipantForm.Item> items, long version) { }
+
+    record UngradedFixture(AttemptStartService.Command start, AttemptStartService.UngradedConfiguration policy,
+                           AttemptStartService.Result started, List<UUID> items) {
+        UUID attempt() { return started.attemptId(); }
+    }
+
+    private record UngradedStart(AttemptStartService.Command command, AttemptStartService.UngradedConfiguration policy) { }
+    private record AttemptActor(UUID userId, String username, UUID quizId) { }
+
+    @Test void retainedUngradedResponseKeepsExactTextOutOfJdbcTrace() {
+        var f = ungradedFixture(ResponseRetention.RETAIN_IMMUTABLE_RESPONSES, 1);
+        var marker = "synthetic-private-response-" + UUID.randomUUID();
+        var answer = marker + "\n\"Quoted\" café 😀";
+        var logger = (Logger) LoggerFactory.getLogger(StatementCreatorUtils.class);
+        var originalLevel = logger.getLevel();
+        var originalAdditive = logger.isAdditive();
+        var captured = new ListAppender<ILoggingEvent>();
+        captured.start();
+        logger.addAppender(captured);
+        logger.setAdditive(false);
+        logger.setLevel(Level.TRACE);
+        try {
+            assertThat(ungraded.accept(ungradedResponse(f, f.items().get(0), 1, "private-answer", answer)).replayed()).isFalse();
+        } finally {
+            logger.detachAppender(captured);
+            logger.setLevel(originalLevel);
+            logger.setAdditive(originalAdditive);
+            captured.stop();
+        }
+        assertThat(sql.queryForObject("SELECT normalized_response FROM attempt_ungraded_participation", String.class))
+                .isEqualTo(json.createObjectNode().put("answer", answer).toString());
+        var messages = captured.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+        assertThat(messages.stream().anyMatch(message -> message.contains("SQL statement parameter value"))).isTrue();
+        assertThat(messages.stream().anyMatch(message -> message.contains(marker)))
+                .as("JDBC TRACE contains the synthetic participant text").isFalse();
+        assertThat(messages).anyMatch(message -> message.contains("[private SQL text]"));
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {true, false})
+    void repeatableReadGradedAccessDoesNotBlockAnIndependentUngradedStart(boolean ungradedUserSortsFirst) throws Exception {
+        var first = new AttemptActor(ownerId, username, quizId);
+        String newUser = "ungraded-" + UUID.randomUUID().toString().substring(0, 10);
+        ownerId = user(newUser, true);
+        grant(ownerId, "ATTEMPT_CREATE", "ATTEMPT_READ");
+        var other = new AttemptActor(ownerId, newUser, newQuiz());
+        // Canonical UUID strings order their binary MySQL keys by the same bytes.
+        boolean firstSortsFirst = first.userId().toString().compareTo(other.userId().toString()) < 0;
+        var lower = firstSortsFirst ? first : other;
+        var higher = firstSortsFirst ? other : first;
+        var gradedActor = ungradedUserSortsFirst ? higher : lower;
+        var ungradedActor = ungradedUserSortsFirst ? lower : higher;
+        ownerId = gradedActor.userId();
+        quizId = gradedActor.quizId();
+        authenticate(gradedActor.username());
+        var graded = fixture(false, 1, 0);
+        ownerId = ungradedActor.userId();
+        quizId = ungradedActor.quizId();
+        authenticate(ungradedActor.username());
+        var next = prepareUngradedStart(ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION, 1);
+        assertThat(count("attempt_ungraded_activity")).isZero();
+        var outer = new TransactionTemplate(manager);
+        outer.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        var accessHeld = new CountDownLatch(1);
+        var releaseAccess = new CountDownLatch(1);
+        var writerThread = new AtomicReference<Thread>();
+        var writerStatement = new AtomicReference<String>();
+        var workers = Executors.newFixedThreadPool(2);
+        observer().beforeSql = (statement, connection) -> {
+            if (Thread.currentThread() == writerThread.get()) writerStatement.set(statement.strip());
+        };
+        try {
+            var reader = workers.submit(() -> {
+                authenticate(gradedActor.username());
+                try {
+                    outer.executeWithoutResult(status -> {
+                        assertThat(sql.queryForObject("SELECT @@transaction_isolation", String.class)).isEqualTo("REPEATABLE-READ");
+                        assertThat(access.requireAccess(graded.attempt(), AttemptAccessService.Operation.VIEW).attemptId())
+                                .isEqualTo(graded.attempt());
+                        accessHeld.countDown();
+                        try {
+                            assertThat(releaseAccess.await(45, TimeUnit.SECONDS)).isTrue();
+                        } catch (InterruptedException failure) {
+                            Thread.currentThread().interrupt();
+                            throw new AssertionError(failure);
+                        }
+                    });
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+            });
+            await(accessHeld);
+            var writer = workers.submit(() -> {
+                writerThread.set(Thread.currentThread());
+                authenticate(ungradedActor.username());
+                try {
+                    return starts.startUngraded(next.command(), next.policy());
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
+            });
+            AttemptStartService.Result started;
+            try {
+                started = writer.get(20, TimeUnit.SECONDS);
+            } catch (TimeoutException blocked) {
+                var waits = admin.queryForList("""
+                        SELECT held.OBJECT_NAME AS table_name, held.INDEX_NAME AS index_name,
+                               held.LOCK_MODE AS held_mode, wanted.LOCK_MODE AS wanted_mode
+                        FROM performance_schema.data_lock_waits waits
+                        JOIN performance_schema.data_locks held ON held.ENGINE_LOCK_ID=waits.BLOCKING_ENGINE_LOCK_ID
+                        JOIN performance_schema.data_locks wanted ON wanted.ENGINE_LOCK_ID=waits.REQUESTING_ENGINE_LOCK_ID
+                        WHERE held.OBJECT_SCHEMA=?
+                        """, SCHEMA);
+                throw new AssertionError("Independent ungraded start did not commit while graded RR access was open"
+                        + "; last writer statement=" + writerStatement.get() + "; waits=" + waits, blocked);
+            }
+            assertThat(reader.isDone()).isFalse();
+            assertThat(started.replayed()).isFalse();
+            assertThat(count("attempt_ungraded_activity")).isEqualTo(1);
+            releaseAccess.countDown();
+            reader.get(15, TimeUnit.SECONDS);
+        } finally {
+            releaseAccess.countDown();
+            workers.shutdown();
+            assertThat(workers.awaitTermination(20, TimeUnit.SECONDS)).isTrue();
+            observer().reset();
+        }
+    }
+
+    @Test void repeatableReadAccessDistinguishesBothActivityKindsCommittedAfterItsSnapshot() throws Exception {
+        var next = prepareUngradedStart(ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION, 1);
+        var graded = command(next.command().content().quizRevisionId(), AnswerOrder.AUTHORED, "graded-after-snapshot");
+        var executor = Executors.newSingleThreadExecutor();
+        var outer = new TransactionTemplate(manager);
+        outer.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        try {
+            outer.executeWithoutResult(status -> {
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_lifecycle_state", Integer.class)).isZero();
+                var writer = executor.submit(() -> {
+                    authenticate(username);
+                    try {
+                        return List.of(starts.start(graded), starts.startUngraded(next.command(), next.policy()));
+                    } finally {
+                        SecurityContextHolder.clearContext();
+                    }
+                });
+                List<AttemptStartService.Result> started;
+                try {
+                    started = writer.get(20, TimeUnit.SECONDS);
+                } catch (InterruptedException failure) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(failure);
+                } catch (ExecutionException | TimeoutException failure) {
+                    throw new AssertionError("Both starts must commit after the snapshot is established", failure);
+                }
+                assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_lifecycle_state", Integer.class)).isZero();
+                var gradedId = started.get(0).attemptId();
+                var ungradedId = started.get(1).attemptId();
+                assertThat(access.requireAccess(gradedId, AttemptAccessService.Operation.VIEW).attemptId()).isEqualTo(gradedId);
+                assertThat(access.requireUngradedAnswerAccess(ungradedId).attemptId()).isEqualTo(ungradedId);
+                assertThatThrownBy(() -> access.requireAccess(ungradedId, AttemptAccessService.Operation.VIEW))
+                        .isInstanceOfSatisfying(AttemptAccessException.class, failure -> assertThat(failure.reason()).isEqualTo(DENIED));
+                assertThatThrownBy(() -> access.requireUngradedAnswerAccess(gradedId))
+                        .isInstanceOfSatisfying(AttemptAccessException.class, failure -> assertThat(failure.reason()).isEqualTo(DENIED));
+                status.setRollbackOnly();
+            });
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(20, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @ParameterizedTest @EnumSource(ResponseRetention.class)
+    void ungradedOptionalParticipationCompletesAndReplaysWithoutAssessment(ResponseRetention retention) {
+        var f = ungradedFixture(retention, 2);
+        assertThat(starts.startUngraded(f.start(), f.policy()).attemptId()).isEqualTo(f.attempt());
+        assertThat(starts.startUngraded(f.start(), f.policy()).replayed()).isTrue();
+        assertThat(count("attempt_start_binding")).isZero();
+        assertThatThrownBy(() -> ungraded.complete(ungradedSubmit(f, 1, "early-finish")))
+                .isInstanceOfSatisfying(ActivityContractException.class, failure ->
+                        assertThat(failure.reason()).isEqualTo(ActivityContractException.Reason.PARTICIPATION_REQUIRED));
+        rejectUngraded(() -> ungraded.accept(ungradedResponse(f, UUID.randomUUID(), 1, "wrong-item", "reflection")), "NOT_FOUND");
+        rejectUngraded(() -> ungraded.accept(new UngradedActivityService.Response(f.attempt(), f.items().get(0), 1,
+                CommandReceipt.Key.from("invalid"), QuestionType.OPEN, json.createObjectNode().put("answer", 9))), "INVALID_INPUT");
+        assertThat(count("attempt_command_receipt")).isEqualTo(1);
+
+        var first = ungradedResponse(f, f.items().get(0), 1, "answer", "first private reflection");
+        var accepted = ungraded.accept(first);
+        var changed = ungradedResponse(f, f.items().get(0), 1, "answer", "revised private reflection");
+        boolean retain = retention == ResponseRetention.RETAIN_IMMUTABLE_RESPONSES;
+        if (retain) {
+            rejectUngraded(() -> restartedUngraded().accept(changed), "CONFLICT");
+            assertThat(sql.queryForObject("SELECT normalized_response FROM attempt_ungraded_participation", String.class))
+                    .isEqualTo("{\"answer\":\"first private reflection\"}");
+        } else {
+            assertThat(restartedUngraded().accept(changed).participationId()).isEqualTo(accepted.participationId());
+            assertThat(sql.queryForObject("SELECT normalized_response FROM attempt_ungraded_participation", String.class)).isNull();
+            var metadataOnly = json.createObjectNode().put("activity", "UNGRADED");
+            assertThat(sql.queryForObject("SELECT input_hash FROM attempt_command_receipt WHERE operation='SUBMIT_ANSWER'", String.class))
+                    .isEqualTo(CanonicalCommandInput.fingerprint(1, metadataOnly).digest());
+            assertThat(targetSnapshot().toString()).doesNotContain("private reflection");
+        }
+        rejectUngraded(() -> ungraded.accept(ungradedResponse(f, f.items().get(1), 1, "answer", "another item")), "CONFLICT");
+        rejectUngraded(() -> ungraded.accept(ungradedResponse(f, f.items().get(0), 2, "new-key", "same item")), "CONFLICT");
+        rejectUngraded(() -> ungraded.accept(ungradedResponse(f, f.items().get(1), 1, "stale", "another item")), "STALE");
+        assertThat(count("attempt_ungraded_participation")).isEqualTo(1);
+
+        var command = ungradedSubmit(f, accepted.stateVersion(), "finish");
+        var completed = ungraded.complete(command);
+        assertThat(completed.replayed()).isFalse();
+        assertThat(completed.outcome().completedAt()).isEqualTo(context.getBean(Clock.class).instant());
+        assertThat(restartedUngraded().complete(command)).isEqualTo(
+                new UngradedActivityService.Completion(f.attempt(), completed.outcome(), completed.stateVersion(), true));
+        assertThat(restartedUngraded().accept(first).participationId()).isEqualTo(accepted.participationId());
+        rejectUngraded(() -> ungraded.accept(ungradedResponse(f, f.items().get(1), completed.stateVersion(),
+                "post-terminal-response", "too late")), "INACTIVE");
+        assertNoUngradedAssessment();
+        verify(openScoring, never()).score(any(), any());
+        assertThat(count("attempt_accepted_response")).isZero();
+        assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_trace_event WHERE event_type='ATTEMPT_SUBMITTED'", Long.class))
+                .isEqualTo(1);
+
+        String stranger = "stranger-" + UUID.randomUUID().toString().substring(0, 8);
+        grant(user(stranger, false), "ATTEMPT_CREATE", "ATTEMPT_READ");
+        authenticate(stranger);
+        rejectUngraded(() -> ungraded.accept(first), "NOT_FOUND");
+        rejectUngraded(() -> ungraded.complete(command), "NOT_FOUND");
+        authenticate(username);
+        revoke(ownerId, "ATTEMPT_CREATE");
+        rejectUngraded(() -> ungraded.complete(command), "NOT_FOUND");
+        SecurityContextHolder.clearContext();
+        rejectUngraded(() -> ungraded.complete(command), "UNAUTHENTICATED");
+    }
+
+    @Test void ungradedAndGradedCommandsCannotConsumeEachOthersAttemptsOrStartReceipts() {
+        var f = ungradedFixture(ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION, 1);
+        rejectUngraded(() -> responses.accept(new ResponseAcceptanceService.Command(f.attempt(), f.items().get(0), 1,
+                CommandReceipt.Key.from("graded-answer"), QuestionType.OPEN, json.createObjectNode().put("answer", "reflection"))), "NOT_FOUND");
+        reject(submissions, new AttemptSubmissionService.Command(f.attempt(), 1, true, CommandReceipt.Key.from("graded-submit")), "NOT_FOUND");
+        assertThatThrownBy(() -> starts.start(f.start())).isInstanceOfSatisfying(
+                uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStartException.class,
+                failure -> assertThat(failure.reason().name()).isEqualTo("CONFLICT"));
+        assertThatThrownBy(() -> starts.startUngraded(f.start(),
+                new AttemptStartService.UngradedConfiguration(f.policy().retention(), f.policy().requiredSourceItems(), new StartFacts(false))))
+                .isInstanceOfSatisfying(uk.gegc.quizmaker.features.attempt.domain.model.start.AttemptStartException.class,
+                        failure -> assertThat(failure.reason().name()).isEqualTo("UNSUPPORTED_CAPABILITY"));
+        assertNoUngradedAssessment();
+        var graded = starts.start(command(f.started().quizRevisionId(), AnswerOrder.AUTHORED, "graded-start"));
+        rejectUngraded(() -> ungraded.complete(new UngradedActivityService.Submit(graded.attemptId(), 1,
+                CommandReceipt.Key.from("wrong-kind"))), "NOT_FOUND");
+        var item = delivery.read(graded.attemptId()).form().items().get(0);
+        var response = responses.accept(new ResponseAcceptanceService.Command(graded.attemptId(), item.id(), 1,
+                CommandReceipt.Key.from("real-graded-answer"), QuestionType.OPEN, json.createObjectNode().put("answer", "reflection")));
+        var result = submissions.submit(new AttemptSubmissionService.Command(graded.attemptId(), response.stateVersion(),
+                true, CommandReceipt.Key.from("real-graded-submit")));
+        assertThat(count("attempt_submission")).isEqualTo(1);
+        assertThat(count("attempt_finalization_intent")).isEqualTo(1);
+        context.getBean(uk.gegc.quizmaker.features.result.application.AutomaticResultService.class)
+                .finalizeSubmission(result.submissionId());
+        assertThat(count("attempt_automatic_result")).isEqualTo(1);
+        verify(openScoring).score(any(), any());
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void ungradedCompletionReconcilesUnknownCommitOutcome(boolean committed) {
+        var f = ungradedFixture(ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION, 1);
+        ungraded.accept(ungradedResponse(f, f.items().get(0), 1, "answer", "reflection"));
+        var request = ungradedSubmit(f, 2, "finish");
+        var reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.startsWith("UPDATE attempt_command_receipt") && reached.compareAndSet(false, true)) {
+                if (committed) observer().failAfterCommit.set(true);
+                else observer().failBeforeCommit.set(true);
+            }
+        };
+        try { rejectUngraded(() -> ungraded.complete(request), "UNKNOWN_OUTCOME"); }
+        finally { observer().reset(); }
+        assertThat(reached).isTrue();
+        assertThat(count("attempt_command_receipt")).isEqualTo(committed ? 3 : 2);
+        assertThat(restartedUngraded().complete(request).replayed()).isEqualTo(committed);
+        assertThat(count("attempt_command_receipt")).isEqualTo(3);
+        assertNoUngradedAssessment();
+    }
+
+    @Test void reachedUngradedWritesRollBackWithTheirReceiptsAndAllowRetry() {
+        var f = ungradedFixture(ResponseRetention.RETAIN_IMMUTABLE_RESPONSES, 1);
+        var response = ungradedResponse(f, f.items().get(0), 1, "answer", "rollback response");
+        var before = targetSnapshot();
+        var reached = new AtomicBoolean();
+        observer().afterSql = (statement, connection) -> {
+            if (statement.startsWith("INSERT INTO attempt_ungraded_participation") && reached.compareAndSet(false, true))
+                throw new SQLException("private-participation-buffer", "HY000");
+        };
+        try (var logs = new TransactionLogs()) {
+            rejectUngraded(() -> ungraded.accept(response), "UNAVAILABLE");
+            assertThat(logs.rendered()).doesNotContain("private-participation-buffer", "rollback response");
+        } finally { observer().reset(); }
+        assertThat(reached).isTrue();
+        assertThat(targetSnapshot()).isEqualTo(before);
+        tx.executeWithoutResult(status -> {
+            assertThat(ungraded.accept(response).stateVersion()).isEqualTo(2);
+            status.setRollbackOnly();
+        });
+        assertThat(targetSnapshot()).isEqualTo(before);
+        assertThat(restartedUngraded().accept(response).replayed()).isFalse();
+        var command = ungradedSubmit(f, 2, "submit-with-fault");
+        before = targetSnapshot();
+        reached.set(false);
+        observer().afterSql = (statement, connection) -> {
+            if (statement.startsWith("UPDATE attempt_command_receipt") && reached.compareAndSet(false, true))
+                throw new SQLException("private-completion-buffer", "HY000");
+        };
+        try { rejectUngraded(() -> ungraded.complete(command), "UNAVAILABLE"); }
+        finally { observer().reset(); }
+        assertThat(reached).isTrue();
+        assertThat(targetSnapshot()).isEqualTo(before);
+        assertThat(restartedUngraded().complete(command).replayed()).isFalse();
+        assertNoUngradedAssessment();
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {true, false})
+    void simultaneousUngradedCompletionSharesOneTerminalTransition(boolean identical) throws Exception {
+        var f = ungradedFixture(ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION, 1);
+        ungraded.accept(ungradedResponse(f, f.items().get(0), 1, "answer", "reflection"));
+        var one = ungradedSubmit(f, 2, "finish");
+        var two = ungradedSubmit(f, 2, identical ? "finish" : "another-finish");
+        var held = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var waiting = new CountDownLatch(1);
+        var holder = new AtomicInteger(-1);
+        var workers = Executors.newFixedThreadPool(2);
+        observer().beforeSql = (statement, connection) -> {
+            if (statement.startsWith("SELECT * FROM attempt_lifecycle_state") && statement.contains("FOR UPDATE")
+                    && holder.get() != -1 && holder.get() != connection) waiting.countDown();
+        };
+        observer().afterSql = (statement, connection) -> {
+            if (statement.startsWith("SELECT * FROM attempt_lifecycle_state") && statement.contains("FOR UPDATE")
+                    && holder.compareAndSet(-1, connection)) {
+                held.countDown();
+                await(release);
+            }
+        };
+        try {
+            var first = workers.submit(() -> raceUngraded(one));
+            await(held);
+            var second = workers.submit(() -> raceUngraded(two));
+            await(waiting);
+            release.countDown();
+            assertThat(first.get(20, TimeUnit.SECONDS)).isInstanceOfSatisfying(UngradedActivityService.Completion.class,
+                    outcome -> assertThat(outcome.replayed()).isFalse());
+            if (identical) {
+                assertThat(second.get(20, TimeUnit.SECONDS)).isInstanceOfSatisfying(UngradedActivityService.Completion.class,
+                        outcome -> assertThat(outcome.replayed()).isTrue());
+            } else {
+                assertThat(second.get(20, TimeUnit.SECONDS)).isEqualTo(ResponseAcceptanceException.Reason.STALE);
+            }
+            assertThat(count("attempt_command_receipt")).isEqualTo(3);
+            assertThat(sql.queryForObject("SELECT COUNT(*) FROM attempt_trace_event WHERE event_type='ATTEMPT_SUBMITTED'", Long.class))
+                    .isEqualTo(1);
+            assertNoUngradedAssessment();
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+            assertThat(workers.awaitTermination(15, TimeUnit.SECONDS)).isTrue();
+            observer().reset();
+        }
+    }
+
+    @Test void ungradedCompletionReadCountIsBoundedAcrossSeveralForms(TestReporter reporter) {
+        var measured = new ArrayList<Integer>();
+        for (int size : List.of(2, 12)) {
+            var commands = new ArrayList<UngradedActivityService.Submit>();
+            for (int parent = 0; parent < 3; parent++) {
+                quizId = newQuiz();
+                var f = ungradedFixture(ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION, size);
+                for (int i = 0; i < size; i++)
+                    ungraded.accept(ungradedResponse(f, f.items().get(i), i + 1, UUID.randomUUID().toString(), "reflection"));
+                commands.add(ungradedSubmit(f, size + 1, UUID.randomUUID().toString()));
+            }
+            observer().selects.clear();
+            commands.forEach(ungraded::complete);
+            measured.add(observer().selects.size());
+            assertThat(observer().selects.stream().filter(q -> q.contains("FROM attempt_ungraded_participation")))
+                    .hasSize(3).noneMatch(q -> q.contains("normalized_response"));
+        }
+        assertThat(measured.get(0)).isPositive().isEqualTo(measured.get(1));
+        reporter.publishEntry("ungraded-completion-selects-three-forms-2-vs-12-items", measured.toString());
+    }
+
+    private UngradedFixture ungradedFixture(ResponseRetention retention, int size) {
+        var next = prepareUngradedStart(retention, size);
+        var started = starts.startUngraded(next.command(), next.policy());
+        var items = tx.execute(status -> facts.read(started.attemptId(), AttemptReadFactsService.Purpose.UNGRADED_COMMAND)
+                .form().items().stream().map(FixedForm.Item::id).toList());
+        return new UngradedFixture(next.command(), next.policy(), started, items);
+    }
+
+    private UngradedStart prepareUngradedStart(ResponseRetention retention, int size) {
+        var draftIds = IntStream.range(0, size).mapToObj(i -> draft(QuestionType.OPEN)).toList();
+        var revision = publish(0, draftIds);
+        binding.bind(quizId, revision);
+        var required = sql.queryForObject("""
+                SELECT BIN_TO_UUID(id) FROM quiz_revision_items WHERE quiz_revision_id=UUID_TO_BIN(?) AND authored_position=0
+                """, String.class, revision.toString());
+        var configuration = new AttemptStartService.UngradedConfiguration(retention, Set.of(UUID.fromString(required)),
+                new StartFacts(retention == ResponseRetention.COMPLETION_ONLY_NO_RESPONSE_RETENTION));
+        var start = command(revision, AnswerOrder.AUTHORED, UUID.randomUUID().toString());
+        return new UngradedStart(start, configuration);
+    }
+
+    private UngradedActivityService.Response ungradedResponse(UngradedFixture f, UUID item, long version, String key, String answer) {
+        return new UngradedActivityService.Response(f.attempt(), item, version, CommandReceipt.Key.from(key),
+                QuestionType.OPEN, json.createObjectNode().put("answer", answer));
+    }
+
+    private static UngradedActivityService.Submit ungradedSubmit(UngradedFixture f, long version, String key) {
+        return new UngradedActivityService.Submit(f.attempt(), version, CommandReceipt.Key.from(key));
+    }
+
+    private UngradedActivityService restartedUngraded() {
+        var receipt = new CommandReceiptServiceImpl(context.getBean(CommandReceiptRepository.class), manager,
+                context.getBean(Clock.class), metrics);
+        return new UngradedActivityServiceImpl(manager, context.getBean(AuthenticatedSubjectResolver.class),
+                context.getBean(AcceptedResponseRepository.class), lifecycle, facts,
+                context.getBean(UngradedActivityRepository.class), receipt, context.getBean(ExecutionTraceService.class),
+                context.getBean(Clock.class), metrics);
+    }
+
+    private Object raceUngraded(UngradedActivityService.Submit request) {
+        authenticate(username);
+        try { return ungraded.complete(request); }
+        catch (ResponseAcceptanceException failure) { return failure.reason(); }
+        finally { SecurityContextHolder.clearContext(); }
+    }
+
+    private void assertNoUngradedAssessment() {
+        for (String table : List.of("attempt_submission", "attempt_finalization_intent", "attempt_automatic_result",
+                "attempt_automatic_grade", "attempt_result_created")) assertThat(count(table)).as(table).isZero();
+    }
+
+    private static void rejectUngraded(Runnable action, String reason) {
+        assertThatThrownBy(action::run).isInstanceOfSatisfying(ResponseAcceptanceException.class,
+                failure -> assertThat(failure.reason().name()).isEqualTo(reason)).hasNoCause();
+    }
 
     private Fixture fixture(boolean requireAll, int size, int answered) {
         return fixture(requireAll,size,answered,new TimingPolicy(TimingMode.NONE));

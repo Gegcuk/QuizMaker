@@ -16,6 +16,9 @@ public interface AttemptLifecycleService {
     /** Creates only CREATED/NOT_STARTED at row version zero; duplicate IDs conflict. */
     LifecycleState initialize(UUID attemptId);
 
+    /** Creates an ungraded state inside the caller's transaction that also binds its activity policy. */
+    LifecycleState initializeUngraded(UUID attemptId);
+
     /** Ordinary snapshot read; missing target state is an error, never implicit legacy. */
     LifecycleRead read(LifecycleReference reference);
 

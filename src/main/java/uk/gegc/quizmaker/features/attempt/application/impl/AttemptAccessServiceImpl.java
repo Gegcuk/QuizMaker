@@ -38,13 +38,21 @@ public class AttemptAccessServiceImpl implements AttemptAccessService {
     }
 
     @Override public Access requireAccess(UUID attemptId, Operation operation) {
+        return requireAccess(attemptId, operation, false);
+    }
+
+    @Override public Access requireUngradedAnswerAccess(UUID attemptId) {
+        return requireAccess(attemptId, Operation.ANSWER, true);
+    }
+
+    private Access requireAccess(UUID attemptId, Operation operation, boolean ungraded) {
         Timer.Sample timer = null;
         try { timer = Timer.start(metrics); } catch (RuntimeException ignored) { /* best effort */ }
         String outcome = "unavailable";
         try {
             if (attemptId == null || operation == null) throw new AttemptAccessException(DENIED);
             var access = transaction.execute(status -> {
-                try { return authorize(attemptId, operation); }
+                try { return authorize(attemptId, operation, ungraded); }
                 // A participating template can log a failure before the result-read boundary sees it.
                 catch (RuntimeException failure) { throw translate(failure); }
             });
@@ -63,10 +71,10 @@ public class AttemptAccessServiceImpl implements AttemptAccessService {
         }
     }
 
-    private Access authorize(UUID attemptId, Operation operation) {
+    private Access authorize(UUID attemptId, Operation operation, boolean ungraded) {
         var subject = subjects.resolveCurrent(attemptId);
-        var evidence = attempts.lockEvidence(attemptId, subject.userId())
-                .orElseThrow(() -> new AttemptAccessException(DENIED));
+        var evidence = (ungraded ? attempts.lockUngradedEvidence(attemptId, subject.userId())
+                : attempts.lockEvidence(attemptId, subject.userId())).orElseThrow(() -> new AttemptAccessException(DENIED));
         var required = switch (operation) {
             case VIEW, RESULT -> PermissionName.ATTEMPT_READ;
             case ANSWER -> PermissionName.ATTEMPT_CREATE;

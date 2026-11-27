@@ -187,13 +187,16 @@ The conformance class already belongs to the existing context inventory.
   response writer waits on an observed MySQL lifecycle lock across the deadline, then the real
   expiry/result/release writers preserve that answer at the inclusive processing-time boundary.
   Later acceptance, a contradictory voluntary cause and a mismatched expiry receipt are refused.
-- Both modes check accepted-response counts from every completed attempt root, before an answer
+- Both modes check accepted-response counts from every completed graded attempt root, before an answer
   join can drop a root with no surviving rows. Real pending submissions lose one or all response
   rows in separate regressions; #603 and both selectors refuse the incomplete history, including
   an exhausted cursor, without modifying storage. Restoring the rows restores pending/answered
   classifications; real grading then leaves only the remaining mistake. Genuine empty submissions
   (`0 == 0`) preserve both views before and after grading, and active attempts without a submission
   do not trigger the completed-attempt check.
+- In mixed history for the same learner and revision, accepting and completing a real ungraded
+  activity preserves both selections and their evidence. A corrupt accepted-response count on
+  the graded submission still fails both modes with `CORRUPT`; restoring the count restores both results.
 - Real Learning enrollment/delivery leaves questions unanswered. An actual HTTP response removes
   only that exact question revision; a later publication has separate state and old reads retain
   their captured identity. No assessment facts are repurposed as Learning grades.
@@ -1029,6 +1032,40 @@ fresh output path and compare its `source` fingerprint with the candidate implem
 python3 tools/testing/context_benchmark.py verify --workers 4 \
   --output /private/tmp/quizmaker-697-verify-<RUN>
 ```
+
+## Internal ungraded response and completion (#567)
+
+On JDK 17 and disposable MySQL, with the standard offline test environment:
+
+```bash
+./mvnw test '-Dtest=ActivityContractTest,AttemptStartValidationTest,AttemptSubmissionMySqlIntegrationTest#ungraded*+*Ungraded*+repeatableReadAccessDistinguishesBothActivityKindsCommittedAfterItsSnapshot'
+```
+
+The MySQL cases start real fixed-form activities and exercise both response retention modes.
+They check required versus optional participation, private binding and replay authorization,
+post-terminal attempts, same-key changed content, conflicts, and no response payload or
+payload-derived command fingerprint in the no-retention mode. The graded control invokes the
+same OPEN scorer through the real automatic-result worker. Ungraded commands must produce no
+scorer invocation, graded submission, finalization intent or result row.
+
+With Spring JDBC parameter TRACE enabled, the retained OPEN response keeps the exact normalized
+text in MySQL and logs only the private parameter marker. A separate graded RR access transaction
+holds its own attempt open until a second user commits a real ungraded start on a different quiz.
+The test exercises both relative user ID orders in the participant binding index.
+An older RR snapshot also grants each kind only through its matching access operation, even when
+both attempts committed after that snapshot.
+
+The suite injects failures after real participation and terminal writes, checks rollback through
+fresh reads, and retries using a reconstructed service and real receipts. It also covers outer
+rollback, uncertain commit, and overlapping completion transactions at the lifecycle row lock.
+Completion loads participation IDs in one statement and measures the total SELECT count across
+three forms with different item counts. The test compares statement counts and checks the
+participation read excludes response values. Existing fixed-form reads still load the form's
+immutable revision, so row volume depends on form and revision size.
+
+Run the full four-worker clean verification before publishing a branch. The feature's internal
+commands have no HTTP scenario. Public ungraded start/notice production and the participant
+workflow are separate integration and activation checks.
 
 ## Ungraded activity contract (#566)
 

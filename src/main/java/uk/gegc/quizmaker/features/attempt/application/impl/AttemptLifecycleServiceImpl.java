@@ -18,6 +18,7 @@ import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 import java.time.Clock;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.LifecycleStateException.Reason.*;
@@ -45,9 +46,18 @@ public class AttemptLifecycleServiceImpl implements AttemptLifecycleService {
 
     @Override
     public LifecycleState initialize(UUID attemptId) {
-        return execute("initialize", write, () -> {
+        return initialize(attemptId, write, repository::insert);
+    }
+
+    @Override
+    public LifecycleState initializeUngraded(UUID attemptId) {
+        return initialize(attemptId, mandatory, repository::insertUngraded);
+    }
+
+    private LifecycleState initialize(UUID attemptId, TransactionTemplate transaction, Consumer<LifecycleState> insert) {
+        return execute("initialize", transaction, () -> {
             var value = LifecycleState.initial(attemptId, clock.instant());
-            repository.insert(value);
+            insert.accept(value);
             return value;
         });
     }

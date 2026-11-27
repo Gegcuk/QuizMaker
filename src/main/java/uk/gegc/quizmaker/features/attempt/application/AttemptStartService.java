@@ -6,7 +6,10 @@ import uk.gegc.quizmaker.features.attempt.domain.model.preset.LegacyPracticeRequ
 import uk.gegc.quizmaker.features.attempt.domain.model.preset.PresetReference;
 import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt.Key;
 
+import java.util.Set;
 import java.util.UUID;
+import uk.gegc.quizmaker.features.attempt.domain.model.activity.ActivityContract.ResponseRetention;
+import uk.gegc.quizmaker.features.attempt.domain.model.activity.ActivityContract.StartFacts;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.TimingPolicy;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.TimingMode;
 import uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAttemptPolicy.AttemptLimitPolicy;
@@ -75,4 +78,18 @@ public interface AttemptStartService {
      * Database conflicts retain #599's RETRYABLE / IN_PROGRESS classification.
      */
     Result start(Command command);
+
+    /**
+     * Internal composition point for a trusted activity-start owner. The owner supplies saved
+     * participation requirements by source occurrence and proves notice delivery before invocation.
+     * Creates the ungraded binding with the canonical start; it cannot reclassify an existing attempt.
+     */
+    Result startUngraded(Command command, UngradedConfiguration configuration);
+
+    record UngradedConfiguration(ResponseRetention retention, Set<UUID> requiredSourceItems, StartFacts startFacts) {
+        public UngradedConfiguration {
+            if (requiredSourceItems != null) requiredSourceItems = Set.copyOf(requiredSourceItems);
+        }
+        @Override public String toString() { return "UngradedStartConfiguration[redacted]"; }
+    }
 }

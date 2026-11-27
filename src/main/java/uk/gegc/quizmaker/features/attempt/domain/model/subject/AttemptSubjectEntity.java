@@ -14,7 +14,8 @@ import java.util.UUID;
  */
 @Entity
 @Immutable
-@Table(name = "attempt_participant_subject", indexes = @Index(name = "ix_attempt_subject_user", columnList = "user_id,attempt_id"))
+@Table(name = "attempt_participant_subject", indexes = @Index(
+        name = "ix_attempt_subject_user", columnList = "user_id,attempt_id", unique = true))
 @Check(constraints = "schema_version = 1 AND CAST(subject_type AS BINARY) = CAST('AUTHENTICATED_USER' AS BINARY)")
 public class AttemptSubjectEntity {
     @Id
