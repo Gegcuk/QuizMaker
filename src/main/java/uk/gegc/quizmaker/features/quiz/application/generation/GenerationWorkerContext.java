@@ -69,6 +69,12 @@ public final class GenerationWorkerContext {
         write(jobId, () -> null);
     }
 
+    /** Returns the protected execution identity, or null for legacy dispatches. */
+    public static Long protectedExecutionFence(UUID jobId) {
+        Scope scope = CURRENT.get();
+        return scope == null ? null : write(jobId, scope.claim()::fence);
+    }
+
     public static void runWrite(UUID jobId, Runnable action) {
         write(jobId, () -> {
             action.run();

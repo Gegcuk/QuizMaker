@@ -7,6 +7,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
@@ -19,6 +20,7 @@ import java.util.UUID;
 @Entity
 @Table(
         name = "quiz_generation_provider_usage",
+        indexes = @Index(name = "idx_qgpu_state_unknown_id", columnList = "record_state, unknown_at, id"),
         uniqueConstraints = @UniqueConstraint(
                 name = "uq_qgpu_job_attempt",
                 columnNames = {"job_id", "provider_attempt_id"}
@@ -48,17 +50,28 @@ public class QuizGenerationProviderUsage {
     @Column(name = "recorded_at", nullable = false, updatable = false)
     private LocalDateTime recordedAt;
 
+    @Column(name = "execution_fence", updatable = false)
+    private Long executionFence;
+
+    @Column(name = "unknown_at", updatable = false)
+    private LocalDateTime unknownAt;
+
+    @Column(name = "terminal_at")
+    private LocalDateTime terminalAt;
+
     private QuizGenerationProviderUsage(
             UUID jobId,
             UUID providerAttemptId,
             ProviderUsageRecordState recordState,
             Long providerLlmTokens,
-            LocalDateTime recordedAt
+            LocalDateTime recordedAt,
+            Long executionFence
     ) {
         this.jobId = Objects.requireNonNull(jobId, "jobId must not be null");
         this.providerAttemptId = Objects.requireNonNull(providerAttemptId, "providerAttemptId must not be null");
         this.recordState = Objects.requireNonNull(recordState, "recordState must not be null");
         this.recordedAt = Objects.requireNonNull(recordedAt, "recordedAt must not be null");
+        this.executionFence = executionFence;
         validateTokens(recordState, providerLlmTokens);
         this.providerLlmTokens = providerLlmTokens;
     }
@@ -66,23 +79,26 @@ public class QuizGenerationProviderUsage {
     public static QuizGenerationProviderUsage started(
             UUID jobId,
             UUID providerAttemptId,
-            LocalDateTime recordedAt
+            LocalDateTime recordedAt,
+            Long executionFence
     ) {
         return new QuizGenerationProviderUsage(
                 jobId,
                 providerAttemptId,
                 ProviderUsageRecordState.STARTED,
                 null,
-                recordedAt
+                recordedAt,
+                executionFence
         );
     }
 
     public boolean transitionTo(
             ProviderUsageRecordState terminalState,
-            Long tokens
+            Long tokens,
+            LocalDateTime completedAt
     ) {
         Objects.requireNonNull(terminalState, "terminalState must not be null");
-        if (terminalState == ProviderUsageRecordState.STARTED) {
+        if (terminalState == ProviderUsageRecordState.STARTED || terminalState == ProviderUsageRecordState.UNKNOWN) {
             throw new IllegalArgumentException("terminalState must be terminal");
         }
         validateTokens(terminalState, tokens);
@@ -92,6 +108,7 @@ public class QuizGenerationProviderUsage {
         if (recordState != ProviderUsageRecordState.STARTED) {
             throw new IllegalStateException("Provider attempt already has a different terminal fact");
         }
+        terminalAt = Objects.requireNonNull(completedAt, "completedAt must not be null");
         recordState = terminalState;
         providerLlmTokens = tokens;
         return true;
@@ -108,6 +125,12 @@ public class QuizGenerationProviderUsage {
     }
 
     public boolean matches(ProviderUsageRecordState expectedState, Long expectedTokens) {
-        return recordState == expectedState && Objects.equals(providerLlmTokens, expectedTokens);
+        return getRecordState() == expectedState && Objects.equals(providerLlmTokens, expectedTokens);
+    }
+
+    public ProviderUsageRecordState getRecordState() {
+        // The marker lets the previous writer finish a STARTED row during rollout.
+        return recordState == ProviderUsageRecordState.STARTED && unknownAt != null
+                ? ProviderUsageRecordState.UNKNOWN : recordState;
     }
 }

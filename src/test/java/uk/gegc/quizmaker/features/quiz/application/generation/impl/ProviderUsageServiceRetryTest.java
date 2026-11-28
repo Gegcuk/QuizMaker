@@ -1,5 +1,7 @@
 package uk.gegc.quizmaker.features.quiz.application.generation.impl;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -124,6 +126,31 @@ class ProviderUsageServiceRetryTest {
         assertThat(counter("retry")).isEqualTo(2.0);
         assertThat(counter("failure")).isEqualTo(1.0);
         assertThat(counter("started")).isZero();
+    }
+
+    @Test
+    @DisplayName("Unavailable metrics cannot hide a committed provider start or cause another write")
+    void metricsFailureDoesNotChangeCommittedStart() {
+        var failingRegistry = new SimpleMeterRegistry() {
+            @Override protected Counter newCounter(Meter.Id id) {
+                throw new IllegalStateException("registry unavailable");
+            }
+        };
+        var accounting = new ProviderUsageServiceImpl(jobRepository, usageRepository, transactionManager,
+                Clock.fixed(Instant.parse("2026-08-10T12:00:00Z"), ZoneOffset.UTC), failingRegistry);
+        UUID jobId = UUID.randomUUID();
+        var job = new QuizGenerationJob();
+        job.setId(jobId);
+        job.setActualTokens(77L);
+        when(jobRepository.findByIdForUpdate(jobId)).thenReturn(Optional.of(job));
+
+        assertThat(accounting.recordStarted(jobId, UUID.randomUUID())).isEqualTo(ProviderUsageRecordResult.RECORDED);
+
+        verify(transactionManager).commit(transactionStatus);
+        verify(transactionManager, never()).rollback(any());
+        verify(usageRepository).saveAndFlush(any());
+        assertThat(job.getProviderUsageState()).isEqualTo(ProviderUsageState.INCOMPLETE);
+        assertThat(job.getActualTokens()).isEqualTo(77L);
     }
 
     private double counter(String outcome) {

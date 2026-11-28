@@ -11,7 +11,9 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.jdbc.JdbcTest;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Propagation;
@@ -129,6 +131,69 @@ class ProviderUsageSchemaMigrationTest {
                 .isInstanceOf(DataAccessException.class);
         assertThatThrownBy(() -> insertUsage(jobId, "REPORTED", null))
                 .isInstanceOf(DataAccessException.class);
+    }
+
+    @Test
+    @DisplayName("V137 preserves legacy facts and allows a previous writer to report a reconciled attempt")
+    void migrateV137PreservesHistoryAndOlderTerminalWrites() {
+        createPreV75UsageTable();
+        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V75__add_provider_attempt_lifecycle.sql"))
+                .execute(jdbcTemplate.getDataSource());
+        String jobId = jdbcTemplate.queryForObject(
+                "SELECT BIN_TO_UUID(id) FROM quiz_generation_jobs WHERE test_key = 'active-snapshot'", String.class);
+        insertUsage(jobId, "REPORTED", 125L);
+        insertUsage(jobId, "MISSING", null);
+        insertUsage(jobId, "FAILED", null);
+        insertUsage(jobId, "STARTED", null);
+        var previousFacts = jdbcTemplate.queryForList("""
+                SELECT record_state, provider_llm_tokens, recorded_at
+                FROM quiz_generation_provider_usage ORDER BY record_state
+                """);
+
+        Flyway.configure()
+                .dataSource(jdbcTemplate.getDataSource())
+                .table(MIGRATION_HISTORY_TABLE)
+                .locations("classpath:db/migration")
+                .baselineOnMigrate(true)
+                .baselineVersion("136")
+                .target("137")
+                .load()
+                .migrate();
+
+        assertThat(jdbcTemplate.queryForList("""
+                SELECT record_state, provider_llm_tokens, recorded_at
+                FROM quiz_generation_provider_usage ORDER BY record_state
+                """)).isEqualTo(previousFacts);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM quiz_generation_provider_usage
+                WHERE execution_fence IS NOT NULL OR unknown_at IS NOT NULL OR terminal_at IS NOT NULL
+                """, Long.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.statistics
+                WHERE table_schema = DATABASE() AND table_name = 'quiz_generation_provider_usage'
+                    AND index_name = 'idx_qgpu_state_unknown_id'
+                """, Long.class)).isEqualTo(3);
+        assertThat(jdbcTemplate.queryForMap("""
+                EXPLAIN SELECT id FROM quiz_generation_provider_usage
+                FORCE INDEX (idx_qgpu_state_unknown_id)
+                WHERE record_state = 'STARTED' AND unknown_at IS NULL
+                    AND id > UUID_TO_BIN('00000000-0000-0000-0000-000000000000')
+                ORDER BY id LIMIT 50
+                """)).containsEntry("key", "idx_qgpu_state_unknown_id").containsEntry("type", "range");
+
+        assertThat(jdbcTemplate.update("""
+                UPDATE quiz_generation_provider_usage SET unknown_at = CURRENT_TIMESTAMP(6)
+                WHERE record_state = 'STARTED'
+                """)).isEqualTo(1);
+        // The prior writer updates only the existing provider data after reloading STARTED.
+        assertThat(jdbcTemplate.update("""
+                UPDATE quiz_generation_provider_usage SET record_state = 'REPORTED', provider_llm_tokens = 17
+                WHERE record_state = 'STARTED'
+                """)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT provider_llm_tokens FROM quiz_generation_provider_usage
+                WHERE record_state = 'REPORTED' AND unknown_at IS NOT NULL
+                """, Long.class)).isEqualTo(17L);
     }
 
     private void createPreV75UsageTable() {

@@ -190,6 +190,53 @@ counts expired recovery candidates. `quiz.generation.admission.deferred` counts
 local saturation. Existing provider-attempt records and executor instrumentation
 remain the source for provider usage, errors and active worker pressure.
 
+### Interrupted provider attempts (#451)
+
+Every managed provider start records the worker's execution fence inside the
+existing job lock. Reconciliation checks one page of up to 50 attempts on
+the existing `quiz.jobs.execution.scan-seconds` cadence. It records an unknown
+outcome after a verified takeover, lease expiry, or completed execution.
+Rows without a fence require a terminal job and no active lease. A locked job
+is skipped until a subsequent sweep. Recorded terminal reports can resolve an
+unknown outcome once, including reports from the original worker after a takeover.
+Unresolved attempts keep the job's provider usage `INCOMPLETE` (or
+`LEGACY_REVIEW` where already assigned). Customer settlement uses the saved tariff.
+
+- `quiz.generation.provider.usage{outcome="unknown"}` counts newly classified
+  attempts. `outcome="reconciled"` counts unknown attempts that receive a terminal
+  fact. Normal dispatch, failure and report outcomes keep their existing counters.
+- `quiz.generation.provider.usage.unknown.backlog` reports unresolved unknown
+  attempts. A value of 50 means at least 50. The oldest age under
+  `quiz.generation.provider.usage.oldest{state="unknown"}` starts at classification.
+  `state="unresolved"` measures age since the oldest unresolved dispatch started.
+- The warning `Provider usage reconciliation could not complete` identifies a
+  failed scan. The next scheduled run retries the same page.
+
+Investigate when the unknown backlog is above zero. Use the job and attempt IDs
+from a bounded, read-only query to match available accounting evidence. A high
+unresolved age with an empty unknown backlog can also indicate a legacy row
+without sufficient evidence. Preserve unconfirmed outcomes for review and use
+the recorded amount only after a confirmed provider report. An unknown outcome
+does not establish provider usage, trigger a provider call, or authorize a
+customer ledger adjustment.
+
+```sql
+SELECT BIN_TO_UUID(job_id) AS job_id, BIN_TO_UUID(provider_attempt_id) AS provider_attempt_id,
+       recorded_at, unknown_at
+FROM quiz_generation_provider_usage
+WHERE record_state = 'STARTED' AND unknown_at IS NOT NULL
+ORDER BY unknown_at, id
+LIMIT 50;
+```
+
+`V137__reconcile_interrupted_provider_attempts.sql` adds metadata and an index.
+It preserves the persisted state vocabulary during rollout. A pending row with
+`unknown_at` is logically `UNKNOWN`, and the previous writer can still submit a
+terminal report for it. The marker remains as audit evidence after a terminal
+report. Existing records get no inferred fence, timestamp or amount.
+
+### Offline evidence
+
 Offline tests exercise 1/5/25 jobs through the real dispatcher, execution context,
 orchestration and provider scheduler with a fake AI port. Latches require an initial
 wave of `min(jobs, 4) × 2` calls, assert peaks of at most four jobs/eight calls and

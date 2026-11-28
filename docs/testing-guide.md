@@ -2,6 +2,30 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Interrupted provider usage reconciliation (#451)
+
+With JDK 17, a disposable MySQL server and the offline provider environment, run:
+
+```sh
+./mvnw -o test -Dtest=QuizGenerationProviderUsageTest,ProviderUsageServiceRetryTest,SpringAiStructuredClientProviderUsageTest,ProviderUsageSchemaMigrationTest,ProviderUsageServiceMySqlIntegrationTest,GenerationWorkMySqlIntegrationTest,GenerationWorkBillingMySqlIntegrationTest,QuizGenerationFacadeImplBillingTest
+```
+
+The provider tests verify start observation before dispatch with a fake transport and
+preserve usage when parsing fails. The generation-work suite uses real leases
+and provider-accounting writes to distinguish active, expired and replaced
+workers. It checks a concurrent reporter holding the job lock, successful
+reconciliation on a later pass, exact replay after a late report, and one
+stable token total. An injected database write failure leaves the whole page
+eligible for retry. Two pages across three owners measure four SQL statements
+per nonempty update page, with no entity or collection loads. The migration
+fixture proves historical states and token totals survive and an older writer
+can still record a terminal fact. Billing coverage checks existing settlement
+and reservation recovery using an isolated payment boundary.
+
+Run the full four-worker clean-verify gate on the final implementation.
+The public generation status uses the existing provider-usage states. The
+internal scan is covered at its persistence and generation boundaries.
+
 ## Participant branch progress (#646)
 
 With JDK 17, the offline test environment and disposable MySQL, start with:

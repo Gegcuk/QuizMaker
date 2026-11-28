@@ -46,14 +46,15 @@ class QuizGenerationProviderUsageTest {
         UUID attemptId = UUID.randomUUID();
         LocalDateTime now = LocalDateTime.parse("2026-08-10T12:00:00");
 
-        var attempt = QuizGenerationProviderUsage.started(jobId, attemptId, now);
+        var attempt = QuizGenerationProviderUsage.started(jobId, attemptId, now, 1L);
 
         assertThat(attempt.matches(ProviderUsageRecordState.STARTED, null)).isTrue();
-        assertThat(attempt.transitionTo(ProviderUsageRecordState.REPORTED, 0L)).isTrue();
-        assertThat(attempt.transitionTo(ProviderUsageRecordState.REPORTED, 0L)).isFalse();
-        assertThatThrownBy(() -> attempt.transitionTo(ProviderUsageRecordState.MISSING, null))
+        assertThat(attempt.transitionTo(ProviderUsageRecordState.REPORTED, 0L, now.plusSeconds(1))).isTrue();
+        assertThat(attempt.transitionTo(ProviderUsageRecordState.REPORTED, 0L, now.plusSeconds(2))).isFalse();
+        assertThat(attempt.getTerminalAt()).isEqualTo(now.plusSeconds(1));
+        assertThatThrownBy(() -> attempt.transitionTo(ProviderUsageRecordState.MISSING, null, now))
                 .isInstanceOf(IllegalStateException.class);
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> attempt.transitionTo(ProviderUsageRecordState.REPORTED, -1L));
+                .isThrownBy(() -> attempt.transitionTo(ProviderUsageRecordState.REPORTED, -1L, now));
     }
 }

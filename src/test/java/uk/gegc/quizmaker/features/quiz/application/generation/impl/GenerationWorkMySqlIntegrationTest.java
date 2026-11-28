@@ -16,6 +16,8 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -57,6 +59,7 @@ import static org.mockito.Mockito.*;
         uk.gegc.quizmaker.features.quiz.config.GenerationLeaseSchedulingConfig.class,
         QuizGenerationCheckpointServiceImpl.class, QuizGenerationCheckpointCodec.class,
         QuizGenerationCoverageServiceImpl.class, ProviderUsageServiceImpl.class,
+        ProviderUsageReconciliationServiceImpl.class,
         uk.gegc.quizmaker.features.quiz.application.impl.QuizGenerationJobServiceImpl.class,
         uk.gegc.quizmaker.features.quiz.application.query.impl.GenerationQueuePositionServiceImpl.class,
         GenerationWorkMySqlIntegrationTest.Config.class})
@@ -108,6 +111,7 @@ class GenerationWorkMySqlIntegrationTest {
     @Autowired QuizGenerationCheckpointService checkpoints;
     @Autowired QuizGenerationCoverageService coverage;
     @Autowired ProviderUsageService providerUsage;
+    @Autowired ProviderUsageReconciliationService providerReconciliation;
     @Autowired uk.gegc.quizmaker.features.quiz.application.QuizGenerationJobService jobService;
     @Autowired QuizGenerationProviderUsageRepository usageRecords;
     @Autowired QuizGenerationWorkRepository works;
@@ -429,20 +433,220 @@ class GenerationWorkMySqlIntegrationTest {
         GenerationWorkClaim former = service.claim(job.getId()).orElseThrow();
         UUID startedAttempt = UUID.randomUUID();
         GenerationWorkerContext.run(former, service, () -> providerUsage.recordStarted(job.getId(), startedAttempt));
+        assertThat(usageRecords.findByJobIdAndProviderAttemptId(job.getId(), startedAttempt).orElseThrow()
+                .getExecutionFence()).isEqualTo(former.fence());
+        providerReconciliation.reconcilePage(null);
+        assertThat(providerState(job.getId(), startedAttempt)).isEqualTo(ProviderUsageRecordState.STARTED);
         // A check before the accounting transaction is insufficient: takeover can win in between.
         service.protect(former, () -> null);
         clock.advance(120);
-        service.claim(job.getId()).orElseThrow();
+        GenerationWorkClaim current = service.claim(job.getId()).orElseThrow();
+        UUID currentAttempt = UUID.randomUUID();
+        GenerationWorkerContext.run(current, service, () -> providerUsage.recordStarted(job.getId(), currentAttempt));
+        providerReconciliation.reconcilePage(null);
+        assertThat(providerState(job.getId(), startedAttempt)).isEqualTo(ProviderUsageRecordState.UNKNOWN);
+        assertThat(providerState(job.getId(), currentAttempt)).isEqualTo(ProviderUsageRecordState.STARTED);
+        assertThat(jobs.findById(job.getId()).orElseThrow().getProviderUsageState()).isEqualTo(ProviderUsageState.INCOMPLETE);
+
         UUID staleAttempt = UUID.randomUUID();
+        LocalDateTime markedAt = LocalDateTime.now(clock);
+        clock.advance(1);
         GenerationWorkerContext.run(former, service, () -> {
             assertThatThrownBy(() -> providerUsage.recordStarted(job.getId(), staleAttempt))
                     .isInstanceOf(GenerationLeaseLostException.class);
             assertThat(providerUsage.recordReported(job.getId(), startedAttempt, 37L))
                     .isEqualTo(ProviderUsageRecordResult.RECORDED);
+            assertThat(providerUsage.recordReported(job.getId(), startedAttempt, 37L))
+                    .isEqualTo(ProviderUsageRecordResult.DUPLICATE);
+            assertThatThrownBy(() -> providerUsage.recordReported(job.getId(), startedAttempt, 99L))
+                    .isInstanceOf(IllegalStateException.class);
         });
-        assertThat(usageRecords.countByJobId(job.getId())).isEqualTo(1);
+        assertThat(usageRecords.countByJobId(job.getId())).isEqualTo(2);
         assertThat(usageRecords.findByJobIdAndProviderAttemptId(job.getId(), staleAttempt)).isEmpty();
+        assertThat(usageRecords.findByJobIdAndProviderAttemptId(job.getId(), startedAttempt)).get()
+                .satisfies(attempt -> {
+                    assertThat(attempt.getRecordState()).isEqualTo(ProviderUsageRecordState.REPORTED);
+                    assertThat(attempt.getUnknownAt()).isEqualTo(markedAt);
+                    assertThat(attempt.getTerminalAt()).isEqualTo(markedAt.plusSeconds(1));
+                });
         assertThat(jobs.findById(job.getId()).orElseThrow().getProviderLlmTokens()).isEqualTo(37L);
+
+        providerUsage.recordReported(job.getId(), currentAttempt, 5L);
+        assertThat(jobs.findById(job.getId()).orElseThrow())
+                .satisfies(reloaded -> {
+                    assertThat(reloaded.getProviderLlmTokens()).isEqualTo(42L);
+                    assertThat(reloaded.getProviderUsageState()).isEqualTo(ProviderUsageState.COMPLETE);
+                });
+        verifyNoInteractions(ai, billing);
+    }
+
+    @Test void reconciliationMarksExpiredExecutionAndRequiresTerminalEvidenceForLegacyRows() {
+        UUID managed = fixture(true, false).getId();
+        UUID legacy = legacyGenerationInProgress();
+        GenerationWorkClaim claim = service.claim(managed).orElseThrow();
+        UUID managedAttempt = UUID.randomUUID();
+        UUID legacyAttempt = UUID.randomUUID();
+        GenerationWorkerContext.run(claim, service, () -> providerUsage.recordStarted(managed, managedAttempt));
+        providerUsage.recordStarted(legacy, legacyAttempt);
+
+        clock.advance(119);
+        providerReconciliation.reconcilePage(null);
+        assertThat(providerState(managed, managedAttempt)).isEqualTo(ProviderUsageRecordState.STARTED);
+        assertThat(providerState(legacy, legacyAttempt)).isEqualTo(ProviderUsageRecordState.STARTED);
+        clock.advance(1);
+        providerReconciliation.reconcilePage(null);
+        assertThat(providerState(managed, managedAttempt)).isEqualTo(ProviderUsageRecordState.UNKNOWN);
+        assertThat(providerState(legacy, legacyAttempt)).isEqualTo(ProviderUsageRecordState.STARTED);
+        assertThat(works.findById(managed).orElseThrow().getState()).isEqualTo(QuizGenerationWork.State.RUNNING);
+
+        markFailed(legacy);
+        providerReconciliation.reconcilePage(null);
+        assertThat(providerState(legacy, legacyAttempt)).isEqualTo(ProviderUsageRecordState.UNKNOWN);
+        providerUsage.recordMissing(legacy, legacyAttempt);
+        assertThat(providerState(legacy, legacyAttempt)).isEqualTo(ProviderUsageRecordState.MISSING);
+        assertThat(jobs.findById(legacy).orElseThrow().getProviderUsageState()).isEqualTo(ProviderUsageState.INCOMPLETE);
+        verifyNoInteractions(ai, billing);
+    }
+
+    @Test void reconciliationSkipsAJobLockedByAConcurrentReporterAndRevisitsIt() throws Exception {
+        UUID job = legacyGenerationInProgress();
+        UUID reported = UUID.randomUUID();
+        UUID interrupted = UUID.randomUUID();
+        providerUsage.recordStarted(job, reported);
+        providerUsage.recordStarted(job, interrupted);
+        markFailed(job);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> reporter = pool.submit(() -> {
+                transactions.executeWithoutResult(tx -> {
+                    jobs.findByIdForUpdate(job).orElseThrow();
+                    locked.countDown();
+                    try {
+                        assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError(e);
+                    }
+                });
+                return providerUsage.recordReported(job, reported, 17);
+            });
+            assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
+            // The scan must finish before the holder releases the job lock.
+            pool.submit(() -> providerReconciliation.reconcilePage(null)).get(5, TimeUnit.SECONDS);
+            assertThat(providerState(job, reported)).isEqualTo(ProviderUsageRecordState.STARTED);
+            assertThat(providerState(job, interrupted)).isEqualTo(ProviderUsageRecordState.STARTED);
+            release.countDown();
+            assertThat(reporter.get(5, TimeUnit.SECONDS)).isEqualTo(ProviderUsageRecordResult.RECORDED);
+            providerReconciliation.reconcilePage(null);
+            assertThat(providerState(job, reported)).isEqualTo(ProviderUsageRecordState.REPORTED);
+            assertThat(providerState(job, interrupted)).isEqualTo(ProviderUsageRecordState.UNKNOWN);
+            assertThat(jobs.findById(job).orElseThrow().getProviderLlmTokens()).isEqualTo(17L);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+            assertThat(pool.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test void providerReconciliationPagesUseFourScalarStatementsAcrossDifferentNumbersOfJobs() {
+        List<UUID> ownersJobs = new ArrayList<>();
+        Map<UUID, UUID> attempts = new HashMap<>();
+        for (int owner = 0; owner < 3; owner++) {
+            UUID job = legacyGenerationInProgress();
+            ownersJobs.add(job);
+            int count = owner == 2 ? 2 : 25;
+            for (int i = 0; i < count; i++) {
+                UUID attempt = UUID.randomUUID();
+                attempts.put(attempt, job);
+                providerUsage.recordStarted(job, attempt);
+            }
+        }
+        ownersJobs.forEach(this::markFailed);
+
+        var statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.clear();
+        UUID next = providerReconciliation.reconcilePage(null);
+        assertThat(next).isNotNull();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(4);
+        assertThat(statistics.getEntityLoadCount()).isZero();
+        assertThat(statistics.getCollectionFetchCount()).isZero();
+        assertThat(attempts.entrySet().stream().filter(entry ->
+                providerState(entry.getValue(), entry.getKey()) == ProviderUsageRecordState.UNKNOWN).count()).isEqualTo(50);
+
+        statistics.clear();
+        assertThat(providerReconciliation.reconcilePage(next)).isNull();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(4);
+        assertThat(statistics.getEntityLoadCount()).isZero();
+        assertThat(statistics.getCollectionFetchCount()).isZero();
+        attempts.forEach((attempt, job) -> assertThat(providerState(job, attempt)).isEqualTo(ProviderUsageRecordState.UNKNOWN));
+
+        double marked = metrics.get("quiz.generation.provider.usage").tag("outcome", "unknown").counter().count();
+        providerReconciliation.reconcilePage(null);
+        assertThat(metrics.get("quiz.generation.provider.usage").tag("outcome", "unknown").counter().count())
+                .isEqualTo(marked);
+        assertThat(metrics.get("quiz.generation.provider.usage.unknown.backlog").gauge().value()).isEqualTo(50);
+    }
+
+    @Test void reconciliationWriteFailureRollsBackThePageAndCanBeRetried() {
+        UUID firstJob = legacyGenerationInProgress();
+        UUID secondJob = legacyGenerationInProgress();
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        providerUsage.recordStarted(firstJob, first);
+        providerUsage.recordStarted(secondJob, second);
+        markFailed(firstJob);
+        markFailed(secondJob);
+
+        // MySQL with binary logging requires the test database administrator to install triggers.
+        var admin = new JdbcTemplate(new DriverManagerDataSource(dataSource.getJdbcUrl(),
+                System.getenv().getOrDefault("TEST_MYSQL_ADMIN_USERNAME", "root"),
+                System.getenv().getOrDefault("TEST_MYSQL_ADMIN_PASSWORD", "root")));
+        try {
+            admin.execute("""
+                    CREATE TABLE test_provider_reconciliation_checkpoint (writes INT NOT NULL) ENGINE=InnoDB
+                    """);
+            admin.update("INSERT INTO test_provider_reconciliation_checkpoint (writes) VALUES (0)");
+            admin.execute("""
+                    CREATE TRIGGER test_provider_reconciliation_write_failure
+                    BEFORE UPDATE ON quiz_generation_provider_usage FOR EACH ROW
+                    BEGIN
+                        IF NEW.unknown_at IS NOT NULL THEN
+                            UPDATE test_provider_reconciliation_checkpoint SET writes = writes + 1;
+                            IF (SELECT writes FROM test_provider_reconciliation_checkpoint) = 2 THEN
+                                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'test reconciliation second write reached';
+                            END IF;
+                        END IF;
+                    END
+                    """);
+            assertThatThrownBy(() -> providerReconciliation.reconcilePage(null))
+                    .hasStackTraceContaining("test reconciliation second write reached");
+            assertThat(providerState(firstJob, first)).isEqualTo(ProviderUsageRecordState.STARTED);
+            assertThat(providerState(secondJob, second)).isEqualTo(ProviderUsageRecordState.STARTED);
+            assertThat(admin.queryForObject("SELECT writes FROM test_provider_reconciliation_checkpoint", Integer.class))
+                    .isZero();
+        } finally {
+            admin.execute("DROP TRIGGER IF EXISTS test_provider_reconciliation_write_failure");
+            admin.execute("DROP TABLE IF EXISTS test_provider_reconciliation_checkpoint");
+        }
+        assertThat(providerReconciliation.reconcilePage(null)).isNull();
+        assertThat(providerState(firstJob, first)).isEqualTo(ProviderUsageRecordState.UNKNOWN);
+        assertThat(providerState(secondJob, second)).isEqualTo(ProviderUsageRecordState.UNKNOWN);
+    }
+
+    private ProviderUsageRecordState providerState(UUID job, UUID attempt) {
+        return usageRecords.findByJobIdAndProviderAttemptId(job, attempt).orElseThrow().getRecordState();
+    }
+
+    private void markFailed(UUID job) {
+        transactions.executeWithoutResult(tx -> jobs.findByIdForUpdate(job).orElseThrow().setStatus(GenerationStatus.FAILED));
+    }
+
+    private UUID legacyGenerationInProgress() {
+        UUID job = fixture(false, false).getId();
+        transactions.executeWithoutResult(tx -> jobs.findByIdForUpdate(job).orElseThrow().setStatus(GenerationStatus.PROCESSING));
+        return job;
     }
 
     @Test void scansAreBoundedScalarQueriesWithMultipleParentsAndExcludeLegacyWork() {

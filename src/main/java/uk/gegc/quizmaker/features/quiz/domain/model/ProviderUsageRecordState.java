@@ -4,5 +4,6 @@ public enum ProviderUsageRecordState {
     STARTED,
     REPORTED,
     MISSING,
-    FAILED
+    FAILED,
+    UNKNOWN
 }

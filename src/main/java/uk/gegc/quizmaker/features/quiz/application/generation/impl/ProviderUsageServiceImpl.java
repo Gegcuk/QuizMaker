@@ -20,6 +20,8 @@ import uk.gegc.quizmaker.shared.exception.ResourceNotFoundException;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -33,15 +35,12 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
     private final QuizGenerationProviderUsageRepository usageRepository;
     private final PlatformTransactionManager transactionManager;
     private final Clock clock;
-    private final Counter reportedCounter;
-    private final Counter missingCounter;
-    private final Counter startedCounter;
-    private final Counter failedCounter;
-    private final Counter duplicateCounter;
-    private final Counter conflictCounter;
-    private final Counter retryCounter;
-    private final Counter failureCounter;
-    private final Counter providerTokensCounter;
+    private final MeterRegistry metrics;
+
+    private record WriteResult(ProviderUsageRecordResult result, boolean reconciled) {
+        private static final WriteResult RECORDED = new WriteResult(ProviderUsageRecordResult.RECORDED, false);
+        private static final WriteResult DUPLICATE = new WriteResult(ProviderUsageRecordResult.DUPLICATE, false);
+    }
 
     public ProviderUsageServiceImpl(
             QuizGenerationJobRepository jobRepository,
@@ -54,17 +53,12 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
         this.usageRepository = usageRepository;
         this.transactionManager = transactionManager;
         this.clock = clock;
-        this.startedCounter = counter(meterRegistry, "started");
-        this.reportedCounter = counter(meterRegistry, "reported");
-        this.missingCounter = counter(meterRegistry, "missing");
-        this.failedCounter = counter(meterRegistry, "failed");
-        this.duplicateCounter = counter(meterRegistry, "duplicate");
-        this.conflictCounter = counter(meterRegistry, "conflict");
-        this.retryCounter = counter(meterRegistry, "retry");
-        this.failureCounter = counter(meterRegistry, "failure");
-        this.providerTokensCounter = Counter.builder("quiz.generation.provider.tokens")
-                .description("Total provider-reported LLM tokens recorded durably")
-                .register(meterRegistry);
+        this.metrics = meterRegistry;
+        for (String outcome : List.of("started", "reported", "missing", "failed", "duplicate",
+                "conflict", "retry", "failure", "reconciled")) {
+            count(outcome, 0);
+        }
+        countTokens(0);
     }
 
     @Override
@@ -105,7 +99,7 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
 
         for (int attempt = 1; attempt <= MAX_TRANSIENT_ATTEMPTS; attempt++) {
             try {
-                ProviderUsageRecordResult result = Objects.requireNonNull(
+                WriteResult written = Objects.requireNonNull(
                         requiresNew().execute(status -> recordOnce(
                                 jobId,
                                 providerAttemptId,
@@ -114,33 +108,32 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
                         )),
                         "Provider usage transaction returned no result"
                 );
-                counterFor(result, recordState).increment();
+                var result = written.result();
+                count(result == ProviderUsageRecordResult.DUPLICATE
+                        ? "duplicate" : recordState.name().toLowerCase(Locale.ROOT), 1);
+                if (written.reconciled()) count("reconciled", 1);
                 if (result == ProviderUsageRecordResult.RECORDED
                         && recordState == ProviderUsageRecordState.REPORTED) {
-                    providerTokensCounter.increment(providerLlmTokens);
+                    countTokens(providerLlmTokens);
                 }
                 return result;
             } catch (TransientDataAccessException | CannotCreateTransactionException exception) {
                 if (attempt == MAX_TRANSIENT_ATTEMPTS) {
-                    failureCounter.increment();
+                    count("failure", 1);
                     throw exception;
                 }
-                retryCounter.increment();
+                count("retry", 1);
                 log.warn("Retrying provider usage persistence for job {} after transient database failure ({}/{})",
                         jobId, attempt, MAX_TRANSIENT_ATTEMPTS);
             } catch (RuntimeException exception) {
-                if (exception instanceof IllegalStateException) {
-                    conflictCounter.increment();
-                } else {
-                    failureCounter.increment();
-                }
+                count(exception instanceof IllegalStateException ? "conflict" : "failure", 1);
                 throw exception;
             }
         }
         throw new IllegalStateException("Provider usage retry loop completed unexpectedly");
     }
 
-    private ProviderUsageRecordResult recordOnce(
+    private WriteResult recordOnce(
             UUID jobId,
             UUID providerAttemptId,
             ProviderUsageRecordState recordState,
@@ -150,27 +143,26 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
                 .orElseThrow(() -> new ResourceNotFoundException("Generation job not found: " + jobId));
 
         if (recordState == ProviderUsageRecordState.STARTED) {
-            // The fence and the new attempt must share this transaction/job lock.
-            // Reports for an already dispatched attempt remain durable audit facts
-            // even when its worker has since lost ownership.
-            GenerationWorkerContext.check(jobId);
-        }
-        var existing = usageRepository.findByJobIdAndProviderAttemptId(jobId, providerAttemptId);
-        if (recordState == ProviderUsageRecordState.STARTED) {
+            // Capture the same fence proven under the job lock. Later reports remain
+            // valid even after that worker loses the right to start more calls.
+            Long executionFence = GenerationWorkerContext.protectedExecutionFence(jobId);
+            var existing = usageRepository.findByJobIdAndProviderAttemptId(jobId, providerAttemptId);
             if (existing.isPresent()) {
-                return ProviderUsageRecordResult.DUPLICATE;
+                return WriteResult.DUPLICATE;
             }
             usageRepository.saveAndFlush(QuizGenerationProviderUsage.started(
-                    jobId, providerAttemptId, LocalDateTime.now(clock)));
+                    jobId, providerAttemptId, LocalDateTime.now(clock), executionFence));
             job.markProviderAttemptStarted();
             jobRepository.saveAndFlush(job);
-            return ProviderUsageRecordResult.RECORDED;
+            return WriteResult.RECORDED;
         }
 
-        QuizGenerationProviderUsage usage = existing.orElseThrow(() -> new IllegalStateException(
-                "Provider attempt " + providerAttemptId + " has no durable start"));
-        if (!usage.transitionTo(recordState, providerLlmTokens)) {
-            return ProviderUsageRecordResult.DUPLICATE;
+        QuizGenerationProviderUsage usage = usageRepository.findByJobIdAndProviderAttemptId(jobId, providerAttemptId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Provider attempt " + providerAttemptId + " has no durable start"));
+        boolean reconciled = usage.getRecordState() == ProviderUsageRecordState.UNKNOWN;
+        if (!usage.transitionTo(recordState, providerLlmTokens, LocalDateTime.now(clock))) {
+            return WriteResult.DUPLICATE;
         }
         usageRepository.saveAndFlush(usage);
         if (recordState == ProviderUsageRecordState.REPORTED) {
@@ -179,7 +171,7 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
         job.reconcileProviderUsageCompleteness(!usageRepository.existsByJobIdAndRecordStateNot(
                 jobId, ProviderUsageRecordState.REPORTED));
         jobRepository.saveAndFlush(job);
-        return ProviderUsageRecordResult.RECORDED;
+        return new WriteResult(ProviderUsageRecordResult.RECORDED, reconciled);
     }
 
     private TransactionTemplate requiresNew() {
@@ -188,22 +180,26 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
         return transactionTemplate;
     }
 
-    private Counter counterFor(ProviderUsageRecordResult result, ProviderUsageRecordState state) {
-        if (result == ProviderUsageRecordResult.DUPLICATE) {
-            return duplicateCounter;
+    private void count(String outcome, long amount) {
+        try {
+            Counter.builder("quiz.generation.provider.usage")
+                    .description("Durable provider usage recording outcomes")
+                    .tag("outcome", outcome)
+                    .register(metrics)
+                    .increment(amount);
+        } catch (RuntimeException ignored) {
+            // A metrics failure cannot turn a committed start or report into a dispatch failure.
         }
-        return switch (state) {
-            case STARTED -> startedCounter;
-            case REPORTED -> reportedCounter;
-            case MISSING -> missingCounter;
-            case FAILED -> failedCounter;
-        };
     }
 
-    private Counter counter(MeterRegistry meterRegistry, String outcome) {
-        return Counter.builder("quiz.generation.provider.usage")
-                .description("Durable provider usage recording outcomes")
-                .tag("outcome", outcome)
-                .register(meterRegistry);
+    private void countTokens(long amount) {
+        try {
+            Counter.builder("quiz.generation.provider.tokens")
+                    .description("Total provider-reported LLM tokens recorded durably")
+                    .register(metrics)
+                    .increment(amount);
+        } catch (RuntimeException ignored) {
+            // The provider usage transaction is already committed.
+        }
     }
 }
