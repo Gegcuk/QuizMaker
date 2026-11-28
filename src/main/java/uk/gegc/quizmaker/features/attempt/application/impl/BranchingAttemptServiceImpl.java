@@ -34,6 +34,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.trace.ExecutionTrace;
 import uk.gegc.quizmaker.features.attempt.domain.repository.*;
 import uk.gegc.quizmaker.features.question.application.QuestionRevisionContractService;
 import uk.gegc.quizmaker.features.question.application.contract.ResolvedQuestionContracts;
+import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
 import uk.gegc.quizmaker.features.quiz.application.QuizPracticeSourceService;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.*;
 import uk.gegc.quizmaker.features.quiz.domain.repository.ScenarioExecutionSource;
@@ -327,6 +328,8 @@ public class BranchingAttemptServiceImpl implements BranchingAttemptService {
                     ? UNAVAILABLE : DENIED;
         if (failure instanceof PublicationException scope)
             return scope.reason() == PublicationException.Reason.PERSISTENCE_UNAVAILABLE ? UNAVAILABLE : DENIED;
+        if (failure instanceof ContractResolutionException contract
+                && contract.reason() == ContractResolutionException.Reason.UNSUPPORTED_CONTRACT) return UNSUPPORTED;
         if (failure instanceof FormMaterializationException material) return switch (material.reason()) {
             case UNSUPPORTED_FAMILY, UNSUPPORTED_MEDIA -> UNSUPPORTED;
             case PERSISTENCE_UNAVAILABLE -> UNAVAILABLE;

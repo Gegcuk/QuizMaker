@@ -156,12 +156,22 @@ class BranchingAttemptMySqlIntegrationTest {
     }
 
     private QuizRevision graph(String attachedQuestion, int entrySteps) {
+        var questions = List.of("Fork", "Advanced", "Practice").stream()
+                .map(text -> trueFalseQuestion(text, text.equals(attachedQuestion) ? "https://example.invalid/question.png" : null))
+                .toList();
+        return publishGraph(questions, entrySteps);
+    }
+
+    private QuestionRevision trueFalseQuestion(String text, String attachmentUrl) {
+        return new QuestionRevision(UUID.randomUUID(), UUID.randomUUID(), 1, QuestionType.TRUE_FALSE,
+                Difficulty.EASY, text, "{\"answer\":true}", null, "private explanation",
+                attachmentUrl, null, clock.instant(), List.of());
+    }
+
+    private QuizRevision publishGraph(List<QuestionRevision> questions, int entrySteps) {
         var nodes = new ArrayList<ScenarioGraph.Node>();
         var items = new ArrayList<QuizRevision.Item>();
-        for (String text : List.of("Fork", "Advanced", "Practice")) {
-            var question = new QuestionRevision(UUID.randomUUID(), UUID.randomUUID(), 1, QuestionType.TRUE_FALSE,
-                    Difficulty.EASY, text, "{\"answer\":true}", null, "private explanation",
-                    text.equals(attachedQuestion) ? "https://example.invalid/question.png" : null, null, clock.instant(), List.of());
+        for (var question : questions) {
             var item = new QuizRevision.Item(UUID.randomUUID(), items.size(), question);
             items.add(item);
             nodes.add(new ScenarioGraph.Node(UUID.randomUUID(), nodes.size(), ScenarioGraph.NodeType.ITEM, item.id()));
@@ -316,6 +326,38 @@ class BranchingAttemptMySqlIntegrationTest {
         branchResponses.acceptBranch(answer(other, next.formItemId(), 2, true));
         assertThat(branches.advance(other.step(3, 2)).outcome()).isEqualTo(TERMINAL_READY);
         assertThat(branchSubmissions.submitBranch(submit(other, 3)).replayed()).isFalse();
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void selectedMcqWithInlineOptionImageIsUnsupportedEvenOnRetry(boolean inlineImage) {
+        var media = inlineImage ? ",\"media\":{\"assetId\":\"" + UUID.randomUUID() + "\"}" : "";
+        var content = """
+                {"options":[{"id":"a","text":"A","correct":true%s},{"id":"b","text":"B","correct":false}]}
+                """.formatted(media);
+        var question = new QuestionRevision(UUID.randomUUID(), UUID.randomUUID(), 1, QuestionType.MCQ_SINGLE,
+                Difficulty.EASY, "Advanced", content, null, null, null, null, clock.instant(),
+                List.of(new QuestionRevision.Option(UUID.randomUUID(), "a", 0), new QuestionRevision.Option(UUID.randomUUID(), "b", 1)));
+        var revision = publishGraph(List.of(trueFalseQuestion("Fork", null), question, trueFalseQuestion("Practice", null)), 1);
+        var start = launch(revision, false);
+        var accepted = branchResponses.acceptBranch(answer(start, start.first(), 1, true));
+        var prefix = branches.resume(start.attempt());
+        var command = start.step(accepted.stateVersion(), prefix.formVersion());
+
+        if (inlineImage) {
+            for (int i = 0; i < 2; i++) {
+                assertThatThrownBy(() -> branches.advance(command)).isInstanceOfSatisfying(BranchingException.class,
+                        failure -> assertThat(failure.reason()).isEqualTo(BranchingException.Reason.UNSUPPORTED));
+            }
+            assertThat(branches.resume(start.attempt())).isEqualTo(prefix);
+            assertThat(count("attempt_form_item", "form_id", start.admission().formId())).isOne();
+            assertThat(count("attempt_branch_decision", "decision_id", command.decisionId())).isZero();
+            assertThat(count("attempt_trace_event", "command_id", command.decisionId())).isZero();
+        } else {
+            var result = branches.advance(command);
+            assertThat(result.outcome()).isEqualTo(APPENDED);
+            assertThat(branches.advance(command)).isEqualTo(result);
+            assertThat(branches.resume(start.attempt()).deliveredFormItems()).containsExactly(start.first(), result.formItemId());
+        }
     }
 
     @Test void unsupportedEntryQuestionRollsBackAdmission() {

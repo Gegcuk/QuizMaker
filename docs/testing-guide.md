@@ -21,7 +21,9 @@ rules and incomplete routing must fail before admission commits. Resume measures
 multiple forms and checks that neither answer nor condition payloads are selected.
 Regression cases cover unsupported attachments at entry and on a selected branch, unavailable
 receipt reads after a lost commit acknowledgement, gaps or substitutions in recorded edges,
-and a single path check during expiry. Grading read faults exercise transaction TRACE redaction
+and a single path check during expiry. A selected MCQ with an image in an option returns
+`UNSUPPORTED` on advance and retry. The same question with text-only options can advance and replay.
+Grading read faults exercise transaction TRACE redaction
 and distinguish lock timeouts, deadlocks and other database errors.
 
 #574 has no HTTP operation. The two branch decisions and the terminal command are tested through
