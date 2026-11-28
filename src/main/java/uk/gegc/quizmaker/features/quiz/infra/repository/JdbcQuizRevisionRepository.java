@@ -24,6 +24,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.ScenarioGraphValidator;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.RevisionIntegrityException;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
+import uk.gegc.quizmaker.features.quiz.domain.repository.ScenarioExecutionSource;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -53,7 +54,7 @@ import static uk.gegc.quizmaker.features.quiz.infra.repository.JdbcScenarioGraph
 
 @Repository
 @Transactional
-public class JdbcQuizRevisionRepository implements QuizRevisionRepository, LearningPublicationItems {
+public class JdbcQuizRevisionRepository implements QuizRevisionRepository, LearningPublicationItems, ScenarioExecutionSource {
     // SQL parameter batching only; this does not limit the size of a published quiz.
     static final int SQL_BATCH = 500;
     private static final String INSERT_QUESTION = """
@@ -462,7 +463,7 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
                 roots.stream().filter(root -> root.schemaVersion() == 3).forEach(root -> cased.put(root.id(), root.caseCount()));
                 var blocks = cases.read(cased, current);
                 var graphs = scenarioGraphs.read(roots.stream().filter(root -> root.schemaVersion() == QuizRevision.SCENARIO_FORMAT)
-                        .map(Root::id).toList(), byRoot, current);
+                        .map(Root::id).toList(), id -> byRoot.getOrDefault(id, List.of()).size(), current);
                 roots.forEach(root -> {
                     var storedCases = blocks.getOrDefault(root.id(), List.of());
                     var revision = new QuizRevision(root.id(), root.quizId(), root.ownerId(),
@@ -540,6 +541,48 @@ public class JdbcQuizRevisionRepository implements QuizRevisionRepository, Learn
     }
 
     private record BoundItem(UUID id, QuestionContractBinding binding) { }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public ScenarioExecutionSource.Source readGraph(UUID owner, UUID quiz, UUID revision) {
+        try {
+            var p = Map.of("owner", bytes(owner), "quiz", bytes(quiz), "revision", bytes(revision));
+            var counts = jdbc.query("""
+                    SELECT g.item_count FROM quiz_revisions r JOIN quiz_scenario_graphs g ON g.quiz_revision_id=r.id
+                    JOIN quiz_scenario_publication_keys k ON k.quiz_revision_id=r.id AND k.published_revision_id=r.id
+                    WHERE r.id=:revision AND r.owner_id=:owner AND r.quiz_id=:quiz
+                      AND r.schema_version=4 AND g.entry_node_id IS NOT NULL
+                    """, p, (row, index) -> row.getInt(1));
+            if (counts.size() != 1) throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
+            Map<UUID, UUID> members = new HashMap<>();
+            jdbc.query("""
+                    SELECT i.id,i.question_revision_id FROM quiz_revision_items i
+                    JOIN quiz_scenario_question_keys k ON k.question_revision_id=i.question_revision_id
+                    WHERE i.quiz_revision_id=:revision AND (i.scenario_content_evidence=k.content_evidence
+                       OR (i.scenario_content_evidence IS NULL AND k.option_count=k.stored_option_count))
+                    """, p,
+                    (org.springframework.jdbc.core.RowCallbackHandler) row -> members.put(uuid(row, "id"), uuid(row, "question_revision_id")));
+            if (counts.get(0) != members.size()) throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
+            var graph = scenarioGraphs.read(List.of(revision), id -> members.size(), false).get(revision);
+            return new ScenarioExecutionSource.Source(graph, members);
+        } catch (DataAccessException failure) { throw SafeDataAccess.sanitize(failure); }
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public QuestionRevision readQuestion(UUID owner, UUID revision, UUID sourceItem) {
+        try {
+            var ids = jdbc.query("""
+                    SELECT i.question_revision_id FROM quiz_revision_items i JOIN quiz_revisions r ON r.id=i.quiz_revision_id
+                    WHERE r.id=:revision AND r.owner_id=:owner AND r.schema_version=4 AND i.id=:item
+                    """, Map.of("revision", bytes(revision), "owner", bytes(owner), "item", bytes(sourceItem)),
+                    (row, index) -> uuid(row, "question_revision_id"));
+            if (ids.size() != 1) throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
+            var value = readQuestions(ids).get(ids.get(0));
+            if (value == null) throw new RevisionIntegrityException(RevisionIntegrityException.Reason.INVALID_STORED_REVISION);
+            return value;
+        } catch (DataAccessException failure) { throw SafeDataAccess.sanitize(failure); }
+    }
 
     private Map<UUID, QuestionRevision> readQuestions(List<UUID> ids) {
         Map<UUID, QuestionRevision> result = new HashMap<>();

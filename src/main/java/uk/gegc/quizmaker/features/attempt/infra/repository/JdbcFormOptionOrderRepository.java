@@ -58,33 +58,37 @@ public class JdbcFormOptionOrderRepository implements FormOptionOrderRepository 
                 """, p);
         // Serialize before child insertion; the RC owner sees the committed winner and its own writes.
         jdbc.queryForList("SELECT form_id FROM attempt_form_option_order WHERE form_id=:form FOR UPDATE", p);
+        writeItems(jdbc, form.id(), form.quizRevisionId(), order.items());
+        require(read(ownerId, List.of(form.id()), false).equals(List.of(order)), ORDER_CONFLICT);
+    }
+
+    static void writeItems(NamedParameterJdbcTemplate jdbc, UUID formId, UUID revisionId, List<FormOptionOrder.Item> items) {
         var itemRows = new ArrayList<MapSqlParameterSource>();
         var optionRows = new ArrayList<MapSqlParameterSource>();
-        for (var item : order.items()) {
+        for (var item : items) {
             var b = item.binding();
-            itemRows.add(new MapSqlParameterSource("form", bytes(form.id())).addValue("item", bytes(item.formItemId()))
-                    .addValue("revision", bytes(form.quizRevisionId())).addValue("source", bytes(item.sourceItemId()))
+            itemRows.add(new MapSqlParameterSource("form", bytes(formId)).addValue("item", bytes(item.formItemId()))
+                    .addValue("revision", bytes(revisionId)).addValue("source", bytes(item.sourceItemId()))
                     .addValue("question", bytes(b.questionRevisionId())).addValue("response", b.response().id())
                     .addValue("responseVersion", b.response().version()).addValue("scoring", b.scoring().id())
                     .addValue("scoringVersion", b.scoring().version()).addValue("count", item.optionIds().size()));
             for (int position = 0; position < item.optionIds().size(); position++) {
-                optionRows.add(new MapSqlParameterSource("form", bytes(form.id())).addValue("item", bytes(item.formItemId()))
+                optionRows.add(new MapSqlParameterSource("form", bytes(formId)).addValue("item", bytes(item.formItemId()))
                         .addValue("question", bytes(b.questionRevisionId())).addValue("option", bytes(item.optionIds().get(position)))
                         .addValue("position", position));
             }
         }
-        batch("""
+        batch(jdbc, """
                 INSERT INTO attempt_form_item_option_order
                 (form_id,item_id,quiz_revision_id,source_item_id,question_revision_id,response_contract_id,
                  response_contract_version,scoring_contract_id,scoring_contract_version,option_count)
                 VALUES (:form,:item,:revision,:source,:question,:response,:responseVersion,:scoring,:scoringVersion,:count)
                 ON DUPLICATE KEY UPDATE item_id=attempt_form_item_option_order.item_id
                 """, itemRows);
-        batch("""
+        batch(jdbc, """
                 INSERT INTO attempt_form_option (form_id,item_id,question_revision_id,option_id,position)
                 VALUES (:form,:item,:question,:option,:position) ON DUPLICATE KEY UPDATE option_id=attempt_form_option.option_id
                 """, optionRows);
-        require(read(ownerId, List.of(form.id()), false).equals(List.of(order)), ORDER_CONFLICT);
     }
 
     @Override
@@ -186,7 +190,7 @@ public class JdbcFormOptionOrderRepository implements FormOptionOrderRepository 
                 row.getInt("option_count"),row.getInt("position"),uuid(row,"form_item_revision"));
     }
 
-    private void batch(String sql, List<MapSqlParameterSource> rows) {
+    private static void batch(NamedParameterJdbcTemplate jdbc, String sql, List<MapSqlParameterSource> rows) {
         for (int start=0; start<rows.size(); start+=SQL_BATCH)
             jdbc.batchUpdate(sql,rows.subList(start,Math.min(start+SQL_BATCH,rows.size())).toArray(MapSqlParameterSource[]::new));
     }

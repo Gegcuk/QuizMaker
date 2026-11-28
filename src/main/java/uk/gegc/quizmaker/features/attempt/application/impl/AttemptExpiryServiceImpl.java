@@ -69,7 +69,7 @@ public class AttemptExpiryServiceImpl implements AttemptExpiryService {
             repository.removeWork(attempt);
             return new Result(Outcome.ALREADY_TERMINAL,null);
         }
-        var bound=bindings.lockEvidence(attempt,user).orElseThrow(()->new Failure(CORRUPT));
+        var bound=bindings.lockEvidence(attempt,user).or(() -> bindings.lockBranchEvidence(attempt,user)).orElseThrow(()->new Failure(CORRUPT));
         check(bound.lifecycle().equals(state),CORRUPT);
         var captured=new AttemptAccessService.Access(attempt,AttemptAccessService.Operation.ANSWER,bound.quizId(),bound.revisionId(),
                 bound.formId(),bound.policySnapshotId(),state.rowVersion(),bound.contentOwnerId(),state,false);

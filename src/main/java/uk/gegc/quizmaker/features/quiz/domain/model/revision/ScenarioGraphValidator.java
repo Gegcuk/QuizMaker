@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -33,6 +34,11 @@ public final class ScenarioGraphValidator {
     private ScenarioGraphValidator() { }
 
     public static void validateForPublication(ScenarioGraph graph) {
+        compile(graph);
+    }
+
+    /** Revalidate retained graphs, including revisions sealed before executable validation existed. */
+    public static Routes compile(ScenarioGraph graph) {
         int size = graph.nodes().size();
         if (size > MAX_NODES) throw new ScenarioGraphValidationException(NODE_LIMIT, "nodes");
         if (graph.edges().size() > MAX_EDGES) throw new ScenarioGraphValidationException(EDGE_LIMIT, "edges");
@@ -48,14 +54,38 @@ public final class ScenarioGraphValidator {
             outgoing.get(indexes.get(value.fromNodeId())).add(new Transition(edge, indexes.get(value.toNodeId()), value));
         }
 
-        var selectable = collectSelectableTransitions(graph, outgoing);
+        var routes = new HashMap<UUID, Choices>();
+        var selectable = collectSelectableTransitions(graph, outgoing, routes);
         var topological = topologicalOrder(outgoing);
         int entry = indexes.get(graph.entryNodeId());
         validateDeclaredDepth(entry, outgoing, topological);
         validateSelectablePaths(graph, entry, selectable, topological);
+        return new Routes(routes);
     }
 
-    private static List<List<Transition>> collectSelectableTransitions(ScenarioGraph graph, List<List<Transition>> outgoing) {
+    public enum Evidence { NO_ACCEPTED_ANSWER, FULL_CREDIT, NOT_FULL_CREDIT }
+
+    private record Choices(ScenarioGraph.Edge full, ScenarioGraph.Edge notFull, ScenarioGraph.Edge unconditional) { }
+
+    public static final class Routes {
+        private final Map<UUID, Choices> bySource;
+
+        private Routes(Map<UUID, Choices> bySource) { this.bySource = Map.copyOf(bySource); }
+
+        /** Empty means wait at a conditional fork. An unknown or terminal source cannot advance. */
+        public Optional<ScenarioGraph.Edge> select(UUID source, Evidence evidence) {
+            var choices = bySource.get(source);
+            if (choices == null || evidence == null) throw new IllegalArgumentException("Invalid scenario transition");
+            return Optional.ofNullable(switch (evidence) {
+                case NO_ACCEPTED_ANSWER -> choices.unconditional();
+                case FULL_CREDIT -> choices.full();
+                case NOT_FULL_CREDIT -> choices.notFull();
+            });
+        }
+    }
+
+    private static List<List<Transition>> collectSelectableTransitions(ScenarioGraph graph,
+            List<List<Transition>> outgoing, Map<UUID, Choices> routes) {
         List<List<Transition>> selectable = new ArrayList<>(outgoing.size());
         int conditionBytes = 0;
         for (int nodeIndex = 0; nodeIndex < graph.nodes().size(); nodeIndex++) {
@@ -99,6 +129,12 @@ public final class ScenarioGraphValidator {
                 }
             }
             if (fallback == null) throw new ScenarioGraphValidationException(MISSING_DEFAULT, nodePath(nodeIndex));
+
+            var full = winners.get(ScenarioConditionV1.Score.FULL_CREDIT);
+            var notFull = winners.get(ScenarioConditionV1.Score.NOT_FULL_CREDIT);
+            routes.put(node.id(), new Choices(full == null ? fallback.edge() : full.transition().edge(),
+                    notFull == null ? fallback.edge() : notFull.transition().edge(),
+                    winners.isEmpty() ? fallback.edge() : null));
 
             List<Transition> possible = new ArrayList<>(ScenarioConditionV1.Score.values().length);
             for (var winner : winners.values()) possible.add(winner.transition());

@@ -86,7 +86,7 @@ import static org.assertj.core.api.Assertions.*;
 @TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=none", "spring.flyway.enabled=true", "quizmaker.attempts.participant-view-enabled=true", "spring.jpa.properties.hibernate.generate_statistics=true"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-@Import({NavigationServiceImpl.class, ParticipantAttemptViewServiceImpl.class, JdbcAttemptViewRouteRepository.class,
+@Import({uk.gegc.quizmaker.features.attempt.infra.repository.JdbcBranchingRepository.class, NavigationServiceImpl.class, ParticipantAttemptViewServiceImpl.class, JdbcAttemptViewRouteRepository.class,
         InitialParticipantViewDisclosureReader.class, InitialParticipantViewMediaReader.class,
         uk.gegc.quizmaker.features.result.application.impl.ParticipantResultServiceImpl.class,
         uk.gegc.quizmaker.features.result.application.impl.ResultDisclosureServiceImpl.class,

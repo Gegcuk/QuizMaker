@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.ToIntFunction;
 
 import static uk.gegc.quizmaker.features.quiz.infra.repository.JdbcQuizRevisionRepository.binaryIds;
 import static uk.gegc.quizmaker.features.quiz.infra.repository.JdbcQuizRevisionRepository.bytes;
@@ -84,7 +85,7 @@ final class JdbcScenarioGraphs {
                 parameters(root).addValue("entry", bytes(graph.entryNodeId())));
     }
 
-    Map<UUID, ScenarioGraph> read(List<UUID> roots, Map<UUID, List<QuizRevision.Item>> items, boolean current) {
+    Map<UUID, ScenarioGraph> read(List<UUID> roots, ToIntFunction<UUID> itemCount, boolean current) {
         if (roots.isEmpty()) return Map.of();
 
         var parameters = Map.of("roots", binaryIds(roots));
@@ -111,7 +112,7 @@ final class JdbcScenarioGraphs {
         for (Header header : headers) {
             var nodeList = nodes.getOrDefault(header.root(), List.of());
             var edgeList = edges.getOrDefault(header.root(), List.of());
-            require(items.getOrDefault(header.root(), List.of()).size() == header.items()
+            require(itemCount.applyAsInt(header.root()) == header.items()
                     && nodeList.size() == header.nodes() && edgeList.size() == header.edges());
             result.put(header.root(), new ScenarioGraph(header.version(), header.entry(), nodeList, edgeList));
         }

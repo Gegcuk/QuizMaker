@@ -43,7 +43,7 @@ public class PolicySnapshotServiceImpl implements PolicySnapshotService {
             var verified = format.verify(snapshot.resolution());
             var row = new StoredSnapshot(snapshot.id(), PolicySnapshot.SCHEMA_VERSION, verified.policy().content().quizRevisionId(),
                     verified.resolverVersion(), verified.canonicalVersion(), verified.hashAlgorithm(), verified.canonicalJson(), verified.hash());
-            var stored = verify(repository.createOrReplay(revisionOwnerId, row));
+            var stored = verify(repository.createOrReplay(revisionOwnerId, row, verified.policy().content().revisionSchemaVersion()));
             if (!stored.equals(snapshot)) throw new PolicySnapshotException(SNAPSHOT_CONFLICT);
             return stored;
         });

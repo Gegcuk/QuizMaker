@@ -16,6 +16,8 @@ public interface AttemptAccessService {
      */
     Access requireAccess(UUID attemptId, Operation operation);
 
+    Access requireBranchAccess(UUID attemptId, Operation operation);
+
     /** Internal command authority for an explicitly bound ungraded activity. */
     Access requireUngradedAnswerAccess(UUID attemptId);
 

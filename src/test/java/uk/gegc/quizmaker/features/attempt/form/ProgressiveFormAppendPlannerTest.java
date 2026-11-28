@@ -121,7 +121,7 @@ class ProgressiveFormAppendPlannerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {1, 2, 3})
+    @ValueSource(ints = {1, 2, 3, 4})
     void pureMetadataValidationDoesNotLoadContentOrActivateStructuredDelivery(int schema) {
         var reference = new Reference(REFERENCE.formId(), REFERENCE.quizRevisionId(), schema);
         var current = new State(1, FormKind.PROGRESSIVE, reference, 0, List.of());

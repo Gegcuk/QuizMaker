@@ -17,6 +17,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAtt
 @Service
 @Transactional(propagation = Propagation.MANDATORY)
 public class AttemptExpiryFactsServiceImpl implements AttemptExpiryFactsService {
+    private final BranchingRepository branches;
     private final PlatformTransactionManager transactions;
     private final PolicySnapshotService snapshots;
     private final FixedFormRepository forms;
@@ -26,7 +27,8 @@ public class AttemptExpiryFactsServiceImpl implements AttemptExpiryFactsService 
     private final NavigationRepository navigation;
     private final AttemptTimingService timing;
     public AttemptExpiryFactsServiceImpl(PolicySnapshotService snapshots, FixedFormRepository forms, FormOptionOrderRepository orders,
-            QuizRevisionRepository revisions, QuestionRevisionContractService contracts, NavigationRepository navigation, AttemptTimingService timing, PlatformTransactionManager transactions) {
+            QuizRevisionRepository revisions, QuestionRevisionContractService contracts, NavigationRepository navigation, AttemptTimingService timing, BranchingRepository branches, PlatformTransactionManager transactions) {
+        this.branches = branches;
         this.transactions=transactions;
         this.snapshots=snapshots; this.forms=forms; this.orders=orders; this.revisions=revisions;
         this.contracts=contracts; this.navigation=navigation; this.timing=timing;
@@ -37,11 +39,13 @@ public class AttemptExpiryFactsServiceImpl implements AttemptExpiryFactsService 
             var owner=captured.contentOwnerId();
             var snapshot=snapshots.readCurrent(owner,captured.policySnapshotId());
             var policy=snapshot.resolution().policy();
-            check(policy.schemaVersion()==1 && policy.content().formMode()==FormMode.PRECOMPUTED
+            boolean branch = policy.content().formMode()==FormMode.PROGRESSIVE;
+            check(policy.schemaVersion()==1 && (branch || policy.content().formMode()==FormMode.PRECOMPUTED)
                     && policy.content().sections()==SectionMode.IMPLICIT_FLAT && policy.content().cases()==CaseMode.NOT_CONFIGURED
                     && policy.timing().mode()==TimingMode.TOTAL_ATTEMPT && policy.pause().mode()==PauseMode.DISABLED
                     && policy.answerChange().mode()==AnswerChangeMode.LOCK_ON_ACCEPTANCE, Failure.Reason.UNSUPPORTED);
             check(policy.content().quizRevisionId().equals(captured.quizRevisionId()),Failure.Reason.CORRUPT);
+            if (branch) branches.head(captured.attemptId(), captured.formId(), captured.quizRevisionId(), captured.policySnapshotId());
             // Same immutable question-before-timing lock order as start and participant readers.
             contracts.declareScope(owner,Set.of(captured.quizRevisionId()));
             var checkpoint=timing.read(captured,snapshot);
@@ -55,7 +59,8 @@ public class AttemptExpiryFactsServiceImpl implements AttemptExpiryFactsService 
             var nav=new FlatNavigation.Context(policy.navigation(),form.get(0).id(),
                     form.get(0).items().stream().map(i->i.id()).toList(),Set.of(),cursor);
             // This validates captured form/revision/contract bindings without returning content.
-            ParticipantFormProjector.project(form.get(0),revision,order.get(0),resolved);
+            if (branch) ParticipantFormProjector.projectBranch(form.get(0),revision,order.get(0),resolved);
+            else ParticipantFormProjector.project(form.get(0),revision,order.get(0),resolved);
             return new AttemptReadFactsService.Facts(captured,policy,form.get(0),order.get(0),revision,resolved,snapshot.resolution().hash(),nav,checkpoint);
         } catch (RuntimeException failure) {
             // Sanitize before the transaction interceptor can log driver/content diagnostics.

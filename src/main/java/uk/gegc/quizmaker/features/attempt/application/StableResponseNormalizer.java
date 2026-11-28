@@ -18,6 +18,45 @@ public final class StableResponseNormalizer {
     private static final ObjectMapper JSON = new ObjectMapper();
     private StableResponseNormalizer() { }
 
+    public static void validateAcceptedBinding(QuestionRevision q,ResolvedQuestionContracts contracts,JsonNode response) {
+        // Reverse only the frozen source-key adapter, then use the SAME canonicalization and
+        // membership validation as #543. This preserves accepted empty/partial/duplicate-order
+        // semantics while rejecting stored values the actual accepting writer cannot produce.
+        var stable=((ObjectNode)response).deepCopy();
+        var ids=q.options().stream().collect(Collectors.toMap(o->o.sourceKey(),o->o.id().toString()));
+        java.util.function.Function<JsonNode,String> id=key->{
+            String value=ids.get(key.asText()); require(value!=null,CORRUPT); return value;
+        };
+        switch(q.type()) {
+            case MCQ_SINGLE -> stable.put("selectedOptionId",id.apply(response.get("selectedOptionId")));
+            case HOTSPOT -> stable.put("selectedRegionId",id.apply(response.get("selectedRegionId")));
+            case MCQ_MULTI, ORDERING -> {
+                String field=q.type()==QuestionType.MCQ_MULTI?"selectedOptionIds":"orderedItemIds";
+                var values=stable.putArray(field); response.get(field).forEach(key->values.add(id.apply(key)));
+            }
+            case COMPLIANCE -> {
+                var values=stable.putArray("selectedStatementIds");
+                response.get("selectedStatementIds").forEach(key->values.add(id.apply(key)));
+            }
+            case TRUE_FALSE, FILL_GAP, OPEN -> { }
+            case MATCHING -> {
+                var matches=stable.putArray("matches");
+                for(var pair:response.path("matches")) {
+                    String left=ids.get("left/"+pair.path("leftId").asText());
+                    String right=ids.get("right/"+pair.path("rightId").asText());
+                    require(left!=null && right!=null,CORRUPT);
+                    matches.addObject().put("leftId",left).put("rightId",right);
+                }
+            }
+            default -> throw new ResponseAcceptanceException(UNSUPPORTED);
+        }
+        try {
+            require(StableResponseNormalizer.bind(q,contracts,StableResponseNormalizer.canonical(q.type(),stable)).equals(response),CORRUPT);
+        } catch(ResponseAcceptanceException invalid) {
+            throw new ResponseAcceptanceException(CORRUPT);
+        }
+    }
+
     public static ObjectNode canonical(QuestionType type, JsonNode input) {
         require(type != null && input != null && input.isObject(), INVALID_INPUT);
         bounded(input);
