@@ -34,8 +34,17 @@ public interface AttemptReadFactsService {
         return saved;
     }
 
+    record BranchProgress(long formVersion, boolean terminalReady, boolean canAdvance, java.util.Set<UUID> acceptedItems) {
+        public BranchProgress { acceptedItems = java.util.Set.copyOf(acceptedItems); }
+    }
+
     record Facts(AttemptAccessService.Access access, ResolvedAttemptPolicy policy, FixedForm form,
-                 FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts, String policyHash, uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Context navigation, AttemptTiming timing) {
+                 FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts, String policyHash, uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Context navigation, AttemptTiming timing, BranchProgress branchProgress) {
+        public Facts(AttemptAccessService.Access access, ResolvedAttemptPolicy policy, FixedForm form,
+                     FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts, String policyHash,
+                     uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Context navigation, AttemptTiming timing) {
+            this(access, policy, form, order, revision, contracts, policyHash, navigation, timing, null);
+        }
         public Facts(AttemptAccessService.Access access, ResolvedAttemptPolicy policy, FixedForm form,
                      FormOptionOrder order, QuizRevision revision, Map<UUID, ResolvedQuestionContracts> contracts, String policyHash,
                      uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation.Context navigation) {

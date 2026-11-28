@@ -19,10 +19,11 @@ import uk.gegc.quizmaker.features.attempt.api.dto.AcceptResponseRequest;
 import uk.gegc.quizmaker.features.attempt.api.dto.SaveDraftRequest;
 import uk.gegc.quizmaker.features.attempt.api.dto.NavigationRequest;
 import uk.gegc.quizmaker.features.attempt.api.dto.NextAttemptItemRequest;
+import uk.gegc.quizmaker.features.attempt.api.dto.BranchAdvanceRequest;
 
 /** Strict parsing for this new contract only; legacy JSON coercion remains unchanged. */
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnExpression("${quizmaker.attempts.response-acceptance-enabled:false} or ${quizmaker.attempts.draft-commands-enabled:false} or ${quizmaker.attempts.navigation-commands-enabled:false}")
+@ConditionalOnExpression("${quizmaker.attempts.response-acceptance-enabled:false} or ${quizmaker.attempts.draft-commands-enabled:false} or ${quizmaker.attempts.navigation-commands-enabled:false} or ${quizmaker.attempts.branch-participant-enabled:false}")
 public class ResponseAcceptanceJsonConfig implements WebMvcConfigurer {
     public static final class InvalidRequest extends RuntimeException {
         public InvalidRequest() { super("Invalid response request"); }
@@ -56,14 +57,14 @@ public class ResponseAcceptanceJsonConfig implements WebMvcConfigurer {
             // Sanitize at the parser boundary, before HandlerMethod can log argument-resolution failures.
             converters.add(0, new MappingJackson2HttpMessageConverter(strict) {
                 @Override protected ObjectReader customizeReader(ObjectReader reader, JavaType type) {
-                    return type.hasRawClass(AcceptResponseRequest.class)
+                    return type.hasRawClass(AcceptResponseRequest.class) || type.hasRawClass(BranchAdvanceRequest.class)
                             ? reader.with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS) : reader;
                 }
                 @Override public boolean canRead(Class<?> type, MediaType media) {
-                    return (type == AcceptResponseRequest.class || type == SaveDraftRequest.class || type == NavigationRequest.class || type == NextAttemptItemRequest.class) && super.canRead(type, media);
+                    return (type == AcceptResponseRequest.class || type == SaveDraftRequest.class || type == NavigationRequest.class || type == NextAttemptItemRequest.class || type == BranchAdvanceRequest.class) && super.canRead(type, media);
                 }
                 @Override public boolean canRead(Type type, Class<?> context, MediaType media) {
-                    return (type == AcceptResponseRequest.class || type == SaveDraftRequest.class || type == NavigationRequest.class || type == NextAttemptItemRequest.class) && super.canRead(type, context, media);
+                    return (type == AcceptResponseRequest.class || type == SaveDraftRequest.class || type == NavigationRequest.class || type == NextAttemptItemRequest.class || type == BranchAdvanceRequest.class) && super.canRead(type, context, media);
                 }
                 @Override public boolean canWrite(Class<?> type, MediaType media) { return false; }
                 @Override public Object read(Type type, Class<?> context, HttpInputMessage input) throws IOException {

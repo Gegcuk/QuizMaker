@@ -7,6 +7,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.sql.SQLException;
 import javax.sql.DataSource;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -18,7 +20,36 @@ import org.springframework.boot.autoconfigure.validation.ValidationAutoConfigura
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.http.MediaType;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.RequestBuilder;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import jakarta.validation.Validator;
+import uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionController;
+import uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionErrorHandler;
+import uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionJsonConfig;
+import uk.gegc.quizmaker.features.attempt.api.BranchProgressController;
+import uk.gegc.quizmaker.features.attempt.api.BranchProgressErrorHandler;
+import uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewController;
+import uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewErrorHandler;
+import uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceController;
+import uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceErrorHandler;
+import uk.gegc.quizmaker.features.attempt.api.ResponseAcceptanceJsonConfig;
+import uk.gegc.quizmaker.features.attempt.application.impl.BranchParticipantServiceImpl;
+import uk.gegc.quizmaker.features.attempt.application.impl.InitialParticipantViewDisclosureReader;
+import uk.gegc.quizmaker.features.result.application.ImmediateResultReleaseService;
+import uk.gegc.quizmaker.features.result.application.ParticipantResultService;
+import uk.gegc.quizmaker.features.result.application.impl.ImmediateResultReleaseServiceImpl;
+import uk.gegc.quizmaker.features.result.application.impl.ParticipantResultServiceImpl;
+import uk.gegc.quizmaker.features.result.application.impl.ResultDisclosureServiceImpl;
+import uk.gegc.quizmaker.features.result.infra.repository.JdbcResultReleaseRepository;
+import uk.gegc.quizmaker.features.result.infra.repository.JdbcResultNotificationEventRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -59,17 +90,32 @@ import uk.gegc.quizmaker.features.result.application.AutomaticResultService;
 import uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException;
 import static uk.gegc.quizmaker.features.attempt.application.BranchingAttemptService.Outcome.*;
 import static org.assertj.core.api.Assertions.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Tag("db-serial")
 @DataJpaTest(showSql = false)
 @ImportAutoConfiguration(ValidationAutoConfiguration.class)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ActiveProfiles("test-mysql")
-@TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=none", "spring.flyway.enabled=true"})
+@TestPropertySource(properties = {"spring.jpa.hibernate.ddl-auto=none", "spring.flyway.enabled=true",
+        "quizmaker.attempts.branch-participant-enabled=true", "quizmaker.attempts.participant-view-enabled=true",
+        "quizmaker.attempts.response-acceptance-enabled=true", "quizmaker.attempts.submission-enabled=true"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-@Import({AttemptSubmissionMySqlIntegrationTest.Config.class, QuizScenarioRevisionServiceImpl.class, BranchingAttemptServiceImpl.class})
+@Import({AttemptSubmissionMySqlIntegrationTest.Config.class, QuizScenarioRevisionServiceImpl.class,
+        BranchingAttemptServiceImpl.class, BranchParticipantServiceImpl.class, BranchingAttemptMySqlIntegrationTest.ReviewConfig.class,
+        ImmediateResultReleaseServiceImpl.class, ParticipantResultServiceImpl.class, ResultDisclosureServiceImpl.class,
+        JdbcResultReleaseRepository.class, JdbcResultNotificationEventRepository.class})
 class BranchingAttemptMySqlIntegrationTest {
+    @TestConfiguration(proxyBeanMethods = false)
+    static class ReviewConfig {
+        @Bean @Primary ParticipantViewDisclosureReader branchDisclosure(ParticipantResultService results) {
+            return new InitialParticipantViewDisclosureReader(results);
+        }
+    }
+
     static final String SCHEMA = "attempt_branching_" + UUID.randomUUID().toString().replace("-", "");
     static JdbcTemplate admin;
     static boolean schemaCreated;
@@ -91,6 +137,11 @@ class BranchingAttemptMySqlIntegrationTest {
 
     @Autowired ApplicationContext context;
     @Autowired BranchingAttemptService branches;
+    @Autowired BranchParticipantService participantCommands;
+    @Autowired ParticipantAttemptViewService participantViews;
+    @Autowired ImmediateResultReleaseService release;
+    @Autowired Validator validator;
+    private final ObjectMapper httpJson = new ObjectMapper();
     @Autowired ResponseAcceptanceService.Scenario branchResponses;
     @Autowired ResponseAcceptanceService responses;
     @Autowired AttemptSubmissionService.Scenario branchSubmissions;
@@ -248,6 +299,169 @@ class BranchingAttemptMySqlIntegrationTest {
     }
     private int count(String table, String key, UUID id) {
         return sql.queryForObject("SELECT COUNT(*) FROM "+table+" WHERE "+key+"=UUID_TO_BIN(?)", Integer.class, id.toString());
+    }
+
+    private MockMvc participantHttp() {
+        var standard = new MappingJackson2HttpMessageConverter();
+        var converters = new ArrayList<HttpMessageConverter<?>>(List.of(standard));
+        new ResponseAcceptanceJsonConfig().extendMessageConverters(converters);
+        new AttemptSubmissionJsonConfig().extendMessageConverters(converters);
+        return MockMvcBuilders.standaloneSetup(new ParticipantAttemptViewController(participantViews, Optional.empty()),
+                        new BranchProgressController(branches),
+                        new ResponseAcceptanceController(responses, httpJson, Optional.empty(), validator, Optional.of(participantCommands)),
+                        new AttemptSubmissionController(submissions, Optional.empty(), validator, Optional.of(participantCommands)))
+                .setControllerAdvice(new ParticipantAttemptViewErrorHandler(), new BranchProgressErrorHandler(),
+                        new ResponseAcceptanceErrorHandler(), new AttemptSubmissionErrorHandler())
+                .setMessageConverters(converters.toArray(HttpMessageConverter[]::new)).build();
+    }
+
+    private JsonNode http(MockMvc mvc, RequestBuilder request, int expected) throws Exception {
+        var response = mvc.perform(request).andExpect(status().is(expected)).andReturn().getResponse();
+        assertThat(response.getHeader("Cache-Control")).isEqualTo("no-store");
+        return httpJson.readTree(response.getContentAsString());
+    }
+
+    private static RequestBuilder command(String path, UUID key, JsonNode body) {
+        return post(path).contentType(MediaType.APPLICATION_JSON).header("Idempotency-Key", key.toString())
+                .content(body.toString());
+    }
+
+    private static JsonNode answerBody(UUID item, long stateVersion, boolean value) {
+        var body = JsonNodeFactory.instance.objectNode().put("formItemId", item.toString()).put("expectedStateVersion", stateVersion);
+        body.putObject("response").put("type", "TRUE_FALSE").put("answer", value);
+        return body;
+    }
+
+    private static JsonNode advanceBody(long stateVersion, long formVersion) {
+        return JsonNodeFactory.instance.objectNode().put("expectedStateVersion", stateVersion).put("expectedFormVersion", formVersion);
+    }
+
+    @Test void participantHttpResumesOnlyCommittedPathAndExplicitlySubmitsWithRequireAll() throws Exception {
+        var revision = graph();
+        var started = launch(revision, false);
+        var path = "/api/v2/attempts/" + started.attempt();
+        var mvc = participantHttp();
+        var before = http(mvc, get(path), 200);
+        assertThat(before.at("/branchProgress/deliveredFormItemIds").toString()).isEqualTo("[\"" + started.first() + "\"]");
+        assertThat(before.at("/branchProgress/canAdvance").asBoolean()).isFalse();
+        assertThat(before.path("allowedActions").toString()).contains("SUBMIT_ANSWER").doesNotContain("SUBMIT_ATTEMPT");
+        var nextPath = path + "/branch-progress/next";
+        assertThat(http(mvc, command(nextPath, UUID.randomUUID(), advanceBody(1, 1)), 409).path("code").asText())
+                .isEqualTo("BRANCH_ANSWER_REQUIRED");
+        assertThat(count("attempt_branch_decision", "form_id", started.admission().formId())).isOne();
+
+        var responseKey = UUID.randomUUID();
+        var response = answerBody(started.first(), 1, true);
+        var accepted = http(mvc, command(path + "/responses", responseKey, response), 200);
+        long version = accepted.path("stateVersion").asLong();
+        var key = UUID.randomUUID();
+        var input = advanceBody(version, 1);
+        var next = http(mvc, command(nextPath, key, input), 200);
+        var delivered = UUID.fromString(next.path("formItemId").asText());
+        assertThat(next.path("outcome").asText()).isEqualTo("APPENDED");
+        var resumed = http(participantHttp(), get(path), 200);
+        assertThat(resumed.at("/branchProgress/currentFormItemId").asText()).isEqualTo(delivered.toString());
+        assertThat(resumed.at("/branchProgress/deliveredFormItemIds").size()).isEqualTo(2);
+        assertThat(resumed.path("items").size()).isEqualTo(2);
+        assertThat(resumed.toString()).doesNotContain(revision.items().get(2).id().toString(), "SCORE_IS", "private explanation");
+        assertThat(http(mvc, command(nextPath, key, input), 200)).isEqualTo(next);
+        assertThat(http(mvc, command(nextPath, key, advanceBody(version, 2)), 409).path("code").asText())
+                .isEqualTo("BRANCH_CONFLICT");
+        assertThat(http(mvc, command(path + "/responses", responseKey, response), 200).path("replayed").asBoolean()).isTrue();
+
+        var hidden = revision.items().get(2).id();
+        var hiddenResponse = http(mvc, command(path + "/responses", UUID.randomUUID(), answerBody(hidden, version, false)), 404);
+        var absentResponse = http(mvc, command(path + "/responses", UUID.randomUUID(), answerBody(UUID.randomUUID(), version, false)), 404);
+        for (String field : List.of("type", "title", "status", "detail", "instance", "code"))
+            assertThat(hiddenResponse.path(field)).as(field).isEqualTo(absentResponse.path(field));
+        assertThat(hiddenResponse.toString()).doesNotContain(hidden.toString());
+        assertThat(count("attempt_accepted_response", "attempt_id", started.attempt())).isOne();
+
+        var terminal = advanceBody(version, 2);
+        var terminalKey = UUID.randomUUID();
+        var terminalAck = http(mvc, command(nextPath, terminalKey, terminal), 200);
+        assertThat(terminalAck.path("outcome").asText()).isEqualTo("TERMINAL_READY");
+        assertThat(terminalAck.has("formItemId")).isFalse();
+        var ready = http(mvc, get(path), 200);
+        assertThat(ready.at("/branchProgress/terminalReady").asBoolean()).isTrue();
+        assertThat(ready.at("/branchProgress/currentFormItemId").isMissingNode()).isTrue();
+        assertThat(ready.path("execution").asText()).isEqualTo("IN_PROGRESS");
+        assertThat(count("attempt_submission", "attempt_id", started.attempt())).isZero();
+        var premature = JsonNodeFactory.instance.objectNode().put("expectedStateVersion", version).put("completionConfirmed", true);
+        var incomplete = http(mvc, command(path + "/submit", UUID.randomUUID(), premature), 422);
+        assertThat(incomplete.path("code").asText()).isEqualTo("SUBMISSION_INCOMPLETE");
+        assertThat(incomplete.path("missingFormItemIds")).hasSize(1);
+        assertThat(incomplete.at("/missingFormItemIds/0").asText()).isEqualTo(delivered.toString());
+        var last = http(mvc, command(path + "/responses", UUID.randomUUID(), answerBody(delivered, version, true)), 200);
+        var submit = JsonNodeFactory.instance.objectNode().put("expectedStateVersion", last.path("stateVersion").asLong())
+                .put("completionConfirmed", true);
+        var submitKey = UUID.randomUUID();
+        var done = http(mvc, command(path + "/submit", submitKey, submit), 200);
+        var repeated = http(mvc, command(path + "/submit", submitKey, submit), 200);
+        assertThat(repeated.path("submissionId")).isEqualTo(done.path("submissionId"));
+        assertThat(repeated.path("replayed").asBoolean()).isTrue();
+        assertThat(http(mvc, command(nextPath, terminalKey, terminal), 200)).isEqualTo(terminalAck);
+        assertThat(count("attempt_branch_decision", "form_id", started.admission().formId())).isEqualTo(3);
+        assertThat(count("attempt_submission", "attempt_id", started.attempt())).isOne();
+        assertThat(http(mvc, get(path), 200).has("result")).isFalse();
+
+        var submissionId = UUID.fromString(done.path("submissionId").asText());
+        context.getBean(AutomaticResultService.class).finalizeSubmission(submissionId);
+        release.release(submissionId);
+        var review = http(mvc, get(path + "/review"), 200);
+        assertThat(review.at("/result/items").size()).isEqualTo(2);
+        assertThat(review.toString()).doesNotContain(hidden.toString(), "SCORE_IS");
+    }
+
+    @Test void foreignParticipantCannotReadAdvanceAnswerOrSubmitTheCommittedPath() throws Exception {
+        var started = launch(graph(), false);
+        var path = "/api/v2/attempts/" + started.attempt();
+        var missing = "/api/v2/attempts/" + UUID.randomUUID();
+        var mvc = participantHttp();
+        assertThat(http(mvc, get(path), 200).at("/branchProgress/currentFormItemId").asText())
+                .isEqualTo(started.first().toString());
+
+        var peer = "branch-peer-" + UUID.randomUUID().toString().substring(0, 10);
+        grant(user(peer), "ATTEMPT_READ", "ATTEMPT_CREATE", "QUESTION_UPDATE", "QUIZ_MODERATE");
+        authenticate(peer);
+        assertThat(http(mvc, get(path), 404).path("detail")).isEqualTo(http(mvc, get(missing), 404).path("detail"));
+        assertThat(http(mvc, command(path + "/branch-progress/next", UUID.randomUUID(), advanceBody(1, 1)), 404).path("code"))
+                .isEqualTo(http(mvc, command(missing + "/branch-progress/next", UUID.randomUUID(), advanceBody(1, 1)), 404).path("code"));
+        http(mvc, command(path + "/responses", UUID.randomUUID(), answerBody(started.first(), 1, true)), 404);
+        var submit = JsonNodeFactory.instance.objectNode().put("expectedStateVersion", 1).put("completionConfirmed", true);
+        http(mvc, command(path + "/submit", UUID.randomUUID(), submit), 404);
+
+        authenticate(username);
+        assertThat(count("attempt_accepted_response", "attempt_id", started.attempt())).isZero();
+        assertThat(count("attempt_submission", "attempt_id", started.attempt())).isZero();
+        assertThat(count("attempt_branch_decision", "form_id", started.admission().formId())).isOne();
+        assertThat(http(mvc, command(path + "/responses", UUID.randomUUID(), answerBody(started.first(), 1, true)), 200)
+                .path("stateVersion").asLong()).isEqualTo(2);
+    }
+
+    @Test void participantReadUsesBoundedQueriesAndCorruptEvidenceDeniesBeforeProgress(TestReporter reporter) throws Exception {
+        var revision = graph();
+        var shorter = launch(revision, false);
+        var longer = launch(revision, false);
+        branchResponses.acceptBranch(answer(longer, longer.first(), 1, true));
+        branches.advance(longer.step(2, 1));
+        var mvc = participantHttp();
+        var prefix = "/api/v2/attempts/";
+        observer().reset();
+        assertThat(http(mvc, get(prefix + shorter.attempt()), 200).path("items").size()).isOne();
+        int selects = observer().selects.size();
+        assertThat(selects).isPositive();
+        observer().reset();
+        assertThat(http(mvc, get(prefix + longer.attempt()), 200).path("items").size()).isEqualTo(2);
+        assertThat(observer().selects).hasSize(selects).noneMatch(query -> query.contains("normalized_response"));
+        reporter.publishEntry("participant SELECTs for one and two delivered questions", Integer.toString(selects));
+
+        sql.update("UPDATE attempt_branch_path SET terminal_ready=TRUE WHERE attempt_id=UUID_TO_BIN(?)", longer.attempt().toString());
+        var broken = http(mvc, get(prefix + longer.attempt()), 500);
+        assertThat(broken.toString()).doesNotContain(longer.first().toString(), "SCORE_IS");
+        assertThat(http(mvc, command(prefix + longer.attempt() + "/branch-progress/next",
+                UUID.randomUUID(), advanceBody(2, 2)), 500).path("code").asText()).isEqualTo("BRANCH_CORRUPT");
+        assertThat(count("attempt_branch_decision", "form_id", longer.admission().formId())).isEqualTo(2);
     }
 
     @ParameterizedTest @ValueSource(booleans = {true, false})

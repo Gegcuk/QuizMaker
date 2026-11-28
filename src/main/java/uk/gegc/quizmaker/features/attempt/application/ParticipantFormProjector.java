@@ -41,7 +41,7 @@ public final class ParticipantFormProjector {
         return project(form, revision, order, contracts, mediaItems, false);
     }
 
-    /** Internal command validation of the committed scenario prefix. Never used by participant HTTP readers. */
+    /** Shared projection and validation of the committed scenario prefix. */
     public static ParticipantForm projectBranch(FixedForm form, QuizRevision revision, FormOptionOrder order,
                                                 Map<UUID, ResolvedQuestionContracts> contracts) {
         return project(form, revision, order, contracts, java.util.Set.of(), true);

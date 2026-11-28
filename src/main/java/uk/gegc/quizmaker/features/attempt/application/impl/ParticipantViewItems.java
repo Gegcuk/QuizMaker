@@ -15,6 +15,8 @@ final class ParticipantViewItems {
     private ParticipantViewItems() { }
 
     static ParticipantForm project(AttemptReadFactsService.Facts saved) {
+        if (saved.branchProgress() != null)
+            return ParticipantFormProjector.projectBranch(saved.form(), saved.revision(), saved.order(), saved.contracts());
         var sources = saved.revision().items().stream().collect(Collectors.toMap(i -> i.id(), i -> i.question()));
         // Validate the complete immutable form even when its content must be withheld.
         var allMediaIds = saved.form().items().stream().filter(i -> {

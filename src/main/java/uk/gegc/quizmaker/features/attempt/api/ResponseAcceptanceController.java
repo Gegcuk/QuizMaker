@@ -13,6 +13,7 @@ import jakarta.validation.Validator;
 import java.util.Optional;
 import java.util.UUID;
 import uk.gegc.quizmaker.features.attempt.application.UngradedParticipantService;
+import uk.gegc.quizmaker.features.attempt.application.BranchParticipantService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -29,19 +30,23 @@ public class ResponseAcceptanceController {
     private final ObjectMapper json;
     private final Optional<UngradedParticipantService> ungraded;
     private final Validator validator;
+    private final Optional<BranchParticipantService> branching;
 
     public ResponseAcceptanceController(ResponseAcceptanceService responses, ObjectMapper json,
-            Optional<UngradedParticipantService> ungraded, Validator validator) {
+            Optional<UngradedParticipantService> ungraded, Validator validator,
+            Optional<BranchParticipantService> branching) {
         this.responses = responses;
         this.json = json;
         this.ungraded = ungraded;
         this.validator = validator;
+        this.branching = branching;
     }
 
     @PostMapping(value = "/{attemptId}/responses", produces = "application/json", consumes = "application/json")
     @Operation(operationId = "acceptAttemptResponse", summary = "Accept one immutable response",
             description = "Requires authentication, ATTEMPT_CREATE, the bound participant and current quiz ownership/full question editing authority. " +
-                    "Online immediate-lock, untimed ALL_AT_ONCE practice only. Uses saved form-item and option UUIDs, never display positions. " +
+                    "Online immediate-lock for untimed ALL_AT_ONCE practice. When branching is enabled, only questions already delivered on the bound " +
+                    "scenario path accept responses. Uses saved form-item and option UUIDs, never display positions. " +
                     "The expectedStateVersion is the optimistic counter returned by the attempt view. The exact case-sensitive Idempotency-Key " +
                     "contains 1–200 printable ASCII characters without whitespace and is scoped to the authenticated user. Identical retries return " +
                     "the original acceptance/version after current authorization; changed key input or a second answer conflicts. Reuse the exact " +
@@ -74,7 +79,7 @@ public class ResponseAcceptanceController {
                 key, request.response().type(), json.valueToTree(request.response()));
         var participation = ungraded.flatMap(service -> service.accept(command));
         if (participation.isPresent()) return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(participation.get());
-        var result = responses.accept(command);
+        var result = branching.flatMap(service -> service.accept(command)).orElseGet(() -> responses.accept(command));
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(AcceptedResponseAcknowledgement.from(result));
     }
 }

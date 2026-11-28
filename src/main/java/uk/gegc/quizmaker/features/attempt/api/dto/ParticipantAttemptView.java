@@ -33,7 +33,8 @@ public record ParticipantAttemptView(
         @Schema(description = "Absent until a matching release commits. Every nested category is independently authorized; include flags cannot grant access.")
         uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView result,
         @Schema(description = "Saved sequential position; absent for FREE. Does not imply an answer or a change to finality.") NavigationPosition navigation,
-        @Schema(description = "Absent for UNTIMED; saved overall timing for TIMED. Additive web/iOS field; no client clock authority.") ParticipantAttemptTiming timingDetails
+        @Schema(description = "Absent for UNTIMED; saved overall timing for TIMED. Additive web/iOS field; no client clock authority.") ParticipantAttemptTiming timingDetails,
+        @Schema(description = "Present only for a supported branching attempt. Contains committed delivered form items only.") BranchProgress branchProgress
 ) {
     public enum Representation { POLICY_DRIVEN }
     public enum Timing { UNTIMED, TIMED }
@@ -46,7 +47,7 @@ public record ParticipantAttemptView(
             ContentVisibility contentVisibility, List<Item> items, List<AttemptCommands.Type> allowedActions,
             uk.gegc.quizmaker.features.result.api.dto.ParticipantResultView result, NavigationPosition navigation) {
         this(representation, schemaVersion, attemptId, quizId, quizRevisionId, formId, stateVersion, policyVersion, execution,
-                answerCollection, startedAt, submittedAt, timing, contentVisibility, items, allowedActions, result, navigation, null);
+                answerCollection, startedAt, submittedAt, timing, contentVisibility, items, allowedActions, result, navigation, null, null);
     }
     public ParticipantAttemptView(Representation representation, int schemaVersion, UUID attemptId, UUID quizId,
             UUID quizRevisionId, UUID formId, long stateVersion, int policyVersion, AttemptLifecycle.Execution execution,
@@ -63,6 +64,17 @@ public record ParticipantAttemptView(
         this(representation, schemaVersion, attemptId, quizId, quizRevisionId, formId, stateVersion, policyVersion,
                 execution, answerCollection, startedAt, submittedAt, timing, contentVisibility, items, allowedActions, null);
     }
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @Schema(name = "BranchParticipantProgress", description = "Ordered committed path without graph nodes, rules or future content.")
+    public record BranchProgress(
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") long formVersion,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<UUID> deliveredFormItemIds,
+            @Schema(description = "Absent when no current question remains.") UUID currentFormItemId,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "The path reached a terminal node. Submission is explicit.") boolean terminalReady,
+            @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Whether a new next command is currently available. A command rechecks access and state.") boolean canAdvance) {
+        public BranchProgress { deliveredFormItemIds = List.copyOf(deliveredFormItemIds); }
+    }
+
     @JsonInclude(JsonInclude.Include.NON_NULL)
     @Schema(name = "ParticipantAttemptItem", description = "Original saved form-item identity and zero-based position. No source question/option keys.")
     public record Item(@Schema(requiredMode = Schema.RequiredMode.REQUIRED) UUID id,

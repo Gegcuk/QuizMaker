@@ -17,6 +17,13 @@ final class AttemptReadFailures {
 
     static AttemptDeliveryException translate(RuntimeException failure) {
         AttemptTransactionException.preserve(failure);
+        if (failure instanceof uk.gegc.quizmaker.features.attempt.domain.model.form.BranchingException branch)
+            return new AttemptDeliveryException(switch (branch.reason()) {
+                case DENIED -> NOT_FOUND;
+                case UNSUPPORTED -> UNSUPPORTED;
+                case RETRYABLE, UNAVAILABLE, UNKNOWN_OUTCOME -> UNAVAILABLE;
+                default -> CORRUPT;
+            });
         if (failure instanceof AttemptDeliveryException delivery) return new AttemptDeliveryException(delivery.reason());
         if (failure instanceof AttemptAccessException denied) return new AttemptDeliveryException(switch (denied.reason()) {
             case UNAUTHENTICATED -> UNAUTHENTICATED;

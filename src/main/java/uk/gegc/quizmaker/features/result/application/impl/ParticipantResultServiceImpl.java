@@ -42,7 +42,10 @@ public class ParticipantResultServiceImpl implements ParticipantResultService {
     private Optional<ParticipantResultView> project(AttemptReadFactsService.Facts facts) {
         require(facts != null, INVALID_INPUT);
         if (facts.access().lifecycle().state().execution() != AttemptLifecycle.Execution.SUBMITTED) return Optional.empty();
-        var granted = access.requireAccess(facts.access().attemptId(), AttemptAccessService.Operation.RESULT);
+        var attemptId = facts.access().attemptId();
+        var granted = facts.branchProgress() == null
+                ? access.requireAccess(attemptId, AttemptAccessService.Operation.RESULT)
+                : access.requireBranchAccess(attemptId, AttemptAccessService.Operation.RESULT);
         require(granted.operation() == AttemptAccessService.Operation.RESULT
                 && granted.attemptId().equals(facts.access().attemptId()) && granted.formId().equals(facts.form().id())
                 && granted.quizId().equals(facts.access().quizId()) && granted.contentOwnerId().equals(facts.access().contentOwnerId())

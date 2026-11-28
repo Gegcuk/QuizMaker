@@ -14,6 +14,8 @@ public interface BranchingRepository {
     record Answer(UUID id, UUID question, ContractVersion contract, String normalized) {
         @Override public String toString() { return "BranchAnswer"; }
     }
+    /** Nonlocking routing probe. The selected participant operation must still authorize. */
+    boolean isOwnedPath(UUID attemptId, UUID userId);
     void bind(Admission admission);
     Head head(UUID attempt, UUID form, UUID revision, UUID policy);
     Optional<Saved> decision(UUID attempt, UUID form, UUID decision);

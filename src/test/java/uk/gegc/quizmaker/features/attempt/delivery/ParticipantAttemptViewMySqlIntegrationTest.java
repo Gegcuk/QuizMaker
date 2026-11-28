@@ -747,7 +747,7 @@ class ParticipantAttemptViewMySqlIntegrationTest {
                                                  io.micrometer.core.instrument.MeterRegistry meter) {
         return new ParticipantAttemptViewServiceImpl(context.getBean(AuthenticatedSubjectResolver.class),
                 context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AttemptViewRouteRepository.class),
-                context.getBean(AttemptReadFactsService.class), disclosure, media, manager, meter, context.getBean(Clock.class));
+                context.getBean(AttemptReadFactsService.class), disclosure, media, manager, meter, context.getBean(Clock.class), false, false);
     }
     private void submitStateFixture(UUID id) {
         // Real storage transition only; #529/#556 must separately prove terminal commands and release.
@@ -835,7 +835,7 @@ class ParticipantAttemptViewMySqlIntegrationTest {
         var later = new ParticipantAttemptViewServiceImpl(context.getBean(AuthenticatedSubjectResolver.class),
                 context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.AttemptViewRouteRepository.class),
                 context.getBean(AttemptReadFactsService.class),context.getBean(ParticipantViewDisclosureReader.class),context.getBean(ParticipantViewMediaReader.class),
-                manager,metrics,Clock.fixed(view.timingDetails().effectiveDeadline(),ZoneOffset.UTC));
+                manager,metrics,Clock.fixed(view.timingDetails().effectiveDeadline(),ZoneOffset.UTC), false, false);
         var expired=(ParticipantAttemptView)later.read(result.attemptId());
         assertThat(expired.timingDetails().expired()).isTrue();
         assertThat(expired.allowedActions()).containsExactly(uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands.Type.VIEW_ATTEMPT);

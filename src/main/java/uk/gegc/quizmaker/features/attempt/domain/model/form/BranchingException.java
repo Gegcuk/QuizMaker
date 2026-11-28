@@ -1,7 +1,7 @@
 package uk.gegc.quizmaker.features.attempt.domain.model.form;
 
 public final class BranchingException extends RuntimeException {
-    public enum Reason { INVALID, UNAVAILABLE, DENIED, CORRUPT, UNSUPPORTED, STALE, CONFLICT, INACTIVE, RETRYABLE, UNKNOWN_OUTCOME }
+    public enum Reason { INVALID, UNAVAILABLE, DENIED, CORRUPT, UNSUPPORTED, STALE, CONFLICT, INACTIVE, ANSWER_REQUIRED, RETRYABLE, UNKNOWN_OUTCOME }
     private final Reason reason;
     public BranchingException(Reason reason) {
         super("Scenario execution rejected: " + reason, null, false, false);

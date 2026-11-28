@@ -5,6 +5,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.util.*;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -12,6 +13,7 @@ import uk.gegc.quizmaker.features.attempt.api.dto.*;
 import uk.gegc.quizmaker.features.attempt.application.*;
 import uk.gegc.quizmaker.features.attempt.domain.model.command.AttemptCommands;
 import uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException;
+import uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycle;
 import uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycle;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AttemptViewRouteRepository;
 
@@ -29,12 +31,18 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
     private final TransactionTemplate transaction;
     private final MeterRegistry metrics;
     private final java.time.Clock clock;
+    private final boolean responsesEnabled;
+    private final boolean submissionEnabled;
 
     public ParticipantAttemptViewServiceImpl(AuthenticatedSubjectResolver identity, AttemptViewRouteRepository routes,
             AttemptReadFactsService facts, ParticipantViewDisclosureReader disclosure,
-            ParticipantViewMediaReader media, PlatformTransactionManager manager, MeterRegistry metrics, java.time.Clock clock) {
+            ParticipantViewMediaReader media, PlatformTransactionManager manager, MeterRegistry metrics, java.time.Clock clock,
+            @Value("${quizmaker.attempts.response-acceptance-enabled:false}") boolean responsesEnabled,
+            @Value("${quizmaker.attempts.submission-enabled:false}") boolean submissionEnabled) {
         this.identity = identity; this.routes = routes; this.facts = facts;
         this.disclosure = disclosure; this.media = media; this.metrics = metrics; this.clock = clock;
+        this.responsesEnabled = responsesEnabled;
+        this.submissionEnabled = submissionEnabled;
         transaction = AttemptTransactions.readCommitted(manager); transaction.setReadOnly(true);
     }
 
@@ -82,13 +90,30 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
             actions.add(AttemptCommands.Type.NAVIGATE_TO_ITEM);
         if (saved.oneAtATime()) actions = new ArrayList<>(CurrentItemDelivery.actions(saved));
         var timingDetails = ParticipantAttemptTiming.from(saved.timing(), clock.instant());
-        if (timingDetails != null && (timingDetails.expired() || timingDetails.serverTime().isBefore(timingDetails.startedAt())))
-            actions.removeIf(action -> action != AttemptCommands.Type.VIEW_ATTEMPT);
+        boolean timingOpen = timingDetails == null
+                || !timingDetails.expired() && !timingDetails.serverTime().isBefore(timingDetails.startedAt());
+        if (!timingOpen) actions.removeIf(action -> action != AttemptCommands.Type.VIEW_ATTEMPT);
+        ParticipantAttemptView.BranchProgress branch = null;
+        if (saved.branchProgress() != null) {
+            var progress = saved.branchProgress();
+            var delivered = saved.form().items().stream().map(item -> item.id()).toList();
+            boolean active = lifecycle.state().execution() == AttemptLifecycle.Execution.IN_PROGRESS;
+            var current = active && !progress.terminalReady() ? delivered.get(delivered.size() - 1) : null;
+            boolean canWrite = active && timingOpen && granted.canCreateAttempt();
+            actions.clear();
+            actions.add(AttemptCommands.Type.VIEW_ATTEMPT);
+            boolean allAnswered = progress.acceptedItems().containsAll(delivered);
+            if (canWrite && responsesEnabled && !allAnswered) actions.add(AttemptCommands.Type.SUBMIT_ANSWER);
+            if (canWrite && submissionEnabled && progress.terminalReady() && (allAnswered || !saved.policy().submission().requireAllAnswers()))
+                actions.add(AttemptCommands.Type.SUBMIT_ATTEMPT);
+            branch = new ParticipantAttemptView.BranchProgress(progress.formVersion(), delivered, current,
+                    progress.terminalReady(), canWrite && progress.canAdvance());
+        }
         return new ParticipantAttemptView(ParticipantAttemptView.Representation.POLICY_DRIVEN, 1, attemptId,
                 granted.quizId(), granted.quizRevisionId(), granted.formId(), granted.stateVersion(), saved.policy().schemaVersion(),
                 lifecycle.state().execution(), lifecycle.state().answers(), lifecycle.startedAt(), lifecycle.submittedAt(),
                 saved.timing() == null ? ParticipantAttemptView.Timing.UNTIMED : ParticipantAttemptView.Timing.TIMED,
-                visibility, items, actions, disclosed.result(), NavigationPosition.from(saved.navigation().cursor()), timingDetails);
+                visibility, items, actions, disclosed.result(), NavigationPosition.from(saved.navigation().cursor()), timingDetails, branch);
     }
 
     @Override public ParticipantAttemptView review(UUID attemptId, boolean includeUserAnswers,
@@ -104,6 +129,6 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
         return new ParticipantAttemptView(view.representation(), view.schemaVersion(), view.attemptId(), view.quizId(), view.quizRevisionId(),
                 view.formId(), view.stateVersion(), view.policyVersion(), view.execution(), view.answerCollection(), view.startedAt(),
                 view.submittedAt(), view.timing(), view.contentVisibility(), includeQuestionContext ? view.items() : null,
-                view.allowedActions(), filtered, view.navigation(), view.timingDetails());
+                view.allowedActions(), filtered, view.navigation(), view.timingDetails(), view.branchProgress());
     }
 }

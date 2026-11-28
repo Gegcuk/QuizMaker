@@ -3,7 +3,7 @@ package uk.gegc.quizmaker.features.attempt.application;
 import java.util.List;
 import java.util.UUID;
 
-/** Internal only. No HTTP caller may grant admission or choose a node, edge, score or form item. */
+/** Durable scenario execution. A participant command cannot grant admission or choose a node, edge, score or form item. */
 public interface BranchingAttemptService {
     /** Called inside the trusted launcher's writable RC transaction, after exact revision/source admission,
      * subject binding, policy/timing capture and lifecycle start. Creates the trace and materializes
