@@ -811,7 +811,7 @@ A separate maximum healthy pre-start queue wait is not approved by the FIFO-posi
 |---|---|---|
 | Question ownership and reuse | Q38 selects independent authorized copies with provenance. Implement independent ownership/source authority, retained media rights and compatible handling of existing shared/orphaned questions. | [#91](https://github.com/Gegcuk/QuizMaker/issues/91); [approved Q38](decision-register.md#preparation-batch-approved). |
 | Social-account linking | Q39 requires existing-account proof and explicit linking. Current automatic email-match linking differs; prepare the flow and preserve established identities/clients. | [Verified current evidence](decision-register.md#q39-current-linking-evidence); #454 remains completed transport work. |
-| Standalone AI utilities | Q40 selects quizzes only, without chats or conversational clarification. Inventory existing utility exposure/clients before a compatible implementation changes availability; investigate raw-content logging separately. | [#269](https://github.com/Gegcuk/QuizMaker/issues/269), [approved Q40](decision-register.md#preparation-batch-approved). Monitoring deferrals are unchanged. |
+| Standalone AI utilities | Q40 selects quizzes only, without chats or conversational clarification. The [#843 compatibility inventory](#quiz-only-api-boundary) records the routes to preserve and the evidence required before changing utility exposure. Raw-content logging has a separate scope. | [#843](https://github.com/Gegcuk/QuizMaker/issues/843), [approved Q40](decision-register.md#preparation-batch-approved). |
 | Verification and authentication | Reconcile signed-out email verification, resend abuse controls, complete shared login/signup/refresh limit matrix, trusted IP authority and access/refresh binding tests. Preserve existing limits while unresolved. | [#457](https://github.com/Gegcuk/QuizMaker/issues/457), [#793](https://github.com/Gegcuk/QuizMaker/issues/793). |
 | Subscription allowance | Reconcile plan-change timing, invoice allowance and subscription identity with current provider events and approved accounting. | [#471](https://github.com/Gegcuk/QuizMaker/issues/471) covers ownership; plan-change semantics need their own confirmed owner. |
 | Refund accounting | Verify canceled/pending refund handling, ledger uniqueness and concurrent/refunded-credit races. A spend-dependent refund restriction would be a separate policy change, not an inferred fix. | Concrete current repair ownership needs reconciliation. |
@@ -823,6 +823,82 @@ A separate maximum healthy pre-start queue wait is not approved by the FIFO-posi
 | Release verification | Establish current regression/test discovery, vulnerability evidence, client/OpenAPI compatibility, deployment/rollback evidence and operational ownership. Test completion and issue closure are not interchangeable. | [#46](https://github.com/Gegcuk/QuizMaker/issues/46), [#415](https://github.com/Gegcuk/QuizMaker/issues/415), [#427](https://github.com/Gegcuk/QuizMaker/issues/427), [known risks](../known-risk-register.md). |
 
 The approved first execution scope remains personal free practice with the approved mode mappings. A wider product release inventory needs current engineering reconciliation. Monitoring setup ([#465](https://github.com/Gegcuk/QuizMaker/issues/465)/[#779](https://github.com/Gegcuk/QuizMaker/issues/779)) and parser OS isolation ([#733](https://github.com/Gegcuk/QuizMaker/issues/733)) retain their recorded deferrals; do not turn them into new implementation instructions without a scope decision. Any dedicated release-parent issue/coverage mapping must be verified before claiming it exists.
+
+<a id="quiz-only-api-boundary"></a>
+### Quiz-only API compatibility inventory (#843)
+
+[Q40](decision-register.md#preparation-batch-approved) keeps non-conversational
+ingestion and quiz generation in the initial product. It excludes standalone chat,
+in-quiz conversation, and conversational clarification or follow-up. This inventory
+prepares the later exposure change.
+
+The inventory uses backend `master` at
+`5c57ce83df237fef6aa40b7784be06d2041099ae` and frontend `main` at
+`bc10c51247fab77dfe50250c37d4124f08145211`, both checked on 28 November 2026.
+Client references identify calls in that web revision. External clients, deployed
+revisions, and traffic remain unverified. Compare the full OpenAPI document and
+controller mappings alongside client calls during rollout. The source for
+[`/api/v1/api-summary`](../../src/main/java/uk/gegc/quizmaker/shared/api/docs/ApiDocumentationService.java)
+lists an `ai` group, but [SpringDoc group configuration](../../src/main/java/uk/gegc/quizmaker/shared/config/OpenApiGroupConfig.java)
+registers no group with that name. A group listing therefore cannot establish whether
+an individual utility is exposed or used.
+
+#### Quiz creation and supporting APIs to preserve
+
+| Current operation | Contract and known client dependency |
+| --- | --- |
+| `POST /api/documents/upload`, `GET /api/documents/{documentId}/chunks` | The [page selector][quiz-only-page-selector] uploads multipart input, receives `201 DocumentDto`, and reads `DocumentChunkDto[]` to let an author select pages. [`DocumentController`](../../src/main/java/uk/gegc/quizmaker/features/document/api/DocumentController.java) resolves the authenticated user for these operations. |
+| `GET /api/documents/{documentId}/status` | The [document processor][quiz-only-document-processor] polls `DocumentDto` for document preparation. Keep input validation, access checks, and the current processing/error envelopes on the documents API. |
+| `POST /api/v1/documentProcess/documents` | The [document workspace][quiz-only-normalized-client] sends JSON via `IngestRequest` or uploads multipart data and receives `201 IngestResponse` and a `Location`. The server resolves the owner from authentication. This is a separate document workflow from the selected-pages upload. |
+| `POST /api/v1/documentProcess/documents/{id}/structure`; `GET` on the document and its `/head`, `/text`, `/structure`, and `/extract` resources | The same normalized-document client builds and inspects structured source material. The build returns `StructureBuildResponse`; reads include `DocumentView`, `TextSliceResponse`, `StructureTreeResponse`/`StructureFlatResponse`, and `ExtractResponse`. Build is a one-shot operation for the active owner of a `NORMALIZED` document; a missing or inaccessible document gets `404`. The structure producer may use AI while keeping a typed source-processing contract. [Controller](../../src/main/java/uk/gegc/quizmaker/features/documentProcess/api/DocumentProcessController.java) |
+| `POST /api/v1/quizzes/generate-from-document` | [`QuizFromSelectedPagesPage`][quiz-only-selected-pages] passes `GenerateQuizFromDocumentRequest` through the [quiz service][quiz-only-quiz-service]. The [form][quiz-only-page-form] sends `documentId`, `quizScope=SPECIFIC_CHUNKS`, selected `chunkIndices`, and quiz settings. Preserve `QUIZ_CREATE`, owned-source checks, and `202 QuizGenerationResponse` with its job identity. |
+| `POST /api/v1/quizzes/generate-from-text`, `POST /api/v1/quizzes/generate-from-upload` | The same [quiz service][quiz-only-quiz-service] posts `GenerateQuizFromTextRequest` or multipart file/settings, respectively. Preserve `QUIZ_CREATE` and the `202 QuizGenerationResponse` contract. Across all three starts, existing optional `Idempotency-Key` supports exact retries and detects material changes under the same key. [Controller](../../src/main/java/uk/gegc/quizmaker/features/quiz/api/QuizController.java) |
+| `GET` and `DELETE /api/v1/quizzes/generation-status/{jobId}`, `GET /api/v1/quizzes/generated-quiz/{jobId}` | The [progress component][quiz-only-progress] and [quiz status component][quiz-only-quiz-status] use the same owner's job for polling, cancellation, or completed quiz retrieval. Preserve `QuizGenerationStatus`, `QuizDto`, and current owner, state, and cancellation checks. |
+| `POST /api/v1/billing/estimate/quiz-generation` | The [billing service][quiz-only-billing-service] has a typed client method for the quote. It was not found in the traced selected-pages call chain. With billing enabled, the endpoint requires `BILLING_READ`, accepts `GenerateQuizFromDocumentRequest`, and returns `EstimationDto`. Preserve this independent non-conversational operation. [Controller](../../src/main/java/uk/gegc/quizmaker/features/billing/api/BillingCheckoutController.java) |
+
+#### Utility exposure and migration proposal
+
+| Operation | Current behavior and client impact | Proposed treatment |
+| --- | --- | --- |
+| `POST /api/ai/chat` | An authenticated caller submits `ChatRequestDto.message` and receives `ChatResponseDto` from a general dialog operation. [The controller](../../src/main/java/uk/gegc/quizmaker/features/ai/api/AiChatController.java) is separate from generation, and the traced web generation paths do not call it. A source search found no direct caller in the inspected web revision. | Candidate for a separately approved restriction under Q40. Confirm callers outside the traced client using route-level usage counts or client-owner evidence without collecting message content. Where a supported caller exists, agree its transition and the externally visible status/error contract before changing the route. |
+| `POST /api/v1/ai-analysis/analyze` | [The controller](../../src/main/java/uk/gegc/quizmaker/features/ai/api/AiAnalysisController.java) requires `ADMIN`, accepts no conversation payload, and analyzes existing AI response logs. It returns a JSON object with `status` and `message`. The [web analysis page][quiz-only-analysis-page] calls it on load and displays either the response or an error. | Preserve the administrative contract while applying Q40 to chat. If its retirement is separately proposed, migrate or remove the page before restricting the backend route, or explicitly approve the visible break for existing administrators. |
+
+No distinct in-quiz conversation or conversational clarification route was found in
+the inspected mappings and web generation call sites. Generated answer explanations,
+document structure, and the internal `StructuredAiClient` question producer are
+part of the relevant quiz/source contracts. The latter's typed request and response
+classes are used within generation and do not create a public chat operation.
+
+#### Compatibility checks for a later exposure change
+
+1. Compare the full specification and the `documents`, `quizzes`, and `billing`
+   groups before and after the candidate. Use synthetic data and an offline
+   generator to upload a document, read its chunks, and start a selected-pages
+   quiz. An exact retry with the same key returns the original job identity.
+   Poll and retrieve the generated quiz, and verify that another author cannot
+   use the source or job. Check the existing text and direct-upload starts
+   through the same generation envelope.
+2. Compare the two utility contracts separately. A test for the current
+   administrative page uses a fake analyzer and checks that an administrator
+   receives the object the page renders and a non-admin is denied. A change
+   that makes the existing admin call fail replaces the result with the page's
+   error state. This is a client-visible compatibility break until its migration
+   and sequencing are approved.
+3. Before restricting chat, record the client evidence, agreed failure response,
+   and ability to restore the prior contract independently of the quiz creation
+   paths. Verify the selected restriction and its error with a synthetic request
+   and retain the successful generation and administrative controls above.
+
+[quiz-only-page-selector]: https://github.com/Gegcuk/QuizMaker-Frontend/blob/bc10c51247fab77dfe50250c37d4124f08145211/quizmaker-frontend/src/features/document/components/DocumentPageSelector.tsx#L121
+[quiz-only-document-processor]: https://github.com/Gegcuk/QuizMaker-Frontend/blob/bc10c51247fab77dfe50250c37d4124f08145211/quizmaker-frontend/src/features/document/components/DocumentProcessor.tsx#L61
+[quiz-only-normalized-client]: https://github.com/Gegcuk/QuizMaker-Frontend/blob/bc10c51247fab77dfe50250c37d4124f08145211/quizmaker-frontend/src/features/document/services/documentProcess.service.ts
+[quiz-only-selected-pages]: https://github.com/Gegcuk/QuizMaker-Frontend/blob/bc10c51247fab77dfe50250c37d4124f08145211/quizmaker-frontend/src/pages/QuizFromSelectedPagesPage.tsx#L76
+[quiz-only-page-form]: https://github.com/Gegcuk/QuizMaker-Frontend/blob/bc10c51247fab77dfe50250c37d4124f08145211/quizmaker-frontend/src/features/quiz/components/DocumentQuizConfigurationFormWithPageSelector.tsx#L205
+[quiz-only-quiz-service]: https://github.com/Gegcuk/QuizMaker-Frontend/blob/bc10c51247fab77dfe50250c37d4124f08145211/quizmaker-frontend/src/features/quiz/services/quiz.service.ts#L201
+[quiz-only-progress]: https://github.com/Gegcuk/QuizMaker-Frontend/blob/bc10c51247fab77dfe50250c37d4124f08145211/quizmaker-frontend/src/features/ai/components/GenerationProgress.tsx#L59
+[quiz-only-quiz-status]: https://github.com/Gegcuk/QuizMaker-Frontend/blob/bc10c51247fab77dfe50250c37d4124f08145211/quizmaker-frontend/src/features/quiz/components/QuizGenerationStatus.tsx#L100
+[quiz-only-billing-service]: https://github.com/Gegcuk/QuizMaker-Frontend/blob/bc10c51247fab77dfe50250c37d4124f08145211/quizmaker-frontend/src/features/billing/services/billing.service.ts#L138
+[quiz-only-analysis-page]: https://github.com/Gegcuk/QuizMaker-Frontend/blob/bc10c51247fab77dfe50250c37d4124f08145211/quizmaker-frontend/src/pages/AiAnalysisPage.tsx#L19
 
 ## Resolving an entry
 
