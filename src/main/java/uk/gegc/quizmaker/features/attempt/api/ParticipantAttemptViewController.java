@@ -34,7 +34,7 @@ public class ParticipantAttemptViewController {
         this.views = views;
     }
 
-    @Operation(operationId = "readParticipantAttempt", summary = "Read a policy-driven attempt", description = "Read the bound participant attempt from its saved revision and form. Requires ATTEMPT_READ and current quiz ownership or full question editing authority. Wrong, missing, legacy and unauthorized attempts share 404. Result categories require committed release and current RESULT access; caller flags grant no disclosure. TIMED views report the saved deadline and server time without asserting terminal processing. Online only; read-only, no idempotency key, pagination, filtering or sorting. Cache-Control: no-store. Disabled by default pending separate activation.")
+    @Operation(operationId = "readParticipantAttempt", summary = "Read a policy-driven attempt", description = "Read the bound participant attempt from its saved revision and form. When branching is enabled, branchProgress contains only the committed delivered path. Requires ATTEMPT_READ and current quiz ownership or full question editing authority. Wrong, missing, legacy and unauthorized attempts share 404. Result categories require committed release and current RESULT access; caller flags grant no disclosure. TIMED views report the saved deadline and server time without asserting terminal processing. Online only; read-only, no idempotency key, pagination, filtering or sorting. Cache-Control: no-store. Disabled by default pending separate activation.")
     @ApiResponse(responseCode = "200", description = "Attempt details returned",
             content = @Content(
                     mediaType = "application/json",
@@ -56,6 +56,17 @@ public class ParticipantAttemptViewController {
                              "timing":"TIMED","timingDetails":{"version":1,"startedAt":"2026-11-06T17:45:00Z",
                              "effectiveDeadline":"2026-11-06T18:00:00Z","graceSeconds":0,"serverTime":"2026-11-06T17:50:00Z","expired":false},
                              "contentVisibility":"WITHHELD","allowedActions":["VIEW_ATTEMPT"]}
+                            """),
+                        @ExampleObject(name = "branching", value = """
+                            {"representation":"POLICY_DRIVEN","schemaVersion":1,"attemptId":"10000000-0000-0000-0000-000000000001",
+                             "quizId":"20000000-0000-0000-0000-000000000001","quizRevisionId":"30000000-0000-0000-0000-000000000001",
+                             "formId":"40000000-0000-0000-0000-000000000001","stateVersion":1,"policyVersion":1,
+                             "execution":"IN_PROGRESS","answerCollection":"NOT_STARTED","startedAt":"2026-11-06T12:00:00Z",
+                             "timing":"UNTIMED","contentVisibility":"VISIBLE","items":[{"id":"50000000-0000-0000-0000-000000000001",
+                             "position":0,"type":"TRUE_FALSE","questionText":"Exit signs mark evacuation routes.","content":{"kind":"TRUE_FALSE"}}],
+                             "allowedActions":["VIEW_ATTEMPT","SUBMIT_ANSWER"],"branchProgress":{"formVersion":1,
+                             "deliveredFormItemIds":["50000000-0000-0000-0000-000000000001"],
+                             "currentFormItemId":"50000000-0000-0000-0000-000000000001","terminalReady":false,"canAdvance":false}}
                             """),
                         @ExampleObject(name = "releasedPractice", value = ParticipantReviewExamples.REVIEW)
                     }

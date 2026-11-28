@@ -2,6 +2,31 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Participant branch progress (#646)
+
+With JDK 17, the offline test environment and disposable MySQL, start with:
+
+```sh
+./mvnw -o test -Dtest=BranchingAttemptMySqlIntegrationTest,ParticipantAttemptViewOpenApiContractTest,ParticipantAttemptViewActivationTest
+```
+
+The HTTP integration uses the internal trusted admission fixture with real immutable graph,
+response, branch, submission, and release writers. It checks a lost-response replay, denied
+hidden or foreign targets, completion over the delivered path only, terminal readiness before
+explicit confirmation, corrupt persisted evidence, and committed-result disclosure.
+Unsupported images in matching options or compliance statements return 422 on first request
+and retry. Fresh reads verify the previously delivered path and accepted answer remain, with
+no new append, decision, edge, or trace event. Text-only controls advance and resume. MVC
+TRACE captures the acknowledgement on success and exact replay and verifies it hides the
+delivered item identity while the HTTP body retains it.
+The read records SQL counts for different committed prefix lengths. OpenAPI checks cover the
+named progress and command schemas in the full and grouped specs and the authentication boundary.
+Run the full four-worker verification on the final inputs before publishing the issue branch.
+
+The local Postman stack cannot admit scenario attempts through its supported fixtures and HTTP
+operations. This issue uses the HTTP/MySQL integration boundary. A repeatable local end-to-end
+scenario becomes applicable when #670 provides supported scenario admission and conformance.
+
 ## Durable branching execution (#574)
 
 Run the evaluator and append contract first, followed by the real MySQL suite.

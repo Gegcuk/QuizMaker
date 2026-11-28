@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import uk.gegc.quizmaker.features.attempt.application.*;
@@ -19,6 +20,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.navigation.FlatNavigation
 import uk.gegc.quizmaker.features.attempt.domain.repository.FormOptionOrderRepository;
 import uk.gegc.quizmaker.features.question.application.QuestionRevisionContractService;
 import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRevisionRepository;
+import uk.gegc.quizmaker.features.quiz.domain.model.revision.ScenarioGraphValidator;
 import uk.gegc.quizmaker.shared.exception.DatabaseConflictException;
 
 import static uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDeliveryException.Reason.*;
@@ -28,6 +30,8 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDelive
 public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
     private final AttemptAccessService access;
     private final BranchingRepository branches;
+    private final AuthenticatedSubjectResolver subjects;
+    private final boolean branchParticipantEnabled;
     private final PlatformTransactionManager transactions;
     private final PolicySnapshotService snapshots;
     private final FixedFormRepository forms;
@@ -40,8 +44,12 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
 
     public AttemptReadFactsServiceImpl(AttemptAccessService access, PolicySnapshotService snapshots,
             FixedFormRepository forms, FormOptionOrderRepository orders, QuizRevisionRepository revisions,
-            QuestionRevisionContractService contracts, NavigationRepository navigation, AcceptedResponseRepository answers, AttemptTimingService timing, BranchingRepository branches, PlatformTransactionManager transactions) {
+            QuestionRevisionContractService contracts, NavigationRepository navigation, AcceptedResponseRepository answers, AttemptTimingService timing, BranchingRepository branches,
+            PlatformTransactionManager transactions, AuthenticatedSubjectResolver subjects,
+            @Value("${quizmaker.attempts.branch-participant-enabled:false}") boolean branchParticipantEnabled) {
         this.branches = branches;
+        this.subjects = subjects;
+        this.branchParticipantEnabled = branchParticipantEnabled;
         this.transactions = transactions;
         this.access = access; this.snapshots = snapshots; this.forms = forms; this.orders = orders;
         this.revisions = revisions; this.contracts = contracts; this.navigation = navigation; this.answers = answers; this.timing = timing;
@@ -51,8 +59,12 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
         AttemptTransactions.requireCompatible(transactions, false);
         try {
             boolean ungraded = purpose == Purpose.UNGRADED_COMMAND || purpose == Purpose.UNGRADED_VIEW;
-            boolean branch = purpose == Purpose.BRANCH_RESPONSE || purpose == Purpose.BRANCH_SUBMIT;
+            boolean branchView = purpose == Purpose.PARTICIPANT_VIEW && branchParticipantEnabled
+                    && branches.isOwnedPath(attemptId, subjects.resolve(attemptId).userId());
+            boolean branch = branchView || purpose == Purpose.BRANCH_RESPONSE || purpose == Purpose.BRANCH_SUBMIT;
             var granted = switch (purpose) {
+                case PARTICIPANT_VIEW -> branchView ? access.requireBranchAccess(attemptId, AttemptAccessService.Operation.VIEW)
+                        : access.requireAccess(attemptId, AttemptAccessService.Operation.VIEW);
                 case BRANCH_RESPONSE, BRANCH_SUBMIT -> access.requireBranchAccess(attemptId, AttemptAccessService.Operation.ANSWER);
                 case UNGRADED_VIEW -> access.requireUngradedViewAccess(attemptId);
                 case UNGRADED_COMMAND -> access.requireUngradedAnswerAccess(attemptId);
@@ -62,10 +74,8 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
             if (!ungraded && purpose != Purpose.PARTICIPANT_VIEW && granted.lifecycle().state().execution()
                     != uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycle.Execution.IN_PROGRESS)
                 throw new AttemptDeliveryException(INACTIVE);
-            if (branch) {
-                var path = branches.head(attemptId, granted.formId(), granted.quizRevisionId(), granted.policySnapshotId());
-                if (purpose == Purpose.BRANCH_SUBMIT && !path.terminalReady()) throw new AttemptDeliveryException(INACTIVE);
-            }
+            var path = branch ? branches.head(attemptId, granted.formId(), granted.quizRevisionId(), granted.policySnapshotId()) : null;
+            if (purpose == Purpose.BRANCH_SUBMIT && !path.terminalReady()) throw new AttemptDeliveryException(INACTIVE);
             var owner = granted.contentOwnerId();
             var snapshot = snapshots.readCurrent(owner, granted.policySnapshotId());
             var policy = snapshot.resolution().policy();
@@ -91,7 +101,7 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
                     .orElseThrow(() -> new AttemptDeliveryException(CORRUPT));
             var resolved = contracts.resolve(owner, revision.id());
             var accepted = new java.util.HashSet<UUID>();
-            if (policy.navigation().rules() != null) {
+            if (policy.navigation().rules() != null || branchView) {
                 var questions = revision.items().stream().collect(java.util.stream.Collectors.toMap(i -> i.id(), i -> i.question()));
                 var items = form.get(0).items().stream().collect(java.util.stream.Collectors.toMap(i -> i.id(), i -> i.sourceItemId()));
                 for (var ref : answers.references(attemptId)) {
@@ -105,7 +115,20 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
                     ? navigation.read(attemptId).orElseThrow(() -> new AttemptDeliveryException(CORRUPT)) : null;
             var nav = new FlatNavigation.Context(policy.navigation(), form.get(0).id(),
                     form.get(0).items().stream().map(uk.gegc.quizmaker.features.attempt.domain.model.form.FixedForm.Item::id).toList(), accepted, cursor);
-            return new Facts(granted, policy, form.get(0), order.get(0), revision, resolved, snapshot.resolution().hash(), nav, capturedTiming);
+            BranchProgress progress = null;
+            if (branchView) {
+                var items = form.get(0).items();
+                if (items.isEmpty() || items.size() != path.formVersion() || path.currentNode() == null
+                        || revision.scenarioGraph() == null)
+                    throw new AttemptDeliveryException(CORRUPT);
+                var routes = ScenarioGraphValidator.compile(revision.scenarioGraph());
+                var current = items.get(items.size() - 1).id();
+                boolean canAdvance = !path.terminalReady() && (accepted.contains(current)
+                        || routes.select(path.currentNode(), ScenarioGraphValidator.Evidence.NO_ACCEPTED_ANSWER).isPresent());
+                progress = new BranchProgress(path.formVersion(), path.terminalReady(), canAdvance, accepted);
+            }
+            return new Facts(granted, policy, form.get(0), order.get(0), revision, resolved, snapshot.resolution().hash(),
+                    nav, capturedTiming, progress);
         } catch (RuntimeException failure) {
             // Preserve the sanitized conflict until the caller chooses its command/read error contract.
             var conflict = DatabaseConflictException.from(failure);

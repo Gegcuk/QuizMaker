@@ -5754,6 +5754,35 @@ attempts. No historical bindings are inferred. Recovery after writes uses forwar
 the attempt evidence retention rules (#664). Participant progress (#646), online activation
 and conformance (#670), authoring transport and offline eligibility remain separate.
 
+### Participant branch progress (#646)
+
+A scenario attempt already admitted by a trusted launcher can use the v2 participant API with
+`quizmaker.attempts.branch-participant-enabled=true`. This is disabled by default. The view,
+response, and submit operations also require their existing feature switches. No public start
+or authoring route is added. Public flow conformance and activation belong to #670.
+
+- `GET /api/v2/attempts/{attemptId}` includes `branchProgress` with the committed form version,
+  delivered form-item IDs in order, the current item if present, and terminal and advance
+  availability. Those IDs identify delivery records, not graph nodes. Content and completed
+  review use the existing authorized participant projections.
+- `POST /api/v2/attempts/{attemptId}/branch-progress/next` takes a UUID `Idempotency-Key` and
+  the expected attempt and form versions. A committed transition returns `APPENDED` and its
+  delivered item ID or `TERMINAL_READY` with no item. Exact replay returns the original
+  acknowledgement after current authorization. An unanswered fork returns 409 without a
+  decision. The initial scenario renderer supports text-only content. A selected question
+  requiring unavailable media support returns 422 before any append, decision, or trace
+  write. The previous committed path and accepted answer remain readable. Resolve an unknown
+  commit by replaying the exact command.
+- `/responses` and `/submit` keep their existing v2 command representation and receipt rules.
+  The scenario writer enforces membership in the delivered form and checks terminal readiness,
+  explicit confirmation, any deadline, and saved require-all on voluntary submit. The expiry
+  worker retains its independent finalization boundary. Missing and unauthorized targets are
+  non-enumerating, and legacy and fixed-form HTTP behavior is preserved.
+
+The controller never receives scenario routing input. Branches, conditions, alternative
+questions, and decision provenance remain private. All participant operations retain current
+authorization and the v2 READ_COMMITTED contract. Responses use no-store.
+
 ### Executable graph publication validation (#573)
 
 New format-4 publications validate the complete graph under the existing per-revision key before

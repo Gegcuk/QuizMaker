@@ -703,7 +703,8 @@ class AttemptSubmissionMySqlIntegrationTest {
         new ResponseAcceptanceJsonConfig().extendMessageConverters(converters);
         new AttemptSubmissionJsonConfig().extendMessageConverters(converters);
         return MockMvcBuilders.standaloneSetup(new ParticipantAttemptViewController(views, branch),
-                        new ResponseAcceptanceController(responses, json, branch, validator), new AttemptSubmissionController(submissions, branch, validator))
+                        new ResponseAcceptanceController(responses, json, branch, validator, java.util.Optional.empty()),
+                        new AttemptSubmissionController(submissions, branch, validator, java.util.Optional.empty()))
                 .setControllerAdvice(new ParticipantAttemptViewErrorHandler(), new ResponseAcceptanceErrorHandler(),
                         new AttemptSubmissionErrorHandler())
                 .setMessageConverters(converters.toArray(HttpMessageConverter[]::new)).build();
@@ -1434,7 +1435,7 @@ class AttemptSubmissionMySqlIntegrationTest {
                 new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter()));
         new uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionJsonConfig().extendMessageConverters(converters);
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionController(submissions, java.util.Optional.empty(), validator))
+                new uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionController(submissions, java.util.Optional.empty(), validator, java.util.Optional.empty()))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.AttemptSubmissionErrorHandler())
                 .setMessageConverters(converters.toArray(org.springframework.http.converter.HttpMessageConverter[]::new)).build();
         var path = "/api/v2/attempts/" + f.attempt() + "/submit";

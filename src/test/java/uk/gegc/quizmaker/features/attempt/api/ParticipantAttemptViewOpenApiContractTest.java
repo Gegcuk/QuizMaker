@@ -44,9 +44,10 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {AttemptController.class, ParticipantAttemptViewController.class, ApiDiscoveryController.class})
-@TestPropertySource(properties = "quizmaker.attempts.participant-view-enabled=true")
-@Import({SecurityConfig.class, ParticipantAttemptViewErrorHandler.class, OpenApiConfig.class, OpenApiGroupConfig.class, ApiDocumentationService.class,
+@WebMvcTest(controllers = {AttemptController.class, ParticipantAttemptViewController.class, ApiDiscoveryController.class, BranchProgressController.class})
+@TestPropertySource(properties = {"quizmaker.attempts.participant-view-enabled=true",
+        "quizmaker.attempts.branch-participant-enabled=true"})
+@Import({BranchProgressErrorHandler.class, ResponseAcceptanceJsonConfig.class, SecurityConfig.class, ParticipantAttemptViewErrorHandler.class, OpenApiConfig.class, OpenApiGroupConfig.class, ApiDocumentationService.class,
         SpringDocConfiguration.class, SpringDocWebMvcConfiguration.class, MultipleOpenApiSupportConfiguration.class,
         ParticipantAttemptViewOpenApiContractTest.DocConfig.class})
 class ParticipantAttemptViewOpenApiContractTest {
@@ -58,6 +59,7 @@ class ParticipantAttemptViewOpenApiContractTest {
     @Autowired List<org.springdoc.core.models.GroupedOpenApi> groups;
     @MockitoBean uk.gegc.quizmaker.features.attempt.application.ParticipantAttemptViewService views;
     @MockitoBean uk.gegc.quizmaker.features.attempt.application.AttemptService legacy;
+    @MockitoBean uk.gegc.quizmaker.features.attempt.application.BranchingAttemptService branches;
     @MockitoBean AuthSessionService authSessions;
     @MockitoBean AuthSessionMetricsService authMetrics;
     @MockitoBean(name = "corsConfigurationSource") org.springframework.web.cors.CorsConfigurationSource cors;
@@ -68,6 +70,7 @@ class ParticipantAttemptViewOpenApiContractTest {
     @MockitoBean OAuth2LoginAuthorizationRequestResolver oauthResolver;
     @MockitoBean OAuth2AuthorizationRequestContextRepository oauthRequests;
     static final String PATH = "/api/v2/attempts/{attemptId}";
+    static final String NEXT = PATH + "/branch-progress/next";
 
 
     @Test @WithMockUser void typedViewIgnoresCallerDisclosureAndPreservesAllContentVariants() throws Exception {
@@ -88,7 +91,7 @@ class ParticipantAttemptViewOpenApiContractTest {
         var timer=new ParticipantAttemptTiming(1,base.startedAt(),deadline,0,base.startedAt(),false);
         var timed=new ParticipantAttemptView(base.representation(),base.schemaVersion(),base.attemptId(),base.quizId(),base.quizRevisionId(),base.formId(),
                 base.stateVersion(),base.policyVersion(),base.execution(),base.answerCollection(),base.startedAt(),base.submittedAt(),ParticipantAttemptView.Timing.TIMED,
-                base.contentVisibility(),base.items(),base.allowedActions(),base.result(),base.navigation(),timer);
+                base.contentVisibility(),base.items(),base.allowedActions(),base.result(),base.navigation(),timer,null);
         when(views.read(base.attemptId())).thenReturn(timed);
         String body=mvc.perform(get(PATH,base.attemptId())).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         assertThat(json.readValue(body,ParticipantAttemptView.class)).isEqualTo(timed);
@@ -188,6 +191,61 @@ class ParticipantAttemptViewOpenApiContractTest {
         mvc.perform(get(PATH, "invalid")).andExpect(status().isBadRequest()); verifyNoInteractions(views, legacy);
     }
 
+    @Test @WithMockUser void branchProgressContractAndRequestValidation() throws Exception {
+        var attempt = UUID.randomUUID();
+        var command = UUID.randomUUID();
+        var item = UUID.randomUUID();
+        when(branches.advance(new uk.gegc.quizmaker.features.attempt.application.BranchingAttemptService.Command(attempt, command, 2, 1)))
+                .thenReturn(new uk.gegc.quizmaker.features.attempt.application.BranchingAttemptService.Result(
+                        uk.gegc.quizmaker.features.attempt.application.BranchingAttemptService.Outcome.APPENDED, item, 2));
+        var valid = "{\"expectedStateVersion\":2,\"expectedFormVersion\":1}";
+        var request = post(NEXT, attempt).contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .header("Idempotency-Key", command).content(valid);
+        var acknowledgement = json.readTree(mvc.perform(request).andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store")).andExpect(jsonPath("$.formItemId").value(item.toString()))
+                .andReturn().getResponse().getContentAsString());
+        for (String url : List.of("/v3/api-docs", "/v3/api-docs/attempts-v2")) {
+            var spec = json.readTree(mvc.perform(get(url)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            var op = spec.path("paths").path(NEXT).path("post");
+            var schemas = spec.at("/components/schemas");
+            assertThat(op.path("operationId").asText()).isEqualTo("advanceBranchProgress");
+            assertThat(op.path("security").get(0).has("bearerAuth")).isTrue();
+            assertThat(op.path("parameters").findValuesAsText("name")).contains("Idempotency-Key");
+            assertThat(op.at("/requestBody/content/application~1json/schema/$ref").asText()).isEqualTo("#/components/schemas/BranchAdvanceRequest");
+            assertThat(op.at("/responses/200/content/application~1json/schema/$ref").asText())
+                    .isEqualTo("#/components/schemas/BranchAdvanceAcknowledgement");
+            assertThat(schemas.path("ParticipantAttemptView").at("/properties/branchProgress/$ref").asText())
+                    .isEqualTo("#/components/schemas/BranchParticipantProgress");
+            assertThat(matchesFormSchema(spec, schemas.path("BranchAdvanceRequest"), json.readTree(valid), 0)).isTrue();
+            assertThat(matchesFormSchema(spec, schemas.path("BranchAdvanceAcknowledgement"), acknowledgement, 0)).isTrue();
+            for (var example : op.at("/responses/200/content/application~1json/examples"))
+                assertThat(matchesFormSchema(spec, schemas.path("BranchAdvanceAcknowledgement"), example.path("value"), 0)).isTrue();
+            for (String code : List.of("400", "401", "404", "409", "422", "500", "503"))
+                assertThat(op.path("responses").path(code).findValuesAsText("$ref")).contains("#/components/schemas/ProblemDetail");
+        }
+        var matcher = new org.springframework.util.AntPathMatcher();
+        assertThat(groups.stream().filter(g -> g.getPathsToMatch().stream().anyMatch(pattern -> matcher.match(pattern, NEXT)))
+                .map(org.springdoc.core.models.GroupedOpenApi::getGroup)).containsExactly("attempts-v2");
+        clearInvocations(branches);
+        for (String invalid : List.of("{}", valid.replace(":1", ":0"), valid.replace(":1", ":1.0"),
+                valid.replace(":1", ":1,\"nodeId\":null"), valid + valid)) {
+            mvc.perform(post(NEXT, attempt).contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                            .header("Idempotency-Key", command).content(invalid))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("BRANCH_INVALID"));
+        }
+        mvc.perform(post(NEXT, attempt).contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "1-1-1-1-1").content(valid))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(branches);
+    }
+
+    @Test void branchAdvanceRequiresAuthentication() throws Exception {
+        mvc.perform(post(NEXT, UUID.randomUUID()).contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .header("Idempotency-Key", UUID.randomUUID()).content("{\"expectedStateVersion\":2,\"expectedFormVersion\":1}"))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(branches);
+    }
+
     @Test @WithMockUser void schemasExamplesSecurityErrorsAndDiscoveryMatchTheActualResponses() throws Exception {
         for (String url : List.of("/v3/api-docs", "/v3/api-docs/attempts-v2")) {
             JsonNode spec = json.readTree(mvc.perform(get(url)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
@@ -199,7 +257,7 @@ class ParticipantAttemptViewOpenApiContractTest {
                 assertThat(op.path("responses").path(code).findValuesAsText("$ref")).contains("#/components/schemas/ProblemDetail");
             for (String name : List.of("ParticipantAttemptView", "ParticipantAttemptItem", "ParticipantAttemptImage", "AttemptFormContent",
                     "AttemptFormChoices", "AttemptFormTrueFalse", "AttemptFormFillGap", "AttemptFormOrdering", "AttemptFormOpen")) assertThat(schemas.has(name)).as(name).isTrue();
-            var examples = op.at("/responses/200/content/application~1json/examples"); assertThat(examples).hasSize(3);
+            var examples = op.at("/responses/200/content/application~1json/examples"); assertThat(examples).hasSize(4);
             for (var example : examples) assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), example.path("value"), 0)).as("Example %s", example).isTrue();
             var value = json.valueToTree(fixture());
             assertThat(matchesFormSchema(spec, schemas.path("ParticipantAttemptView"), value, 0)).isTrue();

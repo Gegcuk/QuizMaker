@@ -12,6 +12,7 @@ import jakarta.validation.Validator;
 import java.util.Optional;
 import java.util.UUID;
 import uk.gegc.quizmaker.features.attempt.application.UngradedParticipantService;
+import uk.gegc.quizmaker.features.attempt.application.BranchParticipantService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -27,15 +28,19 @@ public class AttemptSubmissionController {
     private final AttemptSubmissionService submissions;
     private final Optional<UngradedParticipantService> ungraded;
     private final Validator validator;
+    private final Optional<BranchParticipantService> branching;
 
-    public AttemptSubmissionController(AttemptSubmissionService submissions, Optional<UngradedParticipantService> ungraded, Validator validator) {
+    public AttemptSubmissionController(AttemptSubmissionService submissions, Optional<UngradedParticipantService> ungraded, Validator validator,
+            Optional<BranchParticipantService> branching) {
         this.submissions = submissions;
         this.ungraded = ungraded;
         this.validator = validator;
+        this.branching = branching;
     }
     @PostMapping(value = "/{attemptId}/submit", consumes = "application/json", produces = "application/json")
     @Operation(operationId = "submitAttempt", summary = "Submit an attempt once",
-            description = "Online authenticated flat untimed immediate-lock practice. Requires ATTEMPT_CREATE, the bound participant and current quiz ownership/full question editing authority. " +
+            description = "Online authenticated flat untimed immediate-lock practice. When branching is enabled, the path must first reach terminal readiness " +
+                    "and require-all applies to the delivered form. Requires ATTEMPT_CREATE, the bound participant and current quiz ownership/full question editing authority. " +
                     "No caller user, policy, scope, deadline or answer payload is accepted. Use the current optimistic state version and explicitly confirm completion, including unanswered items. " +
                     "The saved require-all setting is authoritative: when enabled, missing answers deny without writes; otherwise omissions remain unanswered. " +
                     "Idempotency-Key is case-sensitive, 1–200 printable ASCII characters without whitespace, scoped to the authenticated user across commands. " +
@@ -68,6 +73,7 @@ public class AttemptSubmissionController {
                 request.completionConfirmed(), key);
         var completion = ungraded.flatMap(service -> service.submit(command));
         if (completion.isPresent()) return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(completion.get());
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(AttemptSubmitAcknowledgement.from(submissions.submit(command)));
+        var result = branching.flatMap(service -> service.submit(command)).orElseGet(() -> submissions.submit(command));
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(AttemptSubmitAcknowledgement.from(result));
     }
 }

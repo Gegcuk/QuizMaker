@@ -17,6 +17,21 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ParticipantAttemptViewActivationTest {
+    @Test void branchProgressRequiresItsOwnExplicitSwitch() {
+        for (String[] properties : List.of(new String[0],
+                new String[]{"quizmaker.attempts.branch-participant-enabled=false"},
+                new String[]{"quizmaker.attempts.branch-participant-enabled=true"})) {
+            var branches = mock(uk.gegc.quizmaker.features.attempt.application.BranchingAttemptService.class);
+            new ApplicationContextRunner().withUserConfiguration(BranchProgressController.class)
+                    .withBean(uk.gegc.quizmaker.features.attempt.application.BranchingAttemptService.class, () -> branches)
+                    .withPropertyValues(properties).run(context -> {
+                        assertThat(context).hasNotFailed();
+                        assertThat(context.containsBean("branchProgressController"))
+                                .isEqualTo(properties.length == 1 && properties[0].endsWith("=true"));
+                    });
+        }
+    }
+
     @Test void viewControllerIsGatedAndCannotSwitchLegacyReaders() {
         for (String[] properties : List.of(new String[0],
                 new String[]{"quizmaker.attempts.participant-view-enabled=false"},

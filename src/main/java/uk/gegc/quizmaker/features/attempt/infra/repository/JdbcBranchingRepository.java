@@ -30,6 +30,22 @@ public class JdbcBranchingRepository implements BranchingRepository {
     private final NamedParameterJdbcTemplate jdbc;
     public JdbcBranchingRepository(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
 
+    @Override public boolean isOwnedPath(UUID attemptId, UUID userId) {
+        requireTransaction();
+        try {
+            return Boolean.TRUE.equals(jdbc.queryForObject("""
+                    SELECT EXISTS (
+                        SELECT 1 FROM attempt_participant_subject s
+                        JOIN attempt_branch_path p ON p.attempt_id=s.attempt_id
+                        WHERE s.attempt_id=:attempt AND s.user_id=:user
+                            AND s.subject_type='AUTHENTICATED_USER'
+                    )
+                    """, new MapSqlParameterSource("attempt", bytes(attemptId)).addValue("user", bytes(userId)), Boolean.class));
+        } catch (DataAccessException failure) {
+            throw SafeDataAccess.sanitize(failure);
+        }
+    }
+
     @Override public void bind(Admission a) {
         requireTransaction();
         var p = ids(a.formId(), a.revisionId()).addValue("attempt", bytes(a.attemptId()))

@@ -225,7 +225,7 @@ public class BranchingAttemptServiceImpl implements BranchingAttemptService {
         var request = new ProgressiveFormAppend.Request(1, ref, command.expectedFormVersion(),
                 new ProgressiveFormAppend.Decision(1, ProgressiveFormAppend.DecisionKind.BRANCHING, command.decisionId(), evidenceId == null ? command.decisionId() : evidenceId), List.of(item));
         var optionIds = AnswerOptionOrder.order(form.id(), item.id(), order.policy(), question, pair.response().optionLayout(question));
-        ParticipantFormProjector.projectCommandContent(question, pair, optionIds);
+        ParticipantFormProjector.requireBranchDelivery(question, pair, optionIds);
         var options = new FormOptionOrder.Item(item.id(), item.sourceItemId(), pair.binding(), optionIds);
         var writer = new AuthorizedAppend(store, form, order, options, revision.questions().keySet());
         var receipt = writer.append(request);
