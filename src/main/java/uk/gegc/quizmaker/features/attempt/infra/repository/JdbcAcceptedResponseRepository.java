@@ -9,6 +9,7 @@ import java.util.UUID;
 import java.util.List;
 import org.springframework.jdbc.core.namedparam.*;
 import org.springframework.stereotype.Repository;
+import uk.gegc.quizmaker.shared.util.PrivateSqlText;
 import org.springframework.transaction.annotation.*;
 import uk.gegc.quizmaker.features.attempt.domain.repository.AcceptedResponseRepository;
 
@@ -44,7 +45,7 @@ public class JdbcAcceptedResponseRepository implements AcceptedResponseRepositor
                 """, new MapSqlParameterSource().addValue("id", v.id().toString()).addValue("attempt", v.attemptId().toString())
                 .addValue("form", v.formId().toString()).addValue("item", v.formItemId().toString())
                 .addValue("question", v.questionRevisionId().toString()).addValue("contract", v.contract().id())
-                .addValue("version", v.contract().version()).addValue("response", v.normalizedResponse())
+                .addValue("version", v.contract().version()).addValue("response", PrivateSqlText.of(v.normalizedResponse()))
                 .addValue("command", v.commandId().toString()).addValue("time", Timestamp.from(v.acceptedAt())));
         } catch (DataAccessException failure) { throw SafeDataAccess.sanitize(failure); }
     }

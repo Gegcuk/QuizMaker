@@ -38,25 +38,33 @@ public class AttemptAccessServiceImpl implements AttemptAccessService {
     }
 
     @Override public Access requireAccess(UUID attemptId, Operation operation) {
-        return requireAccess(attemptId, operation, false);
+        return requireAccess(attemptId, operation, attempts::lockEvidence);
     }
 
     @Override public Access requireUngradedAnswerAccess(UUID attemptId) {
-        return requireAccess(attemptId, Operation.ANSWER, true);
+        return requireAccess(attemptId, Operation.ANSWER, attempts::lockUngradedEvidence);
     }
 
     @Override public Access requireUngradedViewAccess(UUID attemptId) {
-        return requireAccess(attemptId, Operation.VIEW, true);
+        return requireAccess(attemptId, Operation.VIEW, attempts::lockUngradedEvidence);
     }
 
-    private Access requireAccess(UUID attemptId, Operation operation, boolean ungraded) {
+    @Override public Access requireBranchAccess(UUID attemptId, Operation operation) {
+        return requireAccess(attemptId, operation, attempts::lockBranchEvidence);
+    }
+
+    private interface EvidenceLookup {
+        java.util.Optional<AttemptAccessRepository.Evidence> read(UUID attemptId, UUID subject);
+    }
+
+    private Access requireAccess(UUID attemptId, Operation operation, EvidenceLookup lookup) {
         Timer.Sample timer = null;
         try { timer = Timer.start(metrics); } catch (RuntimeException ignored) { /* best effort */ }
         String outcome = "unavailable";
         try {
             if (attemptId == null || operation == null) throw new AttemptAccessException(DENIED);
             var access = transaction.execute(status -> {
-                try { return authorize(attemptId, operation, ungraded); }
+                try { return authorize(attemptId, operation, lookup); }
                 // A participating template can log a failure before the result-read boundary sees it.
                 catch (RuntimeException failure) { throw translate(failure); }
             });
@@ -75,10 +83,9 @@ public class AttemptAccessServiceImpl implements AttemptAccessService {
         }
     }
 
-    private Access authorize(UUID attemptId, Operation operation, boolean ungraded) {
+    private Access authorize(UUID attemptId, Operation operation, EvidenceLookup lookup) {
         var subject = subjects.resolveCurrent(attemptId);
-        var evidence = (ungraded ? attempts.lockUngradedEvidence(attemptId, subject.userId())
-                : attempts.lockEvidence(attemptId, subject.userId())).orElseThrow(() -> new AttemptAccessException(DENIED));
+        var evidence = lookup.read(attemptId, subject.userId()).orElseThrow(() -> new AttemptAccessException(DENIED));
         var required = switch (operation) {
             case VIEW, RESULT -> PermissionName.ATTEMPT_READ;
             case ANSWER -> PermissionName.ATTEMPT_CREATE;

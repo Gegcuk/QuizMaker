@@ -96,6 +96,7 @@
     "uk.gegc.quizmaker.features.attempt.subject.AuthenticatedSubjectResolverWiringTest",
     "uk.gegc.quizmaker.features.attempt.submission.AttemptSubmissionMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.attempt.submission.AutomaticResultMySqlIntegrationTest",
+    "uk.gegc.quizmaker.features.attempt.submission.BranchingAttemptMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.attempt.submission.ImmediateResultReleaseMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.attempt.trace.TraceQueryMySqlIntegrationTest",
     "uk.gegc.quizmaker.features.auth.OAuthAccountControllerIntegrationTest",

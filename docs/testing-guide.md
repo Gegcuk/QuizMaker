@@ -2,6 +2,27 @@
 
 This guide explains which test style to use, what behavior to prove, and how to keep tests trustworthy. It applies to human contributors and AI agents.
 
+## Durable branching execution (#574)
+
+Run the evaluator and append contract first, followed by the real MySQL suite.
+
+```sh
+./mvnw -o test -Dtest=ScenarioGraphValidatorTest,ProgressiveFormAppendTest,ProgressiveFormAppendPlannerTest,ProgressiveFormAppendBoundaryTest
+./mvnw -o test -Dtest=BranchingAttemptMySqlIntegrationTest
+```
+
+The MySQL suite owns a disposable catalog on `TEST_MYSQL_PORT`. It publishes immutable graphs
+and exercises subject/policy binding, canonical answer acceptance, append, submit, expiry and
+grading. It checks both score outcomes, skip at a fork, exact retry and restart, a hidden item,
+lost permission, terminal readiness, require-all and deadline contention. Faults injected after
+decision, edge and cursor writes test rollback. Lost commit acknowledgements, overlapping
+commands and two forms sharing one revision exercise independent transactions. Legacy opaque
+rules and incomplete routing must fail before admission commits. Resume measures SQL for
+multiple forms and checks that neither answer nor condition payloads are selected.
+
+#574 has no HTTP operation. The two branch decisions and the terminal command are tested through
+internal application interfaces. Participant progress and public conformance belong to #646 and #670.
+
 ## Executable scenario graph validation (#573)
 
 Use JDK 17, the offline test environment and a disposable MySQL server.

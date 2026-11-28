@@ -20,7 +20,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseA
 import static uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException.require;
 
 @Service
-public class ResponseAcceptanceServiceImpl implements ResponseAcceptanceService {
+public class ResponseAcceptanceServiceImpl implements ResponseAcceptanceService, ResponseAcceptanceService.Scenario {
     private final TransactionTemplate read;
     private final AuthenticatedSubjectResolver identity;
     private final AttemptAccessService access;
@@ -40,7 +40,11 @@ public class ResponseAcceptanceServiceImpl implements ResponseAcceptanceService 
         this.answers = answers; this.receipts = receipts; this.trace = trace; this.clock = clock; this.metrics = metrics;
     }
 
-    @Override public Result accept(Command c) {
+    @Override public Result accept(Command c) { return accept(c, false); }
+
+    @Override public Result acceptBranch(Command c) { return accept(c, true); }
+
+    private Result accept(Command c, boolean branch) {
         AttemptTransactions.requireCompatible(read.getTransactionManager(), true);
         Timer.Sample timer = Timer.start(); String outcome = "unavailable";
         try {
@@ -69,8 +73,9 @@ public class ResponseAcceptanceServiceImpl implements ResponseAcceptanceService 
                     require(answers.lockOwnBinding(subject.userId(), c.attemptId()), NOT_FOUND);
                     // Serialize before shared access/content reads; no shared-to-exclusive upgrade race.
                     lifecycle.lock(c.attemptId());
-                    return access.requireAccess(c.attemptId(), AttemptAccessService.Operation.ANSWER);
-                }), id -> call.checked(() -> acceptFresh(c, stable, id, receivedAt)));
+                    return branch ? access.requireBranchAccess(c.attemptId(), AttemptAccessService.Operation.ANSWER)
+                            : access.requireAccess(c.attemptId(), AttemptAccessService.Operation.ANSWER);
+                }), id -> call.checked(() -> acceptFresh(c, stable, id, receivedAt, branch)));
             } catch (ReceiptException failure) {
                 if (call.failure != null && (failure.reason() == ReceiptException.Reason.ACCESS_DENIED
                         || failure.reason() == ReceiptException.Reason.COMMAND_DENIED)) throw call.failure;
@@ -87,10 +92,11 @@ public class ResponseAcceptanceServiceImpl implements ResponseAcceptanceService 
         }
     }
 
-    private CommandReceipt.Acknowledgement acceptFresh(Command c, ObjectNode stable, UUID commandId, java.time.Instant receivedAt) {
-        var saved = facts.read(c.attemptId(), AttemptReadFactsService.Purpose.ACCEPT_RESPONSE, receivedAt);
+    private CommandReceipt.Acknowledgement acceptFresh(Command c, ObjectNode stable, UUID commandId, java.time.Instant receivedAt, boolean branch) {
+        var saved = facts.read(c.attemptId(), branch ? AttemptReadFactsService.Purpose.BRANCH_RESPONSE : AttemptReadFactsService.Purpose.ACCEPT_RESPONSE, receivedAt);
         // ALL_AT_ONCE exposes this complete fixed form; no per-item delivery cursor is invented.
-        ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
+        if (branch) ParticipantFormProjector.projectBranch(saved.form(), saved.revision(), saved.order(), saved.contracts());
+        else ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
         var prepared = AcceptedResponseWork.prepare(saved, c.formItemId(), c.type(), stable,
                 c.expectedStateVersion(), commandId, () -> answers.exists(c.attemptId(), c.formItemId()));
         return AcceptedResponseWork.persist(prepared, saved, saved.access().lifecycle(), commandId, answers, lifecycle, trace, clock).acknowledgement();

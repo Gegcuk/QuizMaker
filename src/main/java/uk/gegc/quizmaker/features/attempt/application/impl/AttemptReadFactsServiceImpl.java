@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.attempt.application.impl;
 
 import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
 import org.springframework.transaction.PlatformTransactionManager;
+import uk.gegc.quizmaker.features.attempt.domain.repository.BranchingRepository;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -26,6 +27,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.form.AttemptDelive
 @Transactional(propagation = Propagation.MANDATORY)
 public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
     private final AttemptAccessService access;
+    private final BranchingRepository branches;
     private final PlatformTransactionManager transactions;
     private final PolicySnapshotService snapshots;
     private final FixedFormRepository forms;
@@ -38,7 +40,8 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
 
     public AttemptReadFactsServiceImpl(AttemptAccessService access, PolicySnapshotService snapshots,
             FixedFormRepository forms, FormOptionOrderRepository orders, QuizRevisionRepository revisions,
-            QuestionRevisionContractService contracts, NavigationRepository navigation, AcceptedResponseRepository answers, AttemptTimingService timing, PlatformTransactionManager transactions) {
+            QuestionRevisionContractService contracts, NavigationRepository navigation, AcceptedResponseRepository answers, AttemptTimingService timing, BranchingRepository branches, PlatformTransactionManager transactions) {
+        this.branches = branches;
         this.transactions = transactions;
         this.access = access; this.snapshots = snapshots; this.forms = forms; this.orders = orders;
         this.revisions = revisions; this.contracts = contracts; this.navigation = navigation; this.answers = answers; this.timing = timing;
@@ -48,7 +51,9 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
         AttemptTransactions.requireCompatible(transactions, false);
         try {
             boolean ungraded = purpose == Purpose.UNGRADED_COMMAND || purpose == Purpose.UNGRADED_VIEW;
+            boolean branch = purpose == Purpose.BRANCH_RESPONSE || purpose == Purpose.BRANCH_SUBMIT;
             var granted = switch (purpose) {
+                case BRANCH_RESPONSE, BRANCH_SUBMIT -> access.requireBranchAccess(attemptId, AttemptAccessService.Operation.ANSWER);
                 case UNGRADED_VIEW -> access.requireUngradedViewAccess(attemptId);
                 case UNGRADED_COMMAND -> access.requireUngradedAnswerAccess(attemptId);
                 case ACCEPT_RESPONSE, SUBMIT_ATTEMPT, DRAFT_COMMAND -> access.requireAccess(attemptId, AttemptAccessService.Operation.ANSWER);
@@ -57,10 +62,14 @@ public class AttemptReadFactsServiceImpl implements AttemptReadFactsService {
             if (!ungraded && purpose != Purpose.PARTICIPANT_VIEW && granted.lifecycle().state().execution()
                     != uk.gegc.quizmaker.features.attempt.domain.model.lifecycle.AttemptLifecycle.Execution.IN_PROGRESS)
                 throw new AttemptDeliveryException(INACTIVE);
+            if (branch) {
+                var path = branches.head(attemptId, granted.formId(), granted.quizRevisionId(), granted.policySnapshotId());
+                if (purpose == Purpose.BRANCH_SUBMIT && !path.terminalReady()) throw new AttemptDeliveryException(INACTIVE);
+            }
             var owner = granted.contentOwnerId();
             var snapshot = snapshots.readCurrent(owner, granted.policySnapshotId());
             var policy = snapshot.resolution().policy();
-            if (policy.schemaVersion() != 1 || policy.content().formMode() != FormMode.PRECOMPUTED
+            if (policy.schemaVersion() != 1 || policy.content().formMode() != (branch ? FormMode.PROGRESSIVE : FormMode.PRECOMPUTED)
                     || policy.content().sections() != SectionMode.IMPLICIT_FLAT)
                 throw new AttemptDeliveryException(UNSUPPORTED);
             if (ungraded && (policy.delivery().mode() != DeliveryMode.ALL_AT_ONCE

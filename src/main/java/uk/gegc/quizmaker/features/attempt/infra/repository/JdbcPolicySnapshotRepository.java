@@ -31,14 +31,15 @@ public class JdbcPolicySnapshotRepository implements PolicySnapshotRepository {
     public JdbcPolicySnapshotRepository(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
 
     @Override
-    public StoredSnapshot createOrReplay(UUID revisionOwnerId, StoredSnapshot value) {
+    public StoredSnapshot createOrReplay(UUID revisionOwnerId, StoredSnapshot value, int revisionFormat) {
+        if (revisionFormat != 1 && revisionFormat != 4) throw new PolicySnapshotException(SNAPSHOT_UNAVAILABLE);
         if (revisionOwnerId == null) throw new PolicySnapshotException(SNAPSHOT_UNAVAILABLE);
         var parameters = parameters(revisionOwnerId, value.id())
-                .addValue("revision", bytes(value.quizRevisionId())).addValue("schema", value.schemaVersion())
+                .addValue("revisionFormat", revisionFormat).addValue("revision", bytes(value.quizRevisionId())).addValue("schema", value.schemaVersion())
                 .addValue("resolver", value.resolverVersion()).addValue("canonical", value.canonicalVersion())
                 .addValue("algorithm", value.hashAlgorithm()).addValue("json", value.canonicalJson()).addValue("hash", value.hash());
         if (jdbc.queryForList("""
-                SELECT id FROM quiz_revisions WHERE id=:revision AND owner_id=:owner AND schema_version=1 FOR SHARE
+                SELECT id FROM quiz_revisions WHERE id=:revision AND owner_id=:owner AND schema_version=:revisionFormat FOR SHARE
                 """, parameters).isEmpty()) throw new PolicySnapshotException(SNAPSHOT_UNAVAILABLE);
         // The unique ID serializes competing inserts. No existing evidence is overwritten.
         jdbc.update("""

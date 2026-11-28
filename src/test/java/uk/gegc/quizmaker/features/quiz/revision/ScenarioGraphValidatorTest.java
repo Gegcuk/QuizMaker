@@ -17,6 +17,8 @@ import java.util.UUID;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static uk.gegc.quizmaker.features.quiz.domain.model.revision.ScenarioGraphValidator.Evidence.*;
+import static uk.gegc.quizmaker.features.quiz.domain.model.revision.ScenarioGraphValidator.compile;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static uk.gegc.quizmaker.features.quiz.domain.model.revision.ScenarioGraph.EdgeType.CONDITIONAL;
 import static uk.gegc.quizmaker.features.quiz.domain.model.revision.ScenarioGraph.EdgeType.DEFAULT;
@@ -36,6 +38,20 @@ class ScenarioGraphValidatorTest {
                 fallback(QUESTION, END, 9), condition(QUESTION, END, 4, FULL),
                 condition(QUESTION, EXPLANATION, 7, NOT_FULL), fallback(EXPLANATION, END, 0))));
         validateForPublication(graph(List.of(END), List.of()));
+    }
+
+    @Test void aMissingAcceptedAnswerCannotSelectEvenTheDefaultAtAScoreFork() {
+        var defaultEdge = fallback(QUESTION, END, 0);
+        var winningEdge = condition(QUESTION, EXPLANATION, 2, priority(1));
+        var onward = fallback(EXPLANATION, END, 0);
+        var routes = compile(graph(List.of(QUESTION, EXPLANATION, END), List.of(defaultEdge,
+                condition(QUESTION, END, 1, priority(20)), winningEdge, onward)));
+
+        assertThat(routes.select(QUESTION.id(), NO_ACCEPTED_ANSWER)).isEmpty();
+        assertThat(routes.select(QUESTION.id(), FULL_CREDIT)).contains(winningEdge);
+        assertThat(routes.select(QUESTION.id(), NOT_FULL_CREDIT)).contains(defaultEdge);
+        assertThat(routes.select(EXPLANATION.id(), NO_ACCEPTED_ANSWER)).contains(onward);
+        assertThatThrownBy(() -> routes.select(END.id(), FULL_CREDIT)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test void overlappingConditionsRequireDistinctExplicitPrioritiesRegardlessOfAuthoredOrder() {

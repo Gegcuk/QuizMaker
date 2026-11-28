@@ -86,7 +86,7 @@ public record ResolvedAttemptPolicy(
                                 SectionMode sections, CaseMode cases) {
         public ContentPolicy {
             present(quizRevisionId, formMode, sections, cases);
-            require(revisionSchemaVersion == 1, UNSUPPORTED_CONTENT_VERSION);
+            require(formMode == FormMode.PROGRESSIVE ? revisionSchemaVersion == 4 : revisionSchemaVersion == 1, UNSUPPORTED_CONTENT_VERSION);
         }
     }
 
@@ -238,7 +238,7 @@ public record ResolvedAttemptPolicy(
     }
 
     // Only the selected v1 vocabulary is declared, rather than the future strategy catalogue.
-    public enum FormMode { PRECOMPUTED }
+    public enum FormMode { PRECOMPUTED, PROGRESSIVE }
     public enum SectionMode { IMPLICIT_FLAT }
     public enum CaseMode { NOT_CONFIGURED }
     public enum SelectionMode { ALL, MANUAL_SET, RANDOM_COUNT, RANDOM_PERCENTAGE }

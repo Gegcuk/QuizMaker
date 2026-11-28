@@ -18,6 +18,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.policy.ResolvedAtt
 public class SubmittedAttemptSourceImpl implements SubmittedAttemptSource {
     private final SubmittedAttemptRepository repository;
     private final AttemptLifecycleService lifecycle;
+    private final BranchingRepository branches;
     private final PlatformTransactionManager transactions;
     private final PolicySnapshotService snapshots;
     private final FixedFormRepository forms;
@@ -25,7 +26,8 @@ public class SubmittedAttemptSourceImpl implements SubmittedAttemptSource {
     private final QuestionRevisionContractService contracts;
     public SubmittedAttemptSourceImpl(SubmittedAttemptRepository repository, AttemptLifecycleService lifecycle,
             PolicySnapshotService snapshots, FixedFormRepository forms, QuizRevisionRepository revisions,
-            QuestionRevisionContractService contracts, PlatformTransactionManager transactions) {
+            QuestionRevisionContractService contracts, BranchingRepository branches, PlatformTransactionManager transactions) {
+        this.branches = branches;
         this.transactions=transactions;
         this.repository=repository; this.lifecycle=lifecycle; this.snapshots=snapshots;
         this.forms=forms; this.revisions=revisions; this.contracts=contracts;
@@ -50,8 +52,14 @@ public class SubmittedAttemptSourceImpl implements SubmittedAttemptSource {
         var revision=revisions.findById(h.revisionOwnerId(),s.quizRevisionId()).orElseThrow(() -> new Failure(CORRUPT));
         check(form.size()==1 && form.get(0).quizRevisionId().equals(revision.id()) && !form.get(0).items().isEmpty(),CORRUPT);
         var fixed=form.get(0);
-        check(fixed.items().stream().map(i->i.sourceItemId()).collect(Collectors.toSet())
-                .equals(revision.items().stream().map(i->i.id()).collect(Collectors.toSet())),CORRUPT);
+        if (p.content().formMode() == FormMode.PROGRESSIVE) {
+            var path = branches.head(s.attemptId(), s.formId(), s.quizRevisionId(), s.policySnapshotId());
+            check(revision.scenarioGraph() != null && path.formVersion() == fixed.items().size()
+                    && (path.terminalReady() || s.cause() == AttemptSubmissionRepository.Cause.EXPIRY), CORRUPT);
+        } else {
+            check(fixed.items().stream().map(i->i.sourceItemId()).collect(Collectors.toSet())
+                    .equals(revision.items().stream().map(i->i.id()).collect(Collectors.toSet())),CORRUPT);
+        }
         var resolved=contracts.resolve(h.revisionOwnerId(),revision.id());
         var responses=repository.responses(s.attemptId());
         check(s.acceptedCount()==responses.size() && (long)s.acceptedCount()+s.unansweredCount()==fixed.items().size()

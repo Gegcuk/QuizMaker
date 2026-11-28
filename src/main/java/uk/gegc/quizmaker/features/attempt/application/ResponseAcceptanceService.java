@@ -12,6 +12,8 @@ import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
  */
 public interface ResponseAcceptanceService {
     Result accept(Command command);
+    /** Internal scenario command. Public controllers call the fixed-form operation. */
+    interface Scenario { Result acceptBranch(Command command); }
     record Command(UUID attemptId, UUID formItemId, long expectedStateVersion, CommandReceipt.Key key,
                    QuestionType type, JsonNode response) {
         @Override public String toString() { return "ResponseAcceptanceCommand[redacted]"; }

@@ -3,7 +3,6 @@ package uk.gegc.quizmaker.features.result.application.impl;
 import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransactions;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.*;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.time.Clock;
@@ -18,11 +17,8 @@ import uk.gegc.quizmaker.features.attempt.domain.model.trace.ExecutionTrace;
 import uk.gegc.quizmaker.features.attempt.domain.model.snapshot.PolicySnapshotException;
 import uk.gegc.quizmaker.features.attempt.domain.model.response.ResponseAcceptanceException;
 import uk.gegc.quizmaker.features.question.application.QuestionContractException;
-import uk.gegc.quizmaker.features.question.application.contract.ResolvedQuestionContracts;
 import uk.gegc.quizmaker.features.question.application.contract.v1.SupportedQuestionContracts;
-import uk.gegc.quizmaker.features.question.domain.model.QuestionType;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
-import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision;
 import uk.gegc.quizmaker.features.result.application.AutomaticResultService;
 import uk.gegc.quizmaker.features.result.domain.model.*;
 import uk.gegc.quizmaker.features.result.domain.repository.AutomaticResultRepository;
@@ -71,7 +67,9 @@ public class AutomaticResultServiceImpl implements AutomaticResultService {
                     try { response=JSON.readTree(answer.normalizedResponse()); }
                     catch(JsonProcessingException invalid) { throw new AutomaticResultException(CORRUPT); }
                     contracts.response().validate(q,response);
-                    validateAcceptedBinding(q,contracts,response);
+                    try { StableResponseNormalizer.validateAcceptedBinding(q,contracts,response); }
+                    catch (ResponseAcceptanceException invalid) { throw new AutomaticResultException(
+                            invalid.reason() == ResponseAcceptanceException.Reason.UNSUPPORTED ? UNSUPPORTED : CORRUPT); }
                     var score=contracts.scoring().score(q,response);
                     require(score.possible().compareTo(java.math.BigDecimal.ONE)==0,UNSUPPORTED);
                     points=score.earned().intValueExact(); require(points==0 || points==1,UNSUPPORTED);
@@ -90,44 +88,6 @@ public class AutomaticResultServiceImpl implements AutomaticResultService {
             results.enqueue(result);
             return result;
         });
-    }
-    private static void validateAcceptedBinding(QuestionRevision q,ResolvedQuestionContracts contracts,JsonNode response) {
-        // Reverse only the frozen source-key adapter, then use the SAME canonicalization and
-        // membership validation as #543. This preserves accepted empty/partial/duplicate-order
-        // semantics while rejecting stored values the actual accepting writer cannot produce.
-        var stable=((ObjectNode)response).deepCopy();
-        var ids=q.options().stream().collect(Collectors.toMap(o->o.sourceKey(),o->o.id().toString()));
-        java.util.function.Function<JsonNode,String> id=key->{
-            String value=ids.get(key.asText()); require(value!=null,CORRUPT); return value;
-        };
-        switch(q.type()) {
-            case MCQ_SINGLE -> stable.put("selectedOptionId",id.apply(response.get("selectedOptionId")));
-            case HOTSPOT -> stable.put("selectedRegionId",id.apply(response.get("selectedRegionId")));
-            case MCQ_MULTI, ORDERING -> {
-                String field=q.type()==QuestionType.MCQ_MULTI?"selectedOptionIds":"orderedItemIds";
-                var values=stable.putArray(field); response.get(field).forEach(key->values.add(id.apply(key)));
-            }
-            case COMPLIANCE -> {
-                var values=stable.putArray("selectedStatementIds");
-                response.get("selectedStatementIds").forEach(key->values.add(id.apply(key)));
-            }
-            case TRUE_FALSE, FILL_GAP, OPEN -> { }
-            case MATCHING -> {
-                var matches=stable.putArray("matches");
-                for(var pair:response.path("matches")) {
-                    String left=ids.get("left/"+pair.path("leftId").asText());
-                    String right=ids.get("right/"+pair.path("rightId").asText());
-                    require(left!=null && right!=null,CORRUPT);
-                    matches.addObject().put("leftId",left).put("rightId",right);
-                }
-            }
-            default -> throw new AutomaticResultException(UNSUPPORTED);
-        }
-        try {
-            require(StableResponseNormalizer.bind(q,contracts,StableResponseNormalizer.canonical(q.type(),stable)).equals(response),CORRUPT);
-        } catch(ResponseAcceptanceException invalid) {
-            throw new AutomaticResultException(CORRUPT);
-        }
     }
     private static void verifyReplay(AutomaticResult r,SubmittedAttemptSource.Facts f) {
         var s=f.submission();

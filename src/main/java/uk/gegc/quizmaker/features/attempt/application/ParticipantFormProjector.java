@@ -25,7 +25,7 @@ public final class ParticipantFormProjector {
 
     public static ParticipantForm project(FixedForm form, QuizRevision revision, FormOptionOrder order,
                                          Map<UUID, ResolvedQuestionContracts> contracts) {
-        return project(form, revision, order, contracts, java.util.Set.of());
+        return project(form, revision, order, contracts, java.util.Set.of(), false);
     }
 
     /**
@@ -37,13 +37,19 @@ public final class ParticipantFormProjector {
                                                 Map<UUID, ResolvedQuestionContracts> contracts,
                                                 java.util.Set<UUID> mediaItems) {
         require(mediaItems != null, INVALID_INPUT);
-        return project(form, revision, order, contracts, mediaItems);
+        return project(form, revision, order, contracts, mediaItems, false);
+    }
+
+    /** Internal command validation of the committed scenario prefix. Never used by participant HTTP readers. */
+    public static ParticipantForm projectBranch(FixedForm form, QuizRevision revision, FormOptionOrder order,
+                                                Map<UUID, ResolvedQuestionContracts> contracts) {
+        return project(form, revision, order, contracts, java.util.Set.of(), true);
     }
 
     private static ParticipantForm project(FixedForm form, QuizRevision revision, FormOptionOrder order,
-                                          Map<UUID, ResolvedQuestionContracts> contracts, java.util.Set<UUID> mediaItems) {
+                                          Map<UUID, ResolvedQuestionContracts> contracts, java.util.Set<UUID> mediaItems, boolean branch) {
         require(form != null && revision != null && order != null && contracts != null, INVALID_INPUT);
-        require(revision.flat(), INPUT_MISMATCH);
+        require(branch ? revision.scenarioGraph() != null : revision.flat(), INPUT_MISMATCH);
         require(form.quizRevisionId().equals(revision.id()) && form.id().equals(order.formId()), INPUT_MISMATCH);
         require(form.items().size() == order.items().size(), INPUT_MISMATCH);
         var sources = new HashMap<UUID, QuizRevision.Item>();

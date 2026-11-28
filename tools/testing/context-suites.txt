@@ -103,6 +103,7 @@ uk/gegc/quizmaker/features/attempt/subject/AuthenticatedSubjectResolverMySqlInte
 uk/gegc/quizmaker/features/attempt/subject/AuthenticatedSubjectResolverWiringTest.java
 uk/gegc/quizmaker/features/attempt/submission/AttemptSubmissionMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/attempt/submission/AutomaticResultMySqlIntegrationTest.java
+uk/gegc/quizmaker/features/attempt/submission/BranchingAttemptMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/attempt/submission/ImmediateResultReleaseMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/attempt/trace/ExecutionTraceMySqlIntegrationTest.java
 uk/gegc/quizmaker/features/attempt/trace/TraceQueryMySqlIntegrationTest.java

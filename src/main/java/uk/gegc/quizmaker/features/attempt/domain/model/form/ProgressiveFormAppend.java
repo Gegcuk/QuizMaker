@@ -146,6 +146,6 @@ public final class ProgressiveFormAppend {
     private static void version(int value) { require(value == VERSION, UNSUPPORTED_VERSION); }
 
     private static void revisionVersion(int value) {
-        require(value >= 1 && value <= 3, UNSUPPORTED_REVISION_VERSION);
+        require(value >= 1 && value <= 4, UNSUPPORTED_REVISION_VERSION);
     }
 }

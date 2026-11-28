@@ -5,7 +5,11 @@ import java.util.UUID;
 
 public interface PolicySnapshotRepository {
     /** Current locking read after immutable insert/no-op; participates in the caller transaction. */
-    StoredSnapshot createOrReplay(UUID revisionOwnerId, StoredSnapshot snapshot);
+    default StoredSnapshot createOrReplay(UUID ownerId, StoredSnapshot snapshot) {
+        return createOrReplay(ownerId, snapshot, 1);
+    }
+
+    StoredSnapshot createOrReplay(UUID ownerId, StoredSnapshot snapshot, int revisionFormat);
 
     Optional<StoredSnapshot> findById(UUID revisionOwnerId, UUID snapshotId);
 

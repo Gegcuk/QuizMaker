@@ -104,7 +104,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         "spring.datasource.hikari.transaction-isolation=${result.test.isolation:TRANSACTION_REPEATABLE_READ}"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-@Import({uk.gegc.quizmaker.features.attempt.infra.repository.JdbcNavigationRepository.class, QuizRevisionPublicationServiceImpl.class, JdbcQuizPublicationRepository.class, JdbcQuizRevisionRepository.class,
+@Import({uk.gegc.quizmaker.features.attempt.infra.repository.JdbcBranchingRepository.class, uk.gegc.quizmaker.features.attempt.infra.repository.JdbcNavigationRepository.class, QuizRevisionPublicationServiceImpl.class, JdbcQuizPublicationRepository.class, JdbcQuizRevisionRepository.class,
         JdbcQuestionSourceScopeRepository.class, PublicationContent.class, RetainedImageServiceImpl.class,
         AppPermissionEvaluator.class, QuestionHandlerFactory.class,
         McqSingleHandler.class, McqMultiHandler.class, TrueFalseHandler.class, FillGapHandler.class, OrderingHandler.class,
@@ -515,7 +515,7 @@ class AutomaticResultMySqlIntegrationTest {
                 uk.gegc.quizmaker.features.question.domain.repository.QuestionContractBindingRepository.class),catalogue,manager);
         var sourceReader=new SubmittedAttemptSourceImpl(context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.SubmittedAttemptRepository.class),
                 lifecycle,context.getBean(PolicySnapshotService.class),context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.FixedFormRepository.class),
-                context.getBean(QuizRevisionRepository.class),contracts,manager);
+                context.getBean(QuizRevisionRepository.class),contracts,context.getBean(uk.gegc.quizmaker.features.attempt.domain.repository.BranchingRepository.class),manager);
         var unavailable=new AutomaticResultServiceImpl(sourceReader,context.getBean(AutomaticResultRepository.class),
                 context.getBean(ExecutionTraceService.class),context.getBean(Clock.class),metrics,manager);
         assertThatThrownBy(()->unavailable.finalizeSubmission(f.submission())).isInstanceOfSatisfying(AutomaticResultException.class,

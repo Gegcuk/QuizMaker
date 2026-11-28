@@ -10,6 +10,8 @@ import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt;
  */
 public interface AttemptSubmissionService {
     Result submit(Command command);
+    /** Internal scenario command. Public controllers call the fixed-form operation. */
+    interface Scenario { Result submitBranch(Command command); }
     record Command(UUID attemptId, long expectedStateVersion, boolean completionConfirmed, CommandReceipt.Key key) {
         @Override public String toString() { return "AttemptSubmissionCommand[redacted]"; }
     }

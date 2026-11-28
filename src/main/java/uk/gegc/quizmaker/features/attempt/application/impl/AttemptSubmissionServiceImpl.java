@@ -25,7 +25,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.submission.Attempt
 import static uk.gegc.quizmaker.features.attempt.domain.model.submission.AttemptSubmissionException.Reason.*;
 
 @Service
-public class AttemptSubmissionServiceImpl implements AttemptSubmissionService {
+public class AttemptSubmissionServiceImpl implements AttemptSubmissionService, AttemptSubmissionService.Scenario {
     private final TransactionTemplate read;
     private final AuthenticatedSubjectResolver identity;
     private final AttemptAccessService access;
@@ -44,7 +44,11 @@ public class AttemptSubmissionServiceImpl implements AttemptSubmissionService {
         this.identity = identity; this.access = access; this.answers = answers; this.lifecycle = lifecycle;
         this.facts = facts; this.finalizer = finalizer; this.terminal = terminal; this.receipts = receipts; this.metrics = metrics; this.clock = clock;
     }
-    @Override public Result submit(Command command) {
+    @Override public Result submit(Command command) { return submit(command, false); }
+
+    @Override public Result submitBranch(Command command) { return submit(command, true); }
+
+    private Result submit(Command command, boolean branch) {
         AttemptTransactions.requireCompatible(read.getTransactionManager(), true);
         Timer.Sample sample = null;
         try { sample = Timer.start(metrics); } catch (RuntimeException ignored) { /* optional telemetry */ }
@@ -72,8 +76,9 @@ public class AttemptSubmissionServiceImpl implements AttemptSubmissionService {
                 result = receipts.execute(request, () -> call.checked(() -> {
                     require(answers.lockOwnBinding(subject.userId(), command.attemptId()), NOT_FOUND);
                     lifecycle.lock(command.attemptId());
-                    return access.requireAccess(command.attemptId(), AttemptAccessService.Operation.ANSWER);
-                }), id -> call.checked(() -> submitFresh(command, id, receivedAt)));
+                    return branch ? access.requireBranchAccess(command.attemptId(), AttemptAccessService.Operation.ANSWER)
+                            : access.requireAccess(command.attemptId(), AttemptAccessService.Operation.ANSWER);
+                }), id -> call.checked(() -> submitFresh(command, id, receivedAt, branch)));
             } catch (ReceiptException rejected) {
                 if (call.failure != null && (rejected.reason() == ReceiptException.Reason.ACCESS_DENIED
                         || rejected.reason() == ReceiptException.Reason.COMMAND_DENIED)) throw call.failure;
@@ -90,9 +95,10 @@ public class AttemptSubmissionServiceImpl implements AttemptSubmissionService {
             catch (RuntimeException ignored) { /* telemetry cannot alter the transaction outcome */ }
         }
     }
-    private CommandReceipt.Acknowledgement submitFresh(Command command, java.util.UUID id, java.time.Instant receivedAt) {
-        var saved = facts.read(command.attemptId(), AttemptReadFactsService.Purpose.SUBMIT_ATTEMPT, receivedAt);
-        ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
+    private CommandReceipt.Acknowledgement submitFresh(Command command, java.util.UUID id, java.time.Instant receivedAt, boolean branch) {
+        var saved = facts.read(command.attemptId(), branch ? AttemptReadFactsService.Purpose.BRANCH_SUBMIT : AttemptReadFactsService.Purpose.SUBMIT_ATTEMPT, receivedAt);
+        if (branch) ParticipantFormProjector.projectBranch(saved.form(), saved.revision(), saved.order(), saved.contracts());
+        else ParticipantFormProjector.project(saved.form(), saved.revision(), saved.order(), saved.contracts());
         var completion = finalizer.prepare(saved, command.completionConfirmed());
         var current = saved.access().lifecycle();
         var decision = AttemptCommands.evaluate(new AttemptCommands.Command(1, AttemptCommands.Type.SUBMIT_ATTEMPT),

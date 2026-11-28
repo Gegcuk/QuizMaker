@@ -32,14 +32,18 @@ public class JdbcAttemptAccessRepository implements AttemptAccessRepository {
     public JdbcAttemptAccessRepository(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
 
     @Override public Optional<Evidence> lockEvidence(UUID attemptId, UUID trustedUserId) {
-        return lockEvidence(attemptId, trustedUserId, Kind.GRADED);
+        return lockEvidence(attemptId, trustedUserId, Kind.GRADED, false);
     }
 
     @Override public Optional<Evidence> lockUngradedEvidence(UUID attemptId, UUID trustedUserId) {
-        return lockEvidence(attemptId, trustedUserId, Kind.UNGRADED);
+        return lockEvidence(attemptId, trustedUserId, Kind.UNGRADED, false);
     }
 
-    private Optional<Evidence> lockEvidence(UUID attemptId, UUID trustedUserId, Kind activityKind) {
+    @Override public Optional<Evidence> lockBranchEvidence(UUID attemptId, UUID trustedUserId) {
+        return lockEvidence(attemptId, trustedUserId, Kind.GRADED, true);
+    }
+
+    private Optional<Evidence> lockEvidence(UUID attemptId, UUID trustedUserId, Kind activityKind, boolean branch) {
         try {
             var parameters = Map.of("attempt", attemptId.toString(), "user", trustedUserId.toString(),
                     "kind", activityKind.name());
@@ -72,10 +76,13 @@ public class JdbcAttemptAccessRepository implements AttemptAccessRepository {
                       AND l.activity_kind=:kind
                       AND s.schema_version=1 AND s.last_sequence>=2 AND f.schema_version=1
                       AND p.schema_version=1 AND p.resolver_version=1 AND p.canonical_version=1
-                      AND CAST(p.hash_algorithm AS BINARY)='SHA-256' AND r.schema_version=1
+                      AND CAST(p.hash_algorithm AS BINARY)='SHA-256' AND %s
                       AND l.lifecycle_version=1 AND l.row_version>=1 AND l.started_at IS NOT NULL
                     FOR SHARE
-                    """, parameters, (row, index) -> {
+                    """.formatted(branch ? """
+                        r.schema_version=4 AND EXISTS (SELECT 1 FROM attempt_branch_path bp
+                          WHERE bp.attempt_id=l.attempt_id AND bp.form_id=f.id AND bp.quiz_revision_id=r.id AND bp.policy_snapshot_id=p.id)
+                        """ : "r.schema_version=1"), parameters, (row, index) -> {
                 try {
                     var state = new AttemptLifecycle.State(row.getInt("lifecycle_version"),
                             AttemptLifecycle.Execution.valueOf(row.getString("execution_state")),

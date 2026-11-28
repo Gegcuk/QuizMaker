@@ -125,35 +125,7 @@ import static uk.gegc.quizmaker.features.attempt.domain.model.access.AttemptAcce
         "quizmaker.attempts.response-acceptance-enabled=true", "quizmaker.attempts.participant-view-enabled=true"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-@Import({uk.gegc.quizmaker.shared.config.TransactionConfig.class, AttemptExpiryServiceImpl.class, AttemptExpiryFactsServiceImpl.class, JdbcAttemptExpiryRepository.class,
-        SubmittedAttemptSourceImpl.class, JdbcSubmittedAttemptRepository.class,
-        uk.gegc.quizmaker.features.result.application.impl.AutomaticResultServiceImpl.class,
-        uk.gegc.quizmaker.features.result.infra.repository.JdbcAutomaticResultRepository.class,
-        uk.gegc.quizmaker.features.attempt.infra.repository.JdbcNavigationRepository.class, QuizRevisionPublicationServiceImpl.class, JdbcQuizPublicationRepository.class, JdbcQuizRevisionRepository.class,
-        JdbcQuestionSourceScopeRepository.class, PublicationContent.class, RetainedImageServiceImpl.class,
-        AppPermissionEvaluator.class, QuestionHandlerFactory.class,
-        McqSingleHandler.class, McqMultiHandler.class, TrueFalseHandler.class, FillGapHandler.class, OrderingHandler.class,
-        HotspotHandler.class, OpenQuestionHandler.class, MatchingHandler.class, ComplianceHandler.class,
-        QuestionContractRegistryImpl.class, QuestionRevisionContractServiceImpl.class, JdbcQuestionContractBindingRepository.class,
-        PublishedQuestionContractServiceImpl.class, BaselineQuestionContractConfig.class,
-        FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
-        JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
-        ResponseAcceptanceServiceImpl.class, JdbcAcceptedResponseRepository.class,
-        ResponseBatchAcceptanceServiceImpl.class, JdbcResponseBatchResultRepository.class,
-        AttemptSubmissionServiceImpl.class, AttemptTerminalSubmissionImpl.class, AcceptedSubmissionResponseFinalizer.class, JdbcAttemptSubmissionRepository.class,
-        AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, JdbcUngradedActivityRepository.class,
-        UngradedActivityServiceImpl.class, UngradedParticipantServiceImpl.class, ParticipantAttemptViewServiceImpl.class,
-        InitialParticipantViewMediaReader.class, JdbcAttemptViewRouteRepository.class, OpenQuestionContractConfig.class,
-        AttemptStartServiceImpl.class, uk.gegc.quizmaker.features.attempt.application.impl.AttemptTimingServiceImpl.class, uk.gegc.quizmaker.features.attempt.infra.repository.JdbcAttemptTimingRepository.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
-        AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
-        AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
-        JdbcPolicySnapshotRepository.class, QuestionSelectionServiceImpl.class,
-        uk.gegc.quizmaker.features.attempt.infra.selection.HmacSelectionSeedSource.class,
-        AttemptSubjectServiceImpl.class, JdbcAttemptSubjectRepository.class,
-        AttemptLifecycleServiceImpl.class, JdbcLifecycleStateRepository.class,
-        ExecutionTraceServiceImpl.class, JdbcExecutionTraceRepository.class,
-        CommandReceiptServiceImpl.class, JdbcCommandReceiptRepository.class,
-        AttemptSubmissionMySqlIntegrationTest.Config.class})
+@Import(AttemptSubmissionMySqlIntegrationTest.Config.class)
 class AttemptSubmissionMySqlIntegrationTest {
     @ParameterizedTest @ValueSource(ints = {-1, 1, 4, 8, 2})
     void rejectsIncompatibleCallerBeforeIdentityOrReservation(int isolation) {
@@ -238,6 +210,34 @@ class AttemptSubmissionMySqlIntegrationTest {
         @Override public Clock withZone(ZoneId zone) { return Clock.fixed(now,zone); }
         @Override public Instant instant() { return now; }
     }
+    @Import({uk.gegc.quizmaker.features.attempt.infra.repository.JdbcBranchingRepository.class, uk.gegc.quizmaker.shared.config.TransactionConfig.class, AttemptExpiryServiceImpl.class, AttemptExpiryFactsServiceImpl.class, JdbcAttemptExpiryRepository.class,
+            SubmittedAttemptSourceImpl.class, JdbcSubmittedAttemptRepository.class,
+            uk.gegc.quizmaker.features.result.application.impl.AutomaticResultServiceImpl.class,
+            uk.gegc.quizmaker.features.result.infra.repository.JdbcAutomaticResultRepository.class,
+            uk.gegc.quizmaker.features.attempt.infra.repository.JdbcNavigationRepository.class, QuizRevisionPublicationServiceImpl.class, JdbcQuizPublicationRepository.class, JdbcQuizRevisionRepository.class,
+            JdbcQuestionSourceScopeRepository.class, PublicationContent.class, RetainedImageServiceImpl.class,
+            AppPermissionEvaluator.class, QuestionHandlerFactory.class,
+            McqSingleHandler.class, McqMultiHandler.class, TrueFalseHandler.class, FillGapHandler.class, OrderingHandler.class,
+            HotspotHandler.class, OpenQuestionHandler.class, MatchingHandler.class, ComplianceHandler.class,
+            QuestionContractRegistryImpl.class, QuestionRevisionContractServiceImpl.class, JdbcQuestionContractBindingRepository.class,
+            PublishedQuestionContractServiceImpl.class, BaselineQuestionContractConfig.class,
+            FixedFormMaterializerImpl.class, FormOptionOrderServiceImpl.class,
+            JdbcFixedFormRepository.class, JdbcFormOptionOrderRepository.class,
+            ResponseAcceptanceServiceImpl.class, JdbcAcceptedResponseRepository.class,
+            ResponseBatchAcceptanceServiceImpl.class, JdbcResponseBatchResultRepository.class,
+            AttemptSubmissionServiceImpl.class, AttemptTerminalSubmissionImpl.class, AcceptedSubmissionResponseFinalizer.class, JdbcAttemptSubmissionRepository.class,
+            AttemptReadFactsServiceImpl.class, AttemptDeliveryServiceImpl.class, AttemptAccessServiceImpl.class, JdbcAttemptAccessRepository.class, JdbcUngradedActivityRepository.class,
+            UngradedActivityServiceImpl.class, UngradedParticipantServiceImpl.class, ParticipantAttemptViewServiceImpl.class,
+            InitialParticipantViewMediaReader.class, JdbcAttemptViewRouteRepository.class, OpenQuestionContractConfig.class,
+            AttemptStartServiceImpl.class, uk.gegc.quizmaker.features.attempt.application.impl.AttemptTimingServiceImpl.class, uk.gegc.quizmaker.features.attempt.infra.repository.JdbcAttemptTimingRepository.class, AttemptAllowanceServiceImpl.class, JdbcAttemptAllowanceRepository.class, RetakeEligibilityServiceImpl.class, PublicationAttemptEntryReader.class, QuizPracticeSourceServiceImpl.class, JdbcQuizPracticeSourceRepository.class,
+            AuthenticatedSubjectResolverImpl.class, AuthenticatedUserLookupImpl.class,
+            AttemptPresetServiceImpl.class, AttemptPolicyResolverImpl.class, PolicySnapshotServiceImpl.class,
+            JdbcPolicySnapshotRepository.class, QuestionSelectionServiceImpl.class,
+            uk.gegc.quizmaker.features.attempt.infra.selection.HmacSelectionSeedSource.class,
+            AttemptSubjectServiceImpl.class, JdbcAttemptSubjectRepository.class,
+            AttemptLifecycleServiceImpl.class, JdbcLifecycleStateRepository.class,
+            ExecutionTraceServiceImpl.class, JdbcExecutionTraceRepository.class,
+            CommandReceiptServiceImpl.class, JdbcCommandReceiptRepository.class})
     @TestConfiguration(proxyBeanMethods = false)
     @EnableAspectJAutoProxy
     static class Config {
@@ -1955,7 +1955,7 @@ class AttemptSubmissionMySqlIntegrationTest {
         return points.stream().flatMap(point->java.util.stream.IntStream.of(0,1205,1213)
                 .mapToObj(code->org.junit.jupiter.params.provider.Arguments.of(point,code)));
     }
-    private static final class TransactionLogs implements AutoCloseable {
+    static final class TransactionLogs implements AutoCloseable {
         final ch.qos.logback.classic.Logger root=(ch.qos.logback.classic.Logger)org.slf4j.LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
         final ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> events=new ch.qos.logback.core.read.ListAppender<>();
         final Map<ch.qos.logback.classic.Logger,ch.qos.logback.classic.Level> levels=new HashMap<>();

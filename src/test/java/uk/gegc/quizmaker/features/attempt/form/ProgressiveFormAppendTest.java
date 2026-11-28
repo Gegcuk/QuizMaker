@@ -226,14 +226,14 @@ class ProgressiveFormAppendTest {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {Integer.MIN_VALUE, -1, 0, 4, Integer.MAX_VALUE})
+    @ValueSource(ints = {Integer.MIN_VALUE, -1, 0, 5, Integer.MAX_VALUE})
     void unknownRevisionFormatsAreNotReinterpreted(int version) {
         rejected(() -> new Reference(id("form"), id("revision"), version), UNSUPPORTED_REVISION_VERSION);
         rejected(() -> scope(version), UNSUPPORTED_REVISION_VERSION);
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {1, 2, 3})
+    @ValueSource(ints = {1, 2, 3, 4})
     void deliveredRevisionFormatsAreReferencesWithoutActivatingTheirRuntime(int version) {
         var reference = new Reference(id("form"), id("revision"), version);
         assertThat(reference.revisionSchemaVersion()).isEqualTo(version);

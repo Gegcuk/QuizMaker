@@ -272,6 +272,7 @@ public class AttemptStartServiceImpl implements AttemptStartService {
         require(c.quizId() != null && c.content() != null && c.publicationVersion() > 0 && c.key() != null
                 && c.preset() != null && c.context() != null && c.legacyMode() != null && c.legacyMode().length() <= 32
                 && c.answerOrder() != null && c.navigation() != null && c.delivery() != null && c.selection() != null && c.attemptLimit() != null && c.timing() != null, INVALID_INPUT);
+        require(c.content().formMode() == FormMode.PRECOMPUTED, UNSUPPORTED_CAPABILITY);
     }
 
     private static CommandReceipt.Fingerprint fingerprint(Command c, UngradedConfiguration ungraded) {

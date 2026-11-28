@@ -5716,10 +5716,39 @@ Format 4 is available through the internal revision boundary. The existing publi
 participant APIs keep their current contracts. The shared fixed-form writer rejects format 4.
 The graph writer preserves structural identity and references, rejects malformed Unicode in
 the scenario snapshot, and keeps author text and option keys out of JDBC parameter diagnostics.
-#574 owns real execution and needs format 4
-support in its composition with the existing #661 append contract. Authoring transport, participant path disclosure and public
+Internal branching execution (#574) composes format 4 with the #661 append contract. Authoring transport, participant path disclosure and public
 conformance are later boundaries. Scenario revisions inherit the quiz revision retention class
 under #664. Recovery after graph writes uses forward fixes.
+
+### Durable branching decisions (#574)
+
+A trusted server launcher supplies an exact scenario revision for one authenticated graded attempt.
+It owns source admission and launch idempotency. Ordinary quiz publication maintains its own head.
+Inside the launcher's writable READ COMMITTED transaction, the branch service verifies the subject,
+quiz, owner, captured policy and started lifecycle. It binds a fresh progressive form and records
+the first question with the start trace. Graded completion needs at least one delivered item.
+A graph reaching a terminal before any item cannot start this graded execution.
+
+An advance identifies the attempt, command and expected lifecycle/form versions. Under the
+attempt's lifecycle lock, the server loads the sealed graph and applies its versioned rules.
+At a conditional fork, even the default edge needs a saved accepted response. A skip leaves the
+same question and versions available for retry. The scoring contract attached to the immutable
+question evaluates that response. Unconditional routing nodes require no response evidence.
+
+One transaction stores the input fingerprint, accepted response reference when applicable, ordered
+selected edges, trace event, and the new question with its stable form identity and option order.
+A terminal transition records readiness without appending a question. Exact replay returns the
+original decision after rechecking current authority. Resume reads the committed prefix. Both
+operations work without loading answers or rerunning scoring. The internal path response contains
+only delivered form-item IDs, the form version and terminal readiness.
+
+Voluntary submission requires terminal readiness, confirmation and the captured completion policy.
+Require-all and grading apply to the delivered questions. The existing deadline worker can expire
+an active prefix, including one still at a fork. Both finalization paths serialize on the same
+attempt. V136 adds the retained path and immutable decision/edge evidence for new scenario
+attempts. No historical bindings are inferred. Recovery after writes uses forward fixes under
+the attempt evidence retention rules (#664). Participant progress (#646), online activation
+and conformance (#670), authoring transport and offline eligibility remain separate.
 
 ### Executable graph publication validation (#573)
 

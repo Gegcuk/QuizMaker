@@ -10,6 +10,8 @@ public interface AttemptAccessRepository {
     Optional<Evidence> lockEvidence(UUID attemptId, UUID trustedUserId);
     Optional<Evidence> lockUngradedEvidence(UUID attemptId, UUID trustedUserId);
 
+    Optional<Evidence> lockBranchEvidence(UUID attemptId, UUID trustedUserId);
+
     record Evidence(UUID quizId, UUID contentOwnerId, UUID revisionId, UUID formId,
                     UUID policySnapshotId, LifecycleState lifecycle) {
         @Override public String toString() { return "AttemptAccessEvidence"; }
