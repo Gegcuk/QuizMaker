@@ -36,7 +36,7 @@ public class QuizPracticeSourceServiceImpl implements QuizPracticeSourceService 
         return new Access(quizId, quiz.ownerId(), owner, quiz.timerEnabled(), quiz.currentRevisionId(), quiz.publicationVersion());
     }
 
-    @Override public UUID lockParticipantAccess(UUID actor, UUID quizId, PermissionName operationPermission) {
+    @Override public ParticipantAccess lockParticipantAccess(UUID actor, UUID quizId, PermissionName operationPermission) {
         if (actor == null || quizId == null || (operationPermission != PermissionName.ATTEMPT_READ
                 && operationPermission != PermissionName.ATTEMPT_CREATE) || !source.lockActiveUser(actor)) {
             throw new PublicationException(UNAVAILABLE);
@@ -45,7 +45,7 @@ public class QuizPracticeSourceServiceImpl implements QuizPracticeSourceService 
         if (!permissions.contains(operationPermission.name())) throw new PublicationException(UNAVAILABLE);
         var quiz = source.lockQuiz(quizId).orElseThrow(() -> new PublicationException(UNAVAILABLE));
         if (!actor.equals(quiz.ownerId()) && !fullEditor(permissions)) throw new PublicationException(UNAVAILABLE);
-        return quiz.ownerId();
+        return new ParticipantAccess(quiz.ownerId(), permissions.contains(PermissionName.ATTEMPT_CREATE.name()));
     }
 
     private static boolean fullEditor(Set<String> permissions) {

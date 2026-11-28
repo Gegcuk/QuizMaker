@@ -21,7 +21,7 @@ import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
  */
 public interface AttemptReadFactsService {
     enum Purpose { ACTIVE_DELIVERY, PARTICIPANT_VIEW, ACCEPT_RESPONSE, SUBMIT_ATTEMPT, DRAFT_COMMAND,
-        NAVIGATION, UNGRADED_COMMAND }
+        NAVIGATION, UNGRADED_COMMAND, UNGRADED_VIEW }
     Facts read(UUID attemptId, Purpose purpose);
     /** Receipt time comes from the command's injected Clock before any database lock wait. */
     default Facts read(UUID attemptId, Purpose purpose, Instant serverReceivedAt) {

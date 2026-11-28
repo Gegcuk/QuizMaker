@@ -275,7 +275,7 @@ class ParticipantAttemptViewMySqlIntegrationTest {
         var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
         beans.registerSingleton("views", views);
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewController(beans.getBean(ParticipantAttemptViewService.class)))
+                new uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewController(beans.getBean(ParticipantAttemptViewService.class), java.util.Optional.empty()))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewErrorHandler())
                 .setMessageConverters(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(json)).build();
         String body = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
@@ -335,7 +335,7 @@ class ParticipantAttemptViewMySqlIntegrationTest {
         grant(user(other, true), "ATTEMPT_READ", "ATTEMPT_READ_ALL", "QUESTION_UPDATE", "QUESTION_ADMIN"); authenticate(other);
         var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory(); beans.registerSingleton("views", views);
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewController(beans.getBean(ParticipantAttemptViewService.class)))
+                new uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewController(beans.getBean(ParticipantAttemptViewService.class), java.util.Optional.empty()))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewErrorHandler()).build();
         for (var candidate : List.of(id, UUID.randomUUID())) {
             String body = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v2/attempts/{id}", candidate))
@@ -649,7 +649,7 @@ class ParticipantAttemptViewMySqlIntegrationTest {
         var restarted = reader(released, images, metrics);
         var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory(); beans.registerSingleton("views", restarted);
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
-                new uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewController(beans.getBean(ParticipantAttemptViewService.class)))
+                new uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewController(beans.getBean(ParticipantAttemptViewService.class), java.util.Optional.empty()))
                 .setControllerAdvice(new uk.gegc.quizmaker.features.attempt.api.ParticipantAttemptViewErrorHandler())
                 .setMessageConverters(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(json)).build();
         var body = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v2/attempts/{id}", id))

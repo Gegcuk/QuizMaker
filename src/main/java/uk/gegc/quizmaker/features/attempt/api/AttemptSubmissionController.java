@@ -5,8 +5,13 @@ import io.swagger.v3.oas.annotations.media.*;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
+import org.springframework.util.StringUtils;
+import org.springframework.web.context.request.WebRequest;
+import jakarta.validation.Validator;
+import java.util.Optional;
 import java.util.UUID;
+import uk.gegc.quizmaker.features.attempt.application.UngradedParticipantService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -20,7 +25,14 @@ import uk.gegc.quizmaker.features.attempt.domain.model.receipt.CommandReceipt;
 @ConditionalOnProperty(name = "quizmaker.attempts.submission-enabled", havingValue = "true")
 public class AttemptSubmissionController {
     private final AttemptSubmissionService submissions;
-    public AttemptSubmissionController(AttemptSubmissionService submissions) { this.submissions = submissions; }
+    private final Optional<UngradedParticipantService> ungraded;
+    private final Validator validator;
+
+    public AttemptSubmissionController(AttemptSubmissionService submissions, Optional<UngradedParticipantService> ungraded, Validator validator) {
+        this.submissions = submissions;
+        this.ungraded = ungraded;
+        this.validator = validator;
+    }
     @PostMapping(value = "/{attemptId}/submit", consumes = "application/json", produces = "application/json")
     @Operation(operationId = "submitAttempt", summary = "Submit an attempt once",
             description = "Online authenticated flat untimed immediate-lock practice. Requires ATTEMPT_CREATE, the bound participant and current quiz ownership/full question editing authority. " +
@@ -30,6 +42,8 @@ public class AttemptSubmissionController {
                     "Identical retries return the original submission/version after current authorization; changed input or fresh terminal submission conflicts. " +
                     "After an unknown outcome, reconcile by resending the exact same command/key; no automatic retries. The response is not a grading or release acknowledgement. " +
                     "No partial writes, offline mutations or new guest/assignment/timing support. Disabled by default until #609; legacy /complete and existing web/iOS contracts are unchanged.",
+            parameters = @Parameter(name = "Idempotency-Key", in = ParameterIn.HEADER, required = true,
+                    description = "Exact opaque command identity; do not reuse for different input", schema = @Schema(type = "string")),
             security = @SecurityRequirement(name = "bearerAuth"))
     @ApiResponse(responseCode = "200", description = "Committed submission or identical replay", content = @Content(
             schema = @Schema(implementation = AttemptSubmitAcknowledgement.class), examples = @ExampleObject(value = """
@@ -42,14 +56,18 @@ public class AttemptSubmissionController {
     @ApiResponse(responseCode = "422", description = "Incomplete required answers, confirmation required or unsupported saved capability", content = @Content(schema = @Schema(implementation = AttemptSubmitProblem.class)))
     @ApiResponse(responseCode = "500", description = "Corrupt server evidence; no partial writes", content = @Content(schema = @Schema(implementation = AttemptSubmitProblem.class)))
     @ApiResponse(responseCode = "503", description = "Unavailable, fully rolled-back retryable conflict or unknown commit outcome; keep command identity", content = @Content(schema = @Schema(implementation = AttemptSubmitProblem.class)))
-    public ResponseEntity<AttemptSubmitAcknowledgement> submit(@PathVariable UUID attemptId,
-            @RequestHeader("Idempotency-Key") String key,
+    public ResponseEntity<?> submit(@PathVariable UUID attemptId,
+            WebRequest http,
             @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true, content = @Content(
                     schema = @Schema(implementation = AttemptSubmitRequest.class), examples = @ExampleObject(value = """
                     {"expectedStateVersion":9,"completionConfirmed":true}
-                    """))) @Valid @RequestBody AttemptSubmitRequest request, org.springframework.validation.BindingResult validation) {
-        if (validation.hasErrors()) throw new AttemptSubmissionJsonConfig.InvalidRequest();
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(AttemptSubmitAcknowledgement.from(submissions.submit(
-                new AttemptSubmissionService.Command(attemptId, request.expectedStateVersion(), request.completionConfirmed(), CommandReceipt.Key.from(key)))));
+                    """))) @RequestBody AttemptSubmitRequest request) {
+        if (!validator.validate(request).isEmpty()) throw new AttemptSubmissionJsonConfig.InvalidRequest();
+        var key = CommandReceipt.Key.from(StringUtils.arrayToCommaDelimitedString(http.getHeaderValues("Idempotency-Key")));
+        var command = new AttemptSubmissionService.Command(attemptId, request.expectedStateVersion(),
+                request.completionConfirmed(), key);
+        var completion = ungraded.flatMap(service -> service.submit(command));
+        if (completion.isPresent()) return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(completion.get());
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(AttemptSubmitAcknowledgement.from(submissions.submit(command)));
     }
 }

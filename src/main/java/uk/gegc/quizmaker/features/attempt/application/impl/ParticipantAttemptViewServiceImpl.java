@@ -4,7 +4,6 @@ import uk.gegc.quizmaker.features.attempt.application.transaction.AttemptTransac
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.util.*;
-import java.util.stream.Collectors;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -67,29 +66,13 @@ public class ParticipantAttemptViewServiceImpl implements ParticipantAttemptView
         var saved = facts.read(attemptId, AttemptReadFactsService.Purpose.PARTICIPANT_VIEW);
         var granted = saved.access();
         var lifecycle = granted.lifecycle();
-        var sources = saved.revision().items().stream().collect(Collectors.toMap(i -> i.id(), i -> i.question()));
-        // Validate the complete immutable form even when its content must be withheld.
-        var allMediaIds = saved.form().items().stream().filter(i -> {
-            var q = sources.get(i.sourceItemId()); return q != null && q.attachmentAssetId() != null;
-        }).map(uk.gegc.quizmaker.features.attempt.domain.model.form.FixedForm.Item::id).collect(Collectors.toSet());
-        var projected = ParticipantFormProjector.projectForView(saved.form(), saved.revision(), saved.order(), saved.contracts(), allMediaIds);
+        var projected = ParticipantViewItems.project(saved);
         var disclosed = disclosure.project(saved);
         var visibility = disclosed.visibility();
         if (visibility == null) throw new AttemptDeliveryException(CORRUPT);
         List<ParticipantAttemptView.Item> items = null;
         if (visibility == VISIBLE) {
-            var visible = projected.items().stream().filter(item -> lifecycle.state().terminal() || saved.visible(item.id()))
-                    .map(uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm.Item::id).collect(Collectors.toSet());
-            var images = ParticipantFormMedia.read(media, attemptId, saved.form(), saved.revision(), projected, visible, lifecycle.state().terminal());
-            var attachments = images.entrySet().stream().filter(e -> e.getKey().optionId() == null)
-                    .collect(Collectors.toMap(e -> e.getKey().formItemId(), Map.Entry::getValue));
-            var permitted = new uk.gegc.quizmaker.features.attempt.domain.model.form.ParticipantForm(projected.id(), projected.schemaVersion(),
-                    projected.items().stream().filter(item -> visible.contains(item.id())).toList());
-            items = AttemptFormResponse.items(permitted, images).stream().map(item -> {
-                var image = attachments.get(item.id());
-                return new ParticipantAttemptView.Item(item.id(), item.position(), item.type(), item.questionText(), item.content(),
-                        image == null ? null : new ParticipantAttemptView.Image(image.availability(), image.url()));
-            }).toList();
+            items = ParticipantViewItems.visible(attemptId, saved, projected, media);
         }
         var context = new AttemptCommands.Context(AttemptCommands.Access.VERIFIED, saved.policy(), lifecycle.state(),
                 granted.stateVersion(), null, null);

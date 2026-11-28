@@ -55,6 +55,10 @@ public class ResponseAcceptanceJsonConfig implements WebMvcConfigurer {
                 text.setCoercion(shape, com.fasterxml.jackson.databind.cfg.CoercionAction.Fail);
             // Sanitize at the parser boundary, before HandlerMethod can log argument-resolution failures.
             converters.add(0, new MappingJackson2HttpMessageConverter(strict) {
+                @Override protected ObjectReader customizeReader(ObjectReader reader, JavaType type) {
+                    return type.hasRawClass(AcceptResponseRequest.class)
+                            ? reader.with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS) : reader;
+                }
                 @Override public boolean canRead(Class<?> type, MediaType media) {
                     return (type == AcceptResponseRequest.class || type == SaveDraftRequest.class || type == NavigationRequest.class || type == NextAttemptItemRequest.class) && super.canRead(type, media);
                 }

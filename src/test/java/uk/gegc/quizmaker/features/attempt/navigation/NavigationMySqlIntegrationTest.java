@@ -991,7 +991,7 @@ class NavigationMySqlIntegrationTest {
     private org.springframework.test.web.servlet.MockMvc currentItemHttp() {
         return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
                         new AttemptFormController(delivery), new NavigationController(navigation),
-                        new ParticipantAttemptViewController(context.getBean(ParticipantAttemptViewService.class)))
+                        new ParticipantAttemptViewController(context.getBean(ParticipantAttemptViewService.class), java.util.Optional.empty()))
                 .setControllerAdvice(new AttemptDeliveryErrorHandler(), new NavigationErrorHandler()).build();
     }
 

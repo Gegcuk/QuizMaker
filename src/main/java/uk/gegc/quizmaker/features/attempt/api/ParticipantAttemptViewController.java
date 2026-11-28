@@ -9,7 +9,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.Optional;
 import java.util.UUID;
+import uk.gegc.quizmaker.features.attempt.application.UngradedParticipantService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ProblemDetail;
@@ -25,7 +27,10 @@ import uk.gegc.quizmaker.features.attempt.application.ParticipantAttemptViewServ
 public class ParticipantAttemptViewController {
     private final ParticipantAttemptViewService views;
 
-    public ParticipantAttemptViewController(ParticipantAttemptViewService views) {
+    private final Optional<UngradedParticipantService> ungraded;
+
+    public ParticipantAttemptViewController(ParticipantAttemptViewService views, Optional<UngradedParticipantService> ungraded) {
+        this.ungraded = ungraded;
         this.views = views;
     }
 
@@ -67,10 +72,12 @@ public class ParticipantAttemptViewController {
     @ApiResponse(responseCode = "500", description = "Corrupt target evidence; no partial view", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "503", description = "Target read temporarily unavailable; no partial view", content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     @GetMapping("/{attemptId}")
-    public ResponseEntity<ParticipantAttemptView> getAttempt(
+    public ResponseEntity<?> getAttempt(
             @Parameter(description = "UUID of the attempt to retrieve", required = true)
-            @PathVariable UUID attemptId
+            @PathVariable UUID attemptId, jakarta.servlet.http.HttpServletRequest request
     ) {
+        var view = ungraded.flatMap(service -> service.read(attemptId, !request.getParameterMap().isEmpty()));
+        if (view.isPresent()) return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(view.get());
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(views.read(attemptId));
     }
 

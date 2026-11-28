@@ -2,6 +2,7 @@ package uk.gegc.quizmaker.features.attempt.domain.model.activity;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
@@ -137,15 +138,14 @@ public final class ActivityContract {
         require(policy != null && current != null && facts != null, INVALID_INPUT);
         require(inProgress(current), NOT_IN_PROGRESS);
         require(facts.explicitFinalSubmit(), FINAL_SUBMIT_REQUIRED);
-        var allowed = new HashSet<UUID>();
-        var required = new HashSet<UUID>();
+        var unmatchedParticipation = new HashSet<>(facts.participatedItems());
+        var missing = new ArrayList<UUID>();
         for (var item : policy.participation().items()) {
-            allowed.add(item.formItemId());
-            if (item.required()) required.add(item.formItemId());
+            boolean participated = unmatchedParticipation.remove(item.formItemId());
+            if (item.required() && !participated) missing.add(item.formItemId());
         }
-        var participated = new HashSet<>(facts.participatedItems());
-        require(allowed.containsAll(participated), CONTRADICTORY_STATE);
-        require(participated.containsAll(required), PARTICIPATION_REQUIRED);
+        require(unmatchedParticipation.isEmpty(), CONTRADICTORY_STATE);
+        if (!missing.isEmpty()) throw new ActivityContractException(PARTICIPATION_REQUIRED, missing);
         return new Completed(VERSION, facts.occurredAt());
     }
 

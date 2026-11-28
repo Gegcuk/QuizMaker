@@ -20,7 +20,10 @@ public interface UngradedActivityService {
         @Override public String toString() { return "UngradedResponseCommand[redacted]"; }
     }
 
-    record Submit(UUID attemptId, long expectedStateVersion, Key key) {
+    record Submit(UUID attemptId, long expectedStateVersion, Key key, boolean confirmed) {
+        public Submit(UUID attemptId, long expectedStateVersion, Key key) {
+            this(attemptId, expectedStateVersion, key, true);
+        }
         @Override public String toString() { return "UngradedSubmitCommand[redacted]"; }
     }
 
