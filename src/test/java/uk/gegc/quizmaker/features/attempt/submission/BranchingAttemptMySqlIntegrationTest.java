@@ -14,6 +14,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
@@ -77,7 +78,9 @@ import uk.gegc.quizmaker.features.attempt.infra.policy.CanonicalPolicyFormat;
 import uk.gegc.quizmaker.features.category.domain.model.Category;
 import uk.gegc.quizmaker.features.category.domain.repository.CategoryRepository;
 import uk.gegc.quizmaker.features.question.application.QuestionRevisionContractService;
-import uk.gegc.quizmaker.features.question.application.contract.v1.BaselineQuestionContracts;
+import uk.gegc.quizmaker.features.question.application.contract.v1.SupportedQuestionContracts;
+import uk.gegc.quizmaker.features.question.config.ComplianceQuestionContractConfig;
+import uk.gegc.quizmaker.features.question.config.MatchingQuestionContractConfig;
 import uk.gegc.quizmaker.features.question.domain.model.*;
 import uk.gegc.quizmaker.features.quiz.application.QuizScenarioRevisionService;
 import uk.gegc.quizmaker.features.quiz.application.impl.QuizScenarioRevisionServiceImpl;
@@ -107,7 +110,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import({AttemptSubmissionMySqlIntegrationTest.Config.class, QuizScenarioRevisionServiceImpl.class,
         BranchingAttemptServiceImpl.class, BranchParticipantServiceImpl.class, BranchingAttemptMySqlIntegrationTest.ReviewConfig.class,
         ImmediateResultReleaseServiceImpl.class, ParticipantResultServiceImpl.class, ResultDisclosureServiceImpl.class,
-        JdbcResultReleaseRepository.class, JdbcResultNotificationEventRepository.class})
+        JdbcResultReleaseRepository.class, JdbcResultNotificationEventRepository.class,
+        MatchingQuestionContractConfig.class, ComplianceQuestionContractConfig.class})
 class BranchingAttemptMySqlIntegrationTest {
     @TestConfiguration(proxyBeanMethods = false)
     static class ReviewConfig {
@@ -246,7 +250,7 @@ class BranchingAttemptMySqlIntegrationTest {
         var graph = new ScenarioGraph(1, entry, nodes, edges);
         var revision = publisher.publish(ownerId, new QuizRevision(UUID.randomUUID(), quizId, ownerId, 4,
                 "Scenario", null, clock.instant(), items, List.of(), List.of(), graph));
-        contracts.bind(ownerId, revision.id(), items.stream().map(i -> BaselineQuestionContracts.binding(i.question())).toList());
+        contracts.bind(ownerId, revision.id(), items.stream().map(i -> SupportedQuestionContracts.binding(i.question())).toList());
         return revision;
     }
     private static ScenarioGraph.Edge edge(UUID from, UUID to) {
@@ -571,6 +575,92 @@ class BranchingAttemptMySqlIntegrationTest {
             assertThat(result.outcome()).isEqualTo(APPENDED);
             assertThat(branches.advance(command)).isEqualTo(result);
             assertThat(branches.resume(start.attempt()).deliveredFormItems()).containsExactly(start.first(), result.formItemId());
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = QuestionType.class, names = {"MATCHING", "COMPLIANCE"})
+    void httpRejectsUnsupportedInlineMediaBeforeCommittingBranchProgress(QuestionType type) throws Exception {
+        var revision = publishGraph(List.of(trueFalseQuestion("Fork", null), inlineMediaQuestion(type, true),
+                trueFalseQuestion("Practice", null)), 1);
+        var start = launch(revision, false);
+        var path = "/api/v2/attempts/" + start.attempt();
+        var mvc = participantHttp();
+        var accepted = http(mvc, command(path + "/responses", UUID.randomUUID(), answerBody(start.first(), 1, true)), 200);
+        var before = http(mvc, get(path), 200);
+        var request = advanceBody(accepted.path("stateVersion").asLong(), 1);
+        var key = UUID.randomUUID();
+
+        assertThat(http(mvc, command(path + "/branch-progress/next", key, request), 422).path("code").asText())
+                .isEqualTo("BRANCH_UNSUPPORTED");
+        assertThat(http(mvc, command(path + "/branch-progress/next", key, request), 422).path("code").asText())
+                .isEqualTo("BRANCH_UNSUPPORTED");
+        assertThat(http(mvc, get(path), 200)).isEqualTo(before);
+        assertThat(count("attempt_form_item", "form_id", start.admission().formId())).isOne();
+        assertThat(count("attempt_form_item_option_order", "form_id", start.admission().formId())).isOne();
+        assertThat(count("attempt_branch_decision", "decision_id", key)).isZero();
+        assertThat(count("attempt_branch_edge", "decision_id", key)).isZero();
+        assertThat(count("attempt_trace_event", "command_id", key)).isZero();
+        assertThat(count("attempt_accepted_response", "attempt_id", start.attempt())).isOne();
+
+        var textRevision = publishGraph(List.of(trueFalseQuestion("Fork", null), inlineMediaQuestion(type, false),
+                trueFalseQuestion("Practice", null)), 1);
+        var textStart = launch(textRevision, false);
+        var textPath = "/api/v2/attempts/" + textStart.attempt();
+        var textAnswer = http(mvc, command(textPath + "/responses", UUID.randomUUID(), answerBody(textStart.first(), 1, true)), 200);
+        var textRequest = advanceBody(textAnswer.path("stateVersion").asLong(), 1);
+        var textKey = UUID.randomUUID();
+        var next = http(mvc, command(textPath + "/branch-progress/next", textKey, textRequest), 200);
+        assertThat(next.path("outcome").asText()).isEqualTo("APPENDED");
+        assertThat(http(mvc, command(textPath + "/branch-progress/next", textKey, textRequest), 200)).isEqualTo(next);
+        var view = http(mvc, get(textPath), 200);
+        assertThat(view.at("/items/1/type").asText()).isEqualTo(type.name());
+        assertThat(view.at("/items/1/id")).isEqualTo(next.path("formItemId"));
+    }
+
+    private QuestionRevision inlineMediaQuestion(QuestionType type, boolean withImage) {
+        String media = withImage ? """
+                ,"media":{"assetId":"%s","width":64,"height":32,"mimeType":"image/png"}
+                """.formatted(UUID.randomUUID()) : "";
+        String content;
+        List<String> keys;
+        if (type == QuestionType.MATCHING) {
+            content = """
+                    {"left":[{"id":1,"matchId":3,"text":"A"%s},{"id":2,"matchId":4,"text":"B"}],
+                     "right":[{"id":3,"text":"C"},{"id":4,"text":"D"}]}
+                    """.formatted(media);
+            keys = List.of("left/1", "left/2", "right/3", "right/4");
+        } else {
+            content = """
+                    {"statements":[{"id":1,"text":"A","compliant":true%s},{"id":2,"text":"B","compliant":false}]}
+                    """.formatted(media);
+            keys = List.of("1", "2");
+        }
+        var options = new ArrayList<QuestionRevision.Option>();
+        for (String key : keys) options.add(new QuestionRevision.Option(UUID.randomUUID(), key, options.size()));
+        return new QuestionRevision(UUID.randomUUID(), UUID.randomUUID(), 1, type, Difficulty.EASY,
+                "Advanced", content, null, null, null, null, clock.instant(), options);
+    }
+
+    @Test void mvcTraceRedactsBranchAcknowledgementOnAdvanceAndExactReplay() throws Exception {
+        var start = launch(graph(), false);
+        var path = "/api/v2/attempts/" + start.attempt();
+        var mvc = participantHttp();
+        var accepted = http(mvc, command(path + "/responses", UUID.randomUUID(), answerBody(start.first(), 1, true)), 200);
+        var request = advanceBody(accepted.path("stateVersion").asLong(), 1);
+        var key = UUID.randomUUID();
+        var logger = "org.springframework.web.servlet.mvc.method.annotation.HttpEntityMethodProcessor";
+        try (var logs = new AttemptSubmissionMySqlIntegrationTest.TransactionLogs(logger)) {
+            var advanced = http(mvc, command(path + "/branch-progress/next", key, request), 200);
+            assertThat(advanced.path("outcome").asText()).isEqualTo("APPENDED");
+            String delivered = advanced.path("formItemId").asText();
+            assertThat(delivered).isNotBlank();
+            assertThat(http(mvc, command(path + "/branch-progress/next", key, request), 200)).isEqualTo(advanced);
+
+            var writes = logs.events.list.stream().filter(event -> event.getLoggerName().equals(logger))
+                    .map(event -> event.getFormattedMessage())
+                    .filter(message -> message.startsWith("Writing [BranchAdvanceAcknowledgement")).toList();
+            assertThat(writes).hasSize(2).allSatisfy(message -> assertThat(message).doesNotContain(delivered, "formItemId"));
         }
     }
 

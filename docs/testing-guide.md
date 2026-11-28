@@ -14,6 +14,11 @@ The HTTP integration uses the internal trusted admission fixture with real immut
 response, branch, submission, and release writers. It checks a lost-response replay, denied
 hidden or foreign targets, completion over the delivered path only, terminal readiness before
 explicit confirmation, corrupt persisted evidence, and committed-result disclosure.
+Unsupported images in matching options or compliance statements return 422 on first request
+and retry. Fresh reads verify the previously delivered path and accepted answer remain, with
+no new append, decision, edge, or trace event. Text-only controls advance and resume. MVC
+TRACE captures the acknowledgement on success and exact replay and verifies it hides the
+delivered item identity while the HTTP body retains it.
 The read records SQL counts for different committed prefix lengths. OpenAPI checks cover the
 named progress and command schemas in the full and grouped specs and the authentication boundary.
 Run the full four-worker verification on the final inputs before publishing the issue branch.

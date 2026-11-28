@@ -11,4 +11,6 @@ public record BranchAdvanceAcknowledgement(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") long formVersion,
         @Schema(description = "Delivered form-item UUID. Absent at terminal readiness.") UUID formItemId) {
     public enum Outcome { APPENDED, TERMINAL_READY }
+
+    @Override public String toString() { return "BranchAdvanceAcknowledgement"; }
 }

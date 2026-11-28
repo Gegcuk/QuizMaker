@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static uk.gegc.quizmaker.features.attempt.domain.model.form.FormMaterializationException.Reason.*;
 import static uk.gegc.quizmaker.features.attempt.domain.model.form.FormMaterializationException.require;
@@ -72,10 +73,16 @@ public final class ParticipantFormProjector {
         return new ParticipantForm(form.id(), form.schemaVersion(), result);
     }
 
-    /** Uses the same participant projection as answer acceptance and final submission. */
-    public static ParticipantContent projectCommandContent(QuestionRevision question, ResolvedQuestionContracts contracts,
-                                                           List<UUID> optionIds) {
-        return projectContent(question, contracts, optionIds, false);
+    /** A new scenario item must be renderable by the text-only participant delivery boundary. */
+    public static void requireBranchDelivery(QuestionRevision question, ResolvedQuestionContracts contracts,
+                                             List<UUID> optionIds) {
+        var content = projectContent(question, contracts, optionIds, false);
+        boolean requiresMedia = content instanceof ParticipantContent.Hotspot
+                || (content instanceof ParticipantContent.Matching matching
+                    && Stream.concat(matching.left().stream(), matching.right().stream()).anyMatch(option -> option.image() != null))
+                || (content instanceof ParticipantContent.Compliance compliance
+                    && compliance.statements().stream().anyMatch(statement -> statement.image() != null));
+        require(!requiresMedia, UNSUPPORTED_MEDIA);
     }
 
     private static ParticipantContent projectContent(QuestionRevision question, ResolvedQuestionContracts pair,

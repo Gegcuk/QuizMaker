@@ -5769,7 +5769,10 @@ or authoring route is added. Public flow conformance and activation belong to #6
   the expected attempt and form versions. A committed transition returns `APPENDED` and its
   delivered item ID or `TERMINAL_READY` with no item. Exact replay returns the original
   acknowledgement after current authorization. An unanswered fork returns 409 without a
-  decision. Resolve an unknown commit by replaying the exact command.
+  decision. The initial scenario renderer supports text-only content. A selected question
+  requiring unavailable media support returns 422 before any append, decision, or trace
+  write. The previous committed path and accepted answer remain readable. Resolve an unknown
+  commit by replaying the exact command.
 - `/responses` and `/submit` keep their existing v2 command representation and receipt rules.
   The scenario writer enforces membership in the delivered form and checks terminal readiness,
   explicit confirmation, any deadline, and saved require-all on voluntary submit. The expiry
