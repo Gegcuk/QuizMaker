@@ -12,6 +12,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Propagation;
@@ -72,6 +73,7 @@ class ProviderUsageServiceMySqlIntegrationTest {
     @Autowired private QuizGenerationJobRepository jobRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private MeterRegistry meterRegistry;
+    @Autowired private JdbcTemplate jdbc;
 
     private UUID jobId;
     private UUID userId;
@@ -148,6 +150,80 @@ class ProviderUsageServiceMySqlIntegrationTest {
         assertThat(usageRepository.countByJobId(job.getId())).isEqualTo(1L);
         assertThat(usageRepository.findByJobIdAndProviderAttemptId(job.getId(), providerAttemptId).orElseThrow()
                 .getRecordState()).isIn(ProviderUsageRecordState.REPORTED, ProviderUsageRecordState.MISSING);
+    }
+
+    @Test
+    @DisplayName("Concurrent token reports commit evidence on the exact conflicted attempt")
+    void concurrentTokenReportsLeaveOneInvestigableConflict() throws Exception {
+        UUID generationJobId = persistJob().getId();
+        UUID conflictedAttempt = UUID.randomUUID();
+        UUID independentAttempt = UUID.randomUUID();
+        providerUsageService.recordStarted(generationJobId, conflictedAttempt);
+        providerUsageService.recordStarted(generationJobId, independentAttempt);
+        providerUsageService.recordReported(generationJobId, independentAttempt, 11L);
+        CyclicBarrier barrier = new CyclicBarrier(2);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<ProviderUsageRecordResult>> futures = List.of(
+                    executor.submit(() -> recordAfterBarrier(barrier, generationJobId, conflictedAttempt, 37L)),
+                    executor.submit(() -> recordAfterBarrier(barrier, generationJobId, conflictedAttempt, 99L)));
+            int recorded = 0;
+            int rejected = 0;
+            for (var future : futures) {
+                try {
+                    assertThat(future.get(5, TimeUnit.SECONDS)).isEqualTo(ProviderUsageRecordResult.RECORDED);
+                    recorded++;
+                } catch (ExecutionException e) {
+                    assertThat(e.getCause()).isInstanceOf(IllegalStateException.class)
+                            .hasMessage("Provider attempt already has a different terminal fact");
+                    rejected++;
+                }
+            }
+            assertThat(recorded).isEqualTo(1);
+            assertThat(rejected).isEqualTo(1);
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+
+        var accepted = usageRepository.findByJobIdAndProviderAttemptId(generationJobId, conflictedAttempt).orElseThrow();
+        long acceptedTokens = accepted.getProviderLlmTokens();
+        assertThat(acceptedTokens).isIn(37L, 99L);
+        assertThat(accepted.getRecordState()).isEqualTo(ProviderUsageRecordState.REPORTED);
+        long rejectedTokens = acceptedTokens == 37L ? 99L : 37L;
+        assertThat(accepted.getFirstConflictAt()).isNotNull();
+        assertThat(accepted.getConflictingRecordState()).isEqualTo(ProviderUsageRecordState.REPORTED);
+        assertThat(accepted.getConflictingProviderLlmTokens()).isEqualTo(rejectedTokens);
+        assertThat(providerUsageService.recordReported(generationJobId, conflictedAttempt, acceptedTokens))
+                .isEqualTo(ProviderUsageRecordResult.DUPLICATE);
+        assertThatThrownBy(() -> providerUsageService.recordReported(generationJobId, conflictedAttempt, rejectedTokens))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> providerUsageService.recordFailed(generationJobId, conflictedAttempt))
+                .isInstanceOf(IllegalStateException.class);
+
+        var conflicts = jdbc.queryForList("""
+                SELECT BIN_TO_UUID(job_id) AS job_id, BIN_TO_UUID(provider_attempt_id) AS provider_attempt_id,
+                       provider_llm_tokens, conflicting_provider_llm_tokens, first_conflict_at
+                FROM quiz_generation_provider_usage
+                WHERE first_conflict_at IS NOT NULL
+                ORDER BY first_conflict_at DESC, id DESC
+                LIMIT 50
+                """);
+        assertThat(conflicts).singleElement().satisfies(row -> assertThat(row)
+                .containsEntry("job_id", generationJobId.toString())
+                .containsEntry("provider_attempt_id", conflictedAttempt.toString())
+                .containsEntry("provider_llm_tokens", acceptedTokens)
+                .containsEntry("conflicting_provider_llm_tokens", rejectedTokens)
+                .containsKey("first_conflict_at"));
+        assertThat(usageRepository.findByJobIdAndProviderAttemptId(generationJobId, conflictedAttempt).orElseThrow()
+                .getFirstConflictAt()).isEqualTo(accepted.getFirstConflictAt());
+        assertThat(usageRepository.countByJobId(generationJobId)).isEqualTo(2);
+        assertThat(jobRepository.findById(generationJobId).orElseThrow())
+                .satisfies(job -> {
+                    assertThat(job.getProviderLlmTokens()).isEqualTo(acceptedTokens + 11L);
+                    assertThat(job.getProviderUsageState()).isEqualTo(ProviderUsageState.COMPLETE);
+                });
     }
 
     @Test

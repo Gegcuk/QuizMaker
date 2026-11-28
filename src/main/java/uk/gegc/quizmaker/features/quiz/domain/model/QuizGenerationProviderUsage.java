@@ -30,6 +30,8 @@ import java.util.UUID;
 @NoArgsConstructor
 public class QuizGenerationProviderUsage {
 
+    public enum TerminalOutcome { RECORDED, DUPLICATE, FIRST_CONFLICT, KNOWN_CONFLICT }
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
@@ -58,6 +60,16 @@ public class QuizGenerationProviderUsage {
 
     @Column(name = "terminal_at")
     private LocalDateTime terminalAt;
+
+    @Column(name = "first_conflict_at")
+    private LocalDateTime firstConflictAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "conflicting_record_state", length = 16)
+    private ProviderUsageRecordState conflictingRecordState;
+
+    @Column(name = "conflicting_provider_llm_tokens")
+    private Long conflictingProviderLlmTokens;
 
     private QuizGenerationProviderUsage(
             UUID jobId,
@@ -92,10 +104,10 @@ public class QuizGenerationProviderUsage {
         );
     }
 
-    public boolean transitionTo(
+    public TerminalOutcome recordTerminalFact(
             ProviderUsageRecordState terminalState,
             Long tokens,
-            LocalDateTime completedAt
+            LocalDateTime observedAt
     ) {
         Objects.requireNonNull(terminalState, "terminalState must not be null");
         if (terminalState == ProviderUsageRecordState.STARTED || terminalState == ProviderUsageRecordState.UNKNOWN) {
@@ -103,15 +115,21 @@ public class QuizGenerationProviderUsage {
         }
         validateTokens(terminalState, tokens);
         if (matches(terminalState, tokens)) {
-            return false;
+            return TerminalOutcome.DUPLICATE;
         }
         if (recordState != ProviderUsageRecordState.STARTED) {
-            throw new IllegalStateException("Provider attempt already has a different terminal fact");
+            if (firstConflictAt != null) {
+                return TerminalOutcome.KNOWN_CONFLICT;
+            }
+            firstConflictAt = Objects.requireNonNull(observedAt, "observedAt must not be null");
+            conflictingRecordState = terminalState;
+            conflictingProviderLlmTokens = tokens;
+            return TerminalOutcome.FIRST_CONFLICT;
         }
-        terminalAt = Objects.requireNonNull(completedAt, "completedAt must not be null");
+        terminalAt = Objects.requireNonNull(observedAt, "observedAt must not be null");
         recordState = terminalState;
         providerLlmTokens = tokens;
-        return true;
+        return TerminalOutcome.RECORDED;
     }
 
     private static void validateTokens(ProviderUsageRecordState state, Long tokens) {

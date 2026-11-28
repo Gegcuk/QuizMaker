@@ -8,7 +8,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static uk.gegc.quizmaker.features.quiz.domain.model.QuizGenerationProviderUsage.TerminalOutcome.*;
 
 @DisplayName("Quiz generation provider usage")
 class QuizGenerationProviderUsageTest {
@@ -49,12 +49,22 @@ class QuizGenerationProviderUsageTest {
         var attempt = QuizGenerationProviderUsage.started(jobId, attemptId, now, 1L);
 
         assertThat(attempt.matches(ProviderUsageRecordState.STARTED, null)).isTrue();
-        assertThat(attempt.transitionTo(ProviderUsageRecordState.REPORTED, 0L, now.plusSeconds(1))).isTrue();
-        assertThat(attempt.transitionTo(ProviderUsageRecordState.REPORTED, 0L, now.plusSeconds(2))).isFalse();
+        assertThat(attempt.recordTerminalFact(ProviderUsageRecordState.REPORTED, 0L, now.plusSeconds(1)))
+                .isEqualTo(RECORDED);
+        assertThat(attempt.recordTerminalFact(ProviderUsageRecordState.REPORTED, 0L, now.plusSeconds(2)))
+                .isEqualTo(DUPLICATE);
+        assertThat(attempt.getFirstConflictAt()).isNull();
         assertThat(attempt.getTerminalAt()).isEqualTo(now.plusSeconds(1));
-        assertThatThrownBy(() -> attempt.transitionTo(ProviderUsageRecordState.MISSING, null, now))
-                .isInstanceOf(IllegalStateException.class);
+        assertThat(attempt.recordTerminalFact(ProviderUsageRecordState.MISSING, null, now.plusSeconds(3)))
+                .isEqualTo(FIRST_CONFLICT);
+        assertThat(attempt.recordTerminalFact(ProviderUsageRecordState.FAILED, null, now.plusSeconds(4)))
+                .isEqualTo(KNOWN_CONFLICT);
+        assertThat(attempt.getFirstConflictAt()).isEqualTo(now.plusSeconds(3));
+        assertThat(attempt.getConflictingRecordState()).isEqualTo(ProviderUsageRecordState.MISSING);
+        assertThat(attempt.getConflictingProviderLlmTokens()).isNull();
+        assertThat(attempt.getRecordState()).isEqualTo(ProviderUsageRecordState.REPORTED);
+        assertThat(attempt.getProviderLlmTokens()).isZero();
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> attempt.transitionTo(ProviderUsageRecordState.REPORTED, -1L, now));
+                .isThrownBy(() -> attempt.recordTerminalFact(ProviderUsageRecordState.REPORTED, -1L, now));
     }
 }

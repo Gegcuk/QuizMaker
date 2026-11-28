@@ -196,6 +196,83 @@ class ProviderUsageSchemaMigrationTest {
                 """, Long.class)).isEqualTo(17L);
     }
 
+    @Test
+    @DisplayName("V138 preserves historical start times and records 150 ms across the old rounding boundary")
+    void migrateV138PreservesMicrosecondIntervalsAndAllowsBoundedLegacyLookup() {
+        createPreV75UsageTable();
+        new ResourceDatabasePopulator(new ClassPathResource("db/migration/V75__add_provider_attempt_lifecycle.sql"))
+                .execute(jdbcTemplate.getDataSource());
+        String legacyJobId = jdbcTemplate.queryForObject(
+                "SELECT BIN_TO_UUID(id) FROM quiz_generation_jobs WHERE test_key = 'active-legacy'", String.class);
+        String jobId = jdbcTemplate.queryForObject(
+                "SELECT BIN_TO_UUID(id) FROM quiz_generation_jobs WHERE test_key = 'active-snapshot'", String.class);
+        UUID legacyAttempt = UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO quiz_generation_provider_usage (id, job_id, provider_attempt_id, record_state, recorded_at)
+                VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), UUID_TO_BIN(?), 'STARTED', '2026-08-01 12:01:01')
+                """, legacyJobId, legacyAttempt.toString());
+        Flyway flyway = Flyway.configure()
+                .dataSource(jdbcTemplate.getDataSource())
+                .table(MIGRATION_HISTORY_TABLE)
+                .locations("classpath:db/migration")
+                .baselineOnMigrate(true)
+                .baselineVersion("136")
+                .target("137")
+                .load();
+        flyway.migrate();
+        var legacyStart = jdbcTemplate.queryForObject("""
+                SELECT recorded_at FROM quiz_generation_provider_usage WHERE provider_attempt_id = UUID_TO_BIN(?)
+                """, java.time.LocalDateTime.class, legacyAttempt.toString());
+
+        Flyway.configure()
+                .dataSource(jdbcTemplate.getDataSource())
+                .table(MIGRATION_HISTORY_TABLE)
+                .locations("classpath:db/migration")
+                .target("138")
+                .load()
+                .migrate();
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT recorded_at FROM quiz_generation_provider_usage WHERE provider_attempt_id = UUID_TO_BIN(?)
+                """, java.time.LocalDateTime.class, legacyAttempt.toString())).isEqualTo(legacyStart);
+
+        UUID newAttempt = UUID.randomUUID();
+        jdbcTemplate.update("""
+                INSERT INTO quiz_generation_provider_usage (id, job_id, provider_attempt_id, record_state, recorded_at)
+                VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), UUID_TO_BIN(?), 'STARTED', '2026-08-02 12:01:00.800')
+                """, jobId, newAttempt.toString());
+        assertThat(jdbcTemplate.update("""
+                UPDATE quiz_generation_provider_usage
+                SET record_state = 'REPORTED', provider_llm_tokens = 37, terminal_at = '2026-08-02 12:01:00.950'
+                WHERE provider_attempt_id = UUID_TO_BIN(?)
+                """, newAttempt.toString())).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT TIMESTAMPDIFF(MICROSECOND, recorded_at, terminal_at)
+                FROM quiz_generation_provider_usage WHERE provider_attempt_id = UUID_TO_BIN(?)
+                """, Long.class, newAttempt.toString())).isEqualTo(150_000L);
+        assertThatThrownBy(() -> jdbcTemplate.update("""
+                UPDATE quiz_generation_provider_usage
+                SET first_conflict_at = '2026-08-02 12:01:01', conflicting_record_state = 'REPORTED',
+                    conflicting_provider_llm_tokens = 37
+                WHERE provider_attempt_id = UUID_TO_BIN(?)
+                """, newAttempt.toString())).isInstanceOf(DataAccessException.class);
+        int recorded = jdbcTemplate.update("""
+                UPDATE quiz_generation_provider_usage
+                SET first_conflict_at = '2026-08-02 12:01:01', conflicting_record_state = 'REPORTED',
+                    conflicting_provider_llm_tokens = 99
+                WHERE provider_attempt_id = UUID_TO_BIN(?)
+                """, newAttempt.toString());
+        assertThat(recorded).isEqualTo(1);
+
+        assertThat(jdbcTemplate.queryForList("""
+                SELECT BIN_TO_UUID(provider_attempt_id)
+                FROM quiz_generation_provider_usage
+                WHERE record_state = 'STARTED' AND unknown_at IS NULL AND execution_fence IS NULL
+                    AND recorded_at < '2026-08-02 12:01:02'
+                ORDER BY recorded_at, id
+                LIMIT 50
+                """, String.class)).containsExactly(legacyAttempt.toString());
+    }
+
     private void createPreV75UsageTable() {
         jdbcTemplate.execute("""
                 CREATE TABLE quiz_generation_provider_usage (

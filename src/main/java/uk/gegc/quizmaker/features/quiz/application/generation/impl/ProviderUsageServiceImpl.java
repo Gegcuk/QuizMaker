@@ -37,10 +37,7 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
     private final Clock clock;
     private final MeterRegistry metrics;
 
-    private record WriteResult(ProviderUsageRecordResult result, boolean reconciled) {
-        private static final WriteResult RECORDED = new WriteResult(ProviderUsageRecordResult.RECORDED, false);
-        private static final WriteResult DUPLICATE = new WriteResult(ProviderUsageRecordResult.DUPLICATE, false);
-    }
+    private enum WriteResult { RECORDED, RECONCILED, DUPLICATE, CONFLICT }
 
     public ProviderUsageServiceImpl(
             QuizGenerationJobRepository jobRepository,
@@ -108,10 +105,15 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
                         )),
                         "Provider usage transaction returned no result"
                 );
-                var result = written.result();
+                // Reject only after the conflict evidence has committed.
+                if (written == WriteResult.CONFLICT) {
+                    throw new IllegalStateException("Provider attempt already has a different terminal fact");
+                }
+                var result = written == WriteResult.DUPLICATE
+                        ? ProviderUsageRecordResult.DUPLICATE : ProviderUsageRecordResult.RECORDED;
                 count(result == ProviderUsageRecordResult.DUPLICATE
                         ? "duplicate" : recordState.name().toLowerCase(Locale.ROOT), 1);
-                if (written.reconciled()) count("reconciled", 1);
+                if (written == WriteResult.RECONCILED) count("reconciled", 1);
                 if (result == ProviderUsageRecordResult.RECORDED
                         && recordState == ProviderUsageRecordState.REPORTED) {
                     countTokens(providerLlmTokens);
@@ -161,8 +163,14 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
                 .orElseThrow(() -> new IllegalStateException(
                         "Provider attempt " + providerAttemptId + " has no durable start"));
         boolean reconciled = usage.getRecordState() == ProviderUsageRecordState.UNKNOWN;
-        if (!usage.transitionTo(recordState, providerLlmTokens, LocalDateTime.now(clock))) {
-            return WriteResult.DUPLICATE;
+        switch (usage.recordTerminalFact(recordState, providerLlmTokens, LocalDateTime.now(clock))) {
+            case DUPLICATE -> { return WriteResult.DUPLICATE; }
+            case FIRST_CONFLICT -> {
+                usageRepository.saveAndFlush(usage);
+                return WriteResult.CONFLICT;
+            }
+            case KNOWN_CONFLICT -> { return WriteResult.CONFLICT; }
+            case RECORDED -> { }
         }
         usageRepository.saveAndFlush(usage);
         if (recordState == ProviderUsageRecordState.REPORTED) {
@@ -171,7 +179,7 @@ public class ProviderUsageServiceImpl implements ProviderUsageService {
         job.reconcileProviderUsageCompleteness(!usageRepository.existsByJobIdAndRecordStateNot(
                 jobId, ProviderUsageRecordState.REPORTED));
         jobRepository.saveAndFlush(job);
-        return new WriteResult(ProviderUsageRecordResult.RECORDED, reconciled);
+        return reconciled ? WriteResult.RECONCILED : WriteResult.RECORDED;
     }
 
     private TransactionTemplate requiresNew() {

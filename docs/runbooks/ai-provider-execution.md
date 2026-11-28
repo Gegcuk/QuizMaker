@@ -213,12 +213,9 @@ Unresolved attempts keep the job's provider usage `INCOMPLETE` (or
   failed scan. The next scheduled run retries the same page.
 
 Investigate when the unknown backlog is above zero. Use the job and attempt IDs
-from a bounded, read-only query to match available accounting evidence. A high
-unresolved age with an empty unknown backlog can also indicate a legacy row
-without sufficient evidence. Preserve unconfirmed outcomes for review and use
-the recorded amount only after a confirmed provider report. An unknown outcome
-does not establish provider usage, trigger a provider call, or authorize a
-customer ledger adjustment.
+from the read-only queries below to match available accounting evidence.
+Preserve unconfirmed outcomes for review. A confirmed provider report establishes
+provider usage. Customer settlement follows the job's saved tariff.
 
 ```sql
 SELECT BIN_TO_UUID(job_id) AS job_id, BIN_TO_UUID(provider_attempt_id) AS provider_attempt_id,
@@ -229,11 +226,44 @@ ORDER BY unknown_at, id
 LIMIT 50;
 ```
 
+If the unresolved age is high and the unknown backlog is empty, look for older
+legacy starts. Set `@inspect_before` to the cutoff you are investigating in the
+database session's time zone. These rows still require evidence that execution ended.
+
+```sql
+SELECT BIN_TO_UUID(job_id) AS job_id, BIN_TO_UUID(provider_attempt_id) AS provider_attempt_id,
+       recorded_at
+FROM quiz_generation_provider_usage
+WHERE record_state = 'STARTED' AND unknown_at IS NULL AND execution_fence IS NULL
+  AND recorded_at < @inspect_before
+ORDER BY recorded_at, id
+LIMIT 50;
+```
+
+When `quiz.generation.provider.usage{outcome="conflict"}` rises, look up the first
+conflicting terminal report per attempt. The accepted amount remains in
+`provider_llm_tokens`. The report can appear in this query even when the job's
+provider usage reads `COMPLETE`. To investigate a known job, add
+`AND job_id = UUID_TO_BIN(@job_id)` after setting `@job_id` to its UUID.
+
+```sql
+SELECT BIN_TO_UUID(job_id) AS job_id, BIN_TO_UUID(provider_attempt_id) AS provider_attempt_id,
+       record_state, provider_llm_tokens, conflicting_record_state, conflicting_provider_llm_tokens,
+       first_conflict_at
+FROM quiz_generation_provider_usage
+WHERE first_conflict_at IS NOT NULL
+ORDER BY first_conflict_at DESC, id DESC
+LIMIT 50;
+```
+
 `V137__reconcile_interrupted_provider_attempts.sql` adds metadata and an index.
 It preserves the persisted state vocabulary during rollout. A pending row with
 `unknown_at` is logically `UNKNOWN`, and the previous writer can still submit a
 terminal report for it. The marker remains as audit evidence after a terminal
-report. Existing records get no inferred fence, timestamp or amount.
+report. V138 retains the first contradictory fact and aligns start timestamps
+with the microsecond precision of terminal timestamps. Start times recorded before
+V138 retain their original second precision. If a historical interval appears
+negative, treat its duration as unknown.
 
 ### Offline evidence
 

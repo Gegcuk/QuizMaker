@@ -19,7 +19,10 @@ stable token total. An injected database write failure leaves the whole page
 eligible for retry. Two pages across three owners measure four SQL statements
 per nonempty update page, with no entity or collection loads. The migration
 fixture proves historical states and token totals survive and an older writer
-can still record a terminal fact. Billing coverage checks existing settlement
+can still record a terminal fact. Concurrent reports with different token totals
+leave one accepted amount and a durable conflict on the exact attempt. The V138
+fixture proves a 150 ms duration across the old rounding boundary and checks
+the bounded legacy lookup. Billing coverage checks existing settlement
 and reservation recovery using an isolated payment boundary.
 
 Run the full four-worker clean-verify gate on the final implementation.
