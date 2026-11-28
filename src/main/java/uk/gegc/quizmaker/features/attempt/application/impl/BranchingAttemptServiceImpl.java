@@ -122,15 +122,24 @@ public class BranchingAttemptServiceImpl implements BranchingAttemptService {
                 throw new BranchingException(UNAVAILABLE);
             // Only a durable original receipt resolves a lost commit acknowledgement.
             try {
-                return rc.execute(status -> checked("reconcile", false, () -> {
-                    var granted = access.requireBranchAccess(command.attemptId(), AttemptAccessService.Operation.ANSWER);
-                    head(granted);
-                    var prior = store.decision(command.attemptId(), granted.formId(), command.decisionId())
-                            .orElseThrow(() -> new BranchingException(UNKNOWN_OUTCOME));
-                    require(prior.command().equals(command), CONFLICT);
-                    return prior.result();
-                }));
+                return rc.execute(status -> checked("reconcile", false, () -> reconcile(command)));
             } catch (TransactionException | DataAccessException unavailable) { throw new BranchingException(UNKNOWN_OUTCOME); }
+        }
+    }
+
+    private Result reconcile(Command command) {
+        try {
+            var granted = access.requireBranchAccess(command.attemptId(), AttemptAccessService.Operation.ANSWER);
+            head(granted);
+            var prior = store.decision(command.attemptId(), granted.formId(), command.decisionId())
+                    .orElseThrow(() -> new BranchingException(UNKNOWN_OUTCOME));
+            require(prior.command().equals(command), CONFLICT);
+            return prior.result();
+        } catch (RuntimeException failure) {
+            AttemptTransactionException.preserve(failure);
+            var reason = reason(failure);
+            // A failed receipt lookup cannot establish whether the original command committed.
+            throw new BranchingException(reason == UNAVAILABLE || reason == RETRYABLE ? UNKNOWN_OUTCOME : reason);
         }
     }
 
@@ -215,6 +224,7 @@ public class BranchingAttemptServiceImpl implements BranchingAttemptService {
         var request = new ProgressiveFormAppend.Request(1, ref, command.expectedFormVersion(),
                 new ProgressiveFormAppend.Decision(1, ProgressiveFormAppend.DecisionKind.BRANCHING, command.decisionId(), evidenceId == null ? command.decisionId() : evidenceId), List.of(item));
         var optionIds = AnswerOptionOrder.order(form.id(), item.id(), order.policy(), question, pair.response().optionLayout(question));
+        ParticipantFormProjector.projectCommandContent(question, pair, optionIds);
         var options = new FormOptionOrder.Item(item.id(), item.sourceItemId(), pair.binding(), optionIds);
         var writer = new AuthorizedAppend(store, form, order, options, revision.questions().keySet());
         var receipt = writer.append(request);
@@ -317,6 +327,11 @@ public class BranchingAttemptServiceImpl implements BranchingAttemptService {
                     ? UNAVAILABLE : DENIED;
         if (failure instanceof PublicationException scope)
             return scope.reason() == PublicationException.Reason.PERSISTENCE_UNAVAILABLE ? UNAVAILABLE : DENIED;
+        if (failure instanceof FormMaterializationException material) return switch (material.reason()) {
+            case UNSUPPORTED_FAMILY, UNSUPPORTED_MEDIA -> UNSUPPORTED;
+            case PERSISTENCE_UNAVAILABLE -> UNAVAILABLE;
+            default -> CORRUPT;
+        };
         if (failure instanceof ScenarioGraphValidationException || failure instanceof RevisionIntegrityException
                 || failure instanceof ProgressiveFormAppendException) return CORRUPT;
         return UNAVAILABLE;

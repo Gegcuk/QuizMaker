@@ -3,12 +3,15 @@ package uk.gegc.quizmaker.features.attempt.submission;
 import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.sql.SQLException;
 import javax.sql.DataSource;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
@@ -53,6 +56,7 @@ import uk.gegc.quizmaker.features.quiz.domain.repository.QuizRepository;
 import uk.gegc.quizmaker.features.user.domain.model.User;
 import uk.gegc.quizmaker.features.user.domain.repository.UserRepository;
 import uk.gegc.quizmaker.features.result.application.AutomaticResultService;
+import uk.gegc.quizmaker.features.result.domain.model.AutomaticResultException;
 import static uk.gegc.quizmaker.features.attempt.application.BranchingAttemptService.Outcome.*;
 import static org.assertj.core.api.Assertions.*;
 
@@ -148,23 +152,36 @@ class BranchingAttemptMySqlIntegrationTest {
 
 
     private QuizRevision graph() {
+        return graph(null, 1);
+    }
+
+    private QuizRevision graph(String attachedQuestion, int entrySteps) {
         var nodes = new ArrayList<ScenarioGraph.Node>();
         var items = new ArrayList<QuizRevision.Item>();
         for (String text : List.of("Fork", "Advanced", "Practice")) {
             var question = new QuestionRevision(UUID.randomUUID(), UUID.randomUUID(), 1, QuestionType.TRUE_FALSE,
-                    Difficulty.EASY, text, "{\"answer\":true}", null, "private explanation", null, null, clock.instant(), List.of());
+                    Difficulty.EASY, text, "{\"answer\":true}", null, "private explanation",
+                    text.equals(attachedQuestion) ? "https://example.invalid/question.png" : null, null, clock.instant(), List.of());
             var item = new QuizRevision.Item(UUID.randomUUID(), items.size(), question);
             items.add(item);
             nodes.add(new ScenarioGraph.Node(UUID.randomUUID(), nodes.size(), ScenarioGraph.NodeType.ITEM, item.id()));
         }
         var fork = nodes.get(0).id();
         var terminal = UUID.randomUUID();
-        var entry = UUID.randomUUID();
         nodes.add(new ScenarioGraph.Node(terminal, 3, ScenarioGraph.NodeType.TERMINAL, null));
-        nodes.add(new ScenarioGraph.Node(entry, 4, ScenarioGraph.NodeType.ROUTING, null));
-        var edges = List.of(edge(entry, fork), new ScenarioGraph.Edge(UUID.randomUUID(), fork, nodes.get(1).id(), 1,
-                ScenarioGraph.EdgeType.CONDITIONAL, 1, "{\"operator\":\"SCORE_IS\",\"value\":\"FULL_CREDIT\"}"),
-                edge(fork, nodes.get(2).id()), edge(nodes.get(1).id(), terminal), edge(nodes.get(2).id(), terminal));
+        var edges = new ArrayList<ScenarioGraph.Edge>();
+        var entry = fork;
+        for (int i = 0; i < entrySteps; i++) {
+            var route = UUID.randomUUID();
+            nodes.add(new ScenarioGraph.Node(route, nodes.size(), ScenarioGraph.NodeType.ROUTING, null));
+            edges.add(edge(route, entry));
+            entry = route;
+        }
+        edges.add(new ScenarioGraph.Edge(UUID.randomUUID(), fork, nodes.get(1).id(), 1,
+                ScenarioGraph.EdgeType.CONDITIONAL, 1, "{\"operator\":\"SCORE_IS\",\"value\":\"FULL_CREDIT\"}"));
+        edges.add(edge(fork, nodes.get(2).id()));
+        edges.add(edge(nodes.get(1).id(), terminal));
+        edges.add(edge(nodes.get(2).id(), terminal));
         var graph = new ScenarioGraph(1, entry, nodes, edges);
         var revision = publisher.publish(ownerId, new QuizRevision(UUID.randomUUID(), quizId, ownerId, 4,
                 "Scenario", null, clock.instant(), items, List.of(), List.of(), graph));
@@ -275,6 +292,105 @@ class BranchingAttemptMySqlIntegrationTest {
         assertThat(branches.advance(choose)).isEqualTo(next);
         assertThat(branches.advance(finish).outcome()).isEqualTo(TERMINAL_READY);
         assertThat(branches.resume(start.attempt()).deliveredFormItems()).containsExactly(start.first(), next.formItemId());
+    }
+
+    @Test void unsupportedQuestionCannotEnterTheCommittedPrefix() {
+        var revision = graph("Advanced", 0);
+        var start = launch(revision, false);
+        var prefix = branches.resume(start.attempt());
+        assertThat(prefix.deliveredFormItems()).containsExactly(start.first());
+        assertThat(prefix.formVersion()).isOne();
+        branchResponses.acceptBranch(answer(start, start.first(), 1, true));
+        var command = start.step(2, 1);
+        assertThatThrownBy(() -> branches.advance(command)).isInstanceOf(BranchingException.class).hasMessageContaining("UNSUPPORTED");
+        assertThat(branches.resume(start.attempt())).isEqualTo(prefix);
+        assertThat(count("attempt_branch_decision", "decision_id", command.decisionId())).isZero();
+        assertThat(count("attempt_trace_event", "command_id", command.decisionId())).isZero();
+        assertThat(count("attempt_form_item", "form_id", start.admission().formId())).isOne();
+        assertThat(count("attempt_accepted_response", "attempt_id", start.attempt())).isOne();
+
+        // The same revision still permits the other participant path.
+        var other = launch(revision, false);
+        branchResponses.acceptBranch(answer(other, other.first(), 1, false));
+        var next = branches.advance(other.step(2, 1));
+        branchResponses.acceptBranch(answer(other, next.formItemId(), 2, true));
+        assertThat(branches.advance(other.step(3, 2)).outcome()).isEqualTo(TERMINAL_READY);
+        assertThat(branchSubmissions.submitBranch(submit(other, 3)).replayed()).isFalse();
+    }
+
+    @Test void unsupportedEntryQuestionRollsBackAdmission() {
+        var revision = graph("Fork", 1);
+        assertThatThrownBy(() -> launch(revision, false)).isInstanceOf(BranchingException.class).hasMessageContaining("UNSUPPORTED");
+        assertThat(count("attempt_form", "quiz_revision_id", revision.id())).isZero();
+        assertThat(count("attempt_branch_path", "quiz_revision_id", revision.id())).isZero();
+        assertThat(count("attempt_branch_decision", "quiz_revision_id", revision.id())).isZero();
+    }
+
+    @ParameterizedTest @ValueSource(ints = {0, 1205, 1213})
+    void lostCommitAcknowledgementAndFailedReconciliationRequireTheOriginalDecisionId(int sqlCode) {
+        var start = launch(graph(), false);
+        branchResponses.acceptBranch(answer(start, start.first(), 1, true));
+        var command = start.step(2, 1);
+        var reads = new AtomicInteger();
+        observer().afterSql = (query, connection) -> {
+            if (query.contains("SELECT d.*,i.position") && reads.incrementAndGet() == 2)
+                throw new SQLException("synthetic receipt read failure", "HY000", sqlCode);
+        };
+        observer().failAfterCommit.set(true);
+        assertThatThrownBy(() -> branches.advance(command)).isInstanceOf(BranchingException.class).hasMessageContaining("UNKNOWN_OUTCOME");
+        assertThat(reads).hasValue(2);
+        observer().reset();
+        var path = branches.resume(start.attempt());
+        assertThat(path.deliveredFormItems()).hasSize(2);
+        var replay = restarted().advance(command);
+        assertThat(replay.outcome()).isEqualTo(APPENDED);
+        assertThat(replay.formItemId()).isEqualTo(path.deliveredFormItems().get(1));
+        assertThat(replay.formVersion()).isEqualTo(path.formVersion());
+        assertThat(count("attempt_trace_event", "command_id", command.decisionId())).isOne();
+        assertThat(count("attempt_branch_decision", "decision_id", command.decisionId())).isOne();
+    }
+
+    @Test void reconciliationRequiresCurrentParticipantAuthority() {
+        var start = launch(graph(), false);
+        branchResponses.acceptBranch(answer(start, start.first(), 1, true));
+        var command = start.step(2, 1);
+        observer().afterSql = (query, connection) -> {
+            if (query.contains("UPDATE attempt_branch_path")) SecurityContextHolder.clearContext();
+        };
+        observer().failAfterCommit.set(true);
+        assertThatThrownBy(() -> branches.advance(command)).isInstanceOf(BranchingException.class).hasMessageContaining("DENIED");
+        observer().reset();
+        authenticate(username);
+        assertThat(branches.advance(command).outcome()).isEqualTo(APPENDED);
+        assertThat(count("attempt_branch_decision", "decision_id", command.decisionId())).isOne();
+    }
+
+    @ParameterizedTest @CsvSource({"0,UNAVAILABLE", "1205,BUSY", "1213,RETRYABLE"})
+    void gradingPathReadRedactsDriverDiagnosticsAndPreservesConflictClassification(int code, AutomaticResultException.Reason reason) {
+        var start = launch(graph(), true);
+        ((AttemptSubmissionMySqlIntegrationTest.AdjustableClock)clock).now = clock.instant().plusSeconds(1800);
+        var submission = expiry.expire(start.attempt()).acknowledgement().resultId();
+        var results = context.getBean(AutomaticResultService.class);
+        var reached = new AtomicBoolean();
+        observer().afterSql = (query, connection) -> {
+            if (query.contains("SELECT p.current_node_id") && reached.compareAndSet(false, true)) {
+                var failure = new SQLException("private-path-driver", "HY000", code, new IllegalStateException("private-path-cause"));
+                failure.addSuppressed(new IllegalStateException("private-path-suppressed"));
+                throw failure;
+            }
+        };
+        try (var logs = new AttemptSubmissionMySqlIntegrationTest.TransactionLogs("org.springframework.transaction")) {
+            assertThatThrownBy(() -> results.finalizeSubmission(submission)).isInstanceOfSatisfying(AutomaticResultException.class,
+                    failure -> assertThat(failure.reason()).isEqualTo(reason));
+            assertThat(reached).isTrue();
+            assertThat(logs.rendered()).contains("SubmittedAttemptSourceImpl.lock")
+                    .doesNotContain("private-path-driver", "private-path-cause", "private-path-suppressed");
+        } finally { observer().reset(); }
+        assertThat(count("attempt_automatic_result", "submission_id", submission)).isZero();
+        var grade = results.finalizeSubmission(submission);
+        assertThat(grade.items()).extracting(i -> i.formItemId()).containsExactly(start.first());
+        assertThat(results.finalizeSubmission(submission).id()).isEqualTo(grade.id());
+        assertThat(count("attempt_automatic_result", "submission_id", submission)).isOne();
     }
 
     private BranchingAttemptService restarted() {
@@ -422,6 +538,48 @@ class BranchingAttemptMySqlIntegrationTest {
         assertThat(count("attempt_branch_decision","form_id", start.admission().formId())).isOne();
     }
 
+    @ParameterizedTest @ValueSource(strings = {"wrongStart", "wrongTarget", "reversed", "gap"})
+    void resumeAndExactReplayRejectBrokenEdgeProvenance(String damage) {
+        var revision = graph(null, 2);
+        var start = launch(revision, false);
+        var g = revision.scenarioGraph();
+        var firstEdge = g.edges().stream().filter(e -> e.fromNodeId().equals(g.entryNodeId())).findFirst().orElseThrow();
+        var secondEdge = g.edges().stream().filter(e -> e.fromNodeId().equals(firstEdge.toNodeId())).findFirst().orElseThrow();
+        branchResponses.acceptBranch(answer(start, start.first(), 1, true));
+        var command = damage.equals("wrongTarget") ? start.step(2, 1)
+                : new BranchingAttemptService.Command(start.attempt(), start.admission().launchCommandId(), 1, 0);
+        var committed = branches.advance(command);
+        var form = start.admission().formId().toString();
+        var decision = command.decisionId().toString();
+        assertThat(branches.resume(start.attempt()).deliveredFormItems()).contains(committed.formItemId());
+        tx.executeWithoutResult(status -> {
+            if (damage.equals("wrongTarget")) {
+                var alternate = g.edges().stream().filter(e -> e.fromNodeId().equals(secondEdge.toNodeId())
+                        && e.type() == ScenarioGraph.EdgeType.DEFAULT).findFirst().orElseThrow();
+                replaceEdge(form, decision, revision.id(), 0, 0, alternate.id());
+            } else if (damage.equals("gap")) {
+                replaceEdge(form, decision, revision.id(), 1, 2, secondEdge.id());
+            } else {
+                replaceEdge(form, decision, revision.id(), 0, 0, secondEdge.id());
+                if (damage.equals("reversed")) replaceEdge(form, decision, revision.id(), 1, 1, firstEdge.id());
+            }
+        });
+        assertThatThrownBy(() -> branches.resume(start.attempt())).isInstanceOf(BranchingException.class).hasMessageContaining("CORRUPT");
+        assertThatThrownBy(() -> restarted().advance(command)).isInstanceOf(BranchingException.class).hasMessageContaining("CORRUPT");
+        assertThat(sql.queryForObject("""
+                SELECT COUNT(*) FROM attempt_trace_event WHERE command_id=UUID_TO_BIN(?) AND event_type='BRANCH_DECIDED'
+                """, Integer.class, decision)).isOne();
+    }
+
+    private void replaceEdge(String form, String decision, UUID revision, int position, int newPosition, UUID edge) {
+        assertThat(sql.update("DELETE FROM attempt_branch_edge WHERE form_id=UUID_TO_BIN(?) AND decision_id=UUID_TO_BIN(?) AND edge_position=?",
+                form, decision, position)).isOne();
+        sql.update("""
+                INSERT INTO attempt_branch_edge(form_id,decision_id,quiz_revision_id,edge_position,edge_id)
+                VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?),UUID_TO_BIN(?),?,UUID_TO_BIN(?))
+                """, form, decision, revision.toString(), newPosition, edge.toString());
+    }
+
     @Test void resumeAndReplayRejectDamagedPathWithoutReturningAnyAlternate() {
         var start = launch(graph(), false);
         sql.update("UPDATE attempt_branch_path SET terminal_ready=TRUE WHERE attempt_id=UUID_TO_BIN(?)", start.attempt().toString());
@@ -468,7 +626,9 @@ class BranchingAttemptMySqlIntegrationTest {
         var start = launch(graph(), true);
         ((AttemptSubmissionMySqlIntegrationTest.AdjustableClock)clock).now = clock.instant().plusSeconds(1800);
         assertThatThrownBy(() -> branches.advance(start.step(1, 1))).hasMessageContaining("INACTIVE");
+        observer().reset();
         var expired = expiry.expire(start.attempt());
+        assertThat(observer().selects).filteredOn(q -> q.contains("SELECT p.current_node_id")).hasSize(1);
         assertThat(expired.outcome()).isEqualTo(AttemptExpiryService.Outcome.EXPIRED);
         var grade = context.getBean(AutomaticResultService.class).finalizeSubmission(expired.acknowledgement().resultId());
         assertThat(grade.items()).extracting(i -> i.formItemId()).containsExactly(start.first());

@@ -5738,9 +5738,13 @@ question evaluates that response. Unconditional routing nodes require no respons
 One transaction stores the input fingerprint, accepted response reference when applicable, ordered
 selected edges, trace event, and the new question with its stable form identity and option order.
 A terminal transition records readiness without appending a question. Exact replay returns the
-original decision after rechecking current authority. Resume reads the committed prefix. Both
-operations work without loading answers or rerunning scoring. The internal path response contains
-only delivered form-item IDs, the form version and terminal readiness.
+original decision after rechecking current authority. If commit acknowledgement is lost and the
+receipt cannot be read, the caller receives `UNKNOWN_OUTCOME` and retries the same decision ID.
+Before appending a question, execution verifies its ordered participant content using the same
+projection as answer acceptance and submission. Resume and exact replay verify the stored edge
+sequence from its source (or graph entry) to its destination without loading answers or rerunning
+scoring. The internal path response contains only delivered form-item IDs, the form version and
+terminal readiness.
 
 Voluntary submission requires terminal readiness, confirmation and the captured completion policy.
 Require-all and grading apply to the delivered questions. The existing deadline worker can expire

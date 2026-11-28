@@ -9,6 +9,7 @@ import uk.gegc.quizmaker.features.question.application.contract.ResolvedQuestion
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractResolutionException;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ParticipantContent;
 import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuizRevision;
+import uk.gegc.quizmaker.features.quiz.domain.model.revision.QuestionRevision;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -64,34 +65,45 @@ public final class ParticipantFormProjector {
             var question = source.question();
             var pair = contracts.get(question.id());
             require(pair != null && pair.binding().equals(options.binding()), INPUT_MISMATCH);
-            // Media retention/generation authority belongs to the real publication/media integrations.
-            boolean media = question.attachmentAssetId() != null || question.attachmentUrl() != null;
-            // HOTSPOT has an explicit internal retained-image projection. Public rendering is still
-            // unsupported; this opt-in permits real start/answer/grading integration without a URL fallback.
-            require(!media || mediaItems.contains(item.id()) || question.type() == QuestionType.HOTSPOT, UNSUPPORTED_MEDIA);
-            require(!mediaItems.contains(item.id()) || question.attachmentAssetId() != null, INPUT_MISMATCH);
-            ParticipantContent content;
-            try {
-                content = mediaItems.contains(item.id()) ? pair.response().participantContentWithSeparateAttachment(question)
-                        : pair.response().participantContent(question);
-                require(content != null, INVALID_MATERIAL);
-                if (media && !mediaItems.contains(item.id()))
-                    require(content instanceof ParticipantContent.Hotspot hotspot
-                            && hotspot.imageAssetId().equals(question.attachmentAssetId()), UNSUPPORTED_MEDIA);
-                content = orderedContent(question.type(), content, options.optionIds());
-            } catch (ContractResolutionException failure) {
-                // A bounded message does not make adapter-supplied causes/suppressed data safe.
-                throw new ContractResolutionException(failure.reason());
-            } catch (FormMaterializationException failure) {
-                throw new FormMaterializationException(failure.reason());
-            } catch (RuntimeException failure) {
-                // Adapter diagnostics can contain raw source/answers. Do not preserve them as causes.
-                throw new FormMaterializationException(INVALID_MATERIAL);
-            }
+            var content = projectContent(question, pair, options.optionIds(), mediaItems.contains(item.id()));
             result.add(new ParticipantForm.Item(item.id(), item.position(), question.type(), question.questionText(), content));
         }
         require(form.items().stream().map(FixedForm.Item::id).collect(java.util.stream.Collectors.toSet()).containsAll(mediaItems), INPUT_MISMATCH);
         return new ParticipantForm(form.id(), form.schemaVersion(), result);
+    }
+
+    /** Uses the same participant projection as answer acceptance and final submission. */
+    public static ParticipantContent projectCommandContent(QuestionRevision question, ResolvedQuestionContracts contracts,
+                                                           List<UUID> optionIds) {
+        return projectContent(question, contracts, optionIds, false);
+    }
+
+    private static ParticipantContent projectContent(QuestionRevision question, ResolvedQuestionContracts pair,
+                                                     List<UUID> optionIds, boolean separateAttachment) {
+        // Media retention/generation authority belongs to the real publication/media integrations.
+        boolean media = question.attachmentAssetId() != null || question.attachmentUrl() != null;
+        // HOTSPOT has an explicit internal retained-image projection. Public rendering is still
+        // unsupported; this opt-in permits real start/answer/grading integration without a URL fallback.
+        require(!media || separateAttachment || question.type() == QuestionType.HOTSPOT, UNSUPPORTED_MEDIA);
+        require(!separateAttachment || question.attachmentAssetId() != null, INPUT_MISMATCH);
+        ParticipantContent content;
+        try {
+            content = separateAttachment ? pair.response().participantContentWithSeparateAttachment(question)
+                    : pair.response().participantContent(question);
+            require(content != null, INVALID_MATERIAL);
+            if (media && !separateAttachment)
+                require(content instanceof ParticipantContent.Hotspot hotspot
+                        && hotspot.imageAssetId().equals(question.attachmentAssetId()), UNSUPPORTED_MEDIA);
+            return orderedContent(question.type(), content, optionIds);
+        } catch (ContractResolutionException failure) {
+            // A bounded message does not make adapter-supplied causes/suppressed data safe.
+            throw new ContractResolutionException(failure.reason());
+        } catch (FormMaterializationException failure) {
+            throw new FormMaterializationException(failure.reason());
+        } catch (RuntimeException failure) {
+            // Adapter diagnostics can contain raw source/answers. Do not preserve them as causes.
+            throw new FormMaterializationException(INVALID_MATERIAL);
+        }
     }
 
     public static ParticipantContent orderedContent(QuestionType type, ParticipantContent content, List<UUID> order) {

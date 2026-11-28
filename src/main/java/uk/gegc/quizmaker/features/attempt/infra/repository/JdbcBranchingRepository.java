@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -18,6 +19,7 @@ import uk.gegc.quizmaker.features.attempt.domain.model.form.FormFingerprint;
 import uk.gegc.quizmaker.features.attempt.domain.model.ordering.FormOptionOrder;
 import uk.gegc.quizmaker.features.attempt.domain.repository.BranchingRepository;
 import uk.gegc.quizmaker.features.question.domain.model.contract.ContractVersion;
+import uk.gegc.quizmaker.shared.exception.SafeDataAccess;
 
 import static uk.gegc.quizmaker.features.attempt.domain.model.form.BranchingException.require;
 import static uk.gegc.quizmaker.features.attempt.domain.model.form.BranchingException.Reason.*;
@@ -51,6 +53,15 @@ public class JdbcBranchingRepository implements BranchingRepository {
 
     @Override public Head head(UUID attempt, UUID form, UUID revision, UUID policy) {
         requireTransaction();
+        try {
+            return readHead(attempt, form, revision, policy);
+        } catch (DataAccessException failure) {
+            // This evidence also crosses the grading source's transaction interceptor.
+            throw SafeDataAccess.sanitize(failure);
+        }
+    }
+
+    private Head readHead(UUID attempt, UUID form, UUID revision, UUID policy) {
         var head = jdbc.query("""
                 SELECT p.current_node_id,p.form_version,p.terminal_ready,f.item_count,n.node_type,
                        d.target_node_id,d.appended_item_id,d.expected_form_version
@@ -73,6 +84,7 @@ public class JdbcBranchingRepository implements BranchingRepository {
         var valid = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM attempt_branch_decision d
                 JOIN attempt_branch_path p ON p.form_id=d.form_id
+                JOIN quiz_scenario_graphs g ON g.quiz_revision_id=d.quiz_revision_id
                 JOIN quiz_scenario_nodes n ON n.quiz_revision_id=d.quiz_revision_id AND n.id=d.target_node_id
                 JOIN attempt_trace_event t ON t.event_id=d.trace_event_id AND t.attempt_id=p.attempt_id AND t.form_id=p.form_id
                 LEFT JOIN attempt_form_item i ON i.form_id=d.form_id AND i.id=d.appended_item_id
@@ -85,7 +97,21 @@ public class JdbcBranchingRepository implements BranchingRepository {
                   AND (d.accepted_response_id IS NULL OR (a.attempt_id=p.attempt_id AND a.form_id=p.form_id AND a.form_item_id=prev.appended_item_id))
                   AND ((n.node_type='ITEM' AND i.source_item_id=n.item_id AND i.position=d.expected_form_version AND i.position<:size)
                     OR (n.node_type='TERMINAL' AND d.appended_item_id IS NULL AND d.expected_form_version=:size AND p.terminal_ready))
-                  AND d.edge_count=(SELECT COUNT(*) FROM attempt_branch_edge e WHERE e.form_id=d.form_id AND e.decision_id=d.decision_id)
+                  AND (d.edge_count>0 OR (d.expected_form_version=0 AND d.target_node_id=g.entry_node_id))
+                  AND (SELECT COUNT(*)=d.edge_count AND COUNT(*)=COUNT(CASE
+                         WHEN e.edge_position<d.edge_count
+                           AND edge.from_node_id=IF(e.edge_position=0, COALESCE(d.source_node_id,g.entry_node_id), previous_edge.to_node_id)
+                           AND (e.edge_position=0 OR origin.node_type='ROUTING')
+                           AND (e.edge_position<>d.edge_count-1 OR edge.to_node_id=d.target_node_id)
+                         THEN 1 END)
+                       FROM attempt_branch_edge e
+                       JOIN quiz_scenario_edges edge ON edge.quiz_revision_id=e.quiz_revision_id AND edge.id=e.edge_id
+                       JOIN quiz_scenario_nodes origin ON origin.quiz_revision_id=edge.quiz_revision_id AND origin.id=edge.from_node_id
+                       LEFT JOIN attempt_branch_edge previous ON previous.form_id=e.form_id AND previous.decision_id=e.decision_id
+                         AND previous.edge_position=e.edge_position-1
+                       LEFT JOIN quiz_scenario_edges previous_edge ON previous_edge.quiz_revision_id=e.quiz_revision_id
+                         AND previous_edge.id=previous.edge_id
+                       WHERE e.form_id=d.form_id AND e.decision_id=d.decision_id)
                 """, ids(form, revision).addValue("size", head.formVersion()), Long.class);
         require(valid == head.formVersion() + (head.terminalReady() ? 1 : 0), CORRUPT);
         return head;

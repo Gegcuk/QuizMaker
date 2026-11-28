@@ -46,7 +46,6 @@ public class AttemptExpiryFactsServiceImpl implements AttemptExpiryFactsService 
                     && policy.answerChange().mode()==AnswerChangeMode.LOCK_ON_ACCEPTANCE, Failure.Reason.UNSUPPORTED);
             check(policy.content().quizRevisionId().equals(captured.quizRevisionId()),Failure.Reason.CORRUPT);
             if (branch) branches.head(captured.attemptId(), captured.formId(), captured.quizRevisionId(), captured.policySnapshotId());
-            if (branch) branches.head(captured.attemptId(), captured.formId(), captured.quizRevisionId(), captured.policySnapshotId());
             // Same immutable question-before-timing lock order as start and participant readers.
             contracts.declareScope(owner,Set.of(captured.quizRevisionId()));
             var checkpoint=timing.read(captured,snapshot);
